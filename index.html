@@ -3,65 +3,103 @@
 <head>
 <meta charset="utf-8">
 <title>Crypto Launch and Conviction Monitor</title>
-<style>html{background:#f6f8fa}.card{background:#fff;border:1px solid #dfe2e8;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,0.03);margin-bottom:16px;padding:16px}.brand{font-weight:700;font-size:20px}.subtitle{color:#57606a;font-size:14px}.pill{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;background:#e1e4e8;color:#0c0c0d}.badge{background:#036631;color:#fff;padding:2px 8px;border-radius:4px;font-weight:600;font-size:11px}.badge.danger{background:#cb2431}.flag tr td{background:rgba(46,160,67,0.04)}.strong tr td{background:rgba(46,160,67,0.08)}.table{width:100%;border-collapse:collapse;font-size:13px}.th,.td{padding:10px 12px;border-bottom:1px solid #dfe2e8}.th,.td:first-child{text-align:left}.th{color:#57606a;font-weight:600;font-size:12px;text-transform:uppercase}</style>
+<style>
+:root{--bg:#0c0c0d;--panel:#17191d;--border:#282c30;--txt:#e6edf3;--dim:#768390;--green:#00c853;--red:#ff1744;--amber:#ffc107}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--txt);font-family:"SF Mono","Monaco","Consolas","Courier New",monospace;font-size:13px}
+.header{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid var(--border)}
+.brand{font-weight:600;font-size:18px}
+.meta span{background:var(--border);padding:2px 8px;border-radius:4px;margin:0 4px;font-size:11px}
+.main{padding:12px 20px}
+.card{margin-bottom:16px;border:1px solid var(--border);border-radius:6px;background:var(--panel)}
+.card h2{font-size:12px;font-weight:500;text-transform:uppercase;color:var(--dim);padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.card h2 .badge{background:var(--green);color:#000;padding:2px 8px;border-radius:3px;font-size:11px;font-weight:600}
+.table{width:100%;border-collapse:collapse;font-size:12px}
+.th,.td{padding:8px 10px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap}
+.th,.td:first-child{text-align:left}
+.th{color:var(--dim);font-weight:500;text-transform:uppercase;font-size:11px}
+.flag tr td{background:rgba(0,200,83,0.08)}.strong tr td{background:rgba(0,200,83,0.15)}.warn tr td{background:rgba(255,193,7,0.08)}.danger tr td{background:rgba(255,23,68,0.12)}
+.badge{display:inline-block;padding:2px 6px;border-radius:2px;font-size:10px;font-weight:600}
+.badge.strong{background:var(--green);color:#000}.badge.danger{background:var(--red);color:#fff}.badge.pos{color:var(--green);font-weight:600}.badge.neg{color:var(--red);font-weight:600}
+.stat{display:inline-flex;align-items:center;gap:8px;padding:2px 8px;background:var(--border);border-radius:4px;font-size:11px;color:var(--dim)}
+.stat span{font-weight:500;color:var(--txt)}
+.chart-wrap{background:var(--panel);border:1px solid var(--border);border-radius:6px;height:240px;margin-top:8px;position:relative}
+.chart-canvas{width:100%;height:100%}
+.footer{padding:10px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--dim);display:flex;justify-content:space-between;align-items:center}
+</style>
 </head><body>
-<div class="brand">Crypto Launch and Conviction Monitor</div>
-<div class="subtitle">Harvesting skew in the digital asset tail</div>
-
-<h2>Flagged Opportunities <span class="pill">4</span></h2>
-<table class="flag"><tr><th>Token</th><th>Conviction</th><th>Score A</th><th>Score B</th><th>Score C</th><th>Strong</th></tr>
-<tr class="strong"><td>ORBIT</td><td>85/100</td><td>19</td><td>18</td><td>45</td><td class="badge">YES</td></tr>
-<tr><td>ZEN</td><td>68/100</td><td>26</td><td>14</td><td>28</td><td>NO</td></tr>
-<tr><td>NOVA</td><td>50/100</td><td>10</td><td>12</td><td>28</td><td>NO</td></tr>
-<tr><td>VOLT</td><td>49/100</td><td>16</td><td>10</td><td>23</td><td>NO</td></tr></table>
-
-<h2>Module A – Day-1 Liquidity Filter</h2>
-<table class="flag"><tr><th>Token</th><th>MCAP</th><th>Turnover</th><th>Top-10%</th><th>MVRV</th><th>Dev</th><th>Status</th></tr>
-<tr class="strong"><td>ORBIT</td><td>$18M</td><td class="pos">38%</td><td class="pos">35%</td><td>0.68</td><td class="badge">✓</td><td>SWEET</td></tr>
-<tr class="flag"><td>ZEN</td><td>$32M</td><td class="pos">44%</td><td class="pos">28%</td><td>0.89</td><td class="badge">✓</td><td>SWEET</td></tr>
-<tr class="flag"><td>NOVA</td><td>$12M</td><td class="warn">68%</td><td>45%</td><td>0.72</td><td class="badge">✓</td><td>WARN</td></tr>
-<tr><td>BLAST</td><td>$8M</td><td class="danger">116%</td><td>78%</td><td>0.55</td><td>—</td><td class="badge danger">WASH</td></tr>
-<tr><td>PULSAR</td><td>$5M</td><td>32%</td><td class="danger">85%</td><td>0.42</td><td>—</td><td>DIST</td></tr>
-<tr><td>DYNAST</td><td>$3M</td><td>70%</td><td>92%</td><td>1.20</td><td>—</td><td>DIST</td></tr>
-<tr><td>VOLT</td><td>$15M</td><td>36%</td><td>55%</td><td>0.28</td><td>✓</td><td>SWEET</td></tr>
-<tr><td>STRAT</td><td>$46M</td><td>47%</td><td>52%</td><td>1.05</td><td>✓</td><td>OVER</td></tr>
-<tr><td>AXIOM</td><td>$28M</td><td>67%</td><td>41%</td><td>0.91</td><td>✓</td><td>WARN</td></tr></table>
-
-<h2>Module B – Vesting Wall</h2>
-<table><tr><th>Token</th><th>30d USD</th><th>Pressure</th><th>Cliff</th><th>Dilution</th><th>Risk</th></tr>
-<tr class="strong"><td>ORBIT</td><td>$0.32M</td><td class="pos">0.5x</td><td>2d</td><td>66%</td><td>OK</td></tr>
-<tr><td>ZEN</td><td>$2.2M</td><td class="pos">0.4x</td><td>3d</td><td>55%</td><td>OK</td></tr>
-<tr><td>NOVA</td><td>$0.9M</td><td class="pos">0.3x</td><td>5d</td><td>60%</td><td>OK</td></tr>
-<tr class="warn"><td>BLAST</td><td>$5.4M</td><td class="warn">2.6x</td><td>70d</td><td>40%</td><td>WARN</td></tr>
-<tr class="danger"><td>STRAT</td><td>$6.7M</td><td>3.0x</td><td>12d</td><td>50%</td><td class="badge danger">SELL</td></tr>
-<tr class="danger"><td>AXIOM</td><td>$12.1M</td><td>3.7x</td><td>45d</td><td>45%</td><td class="badge danger">SELL</td></tr>
-<tr class="warn"><td>PULSAR</td><td>$0.18M</td><td>0.2x</td><td>1d</td><td>40%</td><td>OK</td></tr>
-<tr class="danger"><td>DYNAST</td><td>$0.45M</td><td>0.2x</td><td>90d</td><td>15%</td><td>OK</td></tr>
-<tr><td>VOLT</td><td>$1.1M</td><td>0.3x</td><td>18d</td><td>58%</td><td>OK</td></tr></table>
-
-<h2>Module C – Adoption Curve (MVRV Capitulation)</h2>
-<table><tr><th>Token</th><th>Price</th><th>Residual</th><th>MVRV</th><th>Signal</th></tr>
-<tr class="strong"><td>ORBIT</td><td>$0.52</td><td class="neg">-1.40</td><td>0.68</td><td class="badge">UNDERVALUED</td></tr>
-<tr class="flag"><td>ZEN</td><td>$2.48</td><td class="neg">-0.60</td><td>0.89</td><td class="badge">UNDERVALUED</td></tr>
-<tr class="flag"><td>STRAT</td><td>$11.80</td><td class="pos">1.80</td><td>1.05</td><td>OVER</td></tr>
-<tr class="flag"><td>AXIOM</td><td>$5.10</td><td>0.30</td><td>0.91</td><td>TWEAK</td></tr>
-<tr><td>NOVA</td><td>$2.20</td><td class="neg">-0.80</td><td>0.72</td><td class="badge">UNDERVALUED</td></tr>
-<tr class="danger"><td>BLAST</td><td>$0.75</td><td class="pos">2.20</td><td>0.55</td><td>OVER</td></tr>
-<tr class="danger"><td>PULSAR</td><td>$0.22</td><td class="pos">1.90</td><td>0.42</td><td>OVER</td></tr>
-<tr class="danger"><td>DYNAST</td><td>$0.15</td><td class="pos">2.50</td><td>1.20</td><td>DEAD</td></tr>
-<tr class="flag"><td>VOLT</td><td>$1.85</td><td class="neg">-0.40</td><td>0.28</td><td class="badge strong">CAPITV</td></tr></table>
-
-<h2>Institutional Market Context (EY-Parthenon 2026)</h2>
-<table><tr><th>Metric</th><th>Value</th></tr>
-<tr><td>ETF On-ramp</td><td>66%</td></tr>
-<tr><td>Allocators Increasing</td><td>73%</td></tr>
-<tr><td>RWA Tokenized</td><td>$31B</td></tr>
-<tr><td>Institutional Hold BTC</td><td>94%</td></tr>
-<tr><td>Institutional Hold ETH</td><td>85%</td></tr>
-<tr><td>Regulated Vehicles Preferred</td><td>81%</td></tr>
-<tr><td>Volatility Regime</td><td>COMPRESSED</td></tr>
-<tr><td>Premium Allocation >5%</td><td>59%</td></tr></table>
-
-<p><small>Launch Skew Monitor v0.2 — Crypto conviction score dashboard for identifying high-probability token launches. Use for research only. <a href="https://github.com/alecmessino/crypto-conviction-monitor">GitHub</a></small></p>
+<div class="header">
+  <div class="brand">Crypto Launch and Conviction Monitor</div>
+  <div class="meta"><span>CONVICTION</span><span>LIQUIDITY</span><span>VESTING</span><span>ADOPTION</span></div>
+</div>
+<div class="main">
+<section class="card">
+  <h2>Flagged Opportunities <span class="badge strong">4</span></h2>
+  <table class="flag">
+    <tr><th>Token</th><th>Conv</th><th>A</th><th>B</th><th>C</th><th>Signal</th></tr>
+    <tr class="strong"><td>ORBIT</td><td>85/100</td><td>19</td><td>18</td><td>45</td><td class="badge strong">STRONG</td></tr>
+    <tr><td>ZEN</td><td>68/100</td><td>26</td><td>14</td><td>28</td><td class="badge">CLEAR</td></tr>
+    <tr><td>NOVA</td><td>50/100</td><td>10</td><td>12</td><td>28</td><td class="badge">CLEAR</td></tr>
+    <tr><td>VOLT</td><td>49/100</td><td>16</td><td>10</td><td>23</td><td class="badge">CLEAR</td></tr>
+  </table>
+</section>
+<section class="card">
+  <h2>Module A - Day-1 Liquidity Filter <span class="stat"><span>1</span>strong</span></h2>
+  <table>
+    <tr><th>Token</th><th>MCap</th><th>Turn</th><th>Hold</th><th>MVRV</th><th>Dev</th><th>Status</th></tr>
+    <tr class="strong"><td>ORBIT</td><td>$18M</td><td class="pos">38%</td><td class="pos">35%</td><td>0.68</td><td class="badge pos">✓</td><td>SWEET</td></tr>
+    <tr class="flag"><td>ZEN</td><td>$32M</td><td class="pos">44%</td><td class="pos">28%</td><td>0.89</td><td class="badge pos">✓</td><td>SWEET</td></tr>
+    <tr class="flag"><td>NOVA</td><td>$12M</td><td class="warn">68%</td><td>45%</td><td>0.72</td><td class="badge pos">✓</td><td>WARN</td></tr>
+    <tr class="danger"><td>BLAST</td><td>$8M</td><td class="neg">116%</td><td class="neg">78%</td><td>0.55</td><td>—</td><td class="badge danger">WASH</td></tr>
+    <tr class="warn"><td>PULSAR</td><td>$5M</td><td>32%</td><td class="danger">85%</td><td>0.42</td><td>—</td><td>DIST</td></tr>
+    <tr class="warn"><td>DYNAST</td><td>$3M</td><td>70%</td><td class="danger">92%</td><td>1.20</td><td>—</td><td>DIST</td></tr>
+    <tr><td>VOLT</td><td>$15M</td><td>36%</td><td>55%</td><td>0.28</td><td class="badge pos">✓</td><td>SWEET</td></tr>
+    <tr class="warn"><td>STRAT</td><td>$46M</td><td>47%</td><td>52%</td><td>1.05</td><td class="badge pos">✓</td><td>OVER</td></tr>
+    <tr class="warn"><td>AXIOM</td><td>$28M</td><td>67%</td><td>41%</td><td>0.91</td><td class="badge pos">✓</td><td>WARN</td></tr>
+  </table>
+</section>
+<section class="card">
+  <h2>Module B - Vesting Wall <span class="stat"><span>1</span>up</span></h2>
+  <table>
+    <tr><th>Token</th><th>30d USD</th><th>PRESSURE</th><th>Cliff</th><th>DIL</th><th>RISK</th></tr>
+    <tr class="strong"><td>ORBIT</td><td>$0.32M</td><td class="pos">0.5x</td><td>2d</td><td>66%</td><td class="badge pos">OK</td></tr>
+    <tr class="flag"><td>ZEN</td><td>$2.2M</td><td class="pos">0.4x</td><td>3d</td><td>55%</td><td class="badge pos">OK</td></tr>
+    <tr class="flag"><td>NOVA</td><td>$0.9M</td><td class="pos">0.3x</td><td>5d</td><td>60%</td><td class="badge pos">OK</td></tr>
+    <tr class="warn"><td>BLAST</td><td>$5.4M</td><td class="warn">2.6x</td><td>70d</td><td>40%</td><td class="badge">WARN</td></tr>
+    <tr class="danger"><td>STRAT</td><td>$6.7M</td><td class="neg">3.0x</td><td>12d</td><td>50%</td><td class="badge danger">SELL</td></tr>
+    <tr class="danger"><td>AXIOM</td><td>$12.1M</td><td class="neg">3.7x</td><td>45d</td><td>45%</td><td class="badge danger">SELL</td></tr>
+    <tr class="pos"><td>PULSAR</td><td>$0.18M</td><td>0.2x</td><td>1d</td><td>40%</td><td class="badge pos">OK</td></tr>
+    <tr><td>DYNAST</td><td>$0.45M</td><td>0.2x</td><td>90d</td><td>15%</td><td class="badge pos">OK</td></tr>
+    <tr><td>VOLT</td><td>$1.1M</td><td>0.3x</td><td>18d</td><td>58%</td><td class="badge pos">OK</td></tr>
+  </table>
+</section>
+<section class="card">
+  <h2>Module C - Adoption Curve <span class="stat"><span>-1.4</span>σ avg</span></h2>
+  <div class="chart-wrap"><canvas id="c1"></canvas></div>
+  <table style="margin-top:8px">
+    <tr><th>Token</th><th>Price</th><th>Residual</th><th>MVRV</th><th>SIGNAL</th></tr>
+    <tr class="strong"><td>ORBIT</td><td>$0.52</td><td class="neg">-1.40</td><td>0.68</td><td class="badge pos">UNDERUSED</td></tr>
+    <tr class="flag"><td>ZEN</td><td>$2.48</td><td class="neg">-0.60</td><td>0.89</td><td class="badge pos">UNDERUSED</td></tr>
+    <tr class="strong"><td>VOLT</td><td>$1.85</td><td class="neg">-0.40</td><td>0.28</td><td class="badge pos">CAPITV</td></tr>
+    <tr><td>STRAT</td><td>$11.80</td><td class="pos">+1.80</td><td>1.05</td><td class="badge">OVER</td></tr>
+    <tr><td>AXIOM</td><td>$5.10</td><td>+0.30</td><td>0.91</td><td class="badge">ON</td></tr>
+    <tr class="danger"><td>BLAST</td><td>$0.75</td><td class="pos">+2.20</td><td>0.55</td><td class="badge danger">DEAD</td></tr>
+  </table>
+</section>
+<section class="card">
+  <h2>Institutional Context <span class="stat"><span>COMPRESSED</span></span></h2>
+  <table style="width:auto">
+    <tr><th>Metric</th><th>Value</th></tr>
+    <tr><td>ETF On-ramp</td><td>66%</td></tr>
+    <tr><td>Allocators ↑</td><td>73%</td></tr>
+    <tr><td>RWA Tokenized</td><td>$31B</td></tr>
+    <tr><td>Institutional BTC</td><td>94%</td></tr>
+    <tr><td>Institutional ETH</td><td>85%</td></tr>
+    <tr><td>Reg Vehicles</td><td>81%</td></tr>
+    <tr><td>Premium Alloc</td><td>59% >5%</td></tr>
+  </table>
+</section>
+</div>
+<div class="footer"><span>Crypto Launch and Conviction Monitor v0.2 — EY-Parthenon 2026</span><span>ORBIT: 85/100</span></div>
 </body>
 </html>
