@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Launch Skew Monitor</title>
+<style>
+:root{
+  --bg:#fcfbfd;--panel:#ffffff;--line:#e1e4e8;--txt:#0c0c0d;--dim:#57606a;--green:#036631;--red:#cb2431;--amber:#bf8703;--accent:#0969da;--purple:#6e3fb8;--teal:#2ea043;--muted:#f6f8fa;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--bg);color:var(--txt);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+  font-size:14px;line-height:1.5;
+}
+header{
+  padding:16px 24px;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:20px;flex-wrap:wrap;
+}
+.brand{font-weight:700;font-size:18px;letter-spacing:-0.02em}
+.subtitle{color:var(--dim);font-size:13px;font-weight:500}
+.meta{display:inline-flex;align-items:center;gap:8px;padding:4px 12px;background:var(--panel);border:1px solid var(--line);border-radius:6px;font-size:12px;color:var(--dim)}
+.main{padding:16px 24px}
+.card{
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 1px 2px rgba(0,0,0,0.03);margin-bottom:16px;
+}
+.card h2{
+  margin:0;padding:12px 16px;font-size:14px;font-weight:600;text-transform:uppercase;
+  letter-spacing:0.05em;color:var(--dim);border-bottom:1px solid var(--line);
+  font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif;display:flex;align-items:center;gap:8px
+}
+.table{width:100%;border-collapse:collapse;font-size:13px}
+.th,.td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap;min-height:36px;font-family:'Fira Code',monospace}
+.th,.td:first-child{text-align:left}
+.th{color:var(--dim);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:0.05em}
+.flag .td{background:rgba(46,160,67,0.04)}
+.strong .td{background:rgba(46,160,67,0.08)}
+.warn .td{background:rgba(210,153,34,0.04)}
+.danger .td{background:rgba(203,36,49,0.04)}
+.pill{padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;display:inline-block;background:var(--muted);color:var(--dim)}
+.pos{color:var(--green);font-weight:600}.neg{color:var(--red);font-weight:600}.muted{color:var(--dim)}
+.badge{background:var(--amber);color:#fff;padding:2px 10px;border-radius:4px;font-weight:600;font-size:11px;text-align:center}
+.badge.strong{background:var(--green);color:#fff}
+.badge.danger{background:var(--red)}
+.sig{padding:12px 16px;border-bottom:1px solid var(--line);background:rgba(0,0,0,0.01)}
+.sig .t{font-weight:600;margin-bottom:4px;display:flex;align-items:center;gap:8px;color:var(--txt)}
+.sig .body{color:var(--dim);font-size:13px;white-space:pre-line;margin-top:4px}
+.sig .time{color:var(--dim);font-size:11px;float:right}
+.empty{padding:24px 16px;color:var(--dim);text-align:center;font-style:italic;font-size:13px}
+footer{
+  padding:12px 24px;color:var(--dim);font-size:12px;border-top:1px solid var(--line);
+  font-family:-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif
+}
+.score-bar{height:8px;border-radius:4px;background:var(--muted);overflow:hidden;width:72px;display:inline-block}
+.score-fill{height:100%;transition:width 0.2s}
+.score-high{background:var(--green)}.score-mid{background:var(--amber)}.score-low{background:var(--red)}
+.stat-box{
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:12px;text-align:center;min-width:80px
+}
+.stat-box .v{font-size:20px;font-weight:700;color:var(--txt)}.stat-box .l{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:0.05em}
+.stat-good .v{color:var(--green)}.stat-warn .v{color:var(--amber)}
+.controls{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap;font-size:13px}
+.controls label{display:inline-flex;align-items:center;gap:6px;color:var(--txt)}
+.range-input{width:120px;height:20px;cursor:pointer}
+.grid2x2{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:700px){.grid2x2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Launch Skew Monitor</div>
+  <div class="subtitle">quantitative edge detection in crypto launches</div>
+  <div class="meta"><span>CONVICTION SCORE</span></div>
+</header>
+
+<section class="card">
+  <h2>Flagged Opportunities <span id="sig-count" class="pill" style="background:var(--green);color:#fff">—</span></h2>
+  <div id="signals"><div class="empty">loading…</div></div>
+</section>
+
+<section class="card">
+  <h2>Institutional Context <span id="insti-summary" class="pill" style="font-size:12px;background:var(--muted);color:var(--dim)">—</span></h2>
+  <div class="grid2x2" id="insti-grid"></div>
+</section>
+
+<section class="card">
+  <h2>Settings</h2>
+  <div class="controls">
+    <label><input type="checkbox" id="cLive" checked> live refresh</label>
+    <label><input type="range" id="day1Cap" min="30" max="80" value="60" class="range-input"><span id="capLabel">Turnover cap: 60%</span></label>
+    <label><input type="range" id="vestThresh" min="1" max="5" value="2" step="0.5" class="range-input"><span id="vestLabel">Pressure: 2.0x</span></label>
+  </div>
+  <table style="margin:0;font-size:12px">
+    <tr><td class="th" style="width:120px">Universe</td><td id="kUniverse">—</td></tr>
+    <tr><td class="th">Flagged</td><td id="kFlagged">—</td></tr>
+    <tr><td class="th">Last Refresh</td><td id="kRefresh">—</td></tr>
+  </table>
+</section>
+
+<footer>Launch Skew Monitor v0.2 — © 2026 Quantitative Research</footer>
+
+<script>
+"use strict";
+const fmt = (v, d=2) => v==null||v==''||isNaN(v) ? '—' : Number(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmtPct = v => v==null||isNaN(v) ? '—' : v.toFixed(1)+'%';
+const fmtScore = (s) => {
+  const pct = Math.max(0, Math.min(100, s));
+  const cls = s >= 75 ? 'score-high' : (s >= 50 ? 'score-mid' : 'score-low');
+  return `<div class="score-bar"><div class="score-fill ${cls}" style="width:${pct}%"></div></div>`;
+};
+let liveInterval = 3000, day1Cap = 60, vestThresh = 2.0;
+
+function renderInsti(data){
+  const g = document.getElementById('insti-grid');
+  const inst = data.institutional || {};
+  const summary = [inst.btc_institutional_pct, inst.allocator_increasing, inst.etf_onramp_pct].filter(x=>x>0).length+' of 5 metrics positive';
+  document.getElementById('insti-summary').textContent = summary;
+  g.innerHTML = `
+    <div class="stat-box"><div class="l">ETF On-Ramp</div><div class="v">${inst.etf_onramp_pct || 0}%</div></div>
+    <div class="stat-box"><div class="l">Allocators ↑</div><div class="v">${inst.allocators_increasing || 0}%</div></div>
+    <div class="stat-box stat-good"><div class="l">RWA Tokenized</div><div class="v">$${inst.rwa_tokenized_value_b||0}B</div></div>
+  `;
+}
+
+function renderRanking(data){
+  const tb = document.getElementById('signals');
+  const ranked = data.ranked || [];
+  const count = ranked.filter(r=>r.all_clear).length;
+  document.getElementById('sig-count').textContent = count;
+  document.getElementById('insti-summary').textContent = (data.institutional?.etp_volatility_regime || 'compressed');
+  
+  if(!count){
+    tb.innerHTML = '<div class="empty">no tokens cleared all gates</div>';
+    return;
+  }
+  
+  const signals = ranked.filter(r=>r.all_clear).map(r=>`
+    <div style="padding:12px 16px;border-bottom:1px solid var(--line)">
+      <span class="t">${r.symbol}</span>
+      <div class="body">Conviction ${r.conviction}/100 | Score A=${r.score_a} B=${r.score_b} C=${r.score_c} | passes [${r.passes_a},${r.passes_b},${r.passes_c}] | strong=${r.strong}</div>
+    </div>
+  `).join('');
+  tb.innerHTML = signals || '<div class="empty">loading signals…</div>';
+}
+
+function updateHeader(data){
+  document.getElementById('kUniverse').textContent = data.universe || '—';
+  document.getElementById('kFlagged').textContent = String(data.flagged || 0);
+  document.getElementById('kRefresh').textContent = data.header?.updated || '—';
+}
+
+async function fetchState(){
+  try{
+    const r = await fetch('/api/state');
+    const d = await r.json();
+    renderInsti(d);
+    renderRanking(d);
+    updateHeader(d);
+    document.getElementById('cLive').checked = true;
+  }catch(e){
+    console.error(e);
+  }
+}
+
+document.getElementById('day1Cap').addEventListener('input', (e)=>{
+  day1Cap = +e.target.value;
+  document.getElementById('capLabel').textContent = `Turnover cap: ${day1Cap}%`;
+});
+document.getElementById('vestThresh').addEventListener('input', (e)=>{
+  vestThresh = +e.target.value;
+  document.getElementById('vestLabel').textContent = `Pressure: ${vestThresh}x`;
+});
+
+if(document.getElementById('cLive').checked){
+  fetchState();
+  setInterval(fetchState, liveInterval);
+}
+</script>
+</body>
+</html>
