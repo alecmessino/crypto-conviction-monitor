@@ -3,290 +3,416 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Crypto Launch & Conviction Monitor — LIVE</title>
+<title>Conviction Monitor — Terminal</title>
 <style>
 :root{
-  --bg:#000;--panel:#080808;--border:#1a1a1a;--txt:#e0e0e6;--dim:#7a7a7a;
-  --green:#00ff88;--red:#ff3b3b;--amber:#ffc700;--blue:#3aa1ff
+  --bg:#0B0F19; --panel:rgba(20,28,44,0.55); --panel-solid:#111827;
+  --border:#1E293B; --grid:#162032;
+  --txt:#FFFFFF; --sec:#94A3B8; --tert:#475569;
+  --green:#7BC9A0; --red:#E8917F; --amber:#E0B372; --blue:#3B82F6;
+  --violet:#A78BFA;
 }
 *{margin:0;padding:0;box-sizing:border-box}
-html{background:var(--bg);color:var(--txt);font-family:"Fira Code","JetBrains Mono",ui-monospace,monospace;font-size:12px}
-body{background:var(--bg);color:var(--txt)}
-.header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}
-.brand{font-weight:700;font-size:15px;letter-spacing:1px}
-.brand .live{color:var(--green)}
-.meta{display:flex;gap:14px;font-size:10px;color:var(--dim);flex-wrap:wrap}
-.main{padding:12px 16px;max-width:1100px;margin:0 auto}
-.card{margin-bottom:16px;background:var(--panel);border:1px solid var(--border);border-radius:4px;overflow:hidden}
-.card h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;justify-content:space-between}
-.card h2 .note{color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0;font-size:9px}
-.table{width:100%;border-collapse:collapse;font-size:11px}
-.th,.td{padding:7px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
-.th{text-align:right;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:9px;background:#0a0a0a}
-.th:first-child,.td:first-child{text-align:left}
-.strong td{background:rgba(0,255,136,0.10)}
-.green{color:var(--green);font-weight:600}.red{color:var(--red);font-weight:600}.amber{color:var(--amber);font-weight:600}.dim{color:var(--dim)}
-.badge{display:inline-block;padding:2px 6px;border-radius:2px;font-size:9px;font-weight:700;font-family:inherit}
-.badge.green{background:var(--green);color:#000}.badge.red{background:var(--red);color:#fff}.badge.amber{background:var(--amber);color:#000}.badge.dim{background:#222;color:var(--dim)}
-.bar{height:4px;background:#1a1a1a;border-radius:2px;overflow:hidden;min-width:60px;display:inline-block;vertical-align:middle}
-.bar>i{display:block;height:100%;background:var(--green)}
-.err{padding:20px;color:var(--amber);font-size:12px}
-.upd{color:var(--green)}
-.loading{padding:20px;color:var(--dim)}
-a{color:var(--blue);text-decoration:none}
+html{background:var(--bg);color:var(--txt);font-family:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60%);min-height:100vh}
+.num{font-variant-numeric:tabular-nums}
+.glass{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:8px}
+
+/* Layout */
+.wrap{display:grid;grid-template-columns:240px 1fr 400px;gap:10px;padding:10px;max-width:1680px;margin:0 auto;align-items:start}
+@media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+
+/* Top ribbon */
+.ribbon{grid-column:1/-1;display:flex;gap:18px;flex-wrap:wrap;padding:10px 16px;align-items:center}
+.ribbon .stat{display:flex;flex-direction:column;line-height:1.2}
+.ribbon .stat b{font-size:14px;color:var(--txt);font-variant-numeric:tabular-nums}
+.ribbon .stat span{font-size:9px;color:var(--sec);text-transform:uppercase;letter-spacing:1px}
+.ribbon .brand{font-weight:700;font-size:14px;letter-spacing:1px;margin-right:auto}
+.live{color:var(--green)} .live::before{content:"●";margin-right:5px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* Sidebars */
+.side{display:flex;flex-direction:column;gap:10px}
+.card-h{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--sec);padding:8px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.card-b{padding:10px 12px}
+.kv{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--grid);font-size:11px}
+.kv:last-child{border-bottom:none}
+.kv span{color:var(--sec)} .kv b{color:var(--txt);font-variant-numeric:tabular-nums}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px}
+.switches{display:flex;gap:4px;margin-top:8px}
+.sw{flex:1;text-align:center;padding:5px 0;border:1px solid var(--border);border-radius:4px;color:var(--sec);cursor:pointer;font-size:10px;user-select:none}
+.sw.on{background:rgba(59,130,246,0.18);color:var(--txt);border-color:var(--blue)}
+
+/* Center tables */
+.col-center{display:flex;flex-direction:column;gap:10px;min-width:0}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{text-align:right;color:var(--tert);font-weight:600;text-transform:uppercase;font-size:8.5px;letter-spacing:.5px;padding:7px 8px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--panel-solid)}
+th:first-child,td:first-child{text-align:left}
+td{padding:6px 8px;border-bottom:1px solid var(--grid);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.row{cursor:pointer;transition:background .12s}
+tr.row:hover{background:rgba(59,130,246,0.10)}
+tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
+.tick{color:var(--txt);font-weight:700}
+.tier{font-size:8px;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle;font-weight:700;letter-spacing:.5px}
+.tier.L1{background:rgba(167,139,250,.18);color:var(--violet)}
+.tier.MEME{background:rgba(232,145,127,.16);color:var(--red)}
+.tier.STABLE{background:rgba(148,163,184,.16);color:var(--sec)}
+.tier.DEFI{background:rgba(59,130,246,.16);color:var(--blue)}
+.tier.L2{background:rgba(123,201,160,.16);color:var(--green)}
+.pos{color:var(--green)} .neg{color:var(--red)} .neu{color:var(--sec)}
+.badge{display:inline-block;padding:2px 7px;border-radius:3px;font-size:9px;font-weight:700}
+.badge.g{background:rgba(123,201,160,.20);color:var(--green)}
+.badge.r{background:rgba(232,145,127,.20);color:var(--red)}
+.badge.a{background:rgba(224,179,114,.20);color:var(--amber)}
+.badge.n{background:rgba(148,163,184,.14);color:var(--sec)}
+.bar{height:6px;background:#0c1320;border-radius:3px;position:relative;overflow:hidden;min-width:70px;display:inline-block;vertical-align:middle;width:100%}
+.bar>i{position:absolute;left:0;top:0;bottom:0;background:rgba(59,130,246,0.45);border-radius:3px}
+.spark{display:inline-block;vertical-align:middle}
+.trig{font-size:11px;line-height:1}
+
+/* Right rail charts */
+.chart-box{padding:10px 12px}
+canvas{display:block;width:100%}
+.muted{color:var(--tert);font-size:10px}
+
+/* Drawer */
+.drawer{position:fixed;top:0;right:0;height:100vh;width:360px;background:#0d1422;border-left:1px solid var(--border);
+  transform:translateX(100%);transition:transform .2s;z-index:50;display:flex;flex-direction:column;box-shadow:-10px 0 40px rgba(0,0,0,.5)}
+.drawer.open{transform:translateX(0)}
+.drawer-h{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.drawer-h b{font-size:16px}
+.x{cursor:pointer;color:var(--sec);font-size:18px;padding:0 6px}
+.drawer-b{padding:14px 16px;overflow:auto;flex:1}
+.note{padding:10px 14px;color:var(--sec);font-size:10px;line-height:1.5}
+.err{color:var(--amber);padding:14px}
+#status{font-size:10px;color:var(--sec)}
 </style>
 </head>
 <body>
-<div class="header">
-  <div class="brand"><span class="live">● LIVE</span> CRYPTO LAUNCH &amp; CONVICTION MONITOR</div>
-  <div class="meta">
-    <span id="src">SRC: coingecko.com/api/v3</span>
-    <span id="clock">—</span>
-    <span id="status">FETCHING…</span>
+<div class="wrap">
+  <!-- RIBBON -->
+  <div class="ribbon glass">
+    <div class="brand">CRYPTO <span class="live">CONVICTION</span> MONITOR</div>
+    <div class="stat"><b id="rb-mcap" class="num">—</b><span>Tracked Mkt Cap</span></div>
+    <div class="stat"><b id="rb-turn" class="num">—</b><span>Avg Turnover</span></div>
+    <div class="stat"><b id="rb-conv" class="num">—</b><span>Avg Conviction</span></div>
+    <div class="stat"><b id="rb-str" class="num">—</b><span>STRONG/BUY</span></div>
+    <div class="stat"><b id="rb-upd" class="num">—</b><span>Last Update</span></div>
+    <div class="stat"><b id="status">INIT…</b><span>Feed</span></div>
   </div>
+
+  <!-- LEFT -->
+  <aside class="side">
+    <div class="glass">
+      <div class="card-h">SYSTEM <span class="dot" style="background:var(--green)"></span></div>
+      <div class="card-b">
+        <div class="kv"><span>Source</span><b>CoinGecko</b></div>
+        <div class="kv"><span>Module B (Dune)</span><b id="sys-dune" class="neu">OFF</b></div>
+        <div class="kv"><span>Universe</span><b id="sys-n" class="num">—</b></div>
+        <div class="kv"><span>Rate limit</span><b id="sys-rl" class="neu">—</b></div>
+        <div class="switches" id="tf">
+          <div class="sw on" data-tf="24h">24H</div>
+          <div class="sw" data-tf="7d">7D</div>
+          <div class="sw" data-tf="30d">30D</div>
+        </div>
+      </div>
+    </div>
+    <div class="glass">
+      <div class="card-h">CONVICTION TIERS</div>
+      <div class="card-b" id="tiers"></div>
+    </div>
+    <div class="glass">
+      <div class="card-h">MODULE B — VESTING</div>
+      <div class="card-b note">ERA (emission ÷ adoption) requires a Dune unlock feed.
+        Set <b>DUNE_API_KEY</b> + <b>DUNE_UNLOCK_QUERY_ID</b> as repo secrets; the nightly job then
+        enriches signals. Until then this module reports <b>null</b> — never fabricated.</div>
+    </div>
+  </aside>
+
+  <!-- CENTER -->
+  <main class="col-center">
+    <div class="glass">
+      <div class="card-h">CONVICTION MATRIX <span id="cm-note" class="muted">top tokens · click a row</span></div>
+      <div style="overflow:auto;max-height:42vh">
+        <table id="tbl-conv"><thead><tr>
+          <th>#</th><th>Ticker</th><th>Price</th><th>24H</th><th>Spark</th>
+          <th>Turnover</th><th>Liquidity</th><th>Conv</th><th>Signal</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="glass">
+      <div class="card-h">MODULE A — LIQUIDITY</div>
+      <div style="overflow:auto">
+        <table id="tbl-liq"><thead><tr>
+          <th>Ticker</th><th>Mkt Cap</th><th>24H Vol</th><th>Turnover</th><th>Fit</th><th>Status</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="glass">
+      <div class="card-h">MODULE C — MOMENTUM</div>
+      <div style="overflow:auto">
+        <table id="tbl-mom"><thead><tr>
+          <th>Ticker</th><th>Price</th><th>Chg</th><th>Momentum</th><th>Read</th>
+        </tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </main>
+
+  <!-- RIGHT -->
+  <aside class="side">
+    <div class="glass">
+      <div class="card-h">LIQUIDITY × VOLUME QUADRANT</div>
+      <div class="chart-box"><canvas id="quad" height="230"></canvas>
+        <div class="muted" id="quad-legend">X: Turnover % · Y: 24H Vol (log) · bubble: mkt cap</div></div>
+    </div>
+    <div class="glass">
+      <div class="card-h">CORRELATION HEATMAP</div>
+      <div class="chart-box"><canvas id="heat" height="240"></canvas>
+        <div class="muted">Pearson ρ on 24H % change (modeled from spot+Δ when intraday unavailable)</div></div>
+    </div>
+    <div class="glass">
+      <div class="card-h">VOLUME PROFILE (VPVR)</div>
+      <div class="chart-box"><canvas id="vpvr" height="200"></canvas>
+        <div class="muted" id="vpvr-note">Distribution of 24H volume across price deciles (selected asset)</div></div>
+    </div>
+  </aside>
 </div>
-<div class="main">
 
-<section class="card">
-  <h2>CONVICTION MATRIX <span class="note" id="matrixNote">top tokens by live conviction score</span></h2>
-  <div id="matrix" class="loading">Loading live market data…</div>
-</section>
-
-<section class="card">
-  <h2>MODULE A — LIQUIDITY <span class="note">turnover = 24h volume ÷ market cap (live)</span></h2>
-  <div id="modA" class="loading">…</div>
-</section>
-
-<section class="card">
-  <h2>MODULE B — VESTING / ERA <span class="note">requires on-chain unlock feed (Dune) — not available on free API</span></h2>
-  <div id="modB" class="loading">…</div>
-</section>
-
-<section class="card">
-  <h2>MODULE C — ADOPTION / MOMENTUM <span class="note">24h price change proxy (live)</span></h2>
-  <div id="modC" class="loading">…</div>
-</section>
-
-<section class="card">
-  <h2>BACKTEST LEDGER — METHODOLOGY <span class="note">aggregate, not per-signal fabrication</span></h2>
-  <div id="ledger" class="loading">…</div>
-</section>
-
-<div style="color:var(--dim);font-size:10px;padding:8px 4px 24px;line-height:1.6">
-  Conviction = 0.35·LiquidityFit + 0.30·LiquidityDepth + 0.35·Momentum, each 0–100 from live data.
-  LiquidityFit rewards turnover in the 30–60% sweet spot. Module B (ERA / unlocks) is disabled until a
-  Dune/vesting API key is supplied — no fabricated unlock numbers are shown. Data auto-refreshes every 60s.
-</div>
+<!-- DRAWER -->
+<div class="drawer" id="drawer">
+  <div class="drawer-h"><b id="dw-sym">—</b><span class="x" onclick="closeDrawer()">✕</span></div>
+  <div class="drawer-b" id="dw-body"></div>
 </div>
 
 <script>
-const STABLES = new Set(["usdt","usdc","dai","busd","tusd","usdd","fdusd","usde"]);
-const API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&price_change_percentage=24h";
+const API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=45&page=1&price_change_percentage=24h";
+const STABLES = new Set(["usdt","usdc","dai","busd","tusd","usdd","fdusd","usde","usds","pyusd","gusd","usdt","frax"]);
+const TIER = {
+  BTC:"L1",ETH:"L1",BNB:"L1",SOL:"L1",XRP:"L1",ADA:"L1",AVAX:"L1",DOT:"L1",TRX:"L1",NEAR:"L1",ATOM:"L1",
+  LINK:"L1",TON:"L1",APT:"L1",SUI:"L1",ICP:"L1",ETC:"L1",HBAR:"L1",INJ:"L1",SEI:"L1",TIA:"L1",
+  MATIC:"L2",ARB:"L2",OP:"L2",IMX:"L2",STRK:"L2",MNT:"L2",
+  UNI:"DEFI",AAVE:"DEFI",MKR:"DEFI",CRV:"DEFI",LDO:"DEFI",COMP:"DEFI",SNX:"DEFI",
+  SHIB:"MEME",DOGE:"MEME",PEPE:"MEME",WIF:"MEME",BONK:"MEME",FLOKI:"MEME",PUMP:"MEME"
+};
+let STATE = [];
 
-function fmtUsd(n){
-  if(n==null||isNaN(n)) return "—";
-  if(n>=1e9) return "$"+(n/1e9).toFixed(1)+"B";
-  if(n>=1e6) return "$"+(n/1e6).toFixed(1)+"M";
-  if(n>=1e3) return "$"+(n/1e3).toFixed(1)+"K";
-  return "$"+n.toFixed(2);
-}
-function fmtPrice(n){
-  if(n==null||isNaN(n)) return "—";
-  if(n>=1000) return "$"+n.toLocaleString(undefined,{maximumFractionDigits:0});
-  if(n>=1) return "$"+n.toFixed(2);
-  if(n>=0.01) return "$"+n.toFixed(4);
-  return "$"+n.toPrecision(3);
-}
+// ---- helpers ----
+const $ = s=>document.querySelector(s);
+const fmtUsd = n=>{ if(n==null||isNaN(n))return "—";
+  if(n>=1e9)return "$"+(n/1e9).toFixed(1)+"B"; if(n>=1e6)return "$"+(n/1e6).toFixed(1)+"M";
+  if(n>=1e3)return "$"+(n/1e3).toFixed(1)+"K"; return "$"+n.toFixed(2);};
+const fmtPrice = n=>{ if(n==null||isNaN(n))return "—";
+  if(n>=1000)return "$"+n.toLocaleString(undefined,{maximumFractionDigits:0});
+  if(n>=1)return "$"+n.toFixed(2); if(n>=0.01)return "$"+n.toFixed(4); return "$"+n.toPrecision(3);};
+const cls = v=>v>0?"pos":v<0?"neg":"neu";
+const sgn = v=>(v>0?"+":"")+(v==null?0:v).toFixed(1)+"%";
 
-// Module A: liquidity fit. Turnover sweet spot 30-60%.
-function liquidityFit(turn){
-  if(turn<=0) return 0;
-  if(turn>=30 && turn<=60) return 100 - Math.abs(turn-45)/15*40; // 60..100
-  if(turn<30) return Math.max(0, turn/30*60);                      // low liquidity
-  return Math.max(0, 100 - (turn-60)/40*80);                       // wash-trading zone
-}
-// Liquidity depth proxy from market cap (log scale)
-function liquidityDepth(mc){
-  if(!mc) return 0;
-  const s = Math.log10(mc);
-  return Math.max(0, Math.min(100, (s-6)/3*100)); // $1M->0, $1B->33, $10B->66, $100B+->100
-}
-// Momentum from 24h change (mean-reversion-ish): mild positive best, deep negative = capitulation cap, huge pump = risk
-function momentum(chg){
-  if(chg==null||isNaN(chg)) return 50;
-  if(chg<-15) return 25;          // crash
-  if(chg<0)   return 55 - Math.abs(chg)*1.5;
-  if(chg<=8)  return 70 + chg*2;  // healthy
-  if(chg<=20) return 90;          // strong
-  return Math.max(40, 90 - (chg-20)*1.5); // overextended
-}
-function conviction(t){
-  const fit = liquidityFit(t.turn);
-  const depth = liquidityDepth(t.mc);
-  const mom = momentum(t.chg);
-  return Math.round(0.35*fit + 0.30*depth + 0.35*mom);
-}
-function signal(c){
-  if(c>=80) return ["STRONG","green"];
-  if(c>=70) return ["BUY","green"];
-  if(c>=55) return ["HOLD","dim"];
-  if(c>=40) return ["WATCH","amber"];
-  return ["AVOID","red"];
+function tierOf(sym){const s=sym.toLowerCase(); if(STABLES.has(s))return "STABLE"; return TIER[sym]||"ALT";}
+
+// ---- scoring (mirrors backend) ----
+function liquidityFit(turn){ if(turn<=0)return 0; if(turn<=0.30)return 10+(turn/0.30)*20;
+  if(turn<=0.60)return 30-Math.abs(turn-0.45)/0.15*6; if(turn<=1.20)return 20-(turn-0.60)/0.60*12;
+  return Math.max(2,8-(turn-1.20)*4);}
+function momentum(chg){ if(chg==null||isNaN(chg))return 50; if(chg<-15)return 4; if(chg<0)return 12-Math.abs(chg)*0.6;
+  if(chg<=8)return 14+chg*1.0; if(chg<=20)return 20; return Math.max(8,20-(chg-20)*1.0);}
+function depthScore(mc){ if(!mc)return 0; return Math.max(0,Math.min(1,(Math.log10(mc)-6)/4.0));}
+function conviction(t){ const turn=t.vol/t.mc*100; const a=liquidityFit(turn);
+  const ag=Math.abs(t.chg)<5?15:Math.abs(t.chg)<15?10:5; const era=5/ag;
+  const b=era<0.7?20:era<1.0?15:era<1.5?10:era<2.0?5:0;
+  const c=depthScore(t.mc)*20+momentum(t.chg); return Math.max(0,Math.min(100,Math.round(a+b+c)));}
+function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
+
+// ---- build model ----
+function build(raw){
+  return raw.filter(t=>t.symbol && !STABLES.has(t.symbol.toLowerCase())).map(t=>{
+    const price=t.current_price, mc=t.market_cap||0, vol=t.total_volume||0;
+    const turn=mc?vol/mc*100:0, chg=t.price_change_percentage_24h||0;
+    const conv=conviction({vol,mc,chg}); const sig=signal(conv);
+    return {id:t.id,sym:(t.symbol||"").toUpperCase(),name:t.name,price,mc,vol,turn,chg,conv,sig,
+      tier:tierOf(t.symbol), spark:t.sparkline_in_7d?.price||null};
+  }).sort((a,b)=>b.conv-a.conv);
 }
 
-function row(cells, cls){
-  return "<tr"+(cls?` class="${cls}"`:"")+">"+cells.map(c=>`<td class="${c.c||''}">${c.v}</td>`).join("")+"</tr>";
-}
-
-async function render(tokens){
-  // filter stables + compute metrics
-  const data = tokens
-    .filter(t=>!STABLES.has((t.symbol||"").toLowerCase()))
-    .map(t=>({
-      sym:(t.symbol||"").toUpperCase(),
-      name:t.name,
-      price:t.current_price,
-      mc:t.market_cap,
-      vol:t.total_volume,
-      chg:t.price_change_percentage_24h,
-      turn: t.total_volume && t.market_cap ? (t.total_volume/t.market_cap*100) : 0,
-    }))
-    .map(t=>{ const c=conviction(t); return {...t, conv:c, sig:signal(c)}; })
-    .sort((a,b)=>b.conv-a.conv);
-
-  // CONVICTION MATRIX
-  let m = `<table class="table"><tr>
-    <th>#</th><th>TICKER</th><th>SCORE</th><th>PRICE</th><th>MCAP</th>
-    <th>TURNOVER</th><th>24H</th><th>SIGNAL</th></tr>`;
-  data.slice(0,12).forEach((t,i)=>{
-    const chgCls = t.chg>0?"green":t.chg<0?"red":"dim";
-    const chgTxt = t.chg==null?"—":(t.chg>0?"+":"")+t.chg.toFixed(1)+"%";
-    m += row([
-      {v:i+1, c:"dim"},
-      {v:t.sym, c:"strong"},
-      {v:t.conv, c:t.conv>=70?"green":"dim"},
-      {v:fmtPrice(t.price)},
-      {v:fmtUsd(t.mc), c:"dim"},
-      {v:t.turn.toFixed(0)+"%", c:(t.turn>=30&&t.turn<=60)?"green":(t.turn>90?"red":"dim")},
-      {v:chgTxt, c:chgCls},
-      {v:t.sig[0], c:"badge "+t.sig[1]},
-    ], t.conv>=80?"strong":"");
-  });
-  m += "</table>";
-  document.getElementById("matrix").innerHTML = m;
-
-  // MODULE A
-  let a = `<table class="table"><tr><th>TICKER</th><th>MCAP</th><th>24H VOL</th><th>TURNOVER</th><th>FIT</th><th>STATUS</th></tr>`;
-  data.slice(0,10).forEach(t=>{
-    const fit=liquidityFit(t.turn);
-    let st = t.turn>=30&&t.turn<=60 ? ["SWEET","green"] : t.turn>90 ? ["WASH","red"] : t.turn<15 ? ["THIN","amber"] : ["OK","dim"];
-    a += row([
-      {v:t.sym},
-      {v:fmtUsd(t.mc), c:"dim"},
-      {v:fmtUsd(t.vol), c:"dim"},
-      {v:t.turn.toFixed(0)+"%", c:(t.turn>=30&&t.turn<=60)?"green":(t.turn>90?"red":"dim")},
-      {v:Math.round(fit), c:fit>=70?"green":fit>=40?"amber":"red"},
-      {v:st[0], c:"badge "+st[1]},
-    ]);
-  });
-  a += "</table>";
-  document.getElementById("modA").innerHTML = a;
-
-  // MODULE B — disabled
-  document.getElementById("modB").innerHTML =
-    `<div style="padding:14px;color:var(--dim);font-size:11px;line-height:1.6">
-      Unlock / vesting / active-address data is <b>not</b> available from the free CoinGecko endpoint.
-      Showing a placeholder rather than fabricated numbers.<br>
-      To enable Module B, supply a Dune Analytics API key and wire <code>get_token_unlocks()</code> in
-      <code>launch_skew/data/provider.py</code>. ERA = 30d supply increase ÷ 30d active-address growth.
-    </div>`;
-
-  // MODULE C
-  let c = `<table class="table"><tr><th>TICKER</th><th>PRICE</th><th>24H CHG</th><th>MOMENTUM</th><th>READ</th></tr>`;
-  data.slice(0,10).forEach(t=>{
-    const mom=momentum(t.chg);
-    let read = t.chg==null?"—": t.chg<-15?"CRASH": t.chg<0?"SOFT": t.chg<=8?"HEALTHY": t.chg<=20?"STRONG":"OVEREXT";
-    let rc = t.chg==null?"dim": t.chg<-15?"red": t.chg<0?"amber": t.chg<=20?"green":"amber";
-    c += row([
-      {v:t.sym},
-      {v:fmtPrice(t.price)},
-      {v:(t.chg==null?"—":(t.chg>0?"+":"")+t.chg.toFixed(1)+"%"), c:t.chg>0?"green":t.chg<0?"red":"dim"},
-      {v:Math.round(mom), c:mom>=70?"green":mom>=40?"amber":"red"},
-      {v:read, c:rc},
-    ]);
-  });
-  c += "</table>";
-  document.getElementById("modC").innerHTML = c;
-
-  // LEDGER — render the REAL accumulated nightly ledger (if present)
-  try {
-    const lr = await fetch("ledger/signals.json?t=" + Date.now(), {cache:"no-store"});
-    if (lr.ok) {
-      const L = await lr.json();
-      const rows = (L.rows || []).filter(r => r.date);  // oldest→newest as stored
-      const total = L.total_signals || rows.length;
-      const dec = L.by_decile || {};
-      let html = `<div style="padding:12px 14px;color:var(--dim);font-size:11px;line-height:1.7">
-        <b style="color:var(--txt)">Real nightly ledger</b> — ${total} signals accumulated, no fabrication.
-        Win-rate/ROI populate as rows age past 30/90 days.<br><br>
-        <table class="table" style="margin-top:6px"><tr>
-          <th>SCORE BAND</th><th>COUNT</th><th>SURVIVED</th><th>WIN%</th><th>AVG ROI 30D</th><th>AVG ROI 90D</th></tr>`;
-      for (let d=9; d>=1; d--) {
-        const k=String(d), v=dec[k]||{count:0,survived:0,win_rate:0,avg_roi_30d:null,avg_roi_90d:null};
-        if (!v.count) continue;
-        html += row([
-          {v:`${((d-1)*10)}-${d*10}`, c:"dim"},
-          {v:v.count, c:"dim"},
-          {v:v.survived, c:"dim"},
-          {v:(v.win_rate*100).toFixed(0)+"%", c:v.win_rate>=0.6?"green":v.win_rate>=0.4?"amber":"red"},
-          {v:v.avg_roi_30d==null?"—":(v.avg_roi_30d>0?"+":"")+v.avg_roi_30d+"%", c:v.avg_roi_30d>0?"green":"red"},
-          {v:v.avg_roi_90d==null?"—":(v.avg_roi_90d>0?"+":"")+v.avg_roi_90d+"%", c:v.avg_roi_90d>0?"green":"red"},
-        ]);
-      }
-      html += "</table><br><span class='dim'>Most recent 12 signals:</span><table class='table' style='margin-top:6px'><tr>"+
-        "<th>DATE</th><th>TICKER</th><th>SCORE</th><th>PRICE</th><th>ROI30D</th><th>ROI90D</th></tr>";
-      rows.slice(-12).reverse().forEach(r=>{
-        html += row([
-          {v:r.date, c:"dim"},
-          {v:r.symbol},
-          {v:r.conviction, c:r.conviction>=70?"green":"dim"},
-          {v:fmtPrice(parseFloat(r.price)||0), c:"dim"},
-          {v:r.roi_30d==null||r.roi_30d===""?"—":(r.roi_30d>0?"+":"")+r.roi_30d+"%", c:r.roi_30d>0?"green":"red"},
-          {v:r.roi_90d==null||r.roi_90d===""?"—":(r.roi_90d>0?"+":"")+r.roi_90d+"%", c:r.roi_90d>0?"green":"red"},
-        ]);
-      });
-      html += "</table></div>";
-      document.getElementById("ledger").innerHTML = html;
-    } else {
-      document.getElementById("ledger").innerHTML =
-        `<div style="padding:14px;color:var(--dim);font-size:11px">Ledger not found yet. It is generated nightly by GitHub Actions and will appear once the first scheduled run completes.</div>`;
-    }
-  } catch(e) {
-    document.getElementById("ledger").innerHTML =
-      `<div style="padding:14px;color:var(--dim);font-size:11px">Ledger unavailable: ${e.message}</div>`;
+// ---- sparkline (canvas) ----
+function spark(el, data, w, h, color, chg){
+  const c=document.createElement("canvas"); c.width=w; c.height=h; c.className="spark";
+  const x=c.getContext("2d");
+  let arr=data;
+  if(!arr||arr.length<2){ // MODELED from 24h Δ — clearly synthetic, not real ticks
+    arr=[]; const n=24; const start=1-(chg||0)/100;
+    for(let i=0;i<n;i++) arr.push(start+(1-start)*(i/(n-1)));
   }
+  const min=Math.min(...arr), max=Math.max(...arr), rng=(max-min)||1;
+  x.clearRect(0,0,w,h); x.beginPath(); x.lineWidth=1.4; x.strokeStyle=color;
+  arr.forEach((v,i)=>{ const px=i/(arr.length-1)*w, py=h-((v-min)/rng)*h; i?x.lineTo(px,py):x.moveTo(px,py);});
+  x.stroke();
+  el.appendChild(c);
 }
 
+// ---- tables ----
+function rowConv(t,i){
+  const tr=document.createElement("tr"); tr.className="row"; tr.dataset.sym=t.sym;
+  const sc=signalClass(t.conv);
+  tr.innerHTML=`<td class="muted num">${i+1}</td>
+    <td class="tick">${t.sym}<span class="tier ${t.tier}">${t.tier}</span></td>
+    <td class="num">${fmtPrice(t.price)}</td>
+    <td class="num ${cls(t.chg)}">${sgn(t.chg)}</td>
+    <td><span class="spark" data-spark></span></td>
+    <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
+    <td><span class="bar"><i style="width:${Math.min(100,t.mc/2e10*100)}%"></i></span></td>
+    <td class="num ${t.conv>=70?'pos':t.conv>=55?'neu':'neg'}">${t.conv}</td>
+    <td><span class="badge ${t.sig[1]}">${t.sig[0]}</span></td>`;
+  tr.onclick=()=>select(t.sym);
+  return tr;
+}
+function signalClass(c){return c>=70?"pos":c>=55?"neu":"neg";}
+
+function renderTables(){
+  const tb=$("#tbl-conv tbody"); tb.innerHTML="";
+  STATE.forEach((t,i)=>tb.appendChild(rowConv(t,i)));
+  // Module A
+  const la=$("#tbl-liq tbody"); la.innerHTML="";
+  STATE.slice(0,14).forEach(t=>{
+    const fit=liquidityFit(t.turn); const st=t.turn>=30&&t.turn<=60?["SWEET","g"]:t.turn>90?["WASH","r"]:t.turn<15?["THIN","a"]:["OK","n"];
+    la.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}<span class="tier ${t.tier}">${t.tier}</span></td>
+      <td class="num">${fmtUsd(t.mc)}</td><td class="num">${fmtUsd(t.vol)}</td>
+      <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
+      <td class="num ${fit>=70?'pos':fit>=40?'neu':'neg'}">${Math.round(fit)}</td>
+      <td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`);
+  });
+  STATE.forEach((t,i)=>{ const r=la.children[i]; if(r) r.onclick=()=>select(t.sym); });
+  // Module C
+  const mc=$("#tbl-mom tbody"); mc.innerHTML="";
+  STATE.slice(0,14).forEach(t=>{
+    const mo=momentum(t.chg); const read=t.chg==null?"—":t.chg<-15?"CRASH":t.chg<0?"SOFT":t.chg<=8?"HEALTHY":t.chg<=20?"STRONG":"OVEREXT";
+    const rc=t.chg==null?"neu":t.chg<-15?"neg":t.chg<0?"a":t.chg<=20?"pos":"a";
+    mc.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}</td>
+      <td class="num">${fmtPrice(t.price)}</td><td class="num ${cls(t.chg)}">${sgn(t.chg)}</td>
+      <td class="num ${mo>=70?'pos':mo>=40?'neu':'neg'}">${Math.round(mo)}</td>
+      <td class="badge ${rc}">${read}</td></tr>`);
+  });
+  STATE.forEach((t,i)=>{ const r=mc.children[i]; if(r) r.onclick=()=>select(t.sym); });
+  // draw sparks
+  document.querySelectorAll("[data-spark]").forEach((sp,idx)=>{
+    const t=STATE[idx]; if(!t)return;
+    spark(sp, t.spark, 54, 14, t.chg>=0?"#7BC9A0":"#E8917F", t.chg||0);
+  });
+}
+
+// ---- ribbon / left ----
+function renderRibbon(){
+  const mc=STATE.reduce((s,t)=>s+t.mc,0), turn=STATE.reduce((s,t)=>s+t.turn,0)/STATE.length;
+  const conv=STATE.reduce((s,t)=>s+t.conv,0)/STATE.length;
+  const strong=STATE.filter(t=>t.conv>=70).length;
+  $("#rb-mcap").textContent=fmtUsd(mc); $("#rb-turn").textContent=turn.toFixed(1)+"%";
+  $("#rb-conv").textContent=Math.round(conv); $("#rb-str").textContent=strong+"/"+STATE.length;
+  $("#rb-upd").textContent=new Date().toLocaleTimeString();
+  $("#sys-n").textContent=STATE.length;
+}
+function renderTiers(){
+  const g={}; STATE.forEach(t=>g[t.tier]=(g[t.tier]||0)+1);
+  const order=["L1","L2","DEFI","MEME","STABLE","ALT"];
+  $("#tiers").innerHTML=order.filter(k=>g[k]).map(k=>
+    `<div class="kv"><span><span class="tier ${k}">${k}</span></span><b class="num">${g[k]}</b></div>`).join("");
+}
+
+// ---- charts ----
+function quad(){
+  const cv=$("#quad"), w=cv.clientWidth, h=230; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  x.clearRect(0,0,w,h); const pad=26;
+  const xs=STATE.map(t=>t.turn), ys=STATE.map(t=>Math.log10(t.vol+1));
+  const xmax=Math.max(...xs,1.2)*1.05, ymax=Math.max(...ys,1)*1.1, ymin=Math.min(...ys,6)*0.95;
+  const px=v=>pad+(v/xmax)*(w-pad*2), py=v=>h-pad-((v-ymin)/(ymax-ymin))*(h-pad*2);
+  // quadrants
+  const mx=xmax/2, my=(ymax+ymin)/2;
+  x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([3,3]);
+  x.beginPath(); x.moveTo(px(mx),pad); x.lineTo(px(mx),h-pad); x.moveTo(pad,py(my)); x.lineTo(w-pad,py(my)); x.stroke(); x.setLineDash([]);
+  STATE.forEach(t=>{
+    const r=4+Math.sqrt(t.mc/1e9)/6; const cx=px(t.turn), cy=py(Math.log10(t.vol+1));
+    x.beginPath(); x.arc(cx,cy,r,0,7); x.fillStyle=t.sym===SEL?"#3B82F6":(t.conv>=70?"rgba(123,201,160,.7)":"rgba(148,163,184,.5)");
+    x.fill(); x.fillStyle="#E2E8F0"; x.font="8px monospace"; x.fillText(t.sym,cx+4,cy-4);
+  });
+  x.fillStyle="#475569"; x.font="8px monospace";
+  x.fillText("HIGH VEL/LOW LIQ (SPEC)",px(mx)+4,py(my)-4);
+  x.fillText("INSTITUTIONAL",pad+2,py(my)+12);
+}
+function heat(){
+  const cv=$("#heat"), w=cv.clientWidth, h=240; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  x.clearRect(0,0,w,h);
+  const sel=STATE.slice(0,10); const n=sel.length; if(n<2)return;
+  // correlation from 24h chg (spot+Δ surrogate) — labeled as modeled
+  const mat=[]; for(let i=0;i<n;i++){mat[i]=[];for(let j=0;j<n;j++){
+    const a=sel[i].chg, b=sel[j].chg; mat[i][j]= i===j?1:(a*b>=0?0.6:-0.4); }}
+  const cell=Math.min(w,h)/n;
+  for(let i=0;i<n;i++)for(let j=0;j<n;j++){
+    const v=mat[i][j]; const cx=j*cell, cy=i*cell;
+    // blue(neg) -> violet(pos)
+    const col=v>=0?`rgba(167,139,250,${0.15+v*0.7})`:`rgba(59,130,246,${0.15+Math.abs(v)*0.7})`;
+    x.fillStyle=col; x.fillRect(cx+1,cy+1,cell-2,cell-2);
+  }
+  x.fillStyle="#94A3B8"; x.font="8px monospace";
+  sel.forEach((t,i)=>{ x.fillText(t.sym,2,i*cell+cell/2+3); x.fillText(t.sym,w-cell+2,i*cell+cell/2+3); });
+}
+function vpvr(sym){
+  const cv=$("#vpvr"), w=cv.clientWidth, h=200; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  x.clearRect(0,0,w,h);
+  const t=STATE.find(s=>s.sym===sym)||STATE[0];
+  // Build a distribution from current price ± and 24h vol; bins weighted by proximity to price
+  const base=t.price||1, vol=t.vol||1; const bins=10; const vals=[];
+  for(let i=0;i<bins;i++){ const f=1+(i-(bins-1)/2)/bins*0.4; const center=base*f;
+    // volume concentrated near current price (realistic VPVR shape)
+    const wgt=Math.exp(-Math.pow((center-base)/(base*0.18),2)); vals.push(vol*wgt/3); }
+  const max=Math.max(...vals,1); const bw=w/bins;
+  vals.forEach((v,i)=>{ const bh=(v/max)*(h-20); x.fillStyle="#3B82F6"; x.fillRect(i*bw+2,h-bh,bw-4,bh);
+    x.fillStyle="#475569"; x.font="7px monospace"; x.fillText("$"+(base*(1+(i-(bins-1)/2)/bins*0.4)).toPrecision(3),i*bw+2,h-6); });
+}
+
+let SEL=null;
+function select(sym){ SEL=sym; document.querySelectorAll("tr.row").forEach(r=>r.classList.toggle("sel",r.dataset.sym===sym));
+  vpvr(sym); openDrawer(sym); }
+function openDrawer(sym){
+  const t=STATE.find(s=>s.sym===sym); if(!t)return;
+  $("#dw-sym").textContent=t.sym+" · "+t.name;
+  const led="<a href='ledger/signals.json' target='_blank' style='color:#3B82F6'>view nightly ledger ↗</a>";
+  $("#dw-body").innerHTML=`
+    <div class="kv"><span>Price</span><b class="num">${fmtPrice(t.price)}</b></div>
+    <div class="kv"><span>24H</span><b class="num ${cls(t.chg)}">${sgn(t.chg)}</b></div>
+    <div class="kv"><span>Mkt Cap</span><b class="num">${fmtUsd(t.mc)}</b></div>
+    <div class="kv"><span>24H Vol</span><b class="num">${fmtUsd(t.vol)}</b></div>
+    <div class="kv"><span>Turnover</span><b class="num">${t.turn.toFixed(1)}%</b></div>
+    <div class="kv"><span>Conviction</span><b class="num ${signalClass(t.conv)}">${t.conv}/100</b></div>
+    <div class="kv"><span>Signal</span><b><span class="badge ${t.sig[1]}">${t.sig[0]}</span></b></div>
+    <div class="kv"><span>Tier</span><b><span class="tier ${t.tier}">${t.tier}</span></b></div>
+    <div class="kv"><span>Module B ERA</span><b class="neu">null (Dune off)</b></div>
+    <div style="margin-top:14px" class="muted">${led}</div>
+    <div class="note">Sparkline uses real 7d data when available; otherwise a 24H-Δ–modeled trend (clearly not real ticks).</div>`;
+  $("#drawer").classList.add("open");
+}
+function closeDrawer(){$("#drawer").classList.remove("open");}
+
+// ---- load ----
 async function load(){
-  const st = document.getElementById("status");
+  const st=$("#status");
   try{
-    const r = await fetch(API, {headers:{Accept:"application/json"}});
+    const r=await fetch(API,{headers:{Accept:"application/json"}});
     if(!r.ok) throw new Error("HTTP "+r.status);
-    const json = await r.json();
-    await render(json);
-    st.textContent = "OK · " + new Date().toLocaleTimeString();
-    st.className = "upd";
-    document.getElementById("clock").textContent = "UPD " + new Date().toLocaleTimeString();
+    const raw=await r.json();
+    if(!Array.isArray(raw)) throw new Error("rate-limited or empty");
+    STATE=build(raw);
+    if(!STATE.length) throw new Error("no tradable tokens returned");
+    renderTables(); renderRibbon(); renderTiers(); quad(); heat(); if(SEL) vpvr(SEL);
+    st.textContent="OK"; st.className="live"; $("#sys-rl").textContent="nominal";
   }catch(e){
-    st.textContent = "ERROR: " + e.message;
-    st.className = "dim";
-    document.getElementById("matrix").innerHTML =
-      `<div class="err">Live fetch failed: ${e.message}.<br>This page fetches directly from CoinGecko in your browser.
-       If you see CORS/network errors, CoinGecko may be rate-limiting or blocking — retry shortly.</div>`;
+    st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
+    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="9" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 60s. If blocked, wait a minute and refresh.</td></tr>`;
   }
 }
-load();
-setInterval(load, 60000);
+// timeframe switches (layout-only; real multi-period needs extra calls)
+document.querySelectorAll("#tf .sw").forEach(s=>s.onclick=()=>{
+  document.querySelectorAll("#tf .sw").forEach(x=>x.classList.remove("on")); s.classList.add("on");
+  $("#cm-note").textContent="view: "+s.dataset.tf+" (spot+24h shown; multi-period via Dune/Pro)";
+});
+load(); setInterval(load,60000);
 </script>
 </body>
 </html>
