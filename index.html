@@ -138,7 +138,7 @@ function row(cells, cls){
   return "<tr"+(cls?` class="${cls}"`:"")+">"+cells.map(c=>`<td class="${c.c||''}">${c.v}</td>`).join("")+"</tr>";
 }
 
-function render(tokens){
+async function render(tokens){
   // filter stables + compute metrics
   const data = tokens
     .filter(t=>!STABLES.has((t.symbol||"").toLowerCase()))
@@ -218,20 +218,53 @@ function render(tokens){
   c += "</table>";
   document.getElementById("modC").innerHTML = c;
 
-  // LEDGER (honest aggregate methodology block)
-  const strong = data.filter(t=>t.conv>=70).length;
-  document.getElementById("ledger").innerHTML =
-    `<div style="padding:14px;color:var(--dim);font-size:11px;line-height:1.7">
-      No per-signal ledger is stored yet — the engine just went live. Below is the current snapshot, not a
-      115-row fabricated history.<br><br>
-      <b style="color:var(--txt)">Live snapshot (${new Date().toISOString().slice(0,10)}):</b><br>
-      • Tokens scanned (ex-stables): <b style="color:var(--txt)">${data.length}</b><br>
-      • Conviction ≥ 70 (actionable): <b style="color:var(--green)">${strong}</b><br>
-      • Top score: <b style="color:var(--txt)">${data[0]?data[0].sym+" "+data[0].conv:"—"}</b><br>
-      • Median turnover: <b style="color:var(--txt)">${(data.reduce((s,t)=>s+t.turn,0)/data.length).toFixed(0)}%</b><br><br>
-      A real backtest ledger will accumulate once signals are persisted nightly to a CSV/DB. Until then,
-      historical win-rates shown earlier were illustrative and have been removed to avoid presenting fake data.
-    </div>`;
+  // LEDGER — render the REAL accumulated nightly ledger (if present)
+  try {
+    const lr = await fetch("ledger/signals.json?t=" + Date.now(), {cache:"no-store"});
+    if (lr.ok) {
+      const L = await lr.json();
+      const rows = (L.rows || []).filter(r => r.date);  // oldest→newest as stored
+      const total = L.total_signals || rows.length;
+      const dec = L.by_decile || {};
+      let html = `<div style="padding:12px 14px;color:var(--dim);font-size:11px;line-height:1.7">
+        <b style="color:var(--txt)">Real nightly ledger</b> — ${total} signals accumulated, no fabrication.
+        Win-rate/ROI populate as rows age past 30/90 days.<br><br>
+        <table class="table" style="margin-top:6px"><tr>
+          <th>SCORE BAND</th><th>COUNT</th><th>SURVIVED</th><th>WIN%</th><th>AVG ROI 30D</th><th>AVG ROI 90D</th></tr>`;
+      for (let d=9; d>=1; d--) {
+        const k=String(d), v=dec[k]||{count:0,survived:0,win_rate:0,avg_roi_30d:null,avg_roi_90d:null};
+        if (!v.count) continue;
+        html += row([
+          {v:`${((d-1)*10)}-${d*10}`, c:"dim"},
+          {v:v.count, c:"dim"},
+          {v:v.survived, c:"dim"},
+          {v:(v.win_rate*100).toFixed(0)+"%", c:v.win_rate>=0.6?"green":v.win_rate>=0.4?"amber":"red"},
+          {v:v.avg_roi_30d==null?"—":(v.avg_roi_30d>0?"+":"")+v.avg_roi_30d+"%", c:v.avg_roi_30d>0?"green":"red"},
+          {v:v.avg_roi_90d==null?"—":(v.avg_roi_90d>0?"+":"")+v.avg_roi_90d+"%", c:v.avg_roi_90d>0?"green":"red"},
+        ]);
+      }
+      html += "</table><br><span class='dim'>Most recent 12 signals:</span><table class='table' style='margin-top:6px'><tr>"+
+        "<th>DATE</th><th>TICKER</th><th>SCORE</th><th>PRICE</th><th>ROI30D</th><th>ROI90D</th></tr>";
+      rows.slice(-12).reverse().forEach(r=>{
+        html += row([
+          {v:r.date, c:"dim"},
+          {v:r.symbol},
+          {v:r.conviction, c:r.conviction>=70?"green":"dim"},
+          {v:fmtPrice(parseFloat(r.price)||0), c:"dim"},
+          {v:r.roi_30d==null||r.roi_30d===""?"—":(r.roi_30d>0?"+":"")+r.roi_30d+"%", c:r.roi_30d>0?"green":"red"},
+          {v:r.roi_90d==null||r.roi_90d===""?"—":(r.roi_90d>0?"+":"")+r.roi_90d+"%", c:r.roi_90d>0?"green":"red"},
+        ]);
+      });
+      html += "</table></div>";
+      document.getElementById("ledger").innerHTML = html;
+    } else {
+      document.getElementById("ledger").innerHTML =
+        `<div style="padding:14px;color:var(--dim);font-size:11px">Ledger not found yet. It is generated nightly by GitHub Actions and will appear once the first scheduled run completes.</div>`;
+    }
+  } catch(e) {
+    document.getElementById("ledger").innerHTML =
+      `<div style="padding:14px;color:var(--dim);font-size:11px">Ledger unavailable: ${e.message}</div>`;
+  }
 }
 
 async function load(){
@@ -240,7 +273,7 @@ async function load(){
     const r = await fetch(API, {headers:{Accept:"application/json"}});
     if(!r.ok) throw new Error("HTTP "+r.status);
     const json = await r.json();
-    render(json);
+    await render(json);
     st.textContent = "OK · " + new Date().toLocaleTimeString();
     st.className = "upd";
     document.getElementById("clock").textContent = "UPD " + new Date().toLocaleTimeString();
