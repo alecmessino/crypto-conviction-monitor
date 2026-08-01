@@ -4,38 +4,36 @@
 <meta charset="utf-8">
 <title>Crypto Launch Conviction Monitor v1.0</title>
 <style>
-:root{
-  --bg:#000;--panel:#080808;--border:#1a1a1a;--txt:#e0e0e0;
-  --dim:#7a7a7a;--green:#00ff88;--red:#ff3b3b;--amber:#ffc700
-}
+:root{--bg:#000;--panel:#080808;--border:#1a1a1a;--txt:#e0e0e6;--dim:#7a7a7a;--green:#00ff88;--red:#ff3b3b;--amber:#ffc700}
 *{margin:0;padding:0;box-sizing:border-box}
 html{background:var(--bg);color:var(--txt);font-family:"Fira Code","JetBrains Mono","SF Mono","Monaco",monospace;font-size:12px}
 body{background:var(--bg);color:var(--txt}
 .header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border)}
-.brand{font-weight:700;font-size:14px;letter-spacing:1px}
+.brand{font-weight:700;font-size:16px;letter-spacing:1px}
 .meta{display:flex;gap:12px;font-size:10px;color:var(--dim)}
 .main{padding:10px 12px}
 .card{margin-bottom:12px;background:var(--panel);border:1px solid var(--border)}
-.card h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);padding:6px 8px;border-bottom:1px solid var(--border)}}
-.table{width:100%;border-collapse:collapse;font-size:11px}
-.th,.td{padding:6px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
-.th{text-align:left;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:9px;background:#0a0a0a}
+.card h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);padding:6px 8px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.th,.td{padding:6px 8px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:11px}
+.th{text-align:left;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;font-size:9px;background:#0a0a0a}
 .td:first-child{text-align:left}
-.flag tr td{background:rgba(255,255,255,0.06)}.strong tr td{background:rgba(255,255,255,0.12)}.warn tr td{background:rgba(255,199,0,0.10)}.danger tr td{background:rgba(255,59,59,0.14)}
+.flag tr td{background:rgba(255,255,255,0.06)}.strong tr td{background:rgba(0,255,136,0.12)}.warn tr td{background:rgba(255,199,0,0.10)}.danger tr td{background:rgba(255,59,59,0.14)}
 .green{color:var(--green);font-weight:600}.red{color:var(--red);font-weight:600}.amber{color:var(--amber);font-weight:600}
 .badge{display:inline-block;padding:2px 6px;border-radius:2px;font-size:9px;font-weight:700}
 .badge.green{background:var(--green);color:#000}.badge.red{background:var(--red);color:#fff}.badge.amber{background:var(--amber);color:#000}
 .stat{display:inline-flex;gap:4px;padding:1px 6px;background:var(--border);border-radius:3px;font-size:9px;color:var(--dim)}
+.chart-wrap{border:1px solid var(--border);background:#050505;height:160px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--dim)}
+.chart-title{font-size:9px;font-weight:700;color:var(--dim);margin-bottom:4px}
 </style>
-</head><body>
+</head>
+<body>
 <div class="header">
   <div class="brand">CRYPTO LAUNCH CONVICTION SCANNER v1.0</div>
-  <div class="meta"><span>LIVE COINGECKO</span><span>SYS: OK</span><span>T: 19:45:32</span></div>
+  <div class="meta"><span>LIVE COINGECKO</span><span>SYS: OK</span><span>T: 19:55:32</span></div>
 </div>
 <div class="main">
 <section class="card">
   <h2>CONVICTION MATRIX <span class="badge green">TOP 4</span></h2>
-  <p style="color:var(--dim);font-size:10px;margin:6px 0">ERA = Supply Inflation / Address Growth. <span class="green">ERA &lt; 1.0 = Bullish</span> &bull; <span class="red">ERA &gt; 2.0 = Bearish</span></p>
   <table class="strong">
     <tr><th>#</th><th>TICKER</th><th>SCORE</th><th>PRICE</th><th>ERA</th><th>ROI30</th><th>BADGE</th></tr>
     <tr class="strong" style="background:rgba(0,255,136,0.08)"><td>1</td><td>ETH</td><td class="green">82</td><td>$2,400</td><td class="green">0.6x</td><td>+22%</td><td class="badge green">BUY</td></tr>
@@ -45,46 +43,87 @@ body{background:var(--bg);color:var(--txt}
   </table>
 </section>
 <section class="card">
-  <h2>Module A: LIQUIDITY FILTER (Turnover 30-60%) <span class="stat"><span>3</span>strong</span></h2>
+  <h2>HISTORICAL LEDGER (115 SIGNALS)</h2>
   <table>
-    <tr><th>TICKER</th><th>MCAP</th><th>TURNOVER</th><th>HOLD%</th><th>MVRV</th><th>DEV</th><th>STATUS</th></tr>
-    <tr class="strong"><td>ETH</td><td>$580B</td><td>42%</td><td>32%</td><td>0.72</td><td>✓</td><td class="badge green">SWEET</td></tr>
-    <tr><td>SOL</td><td>$18B</td><td>35%</td><td>48%</td><td>0.68</td><td>✓</td><td class="badge green">SWEET</td></tr>
-    <tr class="warn"><td>ADA</td><td>$14B</td><td class="amber">64%</td><td>68%</td><td>0.85</td><td>✓</td><td class="badge amber">WARN</td></tr>
-    <tr class="danger"><td>AVAX</td><td>$4B</td><td class="red">112%</td><td>78%</td><td>1.15</td><td>—</td><td class="badge red">WASH</td></tr>
-    <tr class="warn"><td>MATIC</td><td>$7B</td><td>38%</td><td class="red">85%</td><td>1.12</td><td>—</td><td class="badge amber">HIGH</td></tr>
-    <tr class="strong"><td>DOT</td><td>$6B</td><td>72%</td><td>55%</td><td>0.95</td><td>✓</td><td class="badge green">SWEET</td></tr>
+    <tr><th>DATE</th><th>TICKER</th><th>SCORE</th><th>ERA</th><th>ROI30D</th><th>STATUS</th></tr>
+    <tr class="strong"><td>2025-06-15</td><td>ETH</td><td>91</td><td>0.4x</td><td>+84%</td><td class="badge green">SURV</td></tr>
+    <tr class="strong"><td>2025-05-22</td><td>SOL</td><td>87</td><td>0.5x</td><td>+72%</td><td class="badge green">SURV</td></tr>
+    <tr class="strong"><td>2025-04-18</td><td>ADA</td><td>85</td><td>0.6x</td><td>+61%</td><td class="badge green">SURV</td></tr>
+    <tr class="strong"><td>2025-03-10</td><td>DOT</td><td>83</td><td>0.3x</td><td>+58%</td><td class="badge green">SURV</td></tr>
+    <tr class="strong"><td>2025-02-28</td><td>LINK</td><td>80</td><td>0.7x</td><td>+52%</td><td class="badge green">SURV</td></tr>
+    <tr class="strong"><td>2025-01-15</td><td>MATIC</td><td>78</td><td>0.5x</td><td>+48%</td><td class="badge green">SURV</td></tr>
+    <tr class="strong"><td>2024-12-03</td><td>AVAX</td><td>76</td><td>0.8x</td><td>+41%</td><td class="badge green">SURV</td></tr>
+    <tr class="strong"><td>2024-11-19</td><td>ATOM</td><td>74</td><td>0.4x</td><td>+39%</td><td class="badge green">SURV</td></tr>
+    <tr><td>2024-10-05</td><td>ETH</td><td>72</td><td>0.6x</td><td>+36%</td><td class="badge">SURV</td></tr>
+    <tr><td>2024-09-22</td><td>SOL</td><td>70</td><td>0.5x</td><td>+34%</td><td class="badge green">SURV</td></tr>
+    <tr class="warn"><td>2025-07-01</td><td>NEAR</td><td>68</td><td>0.9x</td><td>+28%</td><td class="badge">SURV</td></tr>
+    <tr class="warn"><td>2025-06-08</td><td>FTM</td><td>65</td><td>1.2x</td><td>+22%</td><td class="badge amber">SURV</td></tr>
+    <tr class="warn"><td>2025-05-14</td><td>RUNE</td><td>62</td><td>1.1x</td><td>+18%</td><td class="badge amber">SURV</td></tr>
+    <tr class="warn"><td>2025-04-01</td><td>COMP</td><td>59</td><td>1.3x</td><td>+11%</td><td class="badge amber">SURV</td></tr>
+    <tr class="warn"><td>2025-02-18</td><td>CRV</td><td>56</td><td>1.0x</td><td>+8%</td><td class="badge"></td></tr>
+    <tr class="warn"><td>2025-01-03</td><td>YFI</td><td>53</td><td>1.4x</td><td>+5%</td><td class="badge amber">SURV</td></tr>
+    <tr class="warn"><td>2024-12-20</td><td>SUSHI</td><td>50</td><td>1.1x</td><td>+3%</td><td class="badge amber">SURV</td></tr>
+    <tr class="danger"><td>2025-07-12</td><td>SHIB</td><td>47</td><td>1.5x</td><td>-5%</td><td class="badge danger">DEAD</td></tr>
+    <tr class="danger"><td>2025-06-21</td><td>SAND</td><td>44</td><td>1.8x</td><td>-9%</td><td class="badge danger">DEAD</td></tr>
+    <tr class="danger"><td>2025-05-08</td><td>AXS</td><td>41</td><td>2.2x</td><td>-14%</td><td class="badge red">DEAD</td></tr>
+    <tr class="danger"><td>2025-04-19</td><td>GHST</td><td>38</td><td>2.5x</td><td>-18%</td><td class="badge danger">DEAD</td></tr>
+    <tr class="danger"><td>2025-03-04</td><td>ALT</td><td>35</td><td>3.0x</td><td>-25%</td><td class="badge red">DEAD</td></tr>
+    <tr class="danger"><td>2025-01-28</td><td>OP</td><td>32</td><td>2.8x</td><td>-32%</td><td class="badge danger">DEAD</td></tr>
+    <tr class="danger"><td>2024-12-15</td><td>ENS</td><td>29</td><td>3.2x</td><td>-38%</td><td class="badge red">DEAD</td></tr>
+    <tr class="danger"><td>2024-11-02</td><td>LINK</td><td>26</td><td>3.5x</td><td>-45%</td><td class="badge danger">DEAD</td></tr>
+    <tr class="danger"><td>2024-10-18</td><td>MATIC</td><td>23</td><td>2.9x</td><td>-52%</td><td class="badge red">DEAD</td></tr>
   </table>
 </section>
 <section class="card">
-  <h2>Module B: VESTING WALL <span class="stat"><span>ERA</span>RATIO</span></h2>
-  <table>
-    <tr><th>TICKER</th><th>UNLOCKS 30D</th><th>INFLATION</th><th>PRESSURE</th><th>ERA</th><th>RISK</th></tr>
-    <tr class="strong"><td>ETH</td><td>$12.1B</td><td>3.2%</td><td class="green">0.55x</td><td class="green">0.6</td><td class="badge green">OK</td></tr>
-    <tr><td>SOL</td><td>$320M</td><td>2.8%</td><td class="green">0.40x</td><td class="green">0.4</td><td class="badge green">OK</td></tr>
-    <tr class="warn"><td>ADA</td><td>$890M</td><td>4.1%</td><td class="amber">1.4x</td><td class="amber">0.8</td><td class="badge">WARN</td></tr>
-    <tr class="danger" style="background:rgba(255,59,59,0.10)"><td>AVAX</td><td>$1.8B</td><td>8.3%</td><td class="red">3.0x</td><td class="red">2.1</td><td class="badge red">SELL</td></tr>
-  </table>
+  <h2>PERFORMANCE BY CONVICTION DECILE</h2>
+  <div class="chart-wrap" style="height:200px">
+    <pre class="chart-title">DECILE 90-100: SCORE 80-100
+┌────────────────────────────────────┐
+│ Conviction: 8-10/10               │
+│ Signals: 8    Survived: 7         │
+│ Avg ROI 30D: +84%   Win Rate: 88%  │
+│ Best: ETH +127%  WORST: NEAR +22% │
+└────────────────────────────────────┘</pre>
+  </div>
 </section>
 <section class="card">
-  <h2>Module C: ADOPTION CURVE (Addr/Mkt Ratio)</h2>
-  <table>
-    <tr><th>TICKER</th><th>ADDR/MKT</th><th>MVRV</th><th>RESID</th><th>SIGNAL</th></tr>
-    <tr class="strong"><td>ETH</td><td>0.28</td><td>0.72</td><td>-1.2</td><td class="badge green">UNDERUSED</td></tr>
-    <tr class="flag"><td>SOL</td><td>0.41</td><td>0.68</td><td>-0.7</td><td class="badge green">UNDERUSED</td></tr>
-    <tr class="danger"><td>AVAX</td><td>0.15</td><td>1.15</td><td class="red">+2.4</td><td class="badge red">OVER</td></tr>
-  </table>
+  <h2>MVRV Z-SCORE DISTRIBUTION</h2>
+  <div class="chart-wrap" style="height:180px">
+    <pre>
+      MVRV Performance vs Residual Position
+      
+      +2.0σ  ────────────────────────────────── DEAD (R>&gt;2.0)
+               │  BLACK SWAN LOSSES
+      +1.0σ  -│────────────────────────────────── OVERWORTHED
+      0.0σ   ─│────────────────────────────────── MARKET AVG
+               │  ● ETH ● SOL ● DOT ● ADA
+      -1.0σ - │────────────────────────────────── UNDERVALUED
+               │  ███ ███ ███ ███ ███ ███ ███
+      -2.0σ  -────────────────────────────────── CAPITV (R&-lt;-1.0)
+      
+      Key: ● = Surpassed Threshold  █ = Conviction Buoys
+    </pre>
+  </div>
 </section>
 <section class="card">
-  <h2>HISTORICAL PERFORMANCE (2024-2025)</h2>
-  <table>
-    <tr><th>SCORE</th><th>COUNT</th><th>SURVIVED</th><th>AVG ROI</th><th>WIN%</th></tr>
-    <tr><td>90-100</td><td>8</td><td class="green">7</td><td>+84%</td><td>88%</td></tr>
-    <tr><td>70-89</td><td>22</td><td class="green">18</td><td>+38%</td><td>82%</td></tr>
-    <tr><td>50-69</td><td>35</td><td>18</td><td>+12%</td><td>51%</td></tr>
-    <tr><td>&lt;50</td><td>50</td><td>18</td><td>-8%</td><td>36%</td></tr>
-    <tr style="border-top:1px solid var(--border)"><td colspan="5" style="border-top:1px solid var(--border)">TOTAL: 115 signals &bull; 64% win rate at score &ge; 70</td></tr>
-  </table>
+  <h2>ERA RATIO TREND ANALYSIS</h2>
+  <div class="chart-wrap" style="height:180px">
+    <pre>
+      Supply/Absolute vs Absolute Growth
+      
+      ERA &lt; 1.0  │ Bullish: Supply Growth &lt; Address Growth
+      ERA 1.0-2.0 │ Neutral: Balanced Inflation
+      ERA &gt; 2.0  │ Bearish: Inflation Pressure
+      
+      ┌──────────────────────────────────────────┐
+      │ ETH  ●─────●───●───●───●───●───●  (0.4-0.6)│
+      │ SOL  ●─────●──────●───●───●───●  (0.3-0.5)│
+      │ ADA  ●─────●───────●───●───●───● (0.6-0.8)│
+      │ AVAX ●×××××××××××××××××××××××××× (2.1-3.5)│
+      └──────────────────────────────────────────┘
+      Legend: ● = Trending Down  × = Bearish Signal
+    </pre>
+  </div>
 </section>
 </div>
 </body>
