@@ -2,58 +2,258 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Crypto Launch Conviction Monitor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crypto Launch & Conviction Monitor — LIVE</title>
 <style>
 :root{
-  --bg:#000;--panel:#080808;--border:#1a1a1a;--txt:#e0e0e0;--dim:#7a7a7a;
-  --green:#00ff88;--red:#ff3b3b;--amber:#ffc700
+  --bg:#000;--panel:#080808;--border:#1a1a1a;--txt:#e0e0e6;--dim:#7a7a7a;
+  --green:#00ff88;--red:#ff3b3b;--amber:#ffc700;--blue:#3aa1ff
 }
 *{margin:0;padding:0;box-sizing:border-box}
-html{background:var(--bg);color:var(--txt);font-family:"Fira Code","JetBrains Mono",monospace;font-size:12px}
-body{background:var(--bg);color:var(--txt}
-.header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border)}
-.brand{font-weight:700;font-size:16px;letter-spacing:1px}
-.meta{display:flex;gap:16px;font-size:10px;color:var(--dim)}
-.main{padding:12px 16px}
-.card{margin-bottom:16px;background:var(--panel);border:1px solid var(--border);border-radius:4px}
-.card h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+html{background:var(--bg);color:var(--txt);font-family:"Fira Code","JetBrains Mono",ui-monospace,monospace;font-size:12px}
+body{background:var(--bg);color:var(--txt)}
+.header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}
+.brand{font-weight:700;font-size:15px;letter-spacing:1px}
+.brand .live{color:var(--green)}
+.meta{display:flex;gap:14px;font-size:10px;color:var(--dim);flex-wrap:wrap}
+.main{padding:12px 16px;max-width:1100px;margin:0 auto}
+.card{margin-bottom:16px;background:var(--panel);border:1px solid var(--border);border-radius:4px;overflow:hidden}
+.card h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;justify-content:space-between}
+.card h2 .note{color:var(--dim);font-weight:400;text-transform:none;letter-spacing:0;font-size:9px}
 .table{width:100%;border-collapse:collapse;font-size:11px}
-.th,.td{padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
-.th{text-align:left;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:9px;background:#0a0a0a}
-TD:first-child{text-align:left}
-.flag tr TD{background:rgba(255,255,255,0.06)}.strong tr TD{background:rgba(0,255,136,0.12)}.warn tr TD{background:rgba(255,199,0,0.10)}.danger tr TD{background:rgba(255,59,59,0.14)}
-.green{color:var(--green);font-weight:600}.red{color:var(--red);font-weight:600}.amber{color:var(--amber);font-weight:600}
-.badge{display:inline-block;padding:2px 6px;border-radius:2px;font-size:9px;font-weight:700}
-.badge.green{background:var(--green);color:#000}.badge.red{background:var(--red);color:#fff}.badge.amber{background:var(--amber);color:#000}
+.th,.td{padding:7px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+.th{text-align:right;color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:9px;background:#0a0a0a}
+.th:first-child,.td:first-child{text-align:left}
+.strong td{background:rgba(0,255,136,0.10)}
+.green{color:var(--green);font-weight:600}.red{color:var(--red);font-weight:600}.amber{color:var(--amber);font-weight:600}.dim{color:var(--dim)}
+.badge{display:inline-block;padding:2px 6px;border-radius:2px;font-size:9px;font-weight:700;font-family:inherit}
+.badge.green{background:var(--green);color:#000}.badge.red{background:var(--red);color:#fff}.badge.amber{background:var(--amber);color:#000}.badge.dim{background:#222;color:var(--dim)}
+.bar{height:4px;background:#1a1a1a;border-radius:2px;overflow:hidden;min-width:60px;display:inline-block;vertical-align:middle}
+.bar>i{display:block;height:100%;background:var(--green)}
+.err{padding:20px;color:var(--amber);font-size:12px}
+.upd{color:var(--green)}
+.loading{padding:20px;color:var(--dim)}
+a{color:var(--blue);text-decoration:none}
 </style>
-</head><body>
+</head>
+<body>
 <div class="header">
-  <div class="brand">CRYPTO LAUNCH CONVICTION MONITOR</div>
-  <div class="meta"><span>LIVE COINGECKO</span><span>SYS: OK</span></div>
+  <div class="brand"><span class="live">● LIVE</span> CRYPTO LAUNCH &amp; CONVICTION MONITOR</div>
+  <div class="meta">
+    <span id="src">SRC: coingecko.com/api/v3</span>
+    <span id="clock">—</span>
+    <span id="status">FETCHING…</span>
+  </div>
 </div>
 <div class="main">
+
 <section class="card">
-  <h2>CONVICTION MATRIX <span class="badge green">TOP SIGNALS</span></h2>
-  <table class="strong">
-    <tr><th>#</th><th>TICKER</th><th>SCORE</th><th>PRICE</th><th>ERA</th><th>SIGNAL</th></tr>
-    <tr class="strong" style="background:rgba(0,255,136,0.08)"><td>1</td><td>BTC</td><td class="green">92</td><td>$62,927</td><td class="green">0.6x</td><td class="badge green">STRONG</td></tr>
-    <tr class="strong"><td>2</td><td>ETH</td><td class="green">88</td><td>$1,864</td><td class="green">0.5x</td><td class="badge green">STRONG</td></tr>
-    <tr><td>3</td><td>SOL</td><td class="green">75</td><td>$138</td><td class="green">0.4x</td><td class="badge">BUY</td></tr>
-    <tr class="warn"><td>4</td><td>ADA</td><td class="amber">62</td><td>$0.42</td><td class="amber">0.7x</td><td class="badge amber">HOLD</td></tr>
-    <tr><td>5</td><td>AVAX</td><td>48</td><td>$14.80</td><td>1.2x</td><td class="badge">WATCH</td></tr>
-  </table>
+  <h2>CONVICTION MATRIX <span class="note" id="matrixNote">top tokens by live conviction score</span></h2>
+  <div id="matrix" class="loading">Loading live market data…</div>
 </section>
+
 <section class="card">
-  <h2>ERA Ratio (Supply/Absolute Growth)</h2>
-  <table>
-    <tr><th>TICKER</th><th>TURNOVER</th><th>ERA</th><th>STATUS</th></tr>
-    <tr class="strong"><td>BTC</td><td>45%</td><td class="green">0.6</td><td class="badge green">BULLISH</td></tr>
-    <tr class="strong"><td>ETH</td><td>38%</td><td class="green">0.5</td><td class="badge green">BULLISH</td></tr>
-    <tr><td>SOL</td><td>52%</td><td class="green">0.4</td><td class="badge">BULLISH</td></tr>
-    <tr class="warn"><td>ADA</td><td>44%</td><td class="amber">0.7</td><td class="badge amber">NEUTRAL</td></tr>
-    <tr class="danger"><td>AVAX</td><td>68%</td><td class="red">1.2</td><td class="badge red">BEARISH</td></tr>
-  </table>
+  <h2>MODULE A — LIQUIDITY <span class="note">turnover = 24h volume ÷ market cap (live)</span></h2>
+  <div id="modA" class="loading">…</div>
 </section>
+
+<section class="card">
+  <h2>MODULE B — VESTING / ERA <span class="note">requires on-chain unlock feed (Dune) — not available on free API</span></h2>
+  <div id="modB" class="loading">…</div>
+</section>
+
+<section class="card">
+  <h2>MODULE C — ADOPTION / MOMENTUM <span class="note">24h price change proxy (live)</span></h2>
+  <div id="modC" class="loading">…</div>
+</section>
+
+<section class="card">
+  <h2>BACKTEST LEDGER — METHODOLOGY <span class="note">aggregate, not per-signal fabrication</span></h2>
+  <div id="ledger" class="loading">…</div>
+</section>
+
+<div style="color:var(--dim);font-size:10px;padding:8px 4px 24px;line-height:1.6">
+  Conviction = 0.35·LiquidityFit + 0.30·LiquidityDepth + 0.35·Momentum, each 0–100 from live data.
+  LiquidityFit rewards turnover in the 30–60% sweet spot. Module B (ERA / unlocks) is disabled until a
+  Dune/vesting API key is supplied — no fabricated unlock numbers are shown. Data auto-refreshes every 60s.
 </div>
+</div>
+
+<script>
+const STABLES = new Set(["usdt","usdc","dai","busd","tusd","usdd","fdusd","usde"]);
+const API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&price_change_percentage=24h";
+
+function fmtUsd(n){
+  if(n==null||isNaN(n)) return "—";
+  if(n>=1e9) return "$"+(n/1e9).toFixed(1)+"B";
+  if(n>=1e6) return "$"+(n/1e6).toFixed(1)+"M";
+  if(n>=1e3) return "$"+(n/1e3).toFixed(1)+"K";
+  return "$"+n.toFixed(2);
+}
+function fmtPrice(n){
+  if(n==null||isNaN(n)) return "—";
+  if(n>=1000) return "$"+n.toLocaleString(undefined,{maximumFractionDigits:0});
+  if(n>=1) return "$"+n.toFixed(2);
+  if(n>=0.01) return "$"+n.toFixed(4);
+  return "$"+n.toPrecision(3);
+}
+
+// Module A: liquidity fit. Turnover sweet spot 30-60%.
+function liquidityFit(turn){
+  if(turn<=0) return 0;
+  if(turn>=30 && turn<=60) return 100 - Math.abs(turn-45)/15*40; // 60..100
+  if(turn<30) return Math.max(0, turn/30*60);                      // low liquidity
+  return Math.max(0, 100 - (turn-60)/40*80);                       // wash-trading zone
+}
+// Liquidity depth proxy from market cap (log scale)
+function liquidityDepth(mc){
+  if(!mc) return 0;
+  const s = Math.log10(mc);
+  return Math.max(0, Math.min(100, (s-6)/3*100)); // $1M->0, $1B->33, $10B->66, $100B+->100
+}
+// Momentum from 24h change (mean-reversion-ish): mild positive best, deep negative = capitulation cap, huge pump = risk
+function momentum(chg){
+  if(chg==null||isNaN(chg)) return 50;
+  if(chg<-15) return 25;          // crash
+  if(chg<0)   return 55 - Math.abs(chg)*1.5;
+  if(chg<=8)  return 70 + chg*2;  // healthy
+  if(chg<=20) return 90;          // strong
+  return Math.max(40, 90 - (chg-20)*1.5); // overextended
+}
+function conviction(t){
+  const fit = liquidityFit(t.turn);
+  const depth = liquidityDepth(t.mc);
+  const mom = momentum(t.chg);
+  return Math.round(0.35*fit + 0.30*depth + 0.35*mom);
+}
+function signal(c){
+  if(c>=80) return ["STRONG","green"];
+  if(c>=70) return ["BUY","green"];
+  if(c>=55) return ["HOLD","dim"];
+  if(c>=40) return ["WATCH","amber"];
+  return ["AVOID","red"];
+}
+
+function row(cells, cls){
+  return "<tr"+(cls?` class="${cls}"`:"")+">"+cells.map(c=>`<td class="${c.c||''}">${c.v}</td>`).join("")+"</tr>";
+}
+
+function render(tokens){
+  // filter stables + compute metrics
+  const data = tokens
+    .filter(t=>!STABLES.has((t.symbol||"").toLowerCase()))
+    .map(t=>({
+      sym:(t.symbol||"").toUpperCase(),
+      name:t.name,
+      price:t.current_price,
+      mc:t.market_cap,
+      vol:t.total_volume,
+      chg:t.price_change_percentage_24h,
+      turn: t.total_volume && t.market_cap ? (t.total_volume/t.market_cap*100) : 0,
+    }))
+    .map(t=>{ const c=conviction(t); return {...t, conv:c, sig:signal(c)}; })
+    .sort((a,b)=>b.conv-a.conv);
+
+  // CONVICTION MATRIX
+  let m = `<table class="table"><tr>
+    <th>#</th><th>TICKER</th><th>SCORE</th><th>PRICE</th><th>MCAP</th>
+    <th>TURNOVER</th><th>24H</th><th>SIGNAL</th></tr>`;
+  data.slice(0,12).forEach((t,i)=>{
+    const chgCls = t.chg>0?"green":t.chg<0?"red":"dim";
+    const chgTxt = t.chg==null?"—":(t.chg>0?"+":"")+t.chg.toFixed(1)+"%";
+    m += row([
+      {v:i+1, c:"dim"},
+      {v:t.sym, c:"strong"},
+      {v:t.conv, c:t.conv>=70?"green":"dim"},
+      {v:fmtPrice(t.price)},
+      {v:fmtUsd(t.mc), c:"dim"},
+      {v:t.turn.toFixed(0)+"%", c:(t.turn>=30&&t.turn<=60)?"green":(t.turn>90?"red":"dim")},
+      {v:chgTxt, c:chgCls},
+      {v:t.sig[0], c:"badge "+t.sig[1]},
+    ], t.conv>=80?"strong":"");
+  });
+  m += "</table>";
+  document.getElementById("matrix").innerHTML = m;
+
+  // MODULE A
+  let a = `<table class="table"><tr><th>TICKER</th><th>MCAP</th><th>24H VOL</th><th>TURNOVER</th><th>FIT</th><th>STATUS</th></tr>`;
+  data.slice(0,10).forEach(t=>{
+    const fit=liquidityFit(t.turn);
+    let st = t.turn>=30&&t.turn<=60 ? ["SWEET","green"] : t.turn>90 ? ["WASH","red"] : t.turn<15 ? ["THIN","amber"] : ["OK","dim"];
+    a += row([
+      {v:t.sym},
+      {v:fmtUsd(t.mc), c:"dim"},
+      {v:fmtUsd(t.vol), c:"dim"},
+      {v:t.turn.toFixed(0)+"%", c:(t.turn>=30&&t.turn<=60)?"green":(t.turn>90?"red":"dim")},
+      {v:Math.round(fit), c:fit>=70?"green":fit>=40?"amber":"red"},
+      {v:st[0], c:"badge "+st[1]},
+    ]);
+  });
+  a += "</table>";
+  document.getElementById("modA").innerHTML = a;
+
+  // MODULE B — disabled
+  document.getElementById("modB").innerHTML =
+    `<div style="padding:14px;color:var(--dim);font-size:11px;line-height:1.6">
+      Unlock / vesting / active-address data is <b>not</b> available from the free CoinGecko endpoint.
+      Showing a placeholder rather than fabricated numbers.<br>
+      To enable Module B, supply a Dune Analytics API key and wire <code>get_token_unlocks()</code> in
+      <code>launch_skew/data/provider.py</code>. ERA = 30d supply increase ÷ 30d active-address growth.
+    </div>`;
+
+  // MODULE C
+  let c = `<table class="table"><tr><th>TICKER</th><th>PRICE</th><th>24H CHG</th><th>MOMENTUM</th><th>READ</th></tr>`;
+  data.slice(0,10).forEach(t=>{
+    const mom=momentum(t.chg);
+    let read = t.chg==null?"—": t.chg<-15?"CRASH": t.chg<0?"SOFT": t.chg<=8?"HEALTHY": t.chg<=20?"STRONG":"OVEREXT";
+    let rc = t.chg==null?"dim": t.chg<-15?"red": t.chg<0?"amber": t.chg<=20?"green":"amber";
+    c += row([
+      {v:t.sym},
+      {v:fmtPrice(t.price)},
+      {v:(t.chg==null?"—":(t.chg>0?"+":"")+t.chg.toFixed(1)+"%"), c:t.chg>0?"green":t.chg<0?"red":"dim"},
+      {v:Math.round(mom), c:mom>=70?"green":mom>=40?"amber":"red"},
+      {v:read, c:rc},
+    ]);
+  });
+  c += "</table>";
+  document.getElementById("modC").innerHTML = c;
+
+  // LEDGER (honest aggregate methodology block)
+  const strong = data.filter(t=>t.conv>=70).length;
+  document.getElementById("ledger").innerHTML =
+    `<div style="padding:14px;color:var(--dim);font-size:11px;line-height:1.7">
+      No per-signal ledger is stored yet — the engine just went live. Below is the current snapshot, not a
+      115-row fabricated history.<br><br>
+      <b style="color:var(--txt)">Live snapshot (${new Date().toISOString().slice(0,10)}):</b><br>
+      • Tokens scanned (ex-stables): <b style="color:var(--txt)">${data.length}</b><br>
+      • Conviction ≥ 70 (actionable): <b style="color:var(--green)">${strong}</b><br>
+      • Top score: <b style="color:var(--txt)">${data[0]?data[0].sym+" "+data[0].conv:"—"}</b><br>
+      • Median turnover: <b style="color:var(--txt)">${(data.reduce((s,t)=>s+t.turn,0)/data.length).toFixed(0)}%</b><br><br>
+      A real backtest ledger will accumulate once signals are persisted nightly to a CSV/DB. Until then,
+      historical win-rates shown earlier were illustrative and have been removed to avoid presenting fake data.
+    </div>`;
+}
+
+async function load(){
+  const st = document.getElementById("status");
+  try{
+    const r = await fetch(API, {headers:{Accept:"application/json"}});
+    if(!r.ok) throw new Error("HTTP "+r.status);
+    const json = await r.json();
+    render(json);
+    st.textContent = "OK · " + new Date().toLocaleTimeString();
+    st.className = "upd";
+    document.getElementById("clock").textContent = "UPD " + new Date().toLocaleTimeString();
+  }catch(e){
+    st.textContent = "ERROR: " + e.message;
+    st.className = "dim";
+    document.getElementById("matrix").innerHTML =
+      `<div class="err">Live fetch failed: ${e.message}.<br>This page fetches directly from CoinGecko in your browser.
+       If you see CORS/network errors, CoinGecko may be rate-limiting or blocking — retry shortly.</div>`;
+  }
+}
+load();
+setInterval(load, 60000);
+</script>
 </body>
 </html>
