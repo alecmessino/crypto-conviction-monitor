@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Crypto Launch and Conviction Monitor</title>
+<title>CRYPTO LAUNCH & CONVICTION MONITOR</title>
 <style>
-:root{--bg:#000;--panel:#050505;--border:#1a1a1a;--line:#1a1a1a;--txt:#e6e6e6;--dim:#8a8a8a;--green:#00ff88;--red:#ff3b3b;--amber:#ffc700;--blue:#0096ff}
+:root{--bg:#000;--panel:#050505;--border:#1a1a1a;--txt:#e6e6e6;--dim:#666666;--green:#00ff88;--red:#ff3b3b;--amber:#ffc700;--blue:#0096ff}
 *{margin:0;padding:0;box-sizing:border-box}
-html{background:var(--bg);color:var(--txt);font-family:"Fira Code","JetBrains Mono","SF Mono","Monaco","Courier New",monospace;font-size:11px;line-height:1.35}
+html{background:var(--bg);color:var(--txt);font-family:"Fira Code","JetBrains Mono","SF Mono","Monaco",monospace;font-size:11px;line-height:1.35}
 body{background:var(--bg);color:var(--txt)}
 .header{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:1px solid var(--border);font-weight:700;font-size:11px;letter-spacing:1px}
 .brand{width:100%;text-align:center}
@@ -14,46 +14,47 @@ body{background:var(--bg);color:var(--txt)}
 .meta{display:flex;gap:12px;font-size:10px;color:var(--dim)}
 .main{padding:8px 12px}
 .card{margin-bottom:12px;background:var(--panel);border:1px solid var(--border)}
-.card h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);padding:6px 8px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px}
-.card h2 .badge{background:var(--green);color:#000;padding:1px 6px;border-radius:2px;font-size:9px;font-weight:700}
+.card h2{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--dim);padding:6px 8px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+.card h2 .badge{background:var(--green);color:#000;padding:1px 6px;border-radius:2px;font-size:9px;font-weight:600}
 .table{width:100%;border-collapse:collapse;font-size:10px;line-height:1.3}
-.th,.td{padding:4px 8px;text-align:right;border-bottom:1px solid var(--border);white-space:nowrap;vertical-align:top}
+.th,.td{padding:4px 8px;text-align:right;border-bottom:1px solid #111;white-space:nowrap;vertical-align:top}
 .th,.td:first-child{text-align:left}
-.th{color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:9px}
-.flag tr td{background:rgba(0,255,136,0.06)}.strong tr td{background:rgba(0,255,136,0.12)}.warn tr td{background:rgba(255,199,0,0.08)}.danger tr td{background:rgba(255,59,59,0.12)}
+.th{color:var(--dim);font-weight:700;text-transform:uppercase;letter-spacing:0.5px;font-size:9px;background:#0a0a0a}
+.flag tr td{background:rgba(0,255,136,0.07)}.strong tr td{background:rgba(0,255,136,0.14)}.warn tr td{background:rgba(255,199,0,0.10)}.danger tr td{background:rgba(255,59,59,0.14)}
 .badge{display:inline-block;padding:1px 4px;border-radius:2px;font-size:8px;font-weight:700;vertical-align:middle}
-.badge.strong{background:var(--green);color:#000}.badge.danger{background:var(--red);color:#fff}.badge.pos{color:var(--green);font-weight:700}.badge.neg{color:var(--red);font-weight:700}
+.badge.strong{background:var(--green);color:#000}.badge.danger{background:var(--red);color:#fff}.badge.pos{color:var(--green);font-weight:600}.badge.neg{color:var(--red);font-weight:600}
 .pos{color:var(--green);font-weight:600}.neg{color:var(--red);font-weight:600}
 .stat{display:inline-flex;gap:6px;padding:1px 6px;background:var(--border);border-radius:3px;font-size:9px;color:var(--dim)}
 .stat span{font-weight:700;color:var(--txt)}
-.chart-wrap{background:var(--panel);border:1px solid var(--border);height:140px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--dim)};
+.spark{width:60px;height:24px;vertical-align:middle;font-size:8px;line-height:1.1;color:var(--gray)}
+.chart-wrap{border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--dim);height:140px}
 .footer{font-size:9px;color:var(--dim);padding:6px 12px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
 </style>
 </head><body>
 <div class="header">
-  <span class="brand">CRYPTO LAUNCH AND CONVICTION MONITOR</span>
-  <div class="meta"><span>CONN: LIVE</span><span>SYS: OK</span><span>T: 14:32:15</span></div>
+  <span class="brand">CRYPTO LAUNCH & CONVICTION MONITOR</span>
+  <div class="meta"><span>CONN: LIVE</span><span>SYS: OK</span><span>KEY: 1-9 SELECT</span><span>S SORT</span></div>
 </div>
 <div class="main">
 <section class="card">
   <h2>CONVICTION MATRIX <span class="badge strong">4</span></h2>
   <table class="strong">
-    <tr><th>TICKER</th><th>SCORE</th><th>ERA %</th><th>PRESSURE</th><th>MVRV</th><th>SIG</th></tr>
-    <tr class="strong"><td>ORBIT</td><td>85/100</td><td>0.5x</td>0.5x</td><td>0.68</td><td class="badge pos">STRONG</td></tr>
-    <tr><td>ZEN</td><td>68/100</td><td>0.4x</td>0.4x</td><td>0.89</td><td class="badge">CLEAR</td></tr>
-    <tr><td>NOVA</td><td>50/100</td><td>0.3x</td>0.3x</td><td>0.72</td><td class="badge">CLEAR</td></tr>
-    <tr><td>VOLT</td><td>49/100</td><td>0.3x</td>0.3x</td><td>0.28</td><td class="badge pos">CAPITV</td></tr>
+    <tr><th>TICKER</th><th>SCORE</th><th>ERA</th><th>MVRV</th><th>SIGNAL</th></tr>
+    <tr class="strong" style="background:rgba(0,255,102,0.08)"><td>ORBIT</td><td class="pos">85/100</td><td>0.5x</td><td>0.68</td><td class="badge pos">STRONG</td></tr>
+    <tr><td>ZEN</td><td>68/100</td><td>0.4x</td><td>0.89</td><td class="badge">CLEAR</td></tr>
+    <tr><td>NOVA</td><td>50/100</td><td>0.3x</td><td>0.72</td><td class="badge">CLEAR</td></tr>
+    <tr><td>VOLT</td><td>49/100</td><td>0.3x</td><td>0.28</td><td class="badge pos">CAPITV</td></tr>
   </table>
 </section>
 <section class="card">
-  <h2>Module A: LIQUIDITY <span class="stat"><span>1</span>STRONG</span></h2>
+  <h2>Module A: LIQUIDITY <span class="stat"><span>1</span>strong</span></h2>
   <table>
     <tr><th>TICKER</th><th>MCAP</th><th>TURNOVER</th><th>HOLDERS</th><th>MVRV</th><th>DEV</th><th>STATUS</th></tr>
     <tr class="strong"><td>ORBIT</td><td>$18M</td><td>38%</td><td>35%</td><td>0.68</td><td>✓</td><td>SWEET</td></tr>
     <tr><td>ZEN</td><td>$32M</td><td>44%</td><td>28%</td><td>0.89</td><td>✓</td><td>SWEET</td></tr>
-    <tr><td class="warn">NOVA</td><td>$12M</td><td class="neg">68%</td><td>45%</td><td>0.72</td><td>✓</td><td class="warn">WARN</td></tr>
-    <tr class="danger"><td>BLAST</td><td>$8M</td><td class="neg">116%</td><td>78%</td><td>0.55</td><td>—</td><td class="badge danger">WASH</td></tr>
-    <tr class="warn"><td>PULSAR</td><td>$5M</td><td>32%</td><td class="neg">85%</td><td>0.42</td><td>—</td><td class="warn">DIST</td></tr>
+    <tr><td class="warn">NOVA</td><td>$12M</td><td>68%</td><td>45%</td><td>0.72</td><td>✓</td><td class="warn">WARN</td></tr>
+    <tr class="danger"><td>BLAST</td><td>$8M</td><td>116%</td><td>78%</td><td>0.55</td><td>—</td><td class="badge danger">WASH</td></tr>
+    <tr class="warn"><td>PULSAR</td><td>$5M</td><td>32%</td><td>85%</td><td>0.42</td><td>—</td><td class="warn">DIST</td></tr>
     <tr><td>VOLT</td><td>$15M</td><td>36%</td><td>55%</td><td>0.28</td><td>✓</td><td class="pos">SWEET</td></tr>
     <tr class="warn"><td>STRAT</td><td>$46M</td><td>47%</td><td>52%</td><td>1.05</td><td>✓</td><td class="warn">OVER</td></tr>
   </table>
@@ -61,38 +62,36 @@ body{background:var(--bg);color:var(--txt)}
 <section class="card">
   <h2>Module B: VESTING <span class="stat"><span>ERA</span>RATIO</span></h2>
   <table>
-    <tr><th>TICKER</th><th>30D USD</th><th>SUPPLY %</th><th>ADDR GROWTH</th><th>ERA/ADDR</th><th>RISK</th></tr>
-    <tr class="strong"><td>ORBIT</td><td>$0.32M</td><td>66%</td><td>+3.1%</td><td>0.5x</td><td class="badge pos">OK</td></tr>
-    <tr><td>ZEN</td><td>$2.2M</td><td>55%</td><td>+2.2%</td><td>0.4x</td><td class="badge pos">OK</td></tr>
-    <tr><td>NOVA</td><td>$0.9M</td><td>60%</td><td>+1.8%</td><td>0.3x</td><td class="badge pos">OK</td></tr>
+    <tr><th>TICKER</th><th>30D USD</th><th>SUPPLY%</th><th>ADDR↑%</th><th>ERA</th><th>RISK</th></tr>
+    <tr class="strong"><td>ORBIT</td><td>$0.32M</td><td>66%</td><td>+3.1%</td><td class="pos">0.5x</td><td class="badge pos">OK</td></tr>
+    <tr><td>ZEN</td><td>$2.2M</td><td>55%</td><td>+2.2%</td><td class="pos">0.4x</td><td class="badge pos">OK</td></tr>
+    <tr><td>NOVA</td><td>$0.9M</td><td>60%</td><td>+1.8%</td><td class="pos">0.3x</td><td class="badge pos">OK</td></tr>
     <tr class="warn"><td>BLAST</td><td>$5.4M</td><td>40%</td><td>+0.9%</td><td class="warn">2.6x</td><td class="badge">WARN</td></tr>
-    <tr class="danger"><td>STRAT</td><td>$6.7M</td><td>50%</td><td>+1.3%</td><td class="neg">3.0x</td><td class="badge danger">SELL</td></tr>
+    <tr class="danger" style="background:rgba(255,59,59,0.08)"><td>STRAT</td><td>$6.7M</td><td>50%</td><td>+1.3%</td><td class="neg">3.0x</td><td class="badge danger">SELL</td></tr>
   </table>
 </section>
 <section class="card">
   <h2>Module C: ADOPTION <span class="stat"><span>-1.4σ</span>Z</span></h2>
   <div class="chart-wrap">
-    <table style="width:100%;height:100%;border-collapse:collapse">
-      <tr><td style="border:1px solid var(--border);padding:8px;text-align:center;color:var(--dim);font-size:11px">
-        <div style="font-weight:700;margin-bottom:6px">ORBIT - Power Law Fit</div>
-        <div style="line-height:1.6;font-size:10px">
-          log(Addr): 3.5 → 4.1 → 4.5 → 5.0<br>
-          log(Price): 1.3 → 1.4 → 1.7 → 2.1<br>
-          <span style="color:var(--green)">▲ Trend: UNDERVALUED by 1.4σ</span>
-        </div>
-      </td></tr>
-    </table>
+    <pre style="margin:0;font-size:9px;line-height:1.1;color:var(--dim)">
+      <span class="pos">ORBIT 85/100 | Addr/Mkt: 0.17 | Residual: -1.4σ</span>
+      <span style="color:var(--green)">+2σ |         ░░</span>
+      <span style="color:var(--blue)"> 0σ |----------░░----------</span>
+      <span style="color:var(--green)">-2σ | ░░░░░░      ░░</span>
+      <span style="color:var(--dim)">     +30D TRAJECTORY</span>
+    </pre>
   </div>
   <table style="margin-top:6px">
-    <tr><th>TICKER</th><th>PRICE</th><th>RESID</th><th>ACT ADDR</th><th>SIGNAL</th></tr>
-    <tr class="strong"><td>ORBIT</td><td>$0.52</td><td>-1.40</td><td>3.1K</td><td class="badge pos">UNDERUSED</td></tr>
-    <tr class="flag"><td>ZEN</td><td>$2.48</td><td>-0.60</td><td>12.5K</td><td class="badge pos">UNDERUSED</td></tr>
-    <tr><td>VOLT</td><td>$1.85</td><td>-0.40</td><td>8.5K</td><td class="badge pos">CAPITV</td></tr>
-    <tr class="danger"><td>BLAST</td><td>$0.75</td><td>+2.20</td><td>1.8K</td><td class="badge danger">DEAD</td></tr>
+    <tr><th>TICKER</th><th>ADDR/MKT</th><th>PRICE</th><th>RESID</th><th>SIGNAL</th></tr>
+    <tr class="strong"><td>ORBIT</td><td>0.17</td><td>$0.52</td><td>-1.40</td><td class="badge pos">UNDERUSED</td></tr>
+    <tr class="flag"><td>ZEN</td><td>0.45</td><td>$2.48</td><td>-0.60</td><td class="badge pos">UNDERUSED</td></tr>
+    <tr class="danger"><td>STRAT</td><td>0.89</td><td>$11.80</td><td>+1.80</td><td class="badge danger">OVER</td></tr>
+    <tr class="danger"><td>BLAST</td><td>0.06</td><td>$0.75</td><td>+2.20</td><td class="badge danger">DEAD</td></tr>
+    <tr><td>VOLT</td><td>0.57</td><td>$1.85</td><td>-0.40</td><td class="badge pos">CAPITV</td></tr>
   </table>
 </section>
 <section class="card">
-  <h2>Institutional Context <span class="badge strong">COMPRESSED</span></h2>
+  <h2>INSTITUTIONAL CONTEXT <span class="badge strong">COMPRESSED</span></h2>
   <table>
     <tr><th>METRIC</th><th>VALUE</th></tr>
     <tr><td>ETF ON-RAMP</td><td>66%</td></tr>
@@ -101,6 +100,7 @@ body{background:var(--bg);color:var(--txt)}
     <tr><td>BTC INST</td><td>94%</td></tr>
     <tr><td>ETH INST</td><td>85%</td></tr>
     <tr><td>REG VEH</td><td>81%</td></tr>
+    <tr><td>PREM >5%</td><td>59%</td></tr>
   </table>
 </section>
 </div>
