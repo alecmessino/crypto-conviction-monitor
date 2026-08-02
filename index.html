@@ -85,6 +85,12 @@ tr.gated:hover{background:rgba(0,255,102,0.10)}
 .fb-val{font-size:11px;text-align:right;color:var(--txt)}
 .fb-note{grid-column:2 / 4;font-size:9px;margin-top:-3px}
 .fb-verdict{margin-top:8px;padding:6px 8px;font-size:10px;color:var(--amber);background:rgba(224,179,114,0.08);border-left:2px solid var(--amber);border-radius:2px}
+.alloc{padding:6px 12px}
+.alloc-row{display:grid;grid-template-columns:54px 44px 1fr;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #162032}
+.alloc-sym{color:var(--txt);font-size:11px}
+.alloc-w{color:var(--green);font-size:11px;text-align:right}
+.alloc-c{font-size:9px;text-align:right}
+.alloc-foot{margin-top:6px;padding-top:5px;font-size:9px;color:var(--sec);border-top:1px solid #1E293B}
 .spark{display:inline-block;vertical-align:middle}
 
 /* Right rail charts — fixed-height boxes */
@@ -221,6 +227,13 @@ canvas{display:block;width:100%}
       <div class="fb-wrap" id="fb"><div class="muted" style="padding:30px 12px">Select a token to see its factor tilt.</div></div>
       <div class="muted" style="padding:4px 12px 10px">DFA/AQR factor readout (0–100). Size·Value·Quality·Momentum·Liquidity — explains the Conviction Score.</div>
     </div>
+    <div class="glass">
+      <div class="card-h">CONVICTION-WEIGHTED INDEX <span class="muted" id="idx-rebal">—</span></div>
+      <div class="chart-box"><canvas id="idx" height="120" style="height:120px"></canvas>
+        <div class="muted" id="idx-note">Cumulative basket vs market · live paper track record</div></div>
+      <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
+      <div class="muted" style="padding:4px 12px 10px">Top-10 gated basket, score-proportional weights. PnL vs equal-weight market benchmark.</div>
+    </div>
   </aside>
 </div>
 
@@ -243,6 +256,7 @@ const TIER = {
 };
 let STATE = [];
 let LEDGER = [];   // nightly signals.json rows (Module B real data when present)
+let INDEX = null;  // nightly index.json (conviction-weighted basket track record)
 async function loadLedger(){
   try{
     const r=await fetch("ledger/signals.json",{cache:"no-store"});
@@ -253,6 +267,10 @@ async function loadLedger(){
     if(LEDGER.length){ dune.className="pos"; dune.textContent="LIVE ("+LEDGER.length+" tk)"; }
     else { dune.className="neu"; dune.textContent="OFF"; }
   }catch(e){ /* ledger absent — Module B stays OFF */ }
+  try{
+    const ri=await fetch("ledger/index.json",{cache:"no-store"});
+    if(ri.ok) INDEX = await ri.json();
+  }catch(e){ /* index absent — track record pending */ }
 }
 
 // ---- helpers ----
@@ -538,6 +556,11 @@ function alphaMap(){
   STATE.forEach(t=>{
     const X=Math.max(xmin,Math.min(xmax,t.chg7d)), Y=Math.max(ymin,Math.min(ymax,t.conv));
     const cx=px(X), cy=py(Y);
+    const actionable = t.gated || t.conv>=70;
+    if(!actionable){
+      // BACKGROUND DUST: macro context only, no labels, no noise
+      x.fillStyle="rgba(100,116,139,0.15)"; x.fillRect(cx-0.5,cy-0.5,1,1); return;
+    }
     // color by MVRV Z (valuation): green(<0) -> amber(0..2) -> red(>2)
     const z=t.z;
     const col = z<0 ? "#00FF66" : z<2 ? "#E0B372" : "#E8917F";
@@ -550,8 +573,38 @@ function alphaMap(){
     x.fill();
     x.fillStyle = t.gated?"#00FF66":"#64748B"; x.font="7px monospace"; x.fillText(t.sym,cx+4,cy-4);
   });
+  // legend note
+  const ndust=STATE.filter(t=>!(t.gated||t.conv>=70)).length;
+  x.fillStyle="#475569"; x.font="7px monospace";
+  x.fillText("grey dust = "+ndust+" non-qualified (macro context)", px(xmin)+2, h-2);
 }
 function heat(){ alphaMap(); } // alias kept for any stale caller
+function renderIndex(){
+  const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal");
+  if(!INDEX){ wrap.innerHTML='<div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div>'; note.textContent="Cumulative basket vs market · live paper track record"; reb.textContent="—"; return; }
+  const rows=INDEX.rows||[];
+  reb.textContent="reb "+(INDEX.latest?.rebalanced?"✓":"·");
+  // cumulative line chart
+  const cv=$("#idx"), w=cv.clientWidth, h=cv.clientHeight||120; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  x.clearRect(0,0,w,h);
+  if(rows.length){
+    const cumB=rows.map((_,i)=>rows.slice(0,i+1).reduce((a,r)=>a+(parseFloat(r.basket_return)||0),0));
+    const cumM=rows.map((_,i)=>rows.slice(0,i+1).reduce((a,r)=>a+(parseFloat(r.market_return)||0),0));
+    const all=cumB.concat(cumM); const lo=Math.min(0,...all), hi=Math.max(0.1,...all);
+    const px=i=>rows.length<2?w/2:8+i*(w-16)/(rows.length-1);
+    const py=v=>h-6-(v-lo)/(hi-lo||1)*(h-12);
+    const line=(arr,col)=>{x.beginPath();arr.forEach((v,i)=>{i?x.lineTo(px(i),py(v)):x.moveTo(px(i),py(v));});x.strokeStyle=col;x.lineWidth=1.5;x.stroke();};
+    line(cumM,"#475569"); line(cumB,"#00FF66");
+    x.fillStyle="#475569";x.font="7px monospace";x.fillText("mkt "+cumM[cumM.length-1].toFixed(1)+"%",px(rows.length-1)-30,py(cumM[cumM.length-1])-3);
+    x.fillStyle="#00FF66";x.fillText("basket "+cumB[cumB.length-1].toFixed(1)+"%",px(rows.length-1)-46,py(cumB[cumB.length-1])+9);
+  } else { x.fillStyle="#475569";x.font="8px monospace";x.fillText("no track record yet",8,h/2); }
+  // allocation table (live weights from current basket)
+  const hs=INDEX.current_holdings||[];
+  if(hs.length){
+    wrap.innerHTML=hs.map(h=>`<div class="alloc-row"><span class="alloc-sym">${h.symbol}</span><span class="alloc-w num">${(h.weight*100).toFixed(1)}%</span><span class="muted alloc-c">conv ${h.conviction}</span></div>`).join("")
+      +`<div class="alloc-foot">cum basket ${INDEX.cumulative_basket_return?.toFixed(1)}% · mkt ${INDEX.cumulative_market_return?.toFixed(1)}% · α ${((INDEX.cumulative_basket_return||0)-(INDEX.cumulative_market_return||0)).toFixed(1)}%</div>`;
+  } else { wrap.innerHTML='<div class="muted" style="padding:8px 12px">Basket empty.</div>'; }
+}
 function factorBreakdown(sym){
   const t=STATE.find(s=>s.sym===sym)||STATE[0];
   $("#fb-sym").textContent=t?("· "+t.sym):"";
@@ -637,7 +690,7 @@ async function load(){
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
     renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); if(SEL) factorBreakdown(SEL);
-    loadLedger();
+    loadLedger().then(renderIndex);
     st.textContent="OK"; st.className="live"; $("#sys-rl").textContent="nominal";
   }catch(e){
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";

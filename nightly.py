@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import os
 import urllib.parse
 import urllib.request
@@ -164,6 +165,168 @@ def score(t: dict) -> tuple[float, int, str]:
     return era, total, sig
 
 
+def _lavl_regime(t: dict) -> str:
+    """Lightweight LAVL regime (mirrors lavl.py) for the conjunctive gate.
+
+    Uses only free-payload fields: 24h change, 24h range, vol/mc, range-tightness.
+    Perp multiplier is neutral (1.0) until a derivatives feed is wired.
+    """
+    price = t.get("current_price") or 0
+    chg = t.get("price_change_percentage_24h") or 0.0
+    high = t.get("high_24h") or price or 1
+    low = t.get("low_24h") or price or 1
+    vol = t.get("total_volume") or 0
+    mc = t.get("market_cap") or 0
+    if price <= 0 or mc <= 0:
+        return "COMPRESS"
+    spread = (high - low) / price if price else 1
+    if spread <= 0:
+        spread = 0.01
+    depth = vol / mc if mc else 0
+    if depth <= 0:
+        depth = 1e-6
+    velo = (abs(chg) / 100.0 / spread) * math.log(max(2.0, depth * 1e6)) if spread else 0
+    velo = min(4.0, velo)
+    range_tight = 1 - (high - low) / high if high else 0
+    diverge = (vol / mc) * max(0.0, range_tight)
+    diverge = min(2.3, diverge)
+    lavl = 0.6 * velo + 0.4 * diverge  # risk_mult neutral (1.0)
+    if lavl > 2.5:
+        return "ALPHA RUSH"
+    if lavl >= 0.5:
+        return "STABLE"
+    return "COMPRESS"
+
+
+def _conjunctive_gate(t: dict, conv: int) -> bool:
+    """Replicates the front-end gated flag so the basket uses the same universe."""
+    mc = t.get("market_cap") or 0
+    vol = t.get("total_volume") or 0
+    turnover = (vol / mc) if mc else 0.0
+    fdv = t.get("fully_diluted_valuation") or 0
+    dilution = (fdv / mc) if mc else None
+    gate_a = 0.30 <= turnover <= 0.60
+    gate_b = (dilution is None) or (dilution <= 2.0)
+    band = _lavl_regime(t)
+    gate_c = band not in ("COMPRESS", "LIQ TRAP") and turnover < 0.90
+    return bool(gate_a and gate_b and gate_c)
+
+
+BASKET_JSON = LEDGER_DIR / "basket.json"
+INDEX_CSV = LEDGER_DIR / "index.csv"
+INDEX_JSON = LEDGER_DIR / "index.json"
+REBALANCE_DAYS = 7
+
+
+def build_basket(markets: list[dict], today: str) -> dict:
+    """Conviction-weighted Top-10 basket with score-proportional weights.
+
+    Returns the basket dict and appends a daily track-record row to index.csv/json.
+    Rebalances weekly or when a holding drops out of the gated Top 10.
+    """
+    scored = []
+    for t in markets:
+        sym = (t.get("symbol") or "").upper()
+        if not sym or sym in STABLES:
+            continue
+        era, conv, _ = score(t)
+        if _conjunctive_gate(t, conv):
+            scored.append((sym, t, conv))
+    scored.sort(key=lambda x: x[2], reverse=True)
+    top = scored[:10]
+    if not top:
+        return {"holdings": [], "rebalanced": today, "note": "no gated assets"}
+
+    total_conv = sum(c for _, _, c in top) or 1
+    holdings = []
+    for sym, t, conv in top:
+        w = conv / total_conv
+        holdings.append({
+            "symbol": sym, "conviction": conv, "weight": round(w, 4),
+            "entry_price": t.get("current_price") or 0,
+        })
+
+    # Load or rebalance existing basket
+    prev = {}
+    if BASKET_JSON.exists():
+        try:
+            prev = json.loads(BASKET_JSON.read_text())
+        except (json.JSONDecodeError, OSError):
+            prev = {}
+    prev_date = prev.get("rebalanced", today)
+    prev_syms = {h["symbol"] for h in prev.get("holdings", [])}
+    cur_syms = {h["symbol"] for h in holdings}
+    try:
+        days_since = (date.fromisoformat(today) - date.fromisoformat(prev_date)).days
+    except ValueError:
+        days_since = REBALANCE_DAYS
+    rebalanced = (days_since >= REBALANCE_DAYS) or (not cur_syms.issubset(prev_syms))
+    if rebalanced:
+        basket = {"rebalanced": today, "holdings": holdings}
+        BASKET_JSON.write_text(json.dumps(basket, indent=2))
+    else:
+        # keep entry prices from prev basket for unchanged holdings
+        basket = prev
+        for h in basket.get("holdings", []):
+            if h["symbol"] in cur_syms:
+                # update weight to current score-proportional weight
+                nh = next(x for x in holdings if x["symbol"] == h["symbol"])
+                h["weight"] = nh["weight"]
+                h["conviction"] = nh["conviction"]
+
+    # Rolling paper PnL vs equal-weight benchmark
+    live = {(tk.get("symbol") or "").upper(): tk.get("current_price") or 0 for tk in markets}
+    wret = 0.0
+    bench = 0.0
+    n = 0
+    for h in basket.get("holdings", []):
+        cur = live.get(h["symbol"]) or 0
+        ep = h.get("entry_price") or 0
+        if cur and ep:
+            r = (cur - ep) / ep
+            wret += h["weight"] * r
+            bench += r / max(1, len(basket["holdings"]))
+            n += 1
+    # Benchmark: equal-weight of ALL scanned assets' 24h move as a proxy market return
+    all_chg = [t.get("price_change_percentage_24h") or 0 for t in markets]
+    mkt_ret = (sum(all_chg) / len(all_chg)) / 100.0 if all_chg else 0.0
+
+    row = {
+        "date": today,
+        "basket_return": round(wret * 100, 3),
+        "equal_weight_return": round(bench * 100, 3),
+        "market_return": round(mkt_ret * 100, 3),
+        "alpha_vs_market": round((wret - mkt_ret) * 100, 3),
+        "n_holdings": n,
+        "rebalanced": rebalanced,
+    }
+    INDEX_CSV.parent.mkdir(parents=True, exist_ok=True)
+    idx_exists = INDEX_CSV.exists()
+    with INDEX_CSV.open("a", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if not idx_exists:
+            w.writeheader()
+        w.writerow(row)
+    idx_rows = []
+    if INDEX_CSV.exists():
+        with INDEX_CSV.open(newline="", encoding="utf-8") as f:
+            idx_rows = list(csv.DictReader(f))
+    cum = 0.0
+    cum_bench = 0.0
+    for r in idx_rows:
+        cum += float(r.get("basket_return") or 0)
+        cum_bench += float(r.get("market_return") or 0)
+    INDEX_JSON.write_text(json.dumps({
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "latest": row,
+        "cumulative_basket_return": round(cum, 3),
+        "cumulative_market_return": round(cum_bench, 3),
+        "current_holdings": basket.get("holdings", []),
+        "rows": idx_rows,
+    }, indent=2))
+    return basket
+
+
 def main() -> int:
     today = date.today().isoformat()
 
@@ -179,6 +342,7 @@ def main() -> int:
               file=__import__("sys").stderr)
 
     markets = fetch_markets()
+    basket = build_basket(markets, today)
     rows = []
     seen = set()
     for t in markets:
@@ -266,6 +430,10 @@ def main() -> int:
 
     print(f"Nightly {today}: wrote {len(rows[:25])} signals, backfilled {updated}. "
           f"Ledger total: {len(all_rows)}.")
+    if basket.get("holdings"):
+        hs = ", ".join(f"{h['symbol']} {h['weight']*100:.1f}%" for h in basket["holdings"])
+        print(f"[basket] Top-10 conviction-weighted | rebalanced={basket.get('rebalanced')} | {hs}")
+        print(f"[index] cumulative return tracked in ledger/index.json")
     return 0
 
 
