@@ -25,7 +25,7 @@ LEDGER_JSON = LEDGER_DIR / "signals.json"
 FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           "erosion_ratio", "conviction", "signal",
           "unlocks_usd", "supply_increase_pct", "addr_growth_pct", "era",
-          "roi_30d", "roi_90d", "survived"]
+          "roi_30d", "roi_90d", "survived", "perp_mult"]
 
 # Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
@@ -120,7 +120,7 @@ def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5) -> 
     return out
 
 
-def score(t: dict) -> tuple[float, int, str]:
+def score(t: dict, perps_map: dict | None = None) -> tuple[float, int, str]:
     mc = t.get("market_cap") or 0
     vol = t.get("total_volume") or 0
     chg = t.get("price_change_percentage_24h") or 0.0
@@ -144,7 +144,7 @@ def score(t: dict) -> tuple[float, int, str]:
     era = 5.0 / ag
     b = 20 if era < 0.7 else 15 if era < 1.0 else 10 if era < 1.5 else 5 if era < 2.0 else 0
 
-    # Module C (0-40): depth (log mc) + momentum
+    # Module C (0-40): depth (log mc) + momentum, attenuated by LAVL leverage regime
     depth = max(0.0, min(1.0, (math.log10(mc) - 6) / 4.0)) if mc else 0
     cd = depth * 20
     if chg < -15:
@@ -157,6 +157,9 @@ def score(t: dict) -> tuple[float, int, str]:
         cm = 20
     else:
         cm = max(8, 20 - (chg - 20) * 1.0)
+    # LAVL leverage-micro-regime: penalize overheated longs, reward short capitulation
+    if perps_map is not None:
+        cm *= lavl_perp_mult((t.get("symbol") or "").upper(), perps_map)
     c = cd + cm
 
     total = max(0, min(100, int(round(a + b + c))))
@@ -211,6 +214,66 @@ def _conjunctive_gate(t: dict, conv: int) -> bool:
     gate_c = band not in ("COMPRESS", "LIQ TRAP") and turnover < 0.90
     return bool(gate_a and gate_b and gate_c)
 
+
+def fetch_perps_map(symbols: set[str] | None = None) -> dict:
+    """Live perpetual funding rates -> {BASE: {funding_rate, oi_usd}}.
+
+    Primary: Bybit V5 linear tickers (one call, full map, has funding + OI).
+    Fallback: OKX public funding-rate, fetched per-instrument but ONLY for the
+    symbols we actually score (bounded ~10-50 calls) when `symbols` is given;
+    if omitted, OKX is skipped to avoid 400+ requests.
+    Both key-less. Returns {} on total failure -> callers use neutral 1.0.
+    No fabrication: missing perps simply fall back to neutral per-asset.
+    """
+    # Primary: Bybit linear perps
+    try:
+        data = _get_json("https://api.bybit.com/v5/market/tickers?category=linear")
+        items = (data.get("result") or {}).get("list") or []
+        m = {}
+        for it in items:
+            sym = (it.get("symbol") or "")
+            if sym.endswith("USDT"):
+                base = sym[:-4].upper()
+                m[base] = {
+                    "funding_rate": float(it.get("fundingRate") or 0.0),
+                    "oi_usd": float(it.get("openInterestValue") or 0.0),
+                }
+        if m:
+            return m
+    except Exception as e:  # noqa: BLE001
+        print(f"[perp] Bybit unavailable ({e}); trying OKX.", file=__import__("sys").stderr)
+    # Fallback: OKX funding-rate, per requested symbol (bounded)
+    if not symbols:
+        print("[perp] OKX fallback skipped (no symbol filter); neutral.", file=__import__("sys").stderr)
+        return {}
+    m = {}
+    for base in symbols:
+        inst = f"{base}-USDT-SWAP"
+        try:
+            data = _get_json(f"https://www.okx.com/api/v5/public/funding-rate?instId={inst}")
+            row = (data.get("data") or [{}])[0]
+            m[base.upper()] = {"funding_rate": float(row.get("fundingRate") or 0.0), "oi_usd": None}
+        except Exception:  # noqa: BLE001
+            continue  # per-asset neutral fallback
+    return m
+
+
+def lavl_perp_mult(ticker: str, perps_map: dict) -> float:
+    """LAVL leverage-micro-regime multiplier (RiskMult_perp).
+
+    - funding > +0.05% per interval => overheated longs, liquidation flush risk => penalize (0.85)
+    - funding < 0 (shorts paying) => capitulation / squeeze asymmetry => reward (1.15)
+    - otherwise neutral 1.0; spot-only microcaps (no perp) default safely to 1.0.
+    """
+    info = perps_map.get(ticker)
+    if not info:
+        return 1.0
+    fr = info.get("funding_rate") or 0.0
+    if fr > 0.0005:
+        return 0.85
+    if fr < 0.0:
+        return 1.15
+    return 1.0
 
 def fetch_global_market_cap() -> float | None:
     """Total crypto market cap (USD) from CoinGecko's free /global endpoint.
@@ -379,6 +442,14 @@ def main() -> int:
               file=__import__("sys").stderr)
 
     markets = fetch_markets()
+    scored_syms = {(t.get("symbol") or "").upper() for t in markets
+                   if (t.get("symbol") or "").upper() and (t.get("symbol") or "").upper() not in STABLES}
+    perps_map = fetch_perps_map(scored_syms)  # live perp funding (Bybit->OKX fallback); {} => neutral
+    if perps_map:
+        print(f"[perp] {len(perps_map)} perps live; LAVL leverage regime active.",
+              file=__import__("sys").stderr)
+    else:
+        print("[perp] no perp feed; RiskMult_perp neutral (1.0) for all.", file=__import__("sys").stderr)
     basket = build_basket(markets, today)
     rows = []
     seen = set()
@@ -387,7 +458,8 @@ def main() -> int:
         if not sym or sym in seen or sym in STABLES:
             continue
         seen.add(sym)
-        era, conv, sig = score(t)
+        era, conv, sig = score(t, perps_map)
+        pm = lavl_perp_mult(sym, perps_map)
         b = dune_b.get(sym)  # real Dune fields if present, else None -> null
         rows.append({
             "date": today, "symbol": sym, "name": t.get("name", ""),
@@ -399,6 +471,7 @@ def main() -> int:
             "addr_growth_pct": b["addr_growth_pct"] if b else None,
             "era": b["era"] if b else None,
             "roi_30d": None, "roi_90d": None, "survived": None,
+            "perp_mult": round(pm, 3),
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
 

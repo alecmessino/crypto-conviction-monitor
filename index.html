@@ -650,6 +650,7 @@ function openDrawer(sym){
   $("#dw-sym").textContent=t.sym+" · "+t.name;
   const lb=LEDGER.find(r=>r.symbol===sym);
   const eraCell=$("#dw-era");
+  const perpCell=$("#dw-perp");
   if(lb && lb.era!=null && lb.era!=="None" && lb.era!==""){
     const e=parseFloat(lb.era);
     const cls=e<1?"pos":e<2?"neu":"neg";
@@ -657,6 +658,13 @@ function openDrawer(sym){
     let extra = lb.unlocks_usd!=null ? ` · unlocks $${fmtUsd(lb.unlocks_usd)}` : "";
     eraCell.className=cls; eraCell.textContent=lbl+" ("+e.toFixed(2)+")"+extra;
   } else { eraCell.className="neu"; eraCell.textContent="null (Dune off)"; }
+  if(lb && lb.perp_mult!=null && lb.perp_mult!=="None" && lb.perp_mult!==""){
+    const p=parseFloat(lb.perp_mult);
+    // 0.85 penalized (overheated longs), 1.15 rewarded (short capitulation), 1.0 neutral
+    const pcls = p<1 ? "neg" : p>1 ? "pos" : "neu";
+    const plbl = p<1 ? "OVERHEATED LONGS" : p>1 ? "SHORT CAPITULATION" : "NEUTRAL";
+    perpCell.className=pcls; perpCell.textContent=plbl+" ("+p.toFixed(2)+")";
+  } else { perpCell.className="neu"; perpCell.textContent="null (perp off)"; }
   const led="<a href='ledger/signals.json' target='_blank' style='color:#3B82F6'>view nightly ledger ↗</a>";
   $("#dw-body").innerHTML=`
     <div class="kv"><span>Price</span><b class="num">${fmtPrice(t.price)}</b></div>
@@ -668,6 +676,7 @@ function openDrawer(sym){
     <div class="kv"><span>Signal</span><b><span class="badge ${t.sig[1]}">${t.sig[0]}</span></b></div>
     <div class="kv"><span>Tier</span><b><span class="tier ${t.tier}">${t.tier}</span></b></div>
     <div class="kv"><span>Module B ERA</span><b id="dw-era" class="neu">checking…</b></div>
+    <div class="kv"><span>LAVL Perp</span><b id="dw-perp" class="neu">checking…</b></div>
     <div style="margin-top:14px" class="muted">${led}</div>
     <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>`;
   $("#drawer").classList.add("open");
