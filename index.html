@@ -118,6 +118,7 @@ canvas{display:block;width:100%}
         <div class="kv"><span>Module B (Dune)</span><b id="sys-dune" class="neu">OFF</b></div>
         <div class="kv"><span>Universe</span><b id="sys-n" class="num">—</b></div>
         <div class="kv"><span>Rate limit</span><b id="sys-rl" class="neu">—</b></div>
+        <div class="note" style="padding:8px 0 0">Module B (ERA / vesting) needs an on-chain unlock feed. Connect a Dune query via repository secret <b>DUNE_API_KEY</b> + <b>DUNE_UNLOCK_QUERY_ID</b> so the nightly job populates it. Until then it shows <b>null</b> — never fabricated.</div>
         <div class="switches" id="tf">
           <div class="sw on" data-tf="24h">24H</div>
           <div class="sw" data-tf="7d">7D</div>
@@ -224,6 +225,18 @@ const TIER = {
   SHIB:"MEME",DOGE:"MEME",PEPE:"MEME",WIF:"MEME",BONK:"MEME",FLOKI:"MEME",PUMP:"MEME"
 };
 let STATE = [];
+let LEDGER = [];   // nightly signals.json rows (Module B real data when present)
+async function loadLedger(){
+  try{
+    const r=await fetch("ledger/signals.json",{cache:"no-store"});
+    if(!r.ok) return;
+    const j=await r.json();
+    LEDGER = (j.rows||[]).filter(r=>r.era!=null && r.era!=="None" && r.era!=="");
+    const dune=$("#sys-dune");
+    if(LEDGER.length){ dune.className="pos"; dune.textContent="LIVE ("+LEDGER.length+" tk)"; }
+    else { dune.className="neu"; dune.textContent="OFF"; }
+  }catch(e){ /* ledger absent — Module B stays OFF */ }
+}
 
 // ---- helpers ----
 const $ = s=>document.querySelector(s);
@@ -488,6 +501,15 @@ function select(sym){ SEL=sym; document.querySelectorAll("tr.row").forEach(r=>r.
 function openDrawer(sym){
   const t=STATE.find(s=>s.sym===sym); if(!t)return;
   $("#dw-sym").textContent=t.sym+" · "+t.name;
+  const lb=LEDGER.find(r=>r.symbol===sym);
+  const eraCell=$("#dw-era");
+  if(lb && lb.era!=null && lb.era!=="None" && lb.era!==""){
+    const e=parseFloat(lb.era);
+    const cls=e<1?"pos":e<2?"neu":"neg";
+    const lbl=e<1?"BULLISH":e<2?"NEUTRAL":"BEARISH";
+    let extra = lb.unlocks_usd!=null ? ` · unlocks $${fmtUsd(lb.unlocks_usd)}` : "";
+    eraCell.className=cls; eraCell.textContent=lbl+" ("+e.toFixed(2)+")"+extra;
+  } else { eraCell.className="neu"; eraCell.textContent="null (Dune off)"; }
   const led="<a href='ledger/signals.json' target='_blank' style='color:#3B82F6'>view nightly ledger ↗</a>";
   $("#dw-body").innerHTML=`
     <div class="kv"><span>Price</span><b class="num">${fmtPrice(t.price)}</b></div>
@@ -498,7 +520,7 @@ function openDrawer(sym){
     <div class="kv"><span>Conviction</span><b class="num ${signalClass(t.conv)}">${t.conv}/100</b></div>
     <div class="kv"><span>Signal</span><b><span class="badge ${t.sig[1]}">${t.sig[0]}</span></b></div>
     <div class="kv"><span>Tier</span><b><span class="tier ${t.tier}">${t.tier}</span></b></div>
-    <div class="kv"><span>Module B ERA</span><b class="neu">unavailable</b></div>
+    <div class="kv"><span>Module B ERA</span><b id="dw-era" class="neu">checking…</b></div>
     <div style="margin-top:14px" class="muted">${led}</div>
     <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>`;
   $("#drawer").classList.add("open");
@@ -530,6 +552,7 @@ async function load(){
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
     renderTables(); renderRibbon(); renderTiers(); quad(); heat(); if(SEL) vpvr(SEL);
+    loadLedger();
     st.textContent="OK"; st.className="live"; $("#sys-rl").textContent="nominal";
   }catch(e){
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";

@@ -22,15 +22,66 @@ LEDGER_DIR = Path(__file__).resolve().parent / "ledger"
 LEDGER_CSV = LEDGER_DIR / "signals.csv"
 LEDGER_JSON = LEDGER_DIR / "signals.json"
 FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
-          "erosion_ratio", "conviction", "signal", "roi_30d", "roi_90d", "survived"]
+          "erosion_ratio", "conviction", "signal",
+          "unlocks_usd", "supply_increase_pct", "addr_growth_pct", "era",
+          "roi_30d", "roi_90d", "survived"]
+
+# Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
+# Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
+# A public unlock-schedule query is configured via DUNE_UNLOCK_QUERY_ID.
+DUNE_BASE = "https://api.dune.com/api/v1"
+
 STABLES = {"USDT", "USDC", "DAI", "BUSD", "TUSD", "USDD", "FDUSD", "USDE",
-           "USD1", "USDS", "PYUSD", "GUSD"}
+           "USD1", "USDS", "PYUSD", "GUSD", "USDG", "FRAX", "USDD", "TUSD",
+           "XAUT", "PAXG"}
+
+
 
 
 def _get_json(url: str, headers: dict | None = None) -> dict:
     req = urllib.request.Request(url, headers=headers or {"User-Agent": "conviction-monitor/1.0"})
     with urllib.request.urlopen(req, timeout=20) as resp:  # nosec
         return json.loads(resp.read().decode())
+
+
+def fetch_dune_module_b(query_id: str, api_key: str) -> dict:
+    """Fetch a saved Dune query's latest results -> {SYMBOL: {unlocks_usd, supply_increase_pct,
+    addr_growth_pct, era}}. Returns {} if the call fails — caller falls back to null (no fabricate).
+
+    Expected query shape (columns): symbol, unlocks_usd, supply_increase_pct, addr_growth_pct.
+    ERA = supply_increase_pct / addr_growth_pct when both present and addr_growth_pct > 0.
+    """
+    out: dict = {}
+    try:
+        url = f"{DUNE_BASE}/query/{query_id}/results?limit=5000"
+        data = _get_json(url, headers={"X-Dune-Api-Key": api_key})
+        rows = (data.get("result") or {}).get("rows") or []
+        for r in rows:
+            sym = str(r.get("symbol") or r.get("token") or r.get("SYMBOL") or "").upper()
+            if not sym:
+                continue
+            unlocks = r.get("unlocks_usd") or r.get("unlocks") or r.get("UNLOCKS_USD")
+            sup = r.get("supply_increase_pct") or r.get("supply_increase")
+            addr = r.get("addr_growth_pct") or r.get("address_growth")
+            era = r.get("era")
+            rec = {"unlocks_usd": _num(unlocks), "supply_increase_pct": _num(sup),
+                   "addr_growth_pct": _num(addr), "era": _num(era)}
+            if rec["era"] is None and sup is not None and addr not in (None, 0, "0"):
+                try:
+                    rec["era"] = round(float(sup) / float(addr), 3)
+                except (ValueError, ZeroDivisionError):
+                    rec["era"] = None
+            out[sym] = rec
+    except Exception as e:  # noqa: BLE001
+        print(f"[dune] fetch failed, Module B -> null: {e}", file=__import__("sys").stderr)
+    return out
+
+
+def _num(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (ValueError, TypeError):
+        return None
 
 
 def fetch_markets(per_page: int = 100) -> list[dict]:
@@ -87,6 +138,18 @@ def score(t: dict) -> tuple[float, int, str]:
 
 def main() -> int:
     today = date.today().isoformat()
+
+    # Module B (Dune): only when BOTH key and a saved query id are present.
+    dune_b: dict = {}
+    api_key = os.environ.get("DUNE_API_KEY")
+    query_id = os.environ.get("DUNE_UNLOCK_QUERY_ID")
+    if api_key and query_id:
+        dune_b = fetch_dune_module_b(query_id, api_key)
+        print(f"[dune] Module B active: {len(dune_b)} tokens enriched.", file=__import__("sys").stderr)
+    else:
+        print("[dune] not configured — Module B columns null (no fabricated data).",
+              file=__import__("sys").stderr)
+
     markets = fetch_markets()
     rows = []
     seen = set()
@@ -96,11 +159,16 @@ def main() -> int:
             continue
         seen.add(sym)
         era, conv, sig = score(t)
+        b = dune_b.get(sym)  # real Dune fields if present, else None -> null
         rows.append({
             "date": today, "symbol": sym, "name": t.get("name", ""),
             "price": t.get("current_price") or 0, "market_cap": t.get("market_cap") or 0,
             "turnover_pct": round((t.get("total_volume", 0) / t.get("market_cap", 1)) * 100, 2) if t.get("market_cap") else 0,
             "erosion_ratio": round(era, 3), "conviction": conv, "signal": sig,
+            "unlocks_usd": b["unlocks_usd"] if b else None,
+            "supply_increase_pct": b["supply_increase_pct"] if b else None,
+            "addr_growth_pct": b["addr_growth_pct"] if b else None,
+            "era": b["era"] if b else None,
             "roi_30d": None, "roi_90d": None, "survived": None,
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
