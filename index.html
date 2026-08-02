@@ -123,9 +123,9 @@ canvas{display:block;width:100%}
     </div>
     <div class="glass">
       <div class="card-h">MODULE B — VESTING</div>
-      <div class="card-b note">ERA (emission ÷ adoption) requires a Dune unlock feed.
-        Set <b>DUNE_API_KEY</b> + <b>DUNE_UNLOCK_QUERY_ID</b> as repo secrets; the nightly job then
-        enriches signals. Until then this module reports <b>null</b> — never fabricated.</div>
+      <div class="card-b note">ERA (token emission ÷ network adoption) needs an on-chain unlock feed.
+        Connect a Dune query via repository secrets to activate this module. Until then, vesting risk
+        is shown as unavailable rather than estimated.</div>
     </div>
   </aside>
 
@@ -186,7 +186,8 @@ canvas{display:block;width:100%}
 
 <script>
 const API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=45&page=1&price_change_percentage=24h";
-const STABLES = new Set(["usdt","usdc","dai","busd","tusd","usdd","fdusd","usde","usds","pyusd","gusd","usdt","frax"]);
+// Non-speculative pegged assets excluded from all conviction math (stablecoins + commodity pegs).
+const EXCLUDED = new Set(["usdt","usdc","usd1","usdg","usds","usde","usdd","dai","busd","tusd","fdusd","frax","pyusd","gusd","u","xaut","paxg"]);
 const TIER = {
   BTC:"L1",ETH:"L1",BNB:"L1",SOL:"L1",XRP:"L1",ADA:"L1",AVAX:"L1",DOT:"L1",TRX:"L1",NEAR:"L1",ATOM:"L1",
   LINK:"L1",TON:"L1",APT:"L1",SUI:"L1",ICP:"L1",ETC:"L1",HBAR:"L1",INJ:"L1",SEI:"L1",TIA:"L1",
@@ -207,12 +208,17 @@ const fmtPrice = n=>{ if(n==null||isNaN(n))return "—";
 const cls = v=>v>0?"pos":v<0?"neg":"neu";
 const sgn = v=>(v>0?"+":"")+(v==null?0:v).toFixed(1)+"%";
 
-function tierOf(sym){const s=sym.toLowerCase(); if(STABLES.has(s))return "STABLE"; return TIER[sym]||"ALT";}
+function tierOf(sym){const s=sym.toLowerCase(); if(EXCLUDED.has(s))return "STABLE"; return TIER[sym]||"ALT";}
 
 // ---- scoring (mirrors backend) ----
-function liquidityFit(turn){ if(turn<=0)return 0; if(turn<=0.30)return 10+(turn/0.30)*20;
-  if(turn<=0.60)return 30-Math.abs(turn-0.45)/0.15*6; if(turn<=1.20)return 20-(turn-0.60)/0.60*12;
-  return Math.max(2,8-(turn-1.20)*4);}
+// LiquidityFit: linear ramp into the 30-60% turnover sweet spot; sharp penalty
+// below 10% (illiquid) and above 75% (wash-trading risk).
+function liquidityFit(turn){ if(turn<=0)return 0;
+  if(turn<0.10)return Math.max(0,turn/0.10*8);
+  if(turn<0.30)return 8+(turn-0.10)/0.20*18;
+  if(turn<=0.60)return 30-Math.abs(turn-0.45)/0.15*4;
+  if(turn<=0.75)return 26-(turn-0.60)/0.15*16;
+  return Math.max(0,10-(turn-0.75)*20);}
 function momentum(chg){ if(chg==null||isNaN(chg))return 50; if(chg<-15)return 4; if(chg<0)return 12-Math.abs(chg)*0.6;
   if(chg<=8)return 14+chg*1.0; if(chg<=20)return 20; return Math.max(8,20-(chg-20)*1.0);}
 function depthScore(mc){ if(!mc)return 0; return Math.max(0,Math.min(1,(Math.log10(mc)-6)/4.0));}
@@ -223,8 +229,9 @@ function conviction(t){ const turn=t.vol/t.mc*100; const a=liquidityFit(turn);
 function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
 
 // ---- build model ----
+// STATE is the single filtered subset consumed by every module (A, B, C).
 function build(raw){
-  return raw.filter(t=>t.symbol && !STABLES.has(t.symbol.toLowerCase())).map(t=>{
+  return raw.filter(t=>t.symbol && !EXCLUDED.has(t.symbol.toLowerCase())).map(t=>{
     const price=t.current_price, mc=t.market_cap||0, vol=t.total_volume||0;
     const turn=mc?vol/mc*100:0, chg=t.price_change_percentage_24h||0;
     const conv=conviction({vol,mc,chg}); const sig=signal(conv);
@@ -268,11 +275,12 @@ function rowConv(t,i){
 function signalClass(c){return c>=70?"pos":c>=55?"neu":"neg";}
 
 function renderTables(){
+  // All three modules render the SAME STATE array in the SAME order, so indexes align.
   const tb=$("#tbl-conv tbody"); tb.innerHTML="";
   STATE.forEach((t,i)=>tb.appendChild(rowConv(t,i)));
-  // Module A
+  // Module A — same N tokens, same order
   const la=$("#tbl-liq tbody"); la.innerHTML="";
-  STATE.slice(0,14).forEach(t=>{
+  STATE.forEach(t=>{
     const fit=liquidityFit(t.turn); const st=t.turn>=30&&t.turn<=60?["SWEET","g"]:t.turn>90?["WASH","r"]:t.turn<15?["THIN","a"]:["OK","n"];
     la.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}<span class="tier ${t.tier}">${t.tier}</span></td>
       <td class="num">${fmtUsd(t.mc)}</td><td class="num">${fmtUsd(t.vol)}</td>
@@ -280,10 +288,10 @@ function renderTables(){
       <td class="num ${fit>=70?'pos':fit>=40?'neu':'neg'}">${Math.round(fit)}</td>
       <td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`);
   });
-  STATE.forEach((t,i)=>{ const r=la.children[i]; if(r) r.onclick=()=>select(t.sym); });
-  // Module C
+  Array.from(la.children).forEach((r,i)=>{ if(STATE[i]) r.onclick=()=>select(STATE[i].sym); });
+  // Module C — same N tokens, same order
   const mc=$("#tbl-mom tbody"); mc.innerHTML="";
-  STATE.slice(0,14).forEach(t=>{
+  STATE.forEach(t=>{
     const mo=momentum(t.chg); const read=t.chg==null?"—":t.chg<-15?"CRASH":t.chg<0?"SOFT":t.chg<=8?"HEALTHY":t.chg<=20?"STRONG":"OVEREXT";
     const rc=t.chg==null?"neu":t.chg<-15?"neg":t.chg<0?"a":t.chg<=20?"pos":"a";
     mc.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}</td>
@@ -291,8 +299,8 @@ function renderTables(){
       <td class="num ${mo>=70?'pos':mo>=40?'neu':'neg'}">${Math.round(mo)}</td>
       <td class="badge ${rc}">${read}</td></tr>`);
   });
-  STATE.forEach((t,i)=>{ const r=mc.children[i]; if(r) r.onclick=()=>select(t.sym); });
-  // draw sparks
+  Array.from(mc.children).forEach((r,i)=>{ if(STATE[i]) r.onclick=()=>select(STATE[i].sym); });
+  // draw sparks (index-aligned to STATE)
   document.querySelectorAll("[data-spark]").forEach((sp,idx)=>{
     const t=STATE[idx]; if(!t)return;
     spark(sp, t.spark, 54, 14, t.chg>=0?"#7BC9A0":"#E8917F", t.chg||0);
@@ -383,9 +391,9 @@ function openDrawer(sym){
     <div class="kv"><span>Conviction</span><b class="num ${signalClass(t.conv)}">${t.conv}/100</b></div>
     <div class="kv"><span>Signal</span><b><span class="badge ${t.sig[1]}">${t.sig[0]}</span></b></div>
     <div class="kv"><span>Tier</span><b><span class="tier ${t.tier}">${t.tier}</span></b></div>
-    <div class="kv"><span>Module B ERA</span><b class="neu">null (Dune off)</b></div>
+    <div class="kv"><span>Module B ERA</span><b class="neu">unavailable</b></div>
     <div style="margin-top:14px" class="muted">${led}</div>
-    <div class="note">Sparkline uses real 7d data when available; otherwise a 24H-Δ–modeled trend (clearly not real ticks).</div>`;
+    <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>`;
   $("#drawer").classList.add("open");
 }
 function closeDrawer(){$("#drawer").classList.remove("open");}
