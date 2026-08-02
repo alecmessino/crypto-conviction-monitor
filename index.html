@@ -91,6 +91,8 @@ tr.gated:hover{background:rgba(0,255,102,0.10)}
 .alloc-w{color:var(--green);font-size:11px;text-align:right}
 .alloc-c{font-size:9px;text-align:right}
 .alloc-foot{margin-top:6px;padding-top:5px;font-size:9px;color:var(--sec);border-top:1px solid #1E293B}
+.alloc-live{font-size:8px;color:var(--tert);margin-left:4px}
+.alloc-live.warn{color:var(--amber)}
 .spark{display:inline-block;vertical-align:middle}
 
 /* Right rail charts — fixed-height boxes */
@@ -584,25 +586,32 @@ function renderIndex(){
   if(!INDEX){ wrap.innerHTML='<div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div>'; note.textContent="Cumulative basket vs market · live paper track record"; reb.textContent="—"; return; }
   const rows=INDEX.rows||[];
   reb.textContent="reb "+(INDEX.latest?.rebalanced?"✓":"·");
-  // cumulative line chart
+  // cumulative line chart (chained daily returns)
   const cv=$("#idx"), w=cv.clientWidth, h=cv.clientHeight||120; cv.width=w; cv.height=h; const x=cv.getContext("2d");
   x.clearRect(0,0,w,h);
-  if(rows.length){
-    const cumB=rows.map((_,i)=>rows.slice(0,i+1).reduce((a,r)=>a+(parseFloat(r.basket_return)||0),0));
-    const cumM=rows.map((_,i)=>rows.slice(0,i+1).reduce((a,r)=>a+(parseFloat(r.market_return)||0),0));
-    const all=cumB.concat(cumM); const lo=Math.min(0,...all), hi=Math.max(0.1,...all);
-    const px=i=>rows.length<2?w/2:8+i*(w-16)/(rows.length-1);
-    const py=v=>h-6-(v-lo)/(hi-lo||1)*(h-12);
-    const line=(arr,col)=>{x.beginPath();arr.forEach((v,i)=>{i?x.lineTo(px(i),py(v)):x.moveTo(px(i),py(v));});x.strokeStyle=col;x.lineWidth=1.5;x.stroke();};
-    line(cumM,"#475569"); line(cumB,"#00FF66");
-    x.fillStyle="#475569";x.font="7px monospace";x.fillText("mkt "+cumM[cumM.length-1].toFixed(1)+"%",px(rows.length-1)-30,py(cumM[cumM.length-1])-3);
-    x.fillStyle="#00FF66";x.fillText("basket "+cumB[cumB.length-1].toFixed(1)+"%",px(rows.length-1)-46,py(cumB[cumB.length-1])+9);
-  } else { x.fillStyle="#475569";x.font="8px monospace";x.fillText("no track record yet",8,h/2); }
-  // allocation table (live weights from current basket)
+  const cumB=[1], cumM=[1];
+  rows.forEach(r=>{ cumB.push(cumB[cumB.length-1]*(1+(parseFloat(r.basket_return)||0)/100));
+                    cumM.push(cumM[cumM.length-1]*(1+(parseFloat(r.benchmark_return)||0)/100)); });
+  const bPct=(cumB[cumB.length-1]-1)*100, mPct=(cumM[cumM.length-1]-1)*100;
+  const all=cumB.concat(cumM); const lo=Math.min(1,...all), hi=Math.max(1.001,...all);
+  const px=i=>rows.length<1?w/2:8+i*(w-16)/Math.max(1,rows.length);
+  const py=v=>h-6-(v-lo)/(hi-lo||1)*(h-12);
+  const line=(arr,col)=>{x.beginPath();arr.forEach((v,i)=>{i?x.lineTo(px(i),py(v)):x.moveTo(px(i),py(v));});x.strokeStyle=col;x.lineWidth=1.5;x.stroke();};
+  line(cumM,"#475569"); line(cumB,"#00FF66");
+  x.fillStyle="#475569";x.font="7px monospace";x.fillText("mkt "+(mPct>=0?"+":"")+mPct.toFixed(1)+"%",px(rows.length)-30,py(cumM[cumM.length-1])-3);
+  x.fillStyle="#00FF66";x.fillText("basket "+(bPct>=0?"+":"")+bPct.toFixed(1)+"%",px(rows.length)-48,py(cumB[cumB.length-1])+9);
+  // allocation table: target vs live weight + audit trail
   const hs=INDEX.current_holdings||[];
   if(hs.length){
-    wrap.innerHTML=hs.map(h=>`<div class="alloc-row"><span class="alloc-sym">${h.symbol}</span><span class="alloc-w num">${(h.weight*100).toFixed(1)}%</span><span class="muted alloc-c">conv ${h.conviction}</span></div>`).join("")
-      +`<div class="alloc-foot">cum basket ${INDEX.cumulative_basket_return?.toFixed(1)}% · mkt ${INDEX.cumulative_market_return?.toFixed(1)}% · α ${((INDEX.cumulative_basket_return||0)-(INDEX.cumulative_market_return||0)).toFixed(1)}%</div>`;
+    wrap.innerHTML=hs.map(h=>{
+      const tw=(h.target_weight*100).toFixed(1), lw=(h.live_weight*100).toFixed(1);
+      const ret=(h.return*100);
+      const driftCls = Math.abs(h.live_weight-h.target_weight)>0.01 ? "warn" : "";
+      return `<div class="alloc-row"><span class="alloc-sym">${h.ticker}</span>`
+        +`<span class="alloc-w num">${tw}%<span class="alloc-live ${driftCls}">→${lw}%</span></span>`
+        +`<span class="muted alloc-c">${ret>=0?"+":""}${ret.toFixed(1)}%</span></div>`;
+    }).join("")
+      +`<div class="alloc-foot">basket ${bPct.toFixed(1)}% · bench ${mPct.toFixed(1)}% · α ${(bPct-mPct).toFixed(1)}% (horizon-matched, total mcap)</div>`;
   } else { wrap.innerHTML='<div class="muted" style="padding:8px 12px">Basket empty.</div>'; }
 }
 function factorBreakdown(sym){

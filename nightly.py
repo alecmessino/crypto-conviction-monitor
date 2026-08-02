@@ -212,6 +212,21 @@ def _conjunctive_gate(t: dict, conv: int) -> bool:
     return bool(gate_a and gate_b and gate_c)
 
 
+def fetch_global_market_cap() -> float | None:
+    """Total crypto market cap (USD) from CoinGecko's free /global endpoint.
+
+    Used as the apples-to-apples macro benchmark: benchmark_total_return is
+    current_global / entry_global, computed over the same window as the basket.
+    Returns None on failure so the benchmark falls back to neutral (no fabrication).
+    """
+    try:
+        data = _get_json("https://api.coingecko.com/api/v3/global")
+        return float(data.get("data", {}).get("total_market_cap", {}).get("usd", 0) or 0) or None
+    except Exception as e:  # noqa: BLE001
+        print(f"[global] fetch failed: {e}", file=__import__("sys").stderr)
+        return None
+
+
 BASKET_JSON = LEDGER_DIR / "basket.json"
 INDEX_CSV = LEDGER_DIR / "index.csv"
 INDEX_JSON = LEDGER_DIR / "index.json"
@@ -219,9 +234,12 @@ REBALANCE_DAYS = 7
 
 
 def build_basket(markets: list[dict], today: str) -> dict:
-    """Conviction-weighted Top-10 basket with score-proportional weights.
+    """Conviction-weighted Top-10 basket with score-proportional target weights.
 
-    Returns the basket dict and appends a daily track-record row to index.csv/json.
+    Tracks, per day:
+      #2  benchmark via total crypto market cap (entry->now), horizon-matched.
+      #5  live-drifted weights (target * price move) vs target weights.
+      #6  per-asset audit trail (entry/current price, target/live weight, return).
     Rebalances weekly or when a holding drops out of the gated Top 10.
     """
     scored = []
@@ -262,42 +280,59 @@ def build_basket(markets: list[dict], today: str) -> dict:
         days_since = REBALANCE_DAYS
     rebalanced = (days_since >= REBALANCE_DAYS) or (not cur_syms.issubset(prev_syms))
     if rebalanced:
-        basket = {"rebalanced": today, "holdings": holdings}
+        # Snapshot the macro baseline at rebalance so the benchmark is horizon-matched.
+        gmc = fetch_global_market_cap()
+        basket = {"rebalanced": today, "entry_global_mcap": gmc, "holdings": holdings}
         BASKET_JSON.write_text(json.dumps(basket, indent=2))
     else:
-        # keep entry prices from prev basket for unchanged holdings
+        # keep entry prices + entry_global_mcap from prev basket for unchanged holdings
         basket = prev
         for h in basket.get("holdings", []):
             if h["symbol"] in cur_syms:
-                # update weight to current score-proportional weight
                 nh = next(x for x in holdings if x["symbol"] == h["symbol"])
                 h["weight"] = nh["weight"]
                 h["conviction"] = nh["conviction"]
 
-    # Rolling paper PnL vs equal-weight benchmark
+    # Live prices + benchmark
     live = {(tk.get("symbol") or "").upper(): tk.get("current_price") or 0 for tk in markets}
-    wret = 0.0
-    bench = 0.0
-    n = 0
+    gmc_now = fetch_global_market_cap()
+    entry_gmc = basket.get("entry_global_mcap") or gmc_now
+
+    # Per-asset audit trail + live-drift weights (#5, #6)
+    audit = []
+    vals = []
     for h in basket.get("holdings", []):
         cur = live.get(h["symbol"]) or 0
         ep = h.get("entry_price") or 0
+        tw = h.get("weight", 0)
         if cur and ep:
-            r = (cur - ep) / ep
-            wret += h["weight"] * r
-            bench += r / max(1, len(basket["holdings"]))
-            n += 1
-    # Benchmark: equal-weight of ALL scanned assets' 24h move as a proxy market return
-    all_chg = [t.get("price_change_percentage_24h") or 0 for t in markets]
-    mkt_ret = (sum(all_chg) / len(all_chg)) / 100.0 if all_chg else 0.0
+            ret = (cur - ep) / ep
+            v = tw * (cur / ep)          # drifted value
+        else:
+            ret = 0.0
+            v = tw
+        vals.append(v)
+        audit.append({
+            "ticker": h["symbol"], "entry_price": round(ep, 8), "current_price": round(cur, 8),
+            "target_weight": round(tw, 4), "return": round(ret, 4),
+        })
+    vtot = sum(vals) or 1
+    for a, v in zip(audit, vals):
+        a["live_weight"] = round(v / vtot, 4)
 
+    # Basket return = Σ target_weight * asset_return (target-weighted, not drifted)
+    wret = sum(a["target_weight"] * a["return"] for a in audit)
+    # Benchmark: total crypto market cap, entry -> now (horizon-matched) (#2)
+    bench_total = (gmc_now / entry_gmc) if (gmc_now and entry_gmc) else 1.0
+
+    # Append daily row + recompute cumulative from stored rows
     row = {
         "date": today,
+        "global_market_cap": round(gmc_now, 0) if gmc_now else None,
         "basket_return": round(wret * 100, 3),
-        "equal_weight_return": round(bench * 100, 3),
-        "market_return": round(mkt_ret * 100, 3),
-        "alpha_vs_market": round((wret - mkt_ret) * 100, 3),
-        "n_holdings": n,
+        "benchmark_return": round((bench_total - 1) * 100, 3),
+        "alpha_vs_benchmark": round((wret - (bench_total - 1)) * 100, 3),
+        "n_holdings": len(audit),
         "rebalanced": rebalanced,
     }
     INDEX_CSV.parent.mkdir(parents=True, exist_ok=True)
@@ -311,17 +346,19 @@ def build_basket(markets: list[dict], today: str) -> dict:
     if INDEX_CSV.exists():
         with INDEX_CSV.open(newline="", encoding="utf-8") as f:
             idx_rows = list(csv.DictReader(f))
-    cum = 0.0
-    cum_bench = 0.0
+    # Cumulative: chain daily basket returns; benchmark from stored global caps.
+    cum_basket = 1.0
     for r in idx_rows:
-        cum += float(r.get("basket_return") or 0)
-        cum_bench += float(r.get("market_return") or 0)
+        cum_basket *= (1 + (float(r.get("basket_return") or 0) / 100.0))
+    # Benchmark cumulative uses first vs last stored global mcap in the series
+    gcaps = [float(r["global_market_cap"]) for r in idx_rows if r.get("global_market_cap") not in (None, "", "None")]
+    bench_cum = (gcaps[-1] / gcaps[0]) if len(gcaps) >= 2 and gcaps[0] else 1.0
     INDEX_JSON.write_text(json.dumps({
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "latest": row,
-        "cumulative_basket_return": round(cum, 3),
-        "cumulative_market_return": round(cum_bench, 3),
-        "current_holdings": basket.get("holdings", []),
+        "basket_total_return": round(cum_basket, 4),
+        "benchmark_total_return": round(bench_cum, 4),
+        "current_holdings": audit,
         "rows": idx_rows,
     }, indent=2))
     return basket
