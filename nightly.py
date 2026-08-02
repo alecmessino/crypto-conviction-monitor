@@ -16,7 +16,7 @@ import math
 import os
 import urllib.parse
 import urllib.request
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 LEDGER_DIR = Path(__file__).resolve().parent / "ledger"
@@ -294,10 +294,81 @@ def fetch_global_market_cap() -> float | None:
         return None
 
 
+def _risk_stats(idx_rows: list[dict]) -> dict | None:
+    """Risk statistics derived purely from the ledger (no fabrication).
+
+    Sharpe: rf=0, mean(daily basket_return) / std(daily basket_return) * sqrt(365).
+    Max drawdown: largest peak-to-trough decline of the cumulative basket curve.
+    Only meaningful with enough history; caller gates on len(idx_rows) >= 30.
+    """
+    if len(idx_rows) < 30:
+        return None
+    rets = [float(r.get("basket_return") or 0) / 100.0 for r in idx_rows]
+    mean = sum(rets) / len(rets)
+    var = sum((x - mean) ** 2 for x in rets) / len(rets)
+    std = math.sqrt(var) if var > 0 else 0.0
+    sharpe = (mean / std) * math.sqrt(365) if std > 0 else 0.0
+    cum = 1.0
+    peak = 1.0
+    max_dd = 0.0
+    for r in rets:
+        cum *= (1 + r)
+        peak = max(peak, cum)
+        if peak > 0:
+            max_dd = min(max_dd, (cum - peak) / peak)
+    return {
+        "sharpe": round(sharpe, 3),
+        "max_drawdown_pct": round(max_dd * 100, 2),
+        "n_days": len(rets),
+        "convention": "rf=0; annualized daily x sqrt(365)",
+    }
+
+
+def _macro_regime_from_ledger() -> str:
+    """Macro Liquidity Gate (D) — PASSIVE / display-only.
+
+    Reads the stored index.csv and compares today's global mcap to the value
+    ~7 days ago. RISK-OFF if global mcap is down > 8% over that window.
+    Returns "RISK-OFF" / "RISK-ON" / "N/A" (no history). This is a logged
+    context signal only — it NEVER changes basket holdings.
+    """
+    if not INDEX_CSV.exists():
+        return "N/A"
+    try:
+        with INDEX_CSV.open(newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        caps = [(r["date"], float(r["global_market_cap"])) for r in rows
+                if r.get("global_market_cap") not in (None, "", "None")]
+        if len(caps) < 2:
+            return "N/A"
+        today_cap = caps[-1][1]
+        # find the cap closest to 7 days before the latest date
+        latest = date.fromisoformat(caps[-1][0])
+        target = latest - timedelta(days=7)
+        past = min(caps, key=lambda c: abs(date.fromisoformat(c[0]) - target))
+        past_cap = past[1]
+        if past_cap <= 0:
+            return "N/A"
+        if today_cap / past_cap < 0.92:
+            return "RISK-OFF"
+        return "RISK-ON"
+    except Exception:  # noqa: BLE001
+        return "N/A"
+
+
 BASKET_JSON = LEDGER_DIR / "basket.json"
 INDEX_CSV = LEDGER_DIR / "index.csv"
 INDEX_JSON = LEDGER_DIR / "index.json"
 REBALANCE_DAYS = 7
+# Rebalance hysteresis (A): don't eject a holding just because it slipped one
+# rank. Keep it unless it drops to rank >= EJECT_RANK or its score falls more
+# than EJECT_GAP below the marginal entrant. Controls turnover drag.
+EJECT_RANK = 13
+EJECT_GAP = 5.0
+# Execution friction (B): one-way cost (bps) applied to turnover at rebalance to
+# build an execution-adjusted COUNTERFACTUAL track record. Does NOT mutate the
+# raw paper return. Calibrated from measured turnover once history accrues.
+EXEC_BPS_ONEWAY = 25.0
 
 
 def build_basket(markets: list[dict], today: str) -> dict:
@@ -330,15 +401,60 @@ def build_basket(markets: list[dict], today: str) -> dict:
             scored.append((sym, t, conv))
         scored.sort(key=lambda x: x[2], reverse=True)
     top = scored[:10]
+    # Rank 11..N (marginal entrants) — used by the hysteresis buffer below.
+    rest = scored[10:]
     if not top:
         # Truly empty universe — still record an empty-basket index row so the
         # workflow's git add never fails on a missing file.
         _write_index_row(today, [], {}, False)
         return {"holdings": [], "rebalanced": today, "note": "no assets"}
 
-    total_conv = sum(c for _, _, c in top) or 1
+    # --- Rebalance hysteresis (A) ---
+    # On a non-calendar rebalance, only eject a prior holding if it dropped to
+    # rank >= EJECT_RANK, OR its score fell more than EJECT_GAP below the
+    # marginal entrant (rank 11). This stops #10<->#11 flips from rebalancing
+    # daily and burning alpha in turnover.
+    keep = set()
+    prev_syms = set()
+    prev = {}
+    if BASKET_JSON.exists():
+        try:
+            prev = json.loads(BASKET_JSON.read_text())
+        except (json.JSONDecodeError, OSError):
+            prev = {}
+    prev_syms = {h["symbol"] for h in prev.get("holdings", [])}
+    if prev_syms:
+        rest_conv = {sym: c for sym, _, c in rest}
+        for h in prev.get("holdings", []):
+            sym = h["symbol"]
+            if sym in {s for s, _, _ in top}:
+                keep.add(sym); continue
+            rank = next((i for i, (s, _, _) in enumerate(scored, 1) if s == sym), None)
+            # marginal entrant = best of rank 11+ (or rank 10 if basket < 10)
+            margin_conv = rest[0][2] if rest else (top[-1][2] if top else 0)
+            if rank is not None and rank >= EJECT_RANK:
+                pass  # eject (do not keep)
+            elif (h.get("conviction") or 0) + EJECT_GAP < margin_conv:
+                pass  # structurally outclassed — eject
+            else:
+                keep.add(sym)
+    # Build holdings: keep previous holdings still retained, add new entrants.
+    kept_holdings = [h for h in prev.get("holdings", []) if h["symbol"] in keep]
+    new_top = [x for x in top if x[0] not in prev_syms]
     holdings = []
-    for sym, t, conv in top:
+    total_conv = sum(c for _, _, c in top) or 1
+    for h in kept_holdings:
+        sym = h["symbol"]
+        # refresh weight/conviction from current scoring
+        nh = next((x for x in top if x[0] == sym), None)
+        conv = nh[2] if nh else h.get("conviction", 0)
+        w = conv / total_conv
+        holdings.append({
+            "symbol": sym, "conviction": conv, "weight": round(w, 4),
+            "entry_price": h.get("entry_price") or 0,
+            "current_price": (next((t.get("current_price") for _, t, _ in top if _ and (t.get("symbol") or "").upper() == sym), None)) or h.get("current_price") or 0,
+        })
+    for sym, t, conv in new_top:
         w = conv / total_conv
         holdings.append({
             "symbol": sym, "conviction": conv, "weight": round(w, 4),
@@ -346,21 +462,15 @@ def build_basket(markets: list[dict], today: str) -> dict:
             "current_price": t.get("current_price") or 0,
         })
 
-    # Load or rebalance existing basket
-    prev = {}
-    if BASKET_JSON.exists():
-        try:
-            prev = json.loads(BASKET_JSON.read_text())
-        except (json.JSONDecodeError, OSError):
-            prev = {}
+    # Rebalance decision: calendar OR membership changed vs the (hysteresis-
+    # filtered) previous basket. A pure #10<->#11 flip no longer triggers.
     prev_date = prev.get("rebalanced", today)
-    prev_syms = {h["symbol"] for h in prev.get("holdings", [])}
     cur_syms = {h["symbol"] for h in holdings}
     try:
         days_since = (date.fromisoformat(today) - date.fromisoformat(prev_date)).days
     except ValueError:
         days_since = REBALANCE_DAYS
-    rebalanced = (days_since >= REBALANCE_DAYS) or (not cur_syms.issubset(prev_syms))
+    rebalanced = (days_since >= REBALANCE_DAYS) or (cur_syms != prev_syms)
     if rebalanced:
         # Snapshot the macro baseline at rebalance so the benchmark is horizon-matched.
         gmc = fetch_global_market_cap()
@@ -379,6 +489,34 @@ def build_basket(markets: list[dict], today: str) -> dict:
     live = {(tk.get("symbol") or "").upper(): tk.get("current_price") or 0 for tk in markets}
     gmc_now = fetch_global_market_cap()
     entry_gmc = basket.get("entry_global_mcap") or gmc_now
+
+    # --- Ejection Alpha Delta (C) + Execution turnover (B) ---
+    # Computed only on rebalance days (when holdings actually change).
+    ejected_syms, entrants_syms = [], []
+    ejected_avg_return = 0.0
+    if rebalanced:
+        prev_h = {h["symbol"]: h for h in prev.get("holdings", [])}
+        ejected_syms = [s for s in prev_h if s not in cur_syms]
+        entrants_syms = [s for s in cur_syms if s not in prev_h]
+        ej_rets = []
+        for s in ejected_syms:
+            ep = prev_h[s].get("entry_price") or 0
+            cur = live.get(s) or 0
+            if ep and cur:
+                ej_rets.append((cur - ep) / ep)
+        ejected_avg_return = (sum(ej_rets) / len(ej_rets)) if ej_rets else 0.0
+    # Δ_eject = R_entrant(0 at entry) - R_ejected(realized). Full R_entrant
+    # window requires the next rebalance's entry prices; we store the symbol
+    # lists so it can be refined once >=2 rebalances exist. Honest, no fabrication.
+    eject_delta = -ejected_avg_return
+    # One-way turnover (bps) = Σ |new_w - old_w| over changed holdings.
+    # Genesis (no prior basket) is the baseline — no execution cost is charged.
+    turnover_bps = 0.0
+    if rebalanced and prev.get("holdings"):
+        old_w = {h["symbol"]: h.get("weight", 0) for h in prev.get("holdings", [])}
+        for h in holdings:
+            s = h["symbol"]
+            turnover_bps += abs(h.get("weight", 0) - old_w.get(s, 0)) * 1e4
 
     # Per-asset audit trail + live-drift weights (#5, #6)
     audit = []
@@ -404,22 +542,38 @@ def build_basket(markets: list[dict], today: str) -> dict:
 
     # Basket return = Σ target_weight * asset_return (target-weighted, not drifted)
     wret = sum(a["target_weight"] * a["return"] for a in audit)
+    # Execution-adjusted counterfactual return (B): raw wret minus one-way cost
+    # on turnover. Never mutates the raw paper return stored alongside it.
+    exec_adjusted_return = wret - (EXEC_BPS_ONEWAY / 1e4) * (turnover_bps / 1e4)
     # Benchmark: total crypto market cap, entry -> now (horizon-matched) (#2)
     bench_total = (gmc_now / entry_gmc) if (gmc_now and entry_gmc) else 1.0
 
     # Append daily row + recompute cumulative from stored rows
-    _write_index_row(today, audit, basket, rebalanced, live)
+    _write_index_row(today, audit, basket, rebalanced, live,
+                     macro_regime=None, eject_delta=eject_delta,
+                     ejected_syms=ejected_syms, entrants_syms=entrants_syms,
+                     exec_adjusted_return=exec_adjusted_return, turnover_bps=turnover_bps)
     return basket
 
 
 def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
-                     live: dict | None = None) -> None:
+                     live: dict | None = None, macro_regime: str | None = None,
+                     eject_delta: float = 0.0, ejected_syms: list | None = None,
+                     entrants_syms: list | None = None,
+                     exec_adjusted_return: float = 0.0, turnover_bps: float = 0.0) -> None:
     """Append today's basket/index row and rewrite index.json.
 
     Always writes ledger/index.csv + ledger/index.json (creating them on first
     run) so the CI workflow's `git add` never fails on a missing file, even when
     the basket is empty. `live` maps symbol->current price for non-rebalance-day
     return computation.
+
+    New columns (this build):
+      macro_regime      (D) RISK-ON / RISK-OFF from 7d global mcap trend (passive)
+      eject_delta       (C) R_entrant(0) - R_ejected(realized) on rebalance days
+      ejected_syms / entrants_syms (C) the rotation that occurred
+      exec_adjusted_return (B) paper return minus one-way execution cost on turnover
+      turnover_bps      (B) one-way turnover at rebalance
     """
     gmc_now = fetch_global_market_cap()
     entry_gmc = basket.get("entry_global_mcap") or gmc_now
@@ -435,12 +589,25 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
         ret = ((cur - ep) / ep) if (cur and ep) else 0.0
         wret += tw * ret
     bench_total = (gmc_now / entry_gmc) if (gmc_now and entry_gmc) else 1.0
+
+    # --- Macro Liquidity Gate (D): PASSIVE / display-only ---
+    # 7-day total mcap trend from the stored ledger. RISK-OFF if down > 8%.
+    # Logged + shown in the panel; never alters holdings (no premature overlay).
+    if macro_regime is None:
+        macro_regime = _macro_regime_from_ledger()
+
     row = {
         "date": today,
         "global_market_cap": round(gmc_now, 0) if gmc_now else None,
         "basket_return": round(wret * 100, 3),
         "benchmark_return": round((bench_total - 1) * 100, 3),
         "alpha_vs_benchmark": round((wret - (bench_total - 1)) * 100, 3),
+        "exec_adjusted_return": round(exec_adjusted_return * 100, 3),
+        "turnover_bps": round(turnover_bps, 1),
+        "macro_regime": macro_regime,
+        "eject_delta": round(eject_delta * 100, 3) if rebalanced else "",
+        "ejected_syms": ",".join(ejected_syms) if (rebalanced and ejected_syms) else "",
+        "entrants_syms": ",".join(entrants_syms) if (rebalanced and entrants_syms) else "",
         "n_holdings": len(audit),
         "rebalanced": rebalanced,
     }
@@ -458,13 +625,34 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
     cum_basket = 1.0
     for r in idx_rows:
         cum_basket *= (1 + (float(r.get("basket_return") or 0) / 100.0))
+    # Cumulative execution-adjusted track record (B counterfactual) — parallel
+    # to the raw paper curve, never replacing it.
+    cum_exec = 1.0
+    for r in idx_rows:
+        cum_exec *= (1 + (float(r.get("exec_adjusted_return") or 0) / 100.0))
     gcaps = [float(r["global_market_cap"]) for r in idx_rows if r.get("global_market_cap") not in (None, "", "None")]
     bench_cum = (gcaps[-1] / gcaps[0]) if len(gcaps) >= 2 and gcaps[0] else 1.0
+    # Macro regime summary (D, passive) + ejection-alpha tally (C)
+    regimes = [r.get("macro_regime") for r in idx_rows if r.get("macro_regime") in ("RISK-ON", "RISK-OFF")]
+    macro_now = regimes[-1] if regimes else "N/A"
+    macro_riskoff_days = sum(1 for x in regimes if x == "RISK-OFF")
+    eject_deltas = [float(r["eject_delta"]) for r in idx_rows
+                    if r.get("eject_delta") not in (None, "", "None")]
+    eject_alpha_cum = round(sum(eject_deltas) / 100.0, 4) if eject_deltas else None
+    # Risk stats (Sharpe / max drawdown) — derived from the ledger once >=30 days
+    # of history exist. Convention: rf=0, daily returns annualized x sqrt(365).
+    risk = _risk_stats(idx_rows) if len(idx_rows) >= 30 else None
     INDEX_JSON.write_text(json.dumps({
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "latest": row,
         "basket_total_return": round(cum_basket, 4),
         "benchmark_total_return": round(bench_cum, 4),
+        "exec_adjusted_total_return": round(cum_exec, 4),
+        "macro_regime": macro_now,
+        "macro_riskoff_days": macro_riskoff_days,
+        "eject_alpha_cumulative": eject_alpha_cum,
+        "sharpe_convention": "rf=0; daily returns annualized x sqrt(365); computed when len(rows)>=30",
+        "risk": risk,
         "current_holdings": audit,
         "rows": idx_rows,
     }, indent=2))

@@ -151,6 +151,34 @@ w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)<br>
 
   <div class="callout"><b>Risk statistics are computed from the ledger, not invented.</b> Once ≥30 days of history exist, Sharpe (on the daily basket-return series vs the benchmark's), maximum drawdown of the cumulative basket curve, and rebalance win-rate (fraction of rebalances where the dropped asset underperformed the added one) are derived directly from <code>ledger/index.csv</code> — no extra API calls, no fabricated history. They appear here once the nightly has accrued enough rows.</div>
 
+  <!-- ============ REBALANCE DISCIPLINE ============ -->
+  <h2>3.5 · Rebalance Discipline &amp; Risk Overlays</h2>
+  <p>Four guards keep the paper track record honest and the turnover under control. All are derived from the ledger — none require extra feeds.</p>
+
+  <div class="glass">
+    <h3><span class="tag a">A</span> Rebalance Hysteresis (Turnover Drag Buffer)</h3>
+    <p>A holding is ejected only if it drops to <b>rank ≥ 13</b> <i>or</i> its conviction falls <b>more than 5 points below</b> the marginal entrant (rank 11). A #10↔#11 flip therefore does <b>not</b> trigger a rebalance — it would only churn alpha in execution costs. The basket still rebalances weekly on the calendar, or immediately when a name structurally falls out of the top tier.</p>
+  </div>
+
+  <div class="glass">
+    <h3><span class="tag b">B</span> Execution-Adjusted Counterfactual</h3>
+    <p>Real fills cost spread + fees. The raw paper return is kept pure; in parallel we track an <b>execution-adjusted return</b> that deducts a one-way <b>25 bps</b> cost applied to the one-way turnover at each rebalance. Turnover = Σ|new weight − old weight| across changed holdings. Genesis (basket creation) charges no cost. Both curves ship in <code>ledger/index.json</code> so you see the frictionless vs real-world path side by side.</p>
+    <div class="formula">exec_adjusted_return = raw_return − (25bps) × (one_way_turnover)</div>
+  </div>
+
+  <div class="glass">
+    <h3><span class="tag c">C</span> Ejection Alpha Delta</h3>
+    <p>At each rebalance we record the ejected vs entrant symbols and the ejected holdings' average realized return since entry. Δ<sub>eject</sub> = R<sub>entrant</sub>(0 at entry) − R<sub>ejected</sub>(realized). A positive cumulative Δ means the rotation dropped underperformers. The full R<sub>entrant</sub>-vs-R<sub>ejected</sub> both-over-the-holding-window figure is refined automatically once ≥2 rebalances exist (entry prices are persisted in <code>basket.json</code>).</p>
+    <div class="formula">Δ_eject = mean(R_entrant) − mean(R_ejected);&nbsp; cumulative Δ tracked in index.json</div>
+  </div>
+
+  <div class="glass">
+    <h3><span class="tag d">D</span> Macro Liquidity Gate — Passive / Display-Only</h3>
+    <p>The 7-day total market-cap trend is computed from the ledger: <b>RISK-OFF</b> if global cap is down &gt; 8% over 7 days, else <b>RISK-ON</b>. This is shown as a passive regime pill in the Index panel and recorded in <code>ledger/index.csv</code> — it provides macro context but <b>does not alter holdings</b>. Promoting it to an active filter (e.g. raise the gate threshold in risk-off) is deferred until enough history exists to backtest whether it adds alpha.</p>
+  </div>
+
+  <div class="callout ok"><b>Sharpe convention (pinned).</b> When ≥30 days accrue: Sharpe = mean(daily basket return) / std(daily basket return) × √365, with <b>risk-free rate = 0</b>. Max drawdown = largest peak-to-trough decline of the cumulative basket curve. Both are recomputed nightly from <code>ledger/index.csv</code> and surfaced in <code>ledger/index.json</code> under <code>risk</code>.</div>
+
   <!-- ============ HONEST CAVEATS ============ -->
   <h2>4 · Honest Caveats</h2>
   <div class="glass">

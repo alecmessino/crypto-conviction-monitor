@@ -42,6 +42,9 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 .switches{display:flex;gap:4px;margin-top:8px}
 .sw{flex:1;text-align:center;padding:5px 0;border:1px solid var(--border);border-radius:4px;color:var(--sec);cursor:pointer;font-size:10px;user-select:none}
 .sw.on{background:rgba(59,130,246,0.18);color:var(--txt);border-color:var(--blue)}
+.pill{font-size:8px;letter-spacing:.5px;color:var(--tert);border:1px solid var(--border);border-radius:10px;padding:2px 8px;white-space:nowrap}
+.pill.on{color:var(--green);border-color:rgba(123,201,160,.4)}
+.pill.off{color:var(--red);border-color:rgba(232,145,127,.4)}
 
 /* Center tables */
 .col-center{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0}
@@ -232,6 +235,10 @@ canvas{display:block;width:100%}
     </div>
     <div class="glass">
       <div class="card-h">CONVICTION-WEIGHTED INDEX <span class="muted" id="idx-rebal">—</span></div>
+      <div style="display:flex;gap:6px;align-items:center;padding:5px 12px 0;flex-wrap:wrap">
+        <span class="pill" id="idx-snapshot">NIGHTLY SNAPSHOT · 06:17 UTC</span>
+        <span class="pill" id="idx-macro" style="display:none"></span>
+      </div>
       <div class="chart-box"><canvas id="idx" height="120" style="height:120px"></canvas>
         <div class="muted" id="idx-note">Cumulative basket vs market · live paper track record</div></div>
       <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
@@ -591,10 +598,17 @@ function alphaMap(){
 }
 function heat(){ alphaMap(); } // alias kept for any stale caller
 function renderIndex(){
-  const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal");
-  if(!INDEX){ wrap.innerHTML='<div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div>'; note.textContent="Cumulative basket vs market · live paper track record"; reb.textContent="—"; return; }
+  const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal"), snap=$("#idx-snapshot"), macro=$("#idx-macro");
+  if(!INDEX){ wrap.innerHTML='<div class="muted" style="padding:8px 12px">Awaiting Nightly Ledger Run — the index track record will compound automatically once the GitHub Actions workflow executes (06:17 UTC daily).</div>'; note.textContent="Cumulative basket vs market · live paper track record"; reb.textContent="—"; if(snap) snap.style.display="none"; if(macro) macro.style.display="none"; return; }
   const rows=INDEX.rows||[];
   reb.textContent="reb "+(INDEX.latest?.rebalanced?"✓":"·");
+  // Macro Liquidity Gate (D) — passive display only
+  const reg=INDEX.macro_regime||"N/A";
+  if(macro){
+    if(reg==="RISK-OFF"){ macro.textContent="MACRO · RISK-OFF"; macro.className="pill off"; macro.style.display=""; }
+    else if(reg==="RISK-ON"){ macro.textContent="MACRO · RISK-ON"; macro.className="pill on"; macro.style.display=""; }
+    else { macro.style.display="none"; }
+  }
   // cumulative line chart (chained daily returns)
   const cv=$("#idx"), w=cv.clientWidth, h=cv.clientHeight||120; cv.width=w; cv.height=h; const x=cv.getContext("2d");
   x.clearRect(0,0,w,h);
@@ -620,7 +634,7 @@ function renderIndex(){
         +`<span class="alloc-w num">${tw}%<span class="alloc-live ${driftCls}">→${lw}%</span></span>`
         +`<span class="muted alloc-c">${ret>=0?"+":""}${ret.toFixed(1)}%</span></div>`;
     }).join("")
-      +`<div class="alloc-foot">basket ${bPct.toFixed(1)}% · bench ${mPct.toFixed(1)}% · α ${(bPct-mPct).toFixed(1)}% (horizon-matched, total mcap)</div>`;
+      +`<div class="alloc-foot">basket ${bPct.toFixed(1)}% · bench ${mPct.toFixed(1)}% · α ${(bPct-mPct).toFixed(1)}% · exec-adj ${(((INDEX.exec_adjusted_total_return||1)-1)*100).toFixed(1)}% (horizon-matched, total mcap)</div>`;
   } else { wrap.innerHTML='<div class="muted" style="padding:8px 12px">Basket empty.</div>'; }
 }
 function factorBreakdown(sym){
