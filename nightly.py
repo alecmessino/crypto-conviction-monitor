@@ -84,11 +84,39 @@ def _num(v):
         return None
 
 
-def fetch_markets(per_page: int = 250) -> list[dict]:
-    url = ("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd"
-           "&order=market_cap_desc&page=1&price_change_percentage=24h"
-           f"&per_page={per_page}")
-    return _get_json(url)
+def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5) -> list[dict]:
+    """Fetch the full universe in chunked pages with exponential backoff on 429.
+
+    Splits `total` coins across multiple /coins/markets pages (CoinGecko caps
+    per_page at 250 and rate-limits free keys), sleeping between calls so the
+    job stays under the per-IP budget. On HTTP 429 it backs off and retries.
+    """
+    import time
+    out: list[dict] = []
+    pages = max(1, (total + per_page - 1) // per_page)
+    for page in range(1, pages + 1):
+        url = (f"{DUNE_BASE.replace('/api/v1', '')}/coins/markets?vs_currency=usd"
+               f"&order=market_cap_desc&per_page={per_page}&page={page}"
+               f"&price_change_percentage=24h")
+        backoff = 5.0
+        for attempt in range(4):
+            try:
+                data = _get_json(url)
+                if isinstance(data, list):
+                    out.extend(data)
+                break
+            except urllib.error.HTTPError as e:
+                if getattr(e, "code", None) == 429:
+                    print(f"[429] page {page} attempt {attempt+1}: backing off {backoff:.0f}s",
+                          file=__import__("sys").stderr)
+                    time.sleep(backoff)
+                    backoff = min(backoff * 2, 60)
+                else:
+                    raise
+        else:
+            print(f"[warn] page {page} gave up after retries", file=__import__("sys").stderr)
+        time.sleep(delay)
+    return out
 
 
 def score(t: dict) -> tuple[float, int, str]:

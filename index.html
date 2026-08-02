@@ -75,6 +75,8 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 tr.div{background:rgba(224,179,114,0.06)}
 tr.div:hover{background:rgba(224,179,114,0.12)}
 tr.held{background:rgba(59,130,246,0.14);box-shadow:inset 3px 0 0 var(--blue)}
+tr.gated{box-shadow:inset 3px 0 0 #00FF66;background:rgba(0,255,102,0.05)}
+tr.gated:hover{background:rgba(0,255,102,0.10)}
 .spark{display:inline-block;vertical-align:middle}
 
 /* Right rail charts — fixed-height boxes */
@@ -118,7 +120,8 @@ canvas{display:block;width:100%}
         <div class="kv"><span>Module B (Dune)</span><b id="sys-dune" class="neu">OFF</b></div>
         <div class="kv"><span>Universe</span><b id="sys-n" class="num">—</b></div>
         <div class="kv"><span>Rate limit</span><b id="sys-rl" class="neu">—</b></div>
-        <div class="note" style="padding:8px 0 0">Module B (ERA / vesting) needs an on-chain unlock feed. Connect a Dune query via repository secret <b>DUNE_API_KEY</b> + <b>DUNE_UNLOCK_QUERY_ID</b> so the nightly job populates it. Until then it shows <b>null</b> — never fabricated.</div>
+        <div class="kv"><span>Skew Qualified</span><b id="sys-skew" class="num">—</b></div>
+        <div class="note" style="padding:8px 0 0">Module B uses a live <b>FDV/MCap dilution proxy</b> (real CoinGecko payload) until a Dune unlock feed is connected via repo secret <b>DUNE_API_KEY</b> + <b>DUNE_UNLOCK_QUERY_ID</b> (on-chain override). No fabricated numbers.</div>
         <div class="switches" id="tf">
           <div class="sw on" data-tf="24h">24H</div>
           <div class="sw" data-tf="7d">7D</div>
@@ -150,7 +153,13 @@ canvas{display:block;width:100%}
   <!-- CENTER -->
   <main class="col-center">
     <div class="glass">
-      <div class="card-h">CONVICTION MATRIX <span id="cm-note" class="muted">top 10 · scroll for more · click a row</span></div>
+      <div class="card-h">CONVICTION MATRIX <span id="cm-note" class="muted">top 10 · scroll · click a row</span></div>
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border)">
+        <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--sec);cursor:pointer;user-select:none">
+          <input type="checkbox" id="hide-nq" style="accent-color:#00FF66;cursor:pointer"> <b style="color:#00FF66">HIDE NON-QUALIFIED</b>
+        </label>
+        <span id="skew" class="muted" style="margin-left:auto"></span>
+      </div>
       <div class="scroll-pane">
         <table id="tbl-conv"><thead><tr>
           <th>#</th><th>Ticker</th><th>Price</th><th>24H Δ</th><th>Spark</th>
@@ -286,8 +295,24 @@ function build(raw){
     return {id:t.id,sym:(t.symbol||"").toUpperCase(),name:t.name,price,mc,vol,turn,chg,conv,sig,
       tier:tierOf(t.symbol), spark:t.sparkline_in_7d?.price||null,
       ath, atl, z:Math.round(z*100)/100, divergence,
-      high24:t.high_24h||0, low24:t.low_24h||0, mcapChg};
-  }).sort((a,b)=>b.conv-a.conv);
+      high24:t.high_24h||0, low24:t.low_24h||0, mcapChg,
+      fdv:t.fully_diluted_valuation||0};
+  }).sort((a,b)=>b.conv-a.conv).map(t=>{
+    // Module B proxy ERA from real payload: structural dilution vs 24h volume interest.
+    // PROXY ERA = ((FDV/MC) - 1) / (24h volume %). Null when FDV missing or vol% ~ 0.
+    let proxyEra=null, dilution=null;
+    if(t.fdv>0 && t.mc>0){
+      dilution=t.fdv/t.mc;
+      const volPct=Math.abs(t.chg)|| (t.vol/t.mc*100);
+      if(volPct>0.01) proxyEra=Math.round(((dilution-1)/volPct)*1000)/1000;
+    }
+    // Conjunctive gate: Liquidity + Dilution + Regime.
+    const L=computeLAVL(t);
+    const gateA = t.turn>=30 && t.turn<=60;
+    const gateB = proxyEra==null ? (dilution==null||dilution<=2.0) : (proxyEra<=1.5 && dilution<=2.0);
+    const gateC = L.band!=="COMPRESS" && L.band!=="LIQ TRAP" && t.turn<90;
+    return {...t, proxyEra, dilution, lavl:L.lavl, lavlBand:L.band, gated: gateA&&gateB&&gateC};
+  });
 }
 
 // gradient color for a signed percentage (neon green -> deep crimson)
@@ -350,8 +375,8 @@ let flashT;
 function flash(msg){ const s=$("#status"); const old=s.textContent; s.textContent=msg; s.className="live";
   clearTimeout(flashT); flashT=setTimeout(()=>{s.textContent=old; s.className="";},1400); }
 
-function rowConv(t,i){
-  const tr=document.createElement("tr"); tr.className="row"+(t.divergence?" div":""); tr.dataset.sym=t.sym;
+function rowConv(t,i,gated){
+  const tr=document.createElement("tr"); tr.className="row"+(t.divergence?" div":"")+(gated?" gated":""); tr.dataset.sym=t.sym;
   const zc=t.z>0.5?"neg":t.z<-0.5?"pos":"neu"; // far above ATH = overbought(red), far below ATL = oversold(green)
   const div=t.divergence?'<span class="badge a" title="Price soft / liquidity rising — accumulation">ACCUM</span>':'';
   tr.innerHTML=`<td class="muted num">${i+1}</td>
@@ -371,14 +396,16 @@ function rowConv(t,i){
 function signalClass(c){return c>=70?"pos":c>=55?"neu":"neg";}
 
 function renderTables(){
-  // All three modules render the SAME STATE subset in the SAME order, so indexes align.
-  // Initial view: top 10 rows; the pane scrolls for the rest.
-  const VIEW = STATE.slice(0,10);
+  // Conjunctive gate: qualified coins clear Liquidity + Dilution + Regime.
+  const gated = STATE.filter(t=>t.gated);
+  const hide = document.getElementById("hide-nq")?.checked;
+  // When filtering, show ALL qualified tokens (they should be few); else top 10 by conviction.
+  const VIEW = hide ? gated : STATE.slice(0,10);
   const tb=$("#tbl-conv tbody"); tb.innerHTML="";
-  VIEW.forEach((t,i)=>tb.appendChild(rowConv(t,i)));
+  VIEW.forEach((t,i)=>tb.appendChild(rowConv(t,i,t.gated)));
   // Module A
   const la=$("#tbl-liq tbody"); la.innerHTML="";
-  VIEW.forEach(t=>{
+  (hide?gated:STATE).slice(0,hide?gated.length:10).forEach(t=>{
     const raw=liquidityFit(t.turn);
     const fit=Math.max(6,raw); // trailing residual floor — never hard-flats to 0
     const st=t.turn>=30&&t.turn<=60?["SWEET","g"]:t.turn>90?["WASH","r"]:t.turn<15?["THIN","a"]:["OK","n"];
@@ -388,10 +415,10 @@ function renderTables(){
       <td class="num ${fit>=70?'pos':fit>=40?'neu':'neg'}">${Math.round(fit)}</td>
       <td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`);
   });
-  Array.from(la.children).forEach((r,i)=>{ if(VIEW[i]) r.onclick=()=>select(VIEW[i].sym); });
+  Array.from(la.children).forEach((r,i)=>{ const v=(hide?gated:STATE).slice(0,hide?gated.length:10); if(v[i]) r.onclick=()=>select(v[i].sym); });
   // Module C
   const mc=$("#tbl-mom tbody"); mc.innerHTML="";
-  VIEW.forEach(t=>{
+  (hide?gated:STATE).slice(0,hide?gated.length:10).forEach(t=>{
     const mo=momentum(t.chg); const read=t.chg==null?"—":t.chg<-15?"CRASH":t.chg<0?"SOFT":t.chg<=8?"HEALTHY":t.chg<=20?"STRONG":"OVEREXT";
     const rc=t.chg==null?"neu":t.chg<-15?"neg":t.chg<0?"a":t.chg<=20?"pos":"a";
     mc.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}</td>
@@ -399,10 +426,11 @@ function renderTables(){
       <td class="num ${mo>=70?'pos':mo>=40?'neu':'neg'}">${Math.round(mo)}</td>
       <td class="badge ${rc}">${read}</td></tr>`);
   });
-  Array.from(mc.children).forEach((r,i)=>{ if(VIEW[i]) r.onclick=()=>select(VIEW[i].sym); });
+  const vc=(hide?gated:STATE).slice(0,hide?gated.length:10);
+  Array.from(mc.children).forEach((r,i)=>{ if(vc[i]) r.onclick=()=>select(vc[i].sym); });
   // Module D — LAVL alpha engine (same VIEW subset, index-aligned)
   const ld=$("#tbl-lavl tbody"); ld.innerHTML="";
-  VIEW.forEach(t=>{
+  vc.forEach(t=>{
     const L=computeLAVL(t);
     ld.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}</td>
       <td class="num ${L.velo>=1?'pos':L.velo<=-1?'neg':'neu'}">${L.velo>0?'+':''}${L.velo.toFixed(2)}</td>
@@ -411,16 +439,22 @@ function renderTables(){
       <td class="num ${L.lavl>2.5?'pos':L.lavl<-1?'neg':L.lavl>=0.5?'neu':'a'}">${L.lavl>0?'+':''}${L.lavl.toFixed(2)}</td>
       <td><span class="badge ${lavlBandClass(L.band)}">${L.band}</span></td></tr>`);
   });
-  Array.from(ld.children).forEach((r,i)=>{ if(VIEW[i]) r.onclick=()=>select(VIEW[i].sym); });
-  // notes reflect rendered/total counts
+  Array.from(ld.children).forEach((r,i)=>{ if(vc[i]) r.onclick=()=>select(vc[i].sym); });
+  // Skew Health readout (real ratio)
+  const pct = STATE.length? (gated.length/STATE.length*100):0;
+  $("#skew").textContent = `QUALIFIED ${gated.length}/${STATE.length} (${pct.toFixed(2)}%)`;
+  $("#sys-skew").textContent = `${gated.length}/${STATE.length} (${pct.toFixed(2)}%)`;
+  // notes
   const note=n=>`top ${Math.min(10,n)} of ${STATE.length} · scroll`;
-  $("#cm-note").textContent=note(STATE.length)+" · click a row";
-  $("#lia-note").textContent=note(STATE.length); $("#mom-note").textContent=note(STATE.length);
+  $("#cm-note").textContent=(hide?`${gated.length} QUALIFIED`:note(STATE.length))+" · click a row";
+  $("#lia-note").textContent=hide?`${gated.length} QUALIFIED`:note(STATE.length);
+  $("#mom-note").textContent=hide?`${gated.length} QUALIFIED`:note(STATE.length);
   // draw sparks (index-aligned to VIEW)
   document.querySelectorAll("[data-spark]").forEach((sp,idx)=>{
     const t=VIEW[idx]; if(!t)return;
     spark(sp, t.spark, 54, 14, t.chg>=0?"#7BC9A0":"#E8917F", t.chg||0);
   });
+  quad();
 }
 
 // ---- ribbon / left ----
@@ -455,8 +489,18 @@ function quad(){
   x.beginPath(); x.moveTo(px(mx),pad); x.lineTo(px(mx),h-pad); x.moveTo(pad,py(my)); x.lineTo(w-pad,py(my)); x.stroke(); x.setLineDash([]);
   STATE.forEach(t=>{
     const r=4+Math.sqrt(t.mc/1e9)/6; const cx=px(t.turn), cy=py(Math.log10(t.vol+1));
-    x.beginPath(); x.arc(cx,cy,r,0,7); x.fillStyle=t.sym===SEL?"#3B82F6":(t.conv>=70?"rgba(123,201,160,.7)":"rgba(148,163,184,.5)");
-    x.fill(); x.fillStyle="#E2E8F0"; x.font="8px monospace"; x.fillText(t.sym,cx+4,cy-4);
+    const gated=t.gated;
+    if(gated){
+      x.beginPath(); x.arc(cx,cy,9,0,7); x.fillStyle="#00FF66";
+      x.shadowColor="#00FF66"; x.shadowBlur=8; x.fill(); x.shadowBlur=0;
+      x.lineWidth=2; x.strokeStyle="#00FF66"; x.stroke();
+    } else {
+      x.beginPath(); x.arc(cx,cy,Math.max(2,r*0.45),0,7);
+      x.fillStyle=t.sym===SEL?"rgba(59,130,246,.6)":"rgba(40,52,71,0.25)";
+      x.fill();
+    }
+    x.fillStyle=gated?"#00FF66":"#475569"; x.font=(gated?"bold 8px":"8px")+" monospace";
+    x.fillText(t.sym,cx+4,cy-4);
   });
   x.fillStyle="#475569"; x.font="8px monospace";
   x.fillText("HIGH VEL/LOW LIQ",px(mx)+4,py(my)-4);
@@ -564,6 +608,9 @@ document.querySelectorAll("#tf .sw").forEach(s=>s.onclick=()=>{
   document.querySelectorAll("#tf .sw").forEach(x=>x.classList.remove("on")); s.classList.add("on");
   $("#cm-note").textContent="view: "+s.dataset.tf+" (spot+24h shown; multi-period via Dune/Pro)";
 });
+// Hide Non-Qualified toggle -> re-render all modules + quadrant
+const hideNq=document.getElementById("hide-nq");
+if(hideNq) hideNq.onchange=()=>{ if(STATE.length) renderTables(); };
 load(); setInterval(load,120000);
 </script>
 </body>
