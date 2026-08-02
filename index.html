@@ -77,6 +77,14 @@ tr.div:hover{background:rgba(224,179,114,0.12)}
 tr.held{background:rgba(59,130,246,0.14);box-shadow:inset 3px 0 0 var(--blue)}
 tr.gated{box-shadow:inset 3px 0 0 #00FF66;background:rgba(0,255,102,0.05)}
 tr.gated:hover{background:rgba(0,255,102,0.10)}
+.fb-wrap{padding:10px 12px}
+.fb-row{display:grid;grid-template-columns:64px 1fr 30px;align-items:center;gap:6px;margin-bottom:7px}
+.fb-name{font-size:10px;color:var(--sec);letter-spacing:0.5px}
+.fb-bar{height:9px;background:#1E293B;border-radius:2px;overflow:hidden}
+.fb-fill{height:100%;border-radius:2px;transition:width .25s ease}
+.fb-val{font-size:11px;text-align:right;color:var(--txt)}
+.fb-note{grid-column:2 / 4;font-size:9px;margin-top:-3px}
+.fb-verdict{margin-top:8px;padding:6px 8px;font-size:10px;color:var(--amber);background:rgba(224,179,114,0.08);border-left:2px solid var(--amber);border-radius:2px}
 .spark{display:inline-block;vertical-align:middle}
 
 /* Right rail charts — fixed-height boxes */
@@ -209,9 +217,9 @@ canvas{display:block;width:100%}
         <div class="muted">Pairwise alignment of 24H % change across top assets</div></div>
     </div>
     <div class="glass">
-      <div class="card-h">VOLUME PROFILE (VPVR)</div>
-      <div class="chart-box"><canvas id="vpvr" height="180" style="height:180px"></canvas>
-        <div class="muted" id="vpvr-note">Distribution of 24H volume across price deciles (selected: —)</div></div>
+      <div class="card-h">FACTOR BREAKDOWN <span class="muted" id="fb-sym">—</span></div>
+      <div class="fb-wrap" id="fb"><div class="muted" style="padding:30px 12px">Select a token to see its factor tilt.</div></div>
+      <div class="muted" style="padding:4px 12px 10px">DFA/AQR factor readout (0–100). Size·Value·Quality·Momentum·Liquidity — explains the Conviction Score.</div>
     </div>
   </aside>
 </div>
@@ -526,22 +534,37 @@ function heat(){
   x.fillStyle="#94A3B8"; x.font="8px monospace";
   sel.forEach((t,i)=>{ x.fillText(t.sym,2,i*cell+cell/2+3); x.fillText(t.sym,w-cell+2,i*cell+cell/2+3); });
 }
-function vpvr(sym){
-  const cv=$("#vpvr"), w=cv.clientWidth, h=cv.clientHeight||180; cv.width=w; cv.height=h; const x=cv.getContext("2d");
-  x.clearRect(0,0,w,h);
+function factorBreakdown(sym){
   const t=STATE.find(s=>s.sym===sym)||STATE[0];
-  $("#vpvr-note").textContent="Distribution of 24H volume across price deciles (selected: "+(t?t.sym:"—")+")";
-  const base=t.price||1, vol=t.vol||1; const bins=10; const vals=[];
-  for(let i=0;i<bins;i++){ const f=1+(i-(bins-1)/2)/bins*0.4; const center=base*f;
-    const wgt=Math.exp(-Math.pow((center-base)/(base*0.18),2)); vals.push(vol*wgt/3); }
-  const max=Math.max(...vals,1); const bw=w/bins;
-  vals.forEach((v,i)=>{ const bh=(v/max)*(h-20); x.fillStyle="#3B82F6"; x.fillRect(i*bw+2,h-bh,bw-4,bh);
-    x.fillStyle="#475569"; x.font="7px monospace"; x.fillText("$"+(base*(1+(i-(bins-1)/2)/bins*0.4)).toPrecision(3),i*bw+2,h-6); });
+  $("#fb-sym").textContent=t?("· "+t.sym):"";
+  const wrap=$("#fb");
+  if(!t){ wrap.innerHTML='<div class="muted" style="padding:30px 12px">Select a token to see its factor tilt.</div>'; return; }
+  // 5 normalized factors (0-100) from REAL payload fields.
+  const size=Math.round(Math.max(0,Math.min(1,(Math.log10(t.mc||1)-6)/4))*100);
+  const value=Math.max(0,Math.min(100,Math.round(50 - t.z*30)));
+  const quality=t.dilution==null?null:Math.round(Math.max(0,Math.min(100,100-(t.dilution-1)*35)));
+  const mom=momentum(t.chg);
+  const liq=Math.round(Math.min(100, liquidityFit(t.turn/100)/30*100));
+  const F=[
+    ["SIZE",    size,  "#3B82F6", t.mc>=1e9?"large-cap weighted":"small/mid tilt"],
+    ["VALUE",   value, value>=60?"#00FF66":value>=40?"#7BC9A0":"#E8917F", t.z<-0.3?"below trend = value":"near/above trend"],
+    ["QUALITY", quality==null?0:quality, quality==null?"#475569":quality>=60?"#00FF66":quality>=40?"#7BC9A0":"#E8917F", t.dilution==null?"FDV n/a":("dil "+t.dilution.toFixed(2)+"x")],
+    ["MOMENTUM",mom,   mom>=60?"#00FF66":mom>=40?"#7BC9A0":"#E8917F", (t.chg>0?"+":"")+t.chg.toFixed(1)+"% 24h"],
+    ["LIQUIDITY",liq,  liq>=60?"#00FF66":liq>=40?"#7BC9A0":"#E8917F", t.turn.toFixed(1)+"% turn"],
+  ];
+  // factor-tilt verdict
+  const hi=F.filter(f=>f[1]>=60).map(f=>f[0]); const lo=F.filter(f=>f[1]<40).map(f=>f[0]);
+  let verdict = hi.length>=3 ? "Strong multi-factor tilt" : (hi.includes("VALUE")&&hi.includes("QUALITY")&&lo.includes("MOMENTUM"))?"Deep value (low momentum)":"Mixed / selective";
+  wrap.innerHTML=F.map(([name,v,col,note])=>{
+    const pct=Math.max(0,Math.min(100,v||0));
+    return `<div class="fb-row"><div class="fb-name">${name}</div><div class="fb-bar"><div class="fb-fill" style="width:${pct}%;background:${col}"></div></div><div class="fb-val num">${v==null?"N/A":v}</div><div class="fb-note muted">${note}</div></div>`;
+  }).join("") + `<div class="fb-verdict">${verdict}</div>`;
 }
+function vpvrNote(){} // VPVR replaced by Factor Breakdown
 
 let SEL=null;
 function select(sym){ SEL=sym; document.querySelectorAll("tr.row").forEach(r=>r.classList.toggle("sel",r.dataset.sym===sym));
-  vpvr(sym); openDrawer(sym); }
+  factorBreakdown(sym); openDrawer(sym); }
 function openDrawer(sym){
   const t=STATE.find(s=>s.sym===sym); if(!t)return;
   $("#dw-sym").textContent=t.sym+" · "+t.name;
@@ -595,7 +618,7 @@ async function load(){
     if(!Array.isArray(raw)) throw new Error("rate-limited or empty");
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
-    renderTables(); renderRibbon(); renderTiers(); quad(); heat(); if(SEL) vpvr(SEL);
+    renderTables(); renderRibbon(); renderTiers(); quad(); heat(); if(SEL) factorBreakdown(SEL);
     loadLedger();
     st.textContent="OK"; st.className="live"; $("#sys-rl").textContent="nominal";
   }catch(e){
