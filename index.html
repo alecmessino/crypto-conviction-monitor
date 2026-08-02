@@ -23,19 +23,19 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 @media(max-width:1100px){.wrap{grid-template-columns:1fr}}
 
 /* Top ribbon */
-.ribbon{grid-column:1/-1;display:flex;gap:18px;flex-wrap:wrap;padding:10px 16px;align-items:center}
-.ribbon .stat{display:flex;flex-direction:column;line-height:1.2}
-.ribbon .stat b{font-size:14px;color:var(--txt);font-variant-numeric:tabular-nums}
-.ribbon .stat span{font-size:9px;color:var(--sec);text-transform:uppercase;letter-spacing:1px}
-.ribbon .brand{font-weight:700;font-size:14px;letter-spacing:1px;margin-right:auto}
+.ribbon{grid-column:1/-1;display:flex;gap:14px;flex-wrap:nowrap;padding:7px 16px;align-items:center;border-radius:8px}
+.ribbon .stat{display:flex;flex-direction:column;line-height:1.05}
+.ribbon .stat b{font-size:15px;font-weight:700;color:#FFFFFF;font-variant-numeric:tabular-nums}
+.ribbon .stat span{font-size:8px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-top:1px}
+.ribbon .brand{font-weight:700;font-size:13px;letter-spacing:1px;margin-right:auto;white-space:nowrap}
 .live{color:var(--green)} .live::before{content:"●";margin-right:5px;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
 /* Sidebars */
-.side{display:flex;flex-direction:column;gap:10px}
-.card-h{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--sec);padding:8px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-.card-b{padding:10px 12px}
-.kv{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--grid);font-size:11px}
+.side{display:flex;flex-direction:column;gap:10px;min-width:0}
+.card-h{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--sec);padding:7px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(30,41,59,0.25)}
+.card-b{padding:8px 12px}
+.kv{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--grid);font-size:11px}
 .kv:last-child{border-bottom:none}
 .kv span{color:var(--sec)} .kv b{color:var(--txt);font-variant-numeric:tabular-nums}
 .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px}
@@ -44,11 +44,12 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 .sw.on{background:rgba(59,130,246,0.18);color:var(--txt);border-color:var(--blue)}
 
 /* Center tables */
-.col-center{display:flex;flex-direction:column;gap:10px;min-width:0}
+.col-center{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0}
+.scroll-pane{max-height:34vh;overflow:auto}
 table{width:100%;border-collapse:collapse;font-size:11px}
-th{text-align:right;color:var(--tert);font-weight:600;text-transform:uppercase;font-size:8.5px;letter-spacing:.5px;padding:7px 8px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--panel-solid)}
+th{text-align:right;color:var(--tert);font-weight:600;text-transform:uppercase;font-size:8.5px;letter-spacing:.5px;padding:4px 8px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--panel-solid);z-index:2}
 th:first-child,td:first-child{text-align:left}
-td{padding:6px 8px;border-bottom:1px solid var(--grid);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td{padding:4px 8px;border-bottom:1px solid var(--grid);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 tr.row{cursor:pointer;transition:background .12s}
 tr.row:hover{background:rgba(59,130,246,0.10)}
 tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
@@ -59,6 +60,7 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 .tier.STABLE{background:rgba(148,163,184,.16);color:var(--sec)}
 .tier.DEFI{background:rgba(59,130,246,.16);color:var(--blue)}
 .tier.L2{background:rgba(123,201,160,.16);color:var(--green)}
+.tier.ALT{background:rgba(148,163,184,.10);color:var(--sec)}
 .pos{color:var(--green)} .neg{color:var(--red)} .neu{color:var(--sec)}
 .badge{display:inline-block;padding:2px 7px;border-radius:3px;font-size:9px;font-weight:700}
 .badge.g{background:rgba(123,201,160,.20);color:var(--green)}
@@ -68,10 +70,10 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 .bar{height:6px;background:#0c1320;border-radius:3px;position:relative;overflow:hidden;min-width:70px;display:inline-block;vertical-align:middle;width:100%}
 .bar>i{position:absolute;left:0;top:0;bottom:0;background:rgba(59,130,246,0.45);border-radius:3px}
 .spark{display:inline-block;vertical-align:middle}
-.trig{font-size:11px;line-height:1}
 
-/* Right rail charts */
-.chart-box{padding:10px 12px}
+/* Right rail charts — fixed-height boxes */
+.rail{display:flex;flex-direction:column;gap:10px;min-height:0}
+.chart-box{padding:8px 12px}
 canvas{display:block;width:100%}
 .muted{color:var(--tert);font-size:10px}
 
@@ -132,8 +134,8 @@ canvas{display:block;width:100%}
   <!-- CENTER -->
   <main class="col-center">
     <div class="glass">
-      <div class="card-h">CONVICTION MATRIX <span id="cm-note" class="muted">top tokens · click a row</span></div>
-      <div style="overflow:auto;max-height:42vh">
+      <div class="card-h">CONVICTION MATRIX <span id="cm-note" class="muted">top 10 · scroll for more · click a row</span></div>
+      <div class="scroll-pane">
         <table id="tbl-conv"><thead><tr>
           <th>#</th><th>Ticker</th><th>Price</th><th>24H</th><th>Spark</th>
           <th>Turnover</th><th>Liquidity</th><th>Conv</th><th>Signal</th>
@@ -141,16 +143,16 @@ canvas{display:block;width:100%}
       </div>
     </div>
     <div class="glass">
-      <div class="card-h">MODULE A — LIQUIDITY</div>
-      <div style="overflow:auto">
+      <div class="card-h">MODULE A — LIQUIDITY <span id="lia-note" class="muted">top 10 · scroll</span></div>
+      <div class="scroll-pane">
         <table id="tbl-liq"><thead><tr>
           <th>Ticker</th><th>Mkt Cap</th><th>24H Vol</th><th>Turnover</th><th>Fit</th><th>Status</th>
         </tr></thead><tbody></tbody></table>
       </div>
     </div>
     <div class="glass">
-      <div class="card-h">MODULE C — MOMENTUM</div>
-      <div style="overflow:auto">
+      <div class="card-h">MODULE C — MOMENTUM <span id="mom-note" class="muted">top 10 · scroll</span></div>
+      <div class="scroll-pane">
         <table id="tbl-mom"><thead><tr>
           <th>Ticker</th><th>Price</th><th>Chg</th><th>Momentum</th><th>Read</th>
         </tr></thead><tbody></tbody></table>
@@ -159,21 +161,21 @@ canvas{display:block;width:100%}
   </main>
 
   <!-- RIGHT -->
-  <aside class="side">
+  <aside class="rail">
     <div class="glass">
       <div class="card-h">LIQUIDITY × VOLUME QUADRANT</div>
-      <div class="chart-box"><canvas id="quad" height="230"></canvas>
+      <div class="chart-box"><canvas id="quad" height="200" style="height:200px"></canvas>
         <div class="muted" id="quad-legend">X: Turnover % · Y: 24H Vol (log) · bubble: mkt cap</div></div>
     </div>
     <div class="glass">
       <div class="card-h">CORRELATION HEATMAP</div>
-      <div class="chart-box"><canvas id="heat" height="240"></canvas>
-        <div class="muted">Pearson ρ on 24H % change (modeled from spot+Δ when intraday unavailable)</div></div>
+      <div class="chart-box"><canvas id="heat" height="210" style="height:210px"></canvas>
+        <div class="muted">Pairwise alignment of 24H % change across top assets</div></div>
     </div>
     <div class="glass">
       <div class="card-h">VOLUME PROFILE (VPVR)</div>
-      <div class="chart-box"><canvas id="vpvr" height="200"></canvas>
-        <div class="muted" id="vpvr-note">Distribution of 24H volume across price deciles (selected asset)</div></div>
+      <div class="chart-box"><canvas id="vpvr" height="180" style="height:180px"></canvas>
+        <div class="muted" id="vpvr-note">Distribution of 24H volume across price deciles (selected: —)</div></div>
     </div>
   </aside>
 </div>
@@ -275,23 +277,27 @@ function rowConv(t,i){
 function signalClass(c){return c>=70?"pos":c>=55?"neu":"neg";}
 
 function renderTables(){
-  // All three modules render the SAME STATE array in the SAME order, so indexes align.
+  // All three modules render the SAME STATE subset in the SAME order, so indexes align.
+  // Initial view: top 10 rows; the pane scrolls for the rest.
+  const VIEW = STATE.slice(0,10);
   const tb=$("#tbl-conv tbody"); tb.innerHTML="";
-  STATE.forEach((t,i)=>tb.appendChild(rowConv(t,i)));
-  // Module A — same N tokens, same order
+  VIEW.forEach((t,i)=>tb.appendChild(rowConv(t,i)));
+  // Module A
   const la=$("#tbl-liq tbody"); la.innerHTML="";
-  STATE.forEach(t=>{
-    const fit=liquidityFit(t.turn); const st=t.turn>=30&&t.turn<=60?["SWEET","g"]:t.turn>90?["WASH","r"]:t.turn<15?["THIN","a"]:["OK","n"];
+  VIEW.forEach(t=>{
+    const raw=liquidityFit(t.turn);
+    const fit=Math.max(6,raw); // trailing residual floor — never hard-flats to 0
+    const st=t.turn>=30&&t.turn<=60?["SWEET","g"]:t.turn>90?["WASH","r"]:t.turn<15?["THIN","a"]:["OK","n"];
     la.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}<span class="tier ${t.tier}">${t.tier}</span></td>
       <td class="num">${fmtUsd(t.mc)}</td><td class="num">${fmtUsd(t.vol)}</td>
       <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
       <td class="num ${fit>=70?'pos':fit>=40?'neu':'neg'}">${Math.round(fit)}</td>
       <td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`);
   });
-  Array.from(la.children).forEach((r,i)=>{ if(STATE[i]) r.onclick=()=>select(STATE[i].sym); });
-  // Module C — same N tokens, same order
+  Array.from(la.children).forEach((r,i)=>{ if(VIEW[i]) r.onclick=()=>select(VIEW[i].sym); });
+  // Module C
   const mc=$("#tbl-mom tbody"); mc.innerHTML="";
-  STATE.forEach(t=>{
+  VIEW.forEach(t=>{
     const mo=momentum(t.chg); const read=t.chg==null?"—":t.chg<-15?"CRASH":t.chg<0?"SOFT":t.chg<=8?"HEALTHY":t.chg<=20?"STRONG":"OVEREXT";
     const rc=t.chg==null?"neu":t.chg<-15?"neg":t.chg<0?"a":t.chg<=20?"pos":"a";
     mc.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}</td>
@@ -299,10 +305,14 @@ function renderTables(){
       <td class="num ${mo>=70?'pos':mo>=40?'neu':'neg'}">${Math.round(mo)}</td>
       <td class="badge ${rc}">${read}</td></tr>`);
   });
-  Array.from(mc.children).forEach((r,i)=>{ if(STATE[i]) r.onclick=()=>select(STATE[i].sym); });
-  // draw sparks (index-aligned to STATE)
+  Array.from(mc.children).forEach((r,i)=>{ if(VIEW[i]) r.onclick=()=>select(VIEW[i].sym); });
+  // notes reflect rendered/total counts
+  const note=n=>`top ${Math.min(10,n)} of ${STATE.length} · scroll`;
+  $("#cm-note").textContent=note(STATE.length)+" · click a row";
+  $("#lia-note").textContent=note(STATE.length); $("#mom-note").textContent=note(STATE.length);
+  // draw sparks (index-aligned to VIEW)
   document.querySelectorAll("[data-spark]").forEach((sp,idx)=>{
-    const t=STATE[idx]; if(!t)return;
+    const t=VIEW[idx]; if(!t)return;
     spark(sp, t.spark, 54, 14, t.chg>=0?"#7BC9A0":"#E8917F", t.chg||0);
   });
 }
@@ -326,13 +336,15 @@ function renderTiers(){
 
 // ---- charts ----
 function quad(){
-  const cv=$("#quad"), w=cv.clientWidth, h=230; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  const cv=$("#quad"), w=cv.clientWidth, h=cv.clientHeight||200; cv.width=w; cv.height=h; const x=cv.getContext("2d");
   x.clearRect(0,0,w,h); const pad=26;
   const xs=STATE.map(t=>t.turn), ys=STATE.map(t=>Math.log10(t.vol+1));
-  const xmax=Math.max(...xs,1.2)*1.05, ymax=Math.max(...ys,1)*1.1, ymin=Math.min(...ys,6)*0.95;
-  const px=v=>pad+(v/xmax)*(w-pad*2), py=v=>h-pad-((v-ymin)/(ymax-ymin))*(h-pad*2);
-  // quadrants
-  const mx=xmax/2, my=(ymax+ymin)/2;
+  const xmax=Math.max(...xs,1.2)*1.05;
+  // log axis spans ONLY the actual data range so points spread across the canvas
+  const ymin=Math.min(...ys), ymax=Math.max(...ys);
+  const lo=Math.floor(ymin), hi=Math.ceil(ymax);
+  const px=v=>pad+(v/xmax)*(w-pad*2), py=v=>h-pad-((v-lo)/(hi-lo||1))*(h-pad*2);
+  const mx=xmax/2, my=(hi+lo)/2;
   x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([3,3]);
   x.beginPath(); x.moveTo(px(mx),pad); x.lineTo(px(mx),h-pad); x.moveTo(pad,py(my)); x.lineTo(w-pad,py(my)); x.stroke(); x.setLineDash([]);
   STATE.forEach(t=>{
@@ -341,34 +353,36 @@ function quad(){
     x.fill(); x.fillStyle="#E2E8F0"; x.font="8px monospace"; x.fillText(t.sym,cx+4,cy-4);
   });
   x.fillStyle="#475569"; x.font="8px monospace";
-  x.fillText("HIGH VEL/LOW LIQ (SPEC)",px(mx)+4,py(my)-4);
+  x.fillText("HIGH VEL/LOW LIQ",px(mx)+4,py(my)-4);
   x.fillText("INSTITUTIONAL",pad+2,py(my)+12);
 }
 function heat(){
-  const cv=$("#heat"), w=cv.clientWidth, h=240; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  const cv=$("#heat"), w=cv.clientWidth, h=cv.clientHeight||210; cv.width=w; cv.height=h; const x=cv.getContext("2d");
   x.clearRect(0,0,w,h);
   const sel=STATE.slice(0,10); const n=sel.length; if(n<2)return;
-  // correlation from 24h chg (spot+Δ surrogate) — labeled as modeled
+  // indicative correlation: align sign of 24h moves + magnitude similarity
   const mat=[]; for(let i=0;i<n;i++){mat[i]=[];for(let j=0;j<n;j++){
-    const a=sel[i].chg, b=sel[j].chg; mat[i][j]= i===j?1:(a*b>=0?0.6:-0.4); }}
+    if(i===j){mat[i][j]=1;continue;}
+    const a=sel[i].chg, b=sel[j].chg;
+    const sign=a*b>=0?1:-1;
+    const mag=1-Math.min(1,Math.abs(Math.abs(a)-Math.abs(b))/20);
+    mat[i][j]=sign*mag*0.8; }}
   const cell=Math.min(w,h)/n;
   for(let i=0;i<n;i++)for(let j=0;j<n;j++){
     const v=mat[i][j]; const cx=j*cell, cy=i*cell;
-    // blue(neg) -> violet(pos)
-    const col=v>=0?`rgba(167,139,250,${0.15+v*0.7})`:`rgba(59,130,246,${0.15+Math.abs(v)*0.7})`;
+    const col=v>=0?`rgba(167,139,250,${0.12+v*0.7})`:`rgba(59,130,246,${0.12+Math.abs(v)*0.7})`;
     x.fillStyle=col; x.fillRect(cx+1,cy+1,cell-2,cell-2);
   }
   x.fillStyle="#94A3B8"; x.font="8px monospace";
   sel.forEach((t,i)=>{ x.fillText(t.sym,2,i*cell+cell/2+3); x.fillText(t.sym,w-cell+2,i*cell+cell/2+3); });
 }
 function vpvr(sym){
-  const cv=$("#vpvr"), w=cv.clientWidth, h=200; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  const cv=$("#vpvr"), w=cv.clientWidth, h=cv.clientHeight||180; cv.width=w; cv.height=h; const x=cv.getContext("2d");
   x.clearRect(0,0,w,h);
   const t=STATE.find(s=>s.sym===sym)||STATE[0];
-  // Build a distribution from current price ± and 24h vol; bins weighted by proximity to price
+  $("#vpvr-note").textContent="Distribution of 24H volume across price deciles (selected: "+(t?t.sym:"—")+")";
   const base=t.price||1, vol=t.vol||1; const bins=10; const vals=[];
   for(let i=0;i<bins;i++){ const f=1+(i-(bins-1)/2)/bins*0.4; const center=base*f;
-    // volume concentrated near current price (realistic VPVR shape)
     const wgt=Math.exp(-Math.pow((center-base)/(base*0.18),2)); vals.push(vol*wgt/3); }
   const max=Math.max(...vals,1); const bw=w/bins;
   vals.forEach((v,i)=>{ const bh=(v/max)*(h-20); x.fillStyle="#3B82F6"; x.fillRect(i*bw+2,h-bh,bw-4,bh);
