@@ -234,7 +234,7 @@ canvas{display:block;width:100%}
       <div class="chart-box"><canvas id="idx" height="120" style="height:120px"></canvas>
         <div class="muted" id="idx-note">Cumulative basket vs market · live paper track record</div></div>
       <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
-      <div class="muted" style="padding:4px 12px 10px">Top-10 gated basket, score-proportional weights. PnL vs equal-weight market benchmark.</div>
+      <div class="muted" style="padding:4px 12px 10px">Nightly Top-10 basket (06:17 UTC snapshot), score-proportional weights. The <b>live</b> conviction leaders in the Alpha Map use the same formula but diverge slightly on intraday price moves. PnL vs equal-weight market benchmark.</div>
     </div>
   </aside>
 </div>
@@ -259,12 +259,18 @@ const TIER = {
 let STATE = [];
 let LEDGER = [];   // nightly signals.json rows (Module B real data when present)
 let INDEX = null;  // nightly index.json (conviction-weighted basket track record)
+let PERP = {};     // symbol -> RiskMult_perp (LAVL leverage overlay) from nightly ledger
 async function loadLedger(){
   try{
     const r=await fetch("ledger/signals.json",{cache:"no-store"});
     if(!r.ok) return;
     const j=await r.json();
     LEDGER = (j.rows||[]).filter(r=>r.era!=null && r.era!=="None" && r.era!=="");
+    // Build per-asset LAVL RiskMult_perp map so the live Alpha Map uses the SAME
+    // leverage overlay as the nightly conviction-weighted index (single source of truth).
+    PERP = {};
+    (j.rows||[]).forEach(r=>{ const pm=r.perp_mult;
+      if(pm!=null && pm!=="None" && pm!==""){ const v=parseFloat(pm); if(!isNaN(v)) PERP[(r.symbol||"").toUpperCase()]=v; } });
     const dune=$("#sys-dune");
     if(LEDGER.length){ dune.className="pos"; dune.textContent="LIVE ("+LEDGER.length+" tk)"; }
     else { dune.className="neu"; dune.textContent="OFF"; }
@@ -291,19 +297,21 @@ function tierOf(sym){const s=sym.toLowerCase(); if(EXCLUDED.has(s))return "STABL
 // ---- scoring (mirrors backend) ----
 // LiquidityFit: linear ramp into the 30-60% turnover sweet spot; sharp penalty
 // below 10% (illiquid) and above 75% (wash-trading risk).
-function liquidityFit(turn){ if(turn<=0)return 0;
-  if(turn<0.10)return Math.max(0,turn/0.10*8);
-  if(turn<0.30)return 8+(turn-0.10)/0.20*18;
-  if(turn<=0.60)return 30-Math.abs(turn-0.45)/0.15*4;
-  if(turn<=0.75)return 26-(turn-0.60)/0.15*16;
-  return Math.max(0,10-(turn-0.75)*20);}
+function liquidityFit(turn){ // turn = vol/mc as a FRACTION (0.05 = 5%). Mirrors nightly score() Module A exactly.
+  if(turn<=0) return 0;
+  if(turn<=0.30) return 10+(turn/0.30)*20;
+  if(turn<=0.60) return 30-Math.abs(turn-0.45)/0.15*6;
+  if(turn<=1.20) return 20-(turn-0.60)/0.60*12;
+  return Math.max(2, 8-(turn-1.20)*4);
+}
 function momentum(chg){ if(chg==null||isNaN(chg))return 50; if(chg<-15)return 4; if(chg<0)return 12-Math.abs(chg)*0.6;
   if(chg<=8)return 14+chg*1.0; if(chg<=20)return 20; return Math.max(8,20-(chg-20)*1.0);}
 function depthScore(mc){ if(!mc)return 0; return Math.max(0,Math.min(1,(Math.log10(mc)-6)/4.0));}
-function conviction(t){ const turn=t.vol/t.mc*100; const a=liquidityFit(turn);
+function conviction(t, perp){ perp = perp||1; // perp = RiskMult_perp (LAVL leverage overlay) from nightly ledger; default 1.0
+  const turn=t.vol/t.mc; const a=liquidityFit(turn); // fraction
   const ag=Math.abs(t.chg)<5?15:Math.abs(t.chg)<15?10:5; const era=5/ag;
   const b=era<0.7?20:era<1.0?15:era<1.5?10:era<2.0?5:0;
-  const c=depthScore(t.mc)*20+momentum(t.chg); return Math.max(0,Math.min(100,Math.round(a+b+c)));}
+  const c=depthScore(t.mc)*20+momentum(t.chg)*perp; return Math.max(0,Math.min(100,Math.round(a+b+c)));}
 function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
 
 // ---- build model ----
@@ -312,7 +320,7 @@ function build(raw){
   return raw.filter(t=>t.symbol && !EXCLUDED.has(t.symbol.toLowerCase())).map(t=>{
     const price=t.current_price, mc=t.market_cap||0, vol=t.total_volume||0;
     const turn=mc?vol/mc*100:0, chg=t.price_change_percentage_24h||0;
-    const conv=conviction({vol,mc,chg}); const sig=signal(conv);
+    const conv=conviction({vol,mc,chg}, PERP[(t.symbol||"").toUpperCase()]||1); const sig=signal(conv);
     // Mean-reversion Z (relative to all-time range, since free API lacks 30d MA).
     const ath=t.ath||0, atl=t.atl||0;
     let z=0;
@@ -434,7 +442,7 @@ function renderTables(){
   // Module A
   const la=$("#tbl-liq tbody"); la.innerHTML="";
   (hide?gated:STATE).slice(0,hide?gated.length:10).forEach(t=>{
-    const raw=liquidityFit(t.turn);
+    const raw=liquidityFit(t.turn/100);
     const fit=Math.max(6,raw); // trailing residual floor — never hard-flats to 0
     const st=t.turn>=30&&t.turn<=60?["SWEET","g"]:t.turn>90?["WASH","r"]:t.turn<15?["THIN","a"]:["OK","n"];
     la.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}<span class="tier ${t.tier}">${t.tier}</span></td>
