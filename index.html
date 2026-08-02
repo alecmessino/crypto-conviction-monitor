@@ -69,6 +69,12 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 .badge.n{background:rgba(148,163,184,.14);color:var(--sec)}
 .bar{height:6px;background:#0c1320;border-radius:3px;position:relative;overflow:hidden;min-width:70px;display:inline-block;vertical-align:middle;width:100%}
 .bar>i{position:absolute;left:0;top:0;bottom:0;background:rgba(59,130,246,0.45);border-radius:3px}
+.dbar{display:inline-block;height:4px;border-radius:2px;margin-left:5px;vertical-align:middle;opacity:.85}
+.copy{margin-left:6px;color:var(--sec);cursor:pointer;font-size:11px}
+.copy:hover{color:var(--blue)}
+tr.div{background:rgba(224,179,114,0.06)}
+tr.div:hover{background:rgba(224,179,114,0.12)}
+tr.held{background:rgba(59,130,246,0.14);box-shadow:inset 3px 0 0 var(--blue)}
 .spark{display:inline-block;vertical-align:middle}
 
 /* Right rail charts — fixed-height boxes */
@@ -120,6 +126,15 @@ canvas{display:block;width:100%}
       </div>
     </div>
     <div class="glass">
+      <div class="card-h">PORTFOLIO OVERLAY</div>
+      <div class="card-b">
+        <div class="muted" style="margin-bottom:6px">Paste holdings as JSON: {"BTC":0.5,"SOL":20} — overlays your bags on the matrix.</div>
+        <textarea id="pf-input" rows="3" style="width:100%;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:6px" placeholder='{"BTC":0.5,"SOL":20}'></textarea>
+        <button id="pf-btn" style="margin-top:6px;width:100%;background:rgba(59,130,246,.18);color:var(--txt);border:1px solid var(--blue);border-radius:4px;padding:5px;cursor:pointer;font-family:inherit;font-size:10px">OVERLAY HOLDINGS</button>
+        <div id="pf-out" class="muted" style="margin-top:8px"></div>
+      </div>
+    </div>
+    <div class="glass">
       <div class="card-h">CONVICTION TIERS</div>
       <div class="card-b" id="tiers"></div>
     </div>
@@ -137,8 +152,8 @@ canvas{display:block;width:100%}
       <div class="card-h">CONVICTION MATRIX <span id="cm-note" class="muted">top 10 · scroll for more · click a row</span></div>
       <div class="scroll-pane">
         <table id="tbl-conv"><thead><tr>
-          <th>#</th><th>Ticker</th><th>Price</th><th>24H</th><th>Spark</th>
-          <th>Turnover</th><th>Liquidity</th><th>Conv</th><th>Signal</th>
+          <th>#</th><th>Ticker</th><th>Price</th><th>24H Δ</th><th>Spark</th>
+          <th>Turnover</th><th>Liquidity</th><th>Z(ATH)</th><th>Conv</th><th>Signal</th><th>⧉</th>
         </tr></thead><tbody></tbody></table>
       </div>
     </div>
@@ -237,9 +252,25 @@ function build(raw){
     const price=t.current_price, mc=t.market_cap||0, vol=t.total_volume||0;
     const turn=mc?vol/mc*100:0, chg=t.price_change_percentage_24h||0;
     const conv=conviction({vol,mc,chg}); const sig=signal(conv);
+    // Mean-reversion Z (relative to all-time range, since free API lacks 30d MA).
+    const ath=t.ath||0, atl=t.atl||0;
+    let z=0;
+    if(ath>0 && atl>0 && ath>atl){ z=(price-atl)/(ath-atl)*2-1; } // -1 (floor) .. +1 (ATH)
+    // Divergence: price down but market-cap (proxy for liquidity interest) up => accumulation flag
+    const mcapChg=t.market_cap_change_percentage_24h||0;
+    const divergence = (chg<0 && mcapChg>1.5) || (Math.abs(chg)<0.5 && mcapChg>3);
     return {id:t.id,sym:(t.symbol||"").toUpperCase(),name:t.name,price,mc,vol,turn,chg,conv,sig,
-      tier:tierOf(t.symbol), spark:t.sparkline_in_7d?.price||null};
+      tier:tierOf(t.symbol), spark:t.sparkline_in_7d?.price||null,
+      ath, atl, z:Math.round(z*100)/100, divergence,
+      high24:t.high_24h||0, low24:t.low_24h||0};
   }).sort((a,b)=>b.conv-a.conv);
+}
+
+// gradient color for a signed percentage (neon green -> deep crimson)
+function deltaColor(pct){
+  const c=Math.max(-1,Math.min(1,pct/8)); // saturate at ±8%
+  if(c>=0){ const g=Math.round(120+135*c); return `rgb(${Math.round(40*(1-c))},${g},${Math.round(90*(1-c))})`; }
+  const r=Math.round(120+135*(-c)); return `rgb(${r},${Math.round(50*(1+c))},${Math.round(60*(1+c))})`;
 }
 
 // ---- sparkline (canvas) ----
@@ -258,20 +289,33 @@ function spark(el, data, w, h, color, chg){
   el.appendChild(c);
 }
 
-// ---- tables ----
+// click-to-copy trade block
+function copyTrade(t){
+  const sl=(t.price*0.95), tp=(t.price*1.11);
+  const block=`BUY ${t.sym} @ ${fmtPrice(t.price)} | STOP ${fmtPrice(sl)} | TARGET ${fmtPrice(tp)} | CONV ${t.conv} (${t.sig[0]})`;
+  navigator.clipboard?.writeText(block);
+  flash(t.sym+" order copied");
+}
+let flashT;
+function flash(msg){ const s=$("#status"); const old=s.textContent; s.textContent=msg; s.className="live";
+  clearTimeout(flashT); flashT=setTimeout(()=>{s.textContent=old; s.className="";},1400); }
+
 function rowConv(t,i){
-  const tr=document.createElement("tr"); tr.className="row"; tr.dataset.sym=t.sym;
-  const sc=signalClass(t.conv);
+  const tr=document.createElement("tr"); tr.className="row"+(t.divergence?" div":""); tr.dataset.sym=t.sym;
+  const zc=t.z>0.5?"neg":t.z<-0.5?"pos":"neu"; // far above ATH = overbought(red), far below ATL = oversold(green)
+  const div=t.divergence?'<span class="badge a" title="Price soft / liquidity rising — accumulation">ACCUM</span>':'';
   tr.innerHTML=`<td class="muted num">${i+1}</td>
     <td class="tick">${t.sym}<span class="tier ${t.tier}">${t.tier}</span></td>
     <td class="num">${fmtPrice(t.price)}</td>
-    <td class="num ${cls(t.chg)}">${sgn(t.chg)}</td>
+    <td class="num" style="color:${deltaColor(t.chg)}">${sgn(t.chg)}<span class="dbar" style="background:${deltaColor(t.chg)};width:${Math.min(28,Math.abs(t.chg)*3)}px"></span></td>
     <td><span class="spark" data-spark></span></td>
     <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
     <td><span class="bar"><i style="width:${Math.min(100,t.mc/2e10*100)}%"></i></span></td>
+    <td class="num ${zc}" title="Distance from all-time range (-1 floor .. +1 ATH)">${t.z>0?'+':''}${t.z.toFixed(2)}</td>
     <td class="num ${t.conv>=70?'pos':t.conv>=55?'neu':'neg'}">${t.conv}</td>
-    <td><span class="badge ${t.sig[1]}">${t.sig[0]}</span></td>`;
-  tr.onclick=()=>select(t.sym);
+    <td><span class="badge ${t.sig[1]}">${t.sig[0]}</span></td>
+    <td>${div}<span class="copy" data-copy="${t.sym}">⧉</span></td>`;
+  tr.onclick=(e)=>{ if(e.target.dataset.copy){copyTrade(STATE.find(x=>x.sym===e.target.dataset.copy));return;} select(t.sym); };
   return tr;
 }
 function signalClass(c){return c>=70?"pos":c>=55?"neu":"neg";}
@@ -410,7 +454,21 @@ function openDrawer(sym){
     <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>`;
   $("#drawer").classList.add("open");
 }
-function closeDrawer(){$("#drawer").classList.remove("open");}
+function closeDrawer(){document.getElementById("drawer").classList.remove("open");}
+
+// ---- portfolio overlay ----
+let HOLDINGS={};
+function applyHoldings(){
+  const raw=document.getElementById("pf-input").value.trim();
+  try{ HOLDINGS=raw?JSON.parse(raw):{}; }catch(e){ document.getElementById("pf-out").textContent="Invalid JSON"; return; }
+  const held=Object.keys(HOLDINGS).map(x=>x.toUpperCase()).filter(x=>STATE.some(t=>t.sym===x));
+  document.querySelectorAll("tr.row").forEach(r=>r.classList.toggle("held",held.includes(r.dataset.sym)));
+  const lines=held.map(x=>{ const t=STATE.find(z=>z.sym===x);
+    return x+": "+HOLDINGS[x]+" @ "+fmtPrice(t.price)+" to "+t.sig[0]+" ("+t.conv+")"; });
+  document.getElementById("pf-out").innerHTML = held.length? lines.join("<br>") : "No matching holdings in universe.";
+}
+document.getElementById("pf-btn").onclick=applyHoldings;
+
 
 // ---- load ----
 async function load(){
