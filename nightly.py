@@ -31,6 +31,8 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
 # A public unlock-schedule query is configured via DUNE_UNLOCK_QUERY_ID.
 DUNE_BASE = "https://api.dune.com/api/v1"
+# CoinGecko free markets endpoint (separate host from Dune).
+CG_BASE = "https://api.coingecko.com/api/v3"
 
 STABLES = {"USDT", "USDC", "DAI", "BUSD", "TUSD", "USDD", "FDUSD", "USDE",
            "USD1", "USDS", "PYUSD", "GUSD", "USDG", "FRAX", "USDD", "TUSD",
@@ -96,7 +98,7 @@ def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5) -> 
     out: list[dict] = []
     pages = max(1, (total + per_page - 1) // per_page)
     for page in range(1, pages + 1):
-        url = (f"{DUNE_BASE.replace('/api/v1', '')}/coins/markets?vs_currency=usd"
+        url = (f"{CG_BASE}/coins/markets?vs_currency=usd"
                f"&order=market_cap_desc&per_page={per_page}&page={page}"
                f"&price_change_percentage=24h")
         backoff = 5.0
@@ -113,7 +115,9 @@ def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5) -> 
                     time.sleep(backoff)
                     backoff = min(backoff * 2, 60)
                 else:
-                    raise
+                    print(f"[warn] page {page} HTTP {getattr(e, 'code', '?')}; skipping",
+                          file=__import__("sys").stderr)
+                    break
         else:
             print(f"[warn] page {page} gave up after retries", file=__import__("sys").stderr)
         time.sleep(delay)
@@ -504,7 +508,8 @@ def main() -> int:
     with LEDGER_CSV.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=FIELDS); w.writeheader()
         for r in all_rows:
-            w.writerow(r)
+            # normalize: keep only current FIELDS, fill missing with None
+            w.writerow({k: r.get(k) for k in FIELDS})
 
     # Rewrite JSON summary
     deciles = {i: {"count": 0, "survived": 0, "roi_30d": [], "roi_90d": []} for i in range(1, 11)}
