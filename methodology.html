@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conviction Monitor — Methodology &amp; Performance</title>
+<style>
+:root{
+  --bg:#0B0F19; --panel:rgba(20,28,44,0.55); --panel-solid:#111827;
+  --border:#1E293B; --grid:#162032;
+  --txt:#FFFFFF; --sec:#94A3B8; --tert:#475569;
+  --green:#7BC9A0; --red:#E8917F; --amber:#E0B372; --blue:#3B82F6;
+  --violet:#A78BFA; --neon:#00FF66;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{background:var(--bg);color:var(--txt);font-family:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.55}
+body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60%);min-height:100vh}
+.wrap{max-width:1080px;margin:0 auto;padding:24px 20px 80px}
+a{color:var(--blue);text-decoration:none}
+a:hover{text-decoration:underline}
+.nav{display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:8px;margin-bottom:26px}
+.nav .brand{font-weight:700;font-size:14px;letter-spacing:1px;margin-right:auto}
+.nav .live{color:var(--green)}
+h1{font-size:26px;letter-spacing:.5px;margin-bottom:4px}
+.sub{color:var(--sec);font-size:12px;margin-bottom:30px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:2px;color:var(--sec);border-bottom:1px solid var(--border);padding-bottom:8px;margin:38px 0 16px}
+h3{font-size:15px;color:var(--txt);margin:22px 0 8px}
+p{color:#CBD5E1;margin:10px 0}
+.muted{color:var(--sec);font-size:12px}
+.glass{background:var(--panel);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid var(--border);border-radius:8px;padding:18px 20px;margin:14px 0}
+code{background:#0c1320;border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--neon);font-size:12px}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:12px}
+th{text-align:left;color:var(--tert);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.5px;padding:6px 10px;border-bottom:1px solid var(--border)}
+td{padding:6px 10px;border-bottom:1px solid var(--grid);color:#CBD5E1}
+td:first-child{color:var(--txt);font-weight:700;white-space:nowrap}
+.tag{display:inline-block;padding:1px 7px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:.5px}
+.tag.a{background:rgba(123,201,160,.16);color:var(--green)}
+.tag.b{background:rgba(59,130,246,.16);color:var(--blue)}
+.tag.c{background:rgba(167,139,250,.16);color:var(--violet)}
+.tag.d{background:rgba(0,255,102,.14);color:var(--neon)}
+.formula{background:#0c1320;border:1px solid var(--border);border-radius:6px;padding:12px 14px;margin:10px 0;color:#CBD5E1;font-size:12px;overflow-x:auto}
+.callout{border-left:3px solid var(--amber);background:rgba(224,179,114,.06);padding:12px 16px;border-radius:0 6px 6px 0;margin:16px 0;color:#E8D5B8}
+.callout.ok{border-left-color:var(--green);background:rgba(123,201,160,.06);color:#BFE6D2}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:14px 0}
+.kpi{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:14px}
+.kpi b{font-size:20px;color:#fff;display:block;font-variant-numeric:tabular-nums}
+.kpi span{font-size:9px;color:var(--sec);text-transform:uppercase;letter-spacing:1px}
+ul{margin:10px 0 10px 20px;color:#CBD5E1}
+li{margin:5px 0}
+.foot{margin-top:50px;padding-top:18px;border-top:1px solid var(--border);color:var(--tert);font-size:11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="nav glass">
+    <span class="brand">CONVICTION MONITOR</span>
+    <a href="index.html">← Terminal</a>
+    <span class="live">● LIVE</span>
+  </div>
+
+  <h1>Methodology &amp; Performance</h1>
+  <div class="sub">How the conviction score is built, how the index is constructed and rebalanced, and how to read the track record. Every figure on this page is derived from the same code that runs the terminal — no estimates unless explicitly flagged.</div>
+
+  <!-- ============ CONVICTION SCORE ============ -->
+  <h2>1 · The Conviction Score (0–100)</h2>
+  <p>Each asset in the universe (CoinGecko top-250 by market cap, non-stable) receives a single <b>conviction score</b>. It is the sum of four modules. The exact same function runs in two places — the live terminal (JavaScript) and the nightly index builder (Python) — and they are tested to produce identical numbers. This is deliberate: a single source of truth prevents the "live leaders" and the "index holdings" from silently diverging.</p>
+
+  <div class="glass">
+    <h3><span class="tag a">A</span> Liquidity Fit &nbsp;·&nbsp; weight 0–30</h3>
+    <p>Measures turnover (24h volume ÷ market cap). Capital needs a liquid venue; too little is unexitable, too much signals wash trading.</p>
+    <div class="formula">turnover = volume / market_cap&nbsp;&nbsp;(fraction)<br>
+a = 10 + (turnover/0.30)·20&nbsp;&nbsp;for turnover ≤ 0.30<br>
+a = 30 − |turnover − 0.45|/0.15·6&nbsp;&nbsp;for ≤ 0.60<br>
+a = 20 − (turnover − 0.60)/0.60·12&nbsp;&nbsp;for ≤ 1.20<br>
+a = max(2, 8 − (turnover − 1.20)·4)&nbsp;&nbsp;above</div>
+    <p class="muted">Peaks in the 30–60% turnover band; sharp penalty below 10% (illiquid) and above 75% (wash risk).</p>
+  </div>
+
+  <div class="glass">
+    <h3><span class="tag b">B</span> Stability / ERA &nbsp;·&nbsp; weight 0–20</h3>
+    <p>A proxy for emission-vs-adoption health from 24h price stability. Calm assets score higher; violent moves score lower.</p>
+    <div class="formula">ag = 15 if |chg|&lt;5% &nbsp;else&nbsp; 10 if |chg|&lt;15% &nbsp;else&nbsp; 5<br>
+era = 5 / ag<br>
+b = 20 if era&lt;0.7 &nbsp;else&nbsp; 15 if era&lt;1.0 &nbsp;else&nbsp; 10 if era&lt;1.5 &nbsp;else&nbsp; 5 if era&lt;2.0 &nbsp;else&nbsp; 0</div>
+    <p class="muted">When a Dune unlock/vesting query is connected (repository secret <code>DUNE_UNLOCK_QUERY_ID</code>), Module B is replaced by real on-chain ERA — emission schedule vs network adoption — instead of this 24h-stability proxy. Until then it is shown as a proxy, never fabricated.</p>
+  </div>
+
+  <div class="glass">
+    <h3><span class="tag c">C</span> Depth + Momentum &nbsp;·&nbsp; weight 0–40</h3>
+    <p>Market-cap depth (log-scaled, rewards real size without over-weighting mega-caps) plus a 24h momentum curve that rewards measured strength and punishes both crashes and vertical overextension.</p>
+    <div class="formula">depth = clamp((log10(mc) − 6) / 4, 0, 1)<br>
+cd = depth · 20<br>
+cm = 4 if chg&lt;−15% &nbsp;…&nbsp; 14+chg if chg≤8% &nbsp;…&nbsp; 20 if chg≤20% &nbsp;…&nbsp; decays above<br>
+c = cd + cm</div>
+  </div>
+
+  <div class="glass">
+    <h3><span class="tag d">D</span> LAVL Leverage Overlay &nbsp;·&nbsp; multiplies momentum</h3>
+    <p>The Liquidity-Adjusted Velocity &amp; Leverage regime applies a <b>RiskMult<sub>perp</sub></b> to the momentum component, sourced from live perpetual-futures funding (Bybit primary, OKX fallback — keyless, geo-resilient). It penalizes overheated longs (funding &gt; 0.05% → ×0.85) and rewards short capitulation (negative funding → ×1.15). Assets with no perp market, or when the feed is unavailable, default to neutral ×1.0.</p>
+    <div class="formula">c = cd + (cm · RiskMult_perp)<br>
+RiskMult_perp ∈ {0.85, 1.0, 1.15}</div>
+    <p class="muted">This is the only module the live terminal cannot compute in-browser (no cross-origin perp feed). The terminal instead reads each asset's <code>perp_mult</code> from the nightly ledger, so the live leaders and the index use the same overlay.</p>
+  </div>
+
+  <div class="formula" style="border-color:var(--neon)">conviction = clamp( a + b + c , 0, 100 )&nbsp;&nbsp;&nbsp;signal: STRONG ≥80 · BUY ≥70 · HOLD ≥55 · WATCH ≥40 · AVOID &lt;40</div>
+
+  <div class="callout ok"><b>Conjunctive gate.</b> Beyond the score, an asset is "qualified" only if it simultaneously passes Liquidity (turnover 30–60%), Dilution (FDV/MC ≤ 2.0), and Regime (not COMPRESS / LIQ TRAP). The gate is a hard filter on <i>eligibility</i>; the score is the <i>ranking</i> among eligible assets. The Alpha Map shows both.</div>
+
+  <!-- ============ INDEX ============ -->
+  <h2>2 · The Conviction-Weighted Index</h2>
+  <p>The index is a paper portfolio of the <b>top-10 eligible assets by conviction</b>, held with <b>score-proportional weights</b> — each asset's weight is its conviction ÷ the sum of the top-10 convictions. This is a conviction tilt, not an equal-weight bucket: higher-conviction assets command larger allocations.</p>
+
+  <div class="glass">
+    <h3>Construction</h3>
+    <div class="formula">holdings = top 10 by conviction (eligible universe)<br>
+w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)<br>
+Σ w_i = 1.0</div>
+    <p>Entry prices are snapped at rebalance. Between rebalances, each holding's weight <b>drifts</b> with its live price — the dashboard shows both the <b>target weight</b> (at rebalance) and the <b>live weight</b> (current), plus the per-asset return and the cumulative basket vs benchmark.</p>
+  </div>
+
+  <h3>Rebalance cadence</h3>
+  <p>The basket rebalances on two triggers, whichever comes first:</p>
+  <table>
+    <tr><th>Trigger</th><th>Condition</th><th>Why</th></tr>
+    <tr><td>Calendar</td><td>Every 7 days</td><td>Weekly refresh prevents multi-week compounding drift from polluting the macro comparison; the global-cap baseline is re-locked at each rebalance.</td></tr>
+    <tr><td>Drift / membership</td><td>A holding drops out of the top-10 eligible set</td><td>If conviction re-ranking ejects a name, the basket realigns immediately rather than carrying a fallen asset for a week.</td></tr>
+  </table>
+  <div class="callout">The benchmark baseline is <b>locked at each rebalance event</b>, not at basket creation. This is the key architectural fix: every rebalance period starts from a clean baseline, so the basket-vs-market comparison is horizon-matched and not distorted by stale entry marks.</div>
+
+  <h3>Benchmark — the #2 Global Market Cap</h3>
+  <p>The index is measured against total crypto market cap (CoinGecko <code>/global</code>), entry-anchored at the last rebalance. This is an <b>apples-to-apples</b> macro comparison: the same asset class, the same window. Reported as <code>basket_return</code> vs <code>benchmark_return</code>, with alpha = basket − benchmark.</p>
+
+  <!-- ============ PERFORMANCE ============ -->
+  <h2>3 · Performance &amp; Track Record</h2>
+  <p>The nightly job (06:17 UTC) appends one row per day to <code>ledger/index.csv</code> and recomputes the cumulative basket and benchmark curves in <code>ledger/index.json</code>. The terminal's "Conviction-Weighted Index" panel renders this as a live paper track record.</p>
+
+  <div class="kpis">
+    <div class="kpi"><b id="k-basket">—</b><span>Basket return (cum)</span></div>
+    <div class="kpi"><b id="k-bench">—</b><span>Benchmark (mkt cap)</span></div>
+    <div class="kpi"><b id="k-alpha">—</b><span>Alpha vs benchmark</span></div>
+    <div class="kpi"><b id="k-hold">—</b><span>Current holdings</span></div>
+  </div>
+
+  <h3>What the audit trail shows</h3>
+  <ul>
+    <li><b>Per-asset entry vs current price</b>, target weight vs live (drifted) weight, and per-asset return — a full audit of every position, every day.</li>
+    <li><b>Rebalance flag</b> — which days reset the baseline (so you can see exactly when the horizon-matched window starts).</li>
+    <li><b>Global market cap</b> at each snapshot, so the benchmark is fully reconstructable from the ledger alone.</li>
+  </ul>
+
+  <div class="callout"><b>Risk statistics are computed from the ledger, not invented.</b> Once ≥30 days of history exist, Sharpe (on the daily basket-return series vs the benchmark's), maximum drawdown of the cumulative basket curve, and rebalance win-rate (fraction of rebalances where the dropped asset underperformed the added one) are derived directly from <code>ledger/index.csv</code> — no extra API calls, no fabricated history. They appear here once the nightly has accrued enough rows.</div>
+
+  <!-- ============ HONEST CAVEATS ============ -->
+  <h2>4 · Honest Caveats</h2>
+  <div class="glass">
+    <ul>
+      <li><b>Live vs snapshot.</b> The Alpha Map's "top-10 conviction leaders" are computed live from CoinGecko at page load. The Index holdings come from the 06:17 UTC nightly snapshot. Intraday price moves mean the two lists can differ slightly by ordering — this is expected, not a bug. The Index is the authoritative, persisted record.</li>
+      <li><b>Module B is a proxy until Dune is connected.</b> Without <code>DUNE_UNLOCK_QUERY_ID</code>, ERA uses 24h stability. Real on-chain unlock schedules replace it when configured. We never estimate unlock data we don't have.</li>
+      <li><b>Perp overlay via server-side feed.</b> RiskMult<sub>perp</sub> requires a derivatives feed (Bybit/OKX) that can't be called cross-origin from the browser. The terminal reads the nightly-computed <code>perp_mult</code> so it stays consistent with the index.</li>
+      <li><b>Free-tier data limits.</b> No intraday, RSI, order-book, or funding history from the free CoinGecko tier. We scope every module to real payload fields and label anything we cannot source as unavailable.</li>
+      <li><b>Paper only.</b> This is a research signal system, not investment advice. Conviction is a quantitative tilt, not a promise.</li>
+    </ul>
+  </div>
+
+  <div class="foot">
+    Conviction Monitor · built from the same scoring code that powers the terminal · data: CoinGecko (spot) + Bybit/OKX (perp funding) · index persisted nightly to <code>ledger/</code>.
+  </div>
+
+</div>
+<script>
+// Pull live KPIs from the nightly index.json so the page reflects real data.
+fetch("ledger/index.json",{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{
+  if(!j) return;
+  const b=(j.basket_total_return!=null)? (j.basket_total_return*100):null;
+  const m=(j.benchmark_total_return!=null)? (j.benchmark_total_return*100):null;
+  const set=(id,v)=>{const e=document.getElementById(id); if(e&&v!=null) e.textContent=(v>=0?"+":"")+v.toFixed(1)+"%";};
+  set("k-basket",b); set("k-bench",m);
+  const a=document.getElementById("k-alpha"); if(a&&b!=null&&m!=null) a.textContent=((b-m)>=0?"+":"")+(b-m).toFixed(1)+"%";
+  const h=document.getElementById("k-hold"); if(h&&j.current_holdings) h.textContent=j.current_holdings.length;
+}).catch(()=>{});
+</script>
+</body>
+</html>
