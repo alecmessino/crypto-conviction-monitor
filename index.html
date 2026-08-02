@@ -173,6 +173,17 @@ canvas{display:block;width:100%}
         </tr></thead><tbody></tbody></table>
       </div>
     </div>
+    <div class="glass">
+      <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
+      <div class="card-b" style="padding:0">
+        <div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko; RiskMult<sub>perp</sub> = 1.0 (neutral) until a derivatives feed (funding/OI) is connected.</div>
+        <div class="scroll-pane">
+          <table id="tbl-lavl"><thead><tr>
+            <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>RiskMult</th><th>LAVL</th><th>Regime</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
   </main>
 
   <!-- RIGHT -->
@@ -262,7 +273,7 @@ function build(raw){
     return {id:t.id,sym:(t.symbol||"").toUpperCase(),name:t.name,price,mc,vol,turn,chg,conv,sig,
       tier:tierOf(t.symbol), spark:t.sparkline_in_7d?.price||null,
       ath, atl, z:Math.round(z*100)/100, divergence,
-      high24:t.high_24h||0, low24:t.low_24h||0};
+      high24:t.high_24h||0, low24:t.low_24h||0, mcapChg};
   }).sort((a,b)=>b.conv-a.conv);
 }
 
@@ -272,6 +283,32 @@ function deltaColor(pct){
   if(c>=0){ const g=Math.round(120+135*c); return `rgb(${Math.round(40*(1-c))},${g},${Math.round(90*(1-c))})`; }
   const r=Math.round(120+135*(-c)); return `rgb(${r},${Math.round(50*(1+c))},${Math.round(60*(1+c))})`;
 }
+
+// ---- LAVL: Liquidity-Adjusted Velocity & Leverage (honest, real-field proxies) ----
+const L_W1=0.6, L_W2=0.4, L_LAMBDA=1.0, L_DEPTH_BASE=5e6;
+function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
+function computeLAVL(t){
+  const price=t.price||0, chg=t.chg||0, high24=t.high24||price, low24=t.low24||price;
+  const vol=t.vol||0, mc=t.mc||0, mcapChg=t.mcapChg||0;
+  // 1. Velo_liq
+  const spread=Math.max((high24-low24)/Math.max(price,1e-9),0.001);
+  const depthRatio=Math.max(vol/L_DEPTH_BASE,1e-4);
+  const logDepth=Math.log(depthRatio);
+  const priceDelta=chg/100;
+  let velo=clamp((priceDelta/spread)*logDepth,-4,4);
+  // 2. Diverge_vol
+  const turnover=mc>0?vol/mc:0;
+  const volShock=clamp(turnover/0.05,0,4);
+  const poc=clamp(1-spread,0,1);
+  let diverge=clamp(volShock*poc*(1+clamp(mcapChg/5,-1,1)),-3,3);
+  // 3. RiskMult_perp (neutral until derivatives feed connected)
+  const riskMult=1.0; // no funding/OI on free tier — never fabricated
+  let lavl=clamp((L_W1*velo+L_W2*diverge)*riskMult,-5,5);
+  const band=lavl>2.5?"ALPHA RUSH":lavl>=0.5?"STABLE":lavl<-1.0?"LIQ TRAP":"COMPRESS";
+  return {velo:Math.round(velo*100)/100,diverge:Math.round(diverge*100)/100,riskMult,lavl:Math.round(lavl*100)/100,band};
+}
+function lavlBandClass(b){return b==="ALPHA RUSH"?"g":b==="STABLE"?"n":b==="LIQ TRAP"?"r":"a";}
+
 
 // ---- sparkline (canvas) ----
 function spark(el, data, w, h, color, chg){
@@ -350,6 +387,18 @@ function renderTables(){
       <td class="badge ${rc}">${read}</td></tr>`);
   });
   Array.from(mc.children).forEach((r,i)=>{ if(VIEW[i]) r.onclick=()=>select(VIEW[i].sym); });
+  // Module D — LAVL alpha engine (same VIEW subset, index-aligned)
+  const ld=$("#tbl-lavl tbody"); ld.innerHTML="";
+  VIEW.forEach(t=>{
+    const L=computeLAVL(t);
+    ld.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}</td>
+      <td class="num ${L.velo>=1?'pos':L.velo<=-1?'neg':'neu'}">${L.velo>0?'+':''}${L.velo.toFixed(2)}</td>
+      <td class="num ${L.diverge>=1?'pos':L.diverge<=-1?'neg':'neu'}">${L.diverge.toFixed(2)}</td>
+      <td class="num muted">${L.riskMult.toFixed(2)}</td>
+      <td class="num ${L.lavl>2.5?'pos':L.lavl<-1?'neg':L.lavl>=0.5?'neu':'a'}">${L.lavl>0?'+':''}${L.lavl.toFixed(2)}</td>
+      <td><span class="badge ${lavlBandClass(L.band)}">${L.band}</span></td></tr>`);
+  });
+  Array.from(ld.children).forEach((r,i)=>{ if(VIEW[i]) r.onclick=()=>select(VIEW[i].sym); });
   // notes reflect rendered/total counts
   const note=n=>`top ${Math.min(10,n)} of ${STATE.length} · scroll`;
   $("#cm-note").textContent=note(STATE.length)+" · click a row";
