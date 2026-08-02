@@ -214,7 +214,7 @@ canvas{display:block;width:100%}
 </div>
 
 <script>
-const API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=45&page=1&price_change_percentage=24h";
+const API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h";
 // Non-speculative pegged assets excluded from all conviction math (stablecoins + commodity pegs).
 const EXCLUDED = new Set(["usdt","usdc","usd1","usdg","usds","usde","usdd","dai","busd","tusd","fdusd","frax","pyusd","gusd","u","xaut","paxg"]);
 const TIER = {
@@ -556,7 +556,7 @@ async function load(){
     st.textContent="OK"; st.className="live"; $("#sys-rl").textContent="nominal";
   }catch(e){
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
-    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="9" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 60s. If blocked, wait a minute and refresh.</td></tr>`;
+    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="9" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
   }
 }
 // timeframe switches (layout-only; real multi-period needs extra calls)
@@ -564,7 +564,7 @@ document.querySelectorAll("#tf .sw").forEach(s=>s.onclick=()=>{
   document.querySelectorAll("#tf .sw").forEach(x=>x.classList.remove("on")); s.classList.add("on");
   $("#cm-note").textContent="view: "+s.dataset.tf+" (spot+24h shown; multi-period via Dune/Pro)";
 });
-load(); setInterval(load,60000);
+load(); setInterval(load,120000);
 </script>
 </body>
 </html>

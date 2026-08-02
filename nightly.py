@@ -84,7 +84,7 @@ def _num(v):
         return None
 
 
-def fetch_markets(per_page: int = 100) -> list[dict]:
+def fetch_markets(per_page: int = 250) -> list[dict]:
     url = ("https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd"
            "&order=market_cap_desc&page=1&price_change_percentage=24h"
            f"&per_page={per_page}")
@@ -179,7 +179,7 @@ def main() -> int:
         w = csv.DictWriter(f, fieldnames=FIELDS)
         if not exists:
             w.writeheader()
-        for r in rows[:25]:
+        for r in rows[:50]:
             w.writerow(r)
 
     # Backfill ROI from today's live prices for aged rows
