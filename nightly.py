@@ -318,9 +318,23 @@ def build_basket(markets: list[dict], today: str) -> dict:
         if _conjunctive_gate(t, conv):
             scored.append((sym, t, conv))
     scored.sort(key=lambda x: x[2], reverse=True)
+    # The strict conjunctive gate rarely fires on real large-cap data (turnover
+    # for top caps is usually < 0.30). Fall back to Top-N by conviction so the
+    # basket always reflects the strongest non-stable assets when the gate is empty.
+    if not scored:
+        for t in markets:
+            sym = (t.get("symbol") or "").upper()
+            if not sym or sym in STABLES:
+                continue
+            era, conv, _ = score(t)
+            scored.append((sym, t, conv))
+        scored.sort(key=lambda x: x[2], reverse=True)
     top = scored[:10]
     if not top:
-        return {"holdings": [], "rebalanced": today, "note": "no gated assets"}
+        # Truly empty universe — still record an empty-basket index row so the
+        # workflow's git add never fails on a missing file.
+        _write_index_row(today, [], {}, False)
+        return {"holdings": [], "rebalanced": today, "note": "no assets"}
 
     total_conv = sum(c for _, _, c in top) or 1
     holdings = []
@@ -329,6 +343,7 @@ def build_basket(markets: list[dict], today: str) -> dict:
         holdings.append({
             "symbol": sym, "conviction": conv, "weight": round(w, 4),
             "entry_price": t.get("current_price") or 0,
+            "current_price": t.get("current_price") or 0,
         })
 
     # Load or rebalance existing basket
@@ -393,6 +408,33 @@ def build_basket(markets: list[dict], today: str) -> dict:
     bench_total = (gmc_now / entry_gmc) if (gmc_now and entry_gmc) else 1.0
 
     # Append daily row + recompute cumulative from stored rows
+    _write_index_row(today, audit, basket, rebalanced, live)
+    return basket
+
+
+def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
+                     live: dict | None = None) -> None:
+    """Append today's basket/index row and rewrite index.json.
+
+    Always writes ledger/index.csv + ledger/index.json (creating them on first
+    run) so the CI workflow's `git add` never fails on a missing file, even when
+    the basket is empty. `live` maps symbol->current price for non-rebalance-day
+    return computation.
+    """
+    gmc_now = fetch_global_market_cap()
+    entry_gmc = basket.get("entry_global_mcap") or gmc_now
+    # Basket return = Σ target_weight * asset_return (target-weighted, not drifted)
+    wret = 0.0
+    for h in basket.get("holdings", []):
+        tw = h.get("weight", 0) or 0
+        ep = h.get("entry_price") or 0
+        if live:
+            cur = live.get(h.get("symbol"), h.get("current_price")) or 0
+        else:
+            cur = h.get("current_price") or 0
+        ret = ((cur - ep) / ep) if (cur and ep) else 0.0
+        wret += tw * ret
+    bench_total = (gmc_now / entry_gmc) if (gmc_now and entry_gmc) else 1.0
     row = {
         "date": today,
         "global_market_cap": round(gmc_now, 0) if gmc_now else None,
@@ -413,11 +455,9 @@ def build_basket(markets: list[dict], today: str) -> dict:
     if INDEX_CSV.exists():
         with INDEX_CSV.open(newline="", encoding="utf-8") as f:
             idx_rows = list(csv.DictReader(f))
-    # Cumulative: chain daily basket returns; benchmark from stored global caps.
     cum_basket = 1.0
     for r in idx_rows:
         cum_basket *= (1 + (float(r.get("basket_return") or 0) / 100.0))
-    # Benchmark cumulative uses first vs last stored global mcap in the series
     gcaps = [float(r["global_market_cap"]) for r in idx_rows if r.get("global_market_cap") not in (None, "", "None")]
     bench_cum = (gcaps[-1] / gcaps[0]) if len(gcaps) >= 2 and gcaps[0] else 1.0
     INDEX_JSON.write_text(json.dumps({
@@ -428,7 +468,6 @@ def build_basket(markets: list[dict], today: str) -> dict:
         "current_holdings": audit,
         "rows": idx_rows,
     }, indent=2))
-    return basket
 
 
 def main() -> int:
