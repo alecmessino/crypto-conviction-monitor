@@ -172,8 +172,8 @@ w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)<br>
 // Pull live KPIs from the nightly index.json so the page reflects real data.
 fetch("ledger/index.json",{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{
   if(!j) return;
-  const b=(j.basket_total_return!=null)? (j.basket_total_return*100):null;
-  const m=(j.benchmark_total_return!=null)? (j.benchmark_total_return*100):null;
+  const b=(j.basket_total_return!=null)? (j.basket_total_return-1)*100 : null;
+  const m=(j.benchmark_total_return!=null)? (j.benchmark_total_return-1)*100 : null;
   const set=(id,v)=>{const e=document.getElementById(id); if(e&&v!=null) e.textContent=(v>=0?"+":"")+v.toFixed(1)+"%";};
   set("k-basket",b); set("k-bench",m);
   const a=document.getElementById("k-alpha"); if(a&&b!=null&&m!=null) a.textContent=((b-m)>=0?"+":"")+(b-m).toFixed(1)+"%";
