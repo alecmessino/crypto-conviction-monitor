@@ -1,0 +1,42 @@
+name: Nightly Signal Ledger
+
+on:
+  schedule:
+    # 06:17 UTC daily (off-peak minute to avoid the :00 stampede)
+    - cron: "17 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run nightly snapshot
+        env:
+          DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
+          DUNE_UNLOCK_QUERY_ID: ${{ secrets.DUNE_UNLOCK_QUERY_ID }}
+        run: python nightly.py
+
+      - name: Commit ledger
+        run: |
+          git config user.name "conviction-bot"
+          git config user.email "bot@noreply.github.com"
+          # nightly.py writes the signals ledger, the conviction-weighted index
+          # (index.csv/index.json), and the basket state (basket.json).
+          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "nightly ledger snapshot $(date -u +%Y-%m-%d)"
+            git push
+          fi
