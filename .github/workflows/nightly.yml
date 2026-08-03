@@ -27,13 +27,21 @@ jobs:
           DUNE_UNLOCK_QUERY_ID: ${{ secrets.DUNE_UNLOCK_QUERY_ID }}
         run: python nightly.py
 
+      - name: Parity gate (frontend <-> backend must agree)
+        # A divergence between launch_skew.html math and nightly.score() would
+        # silently corrupt historical trust. Fail the build if parity breaks.
+        # Runs standalone (no pytest dependency) so a missing package can never
+        # break the nightly commit.
+        run: python tests/test_parity.py
+
       - name: Commit ledger
         run: |
           git config user.name "conviction-bot"
           git config user.email "bot@noreply.github.com"
           # nightly.py writes the signals ledger, the conviction-weighted index
-          # (index.csv/index.json), and the basket state (basket.json).
-          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json
+          # (index.csv/index.json), the basket state (basket.json), and the
+          # market breadth / conviction time-series (market_breadth.json).
+          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else

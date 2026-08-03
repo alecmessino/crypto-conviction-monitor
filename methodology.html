@@ -60,134 +60,117 @@ li{margin:5px 0}
   </div>
 
   <h1>Methodology &amp; Performance</h1>
-  <div class="sub">How the conviction score is built, how the index is constructed and rebalanced, and how to read the track record. Every figure on this page is derived from the same code that runs the terminal — no estimates unless explicitly flagged.</div>
+  <div class="sub">How the conviction signal is built — organized as the pipeline that actually runs: <b>collect → engineer features → score → construct the portfolio → analyze</b>. Every figure is derived from the same code that powers the terminal; no estimates unless explicitly flagged.</div>
 
-  <!-- ============ CONVICTION SCORE ============ -->
-  <h2>1 · The Conviction Score (0–100)</h2>
-  <p>Each asset in the universe (CoinGecko top-250 by market cap, non-stable) receives a single <b>conviction score</b>. It is the sum of four modules. The exact same function runs in two places — the live terminal (JavaScript) and the nightly index builder (Python) — and they are tested to produce identical numbers. This is deliberate: a single source of truth prevents the "live leaders" and the "index holdings" from silently diverging.</p>
+  <div class="callout ok"><b>Single source of truth.</b> The conviction function runs in two places — the live terminal (JavaScript) and the nightly index builder (Python) — and a CI <a href="https://github.com/alecmessino/crypto-conviction-monitor/blob/main/tests/test_parity.py">parity test</a> fails the build if they ever diverge. The scoring engine is also frozen by a <a href="https://github.com/alecmessino/crypto-conviction-monitor/blob/main/tests/test_parity.py">regression test</a> so a future edit cannot silently shift the model.</div>
 
+  <!-- ============ PIPELINE ============ -->
+  <h2>1 · Data Collection</h2>
+  <p>Four feeds, each with a clear role. Nothing is estimated that we don't actually receive.</p>
+  <table>
+    <tr><th>Source</th><th>Fields used</th><th>Role</th><th>Status</th></tr>
+    <tr><td>CoinGecko <code>/coins/markets</code></td><td>market cap, volume, 24h/7d/14d/30d/200d % change, ATH/ATL, FDV</td><td>Spot universe + relative-strength inputs</td><td><span class="tag a">LIVE</span></td></tr>
+    <tr><td>Perpetual funding (Bybit → OKX fallback)</td><td>funding rate, open interest</td><td>LAVL leverage overlay (RiskMult<sub>perp</sub>)</td><td><span class="tag a">LIVE</span> (keyless)</td></tr>
+    <tr><td>Nightly ledger (<code>ledger/</code>)</td><td>daily conviction per symbol, index rows</td><td>Time-series: breadth, dispersion, persistence, change feed</td><td><span class="tag a">LIVE</span></td></tr>
+    <tr><td>Dune Analytics (unlock/vesting)</td><td>unlocks USD, supply increase %, address growth</td><td>Replaces Module B proxy with real ERA</td><td><span class="tag b">OPTIONAL</span> (secret <code>DUNE_UNLOCK_QUERY_ID</code>)</td></tr>
+  </table>
+
+  <h2>2 · Feature Engineering</h2>
+  <p>Raw fields are turned into comparable, bounded features. The shift from 24h momentum to <b>multi-timeframe relative strength</b> is the single largest recent improvement — a coin quietly outperforming BTC over 200 days is a structural signal, not daily noise.</p>
   <div class="glass">
-    <h3><span class="tag a">A</span> Liquidity Fit &nbsp;·&nbsp; weight 0–30</h3>
-    <p>Measures turnover (24h volume ÷ market cap). Capital needs a liquid venue; too little is unexitable, too much signals wash trading.</p>
-    <div class="formula">turnover = volume / market_cap&nbsp;&nbsp;(fraction)<br>
-a = 10 + (turnover/0.30)·20&nbsp;&nbsp;for turnover ≤ 0.30<br>
-a = 30 − |turnover − 0.45|/0.15·6&nbsp;&nbsp;for ≤ 0.60<br>
-a = 20 − (turnover − 0.60)/0.60·12&nbsp;&nbsp;for ≤ 1.20<br>
-a = max(2, 8 − (turnover − 1.20)·4)&nbsp;&nbsp;above</div>
-    <p class="muted">Peaks in the 30–60% turnover band; sharp penalty below 10% (illiquid) and above 75% (wash risk).</p>
+    <h3>Liquidity <span class="muted">· turnover = volume / market cap (fraction)</span></h3>
+    <div class="formula">turnover = volume / market_cap   (fraction)<br>
+a = 10 + (turnover/0.30)·20&nbsp; for ≤ 0.30&nbsp; · &nbsp;30 − |turnover − 0.45|/0.15·6&nbsp; for ≤ 0.60&nbsp; · &nbsp;20 − (turnover − 0.60)/0.60·12&nbsp; for ≤ 1.20&nbsp; · &nbsp;max(2, 8 − (turnover − 1.20)·4) above</div>
+    <p class="muted">Peaks in the 30–60% band; penalizes illiquidity (&lt;10%) and wash-trading risk (&gt;75%).</p>
+  </div>
+  <div class="glass">
+    <h3>Relative Strength (RS) vs BTC <span class="muted">· the momentum input</span></h3>
+    <p>Relative strength isolates an asset's move <i>after removing the market (BTC) drift</i> — the part that is actually the asset's story. Computed on four horizons and blended:</p>
+    <div class="formula">RS_tf = asset_%Δ_tf − BTC_%Δ_tf&nbsp;&nbsp;for tf ∈ {7d, 14d, 30d, 200d}<br>
+rs_blend = 0.30·RS7 + 0.25·RS14 + 0.25·RS30 + 0.20·RS200</div>
+    <p class="muted">200d is included (not 90d) because CoinGecko's free tier returns <code>90d = null</code> — we exclude it rather than fabricate. The 200d window is what surfaces quiet long-horizon outperformers. <b>Future refinement:</b> log returns and per-horizon volatility normalization so the 200d leg can't dominate in high-vol regimes.</p>
+  </div>
+  <div class="glass">
+    <h3>Depth · Dilution · Funding · ERA</h3>
+    <ul>
+      <li><b>Depth</b> = clamp((log10(mc) − 6)/4, 0, 1) — log-scaled size, rewards real scale without over-weighting mega-caps.</li>
+      <li><b>Dilution</b> = FDV / market cap — structural supply overhang (conjunctive gate requires ≤ 2.0).</li>
+      <li><b>Funding</b> → RiskMult<sub>perp</sub> ∈ {0.85, 1.0, 1.15}: penalizes overheated longs (funding &gt; 0.05% → ×0.85), rewards short capitulation (negative → ×1.15).</li>
+      <li><b>ERA</b> = 24h-stability proxy (5/ag) until a Dune unlock query replaces it with real emission-vs-adoption data.</li>
+    </ul>
   </div>
 
+  <h2>3 · Conviction Model</h2>
+  <p>Each eligible asset gets one 0–100 score. The exact same function runs in the terminal (JS) and the nightly builder (Python) and is tested for byte-identical output.</p>
   <div class="glass">
-    <h3><span class="tag b">B</span> Stability / ERA &nbsp;·&nbsp; weight 0–20</h3>
-    <p>A proxy for emission-vs-adoption health from 24h price stability. Calm assets score higher; violent moves score lower.</p>
-    <div class="formula">ag = 15 if |chg|&lt;5% &nbsp;else&nbsp; 10 if |chg|&lt;15% &nbsp;else&nbsp; 5<br>
-era = 5 / ag<br>
-b = 20 if era&lt;0.7 &nbsp;else&nbsp; 15 if era&lt;1.0 &nbsp;else&nbsp; 10 if era&lt;1.5 &nbsp;else&nbsp; 5 if era&lt;2.0 &nbsp;else&nbsp; 0</div>
-    <p class="muted">When a Dune unlock/vesting query is connected (repository secret <code>DUNE_UNLOCK_QUERY_ID</code>), Module B is replaced by real on-chain ERA — emission schedule vs network adoption — instead of this 24h-stability proxy. Until then it is shown as a proxy, never fabricated.</p>
+    <h3><span class="tag a">A</span> Liquidity Fit · 0–30 &nbsp; <span class="tag b">B</span> Stability/ERA · 0–20 &nbsp; <span class="tag c">C</span> Depth + RS Momentum · 0–40 &nbsp; <span class="tag d">D</span> LAVL Overlay · ×momentum</h3>
+    <div class="formula">cd = depth · 20<br>
+cm = clamp(12 + rs_blend·0.4, 4, 20) · RiskMult_perp<br>
+conviction = clamp( a + b + (cd + cm) , 0, 100 )<br>
+signal: STRONG ≥80 · BUY ≥70 · HOLD ≥55 · WATCH ≥40 · AVOID &lt;40</div>
+    <p class="muted">Momentum is now driven by <b>blended RS vs BTC</b>, not 24h change. Module D multiplies the momentum component by RiskMult<sub>perp</sub>.</p>
   </div>
+  <div class="callout"><b>Conjunctive gate (eligibility).</b> An asset is "qualified" only if it passes Liquidity (turnover 30–60%), Dilution (FDV/MC ≤ 2.0), and Regime (not COMPRESS / LIQ TRAP) <i>simultaneously</i>. The gate filters <i>eligibility</i>; the score ranks among eligible assets.</div>
 
-  <div class="glass">
-    <h3><span class="tag c">C</span> Depth + Momentum &nbsp;·&nbsp; weight 0–40</h3>
-    <p>Market-cap depth (log-scaled, rewards real size without over-weighting mega-caps) plus a 24h momentum curve that rewards measured strength and punishes both crashes and vertical overextension.</p>
-    <div class="formula">depth = clamp((log10(mc) − 6) / 4, 0, 1)<br>
-cd = depth · 20<br>
-cm = 4 if chg&lt;−15% &nbsp;…&nbsp; 14+chg if chg≤8% &nbsp;…&nbsp; 20 if chg≤20% &nbsp;…&nbsp; decays above<br>
-c = cd + cm</div>
-  </div>
+  <h3>Factor Attribution</h3>
+  <p>Every score is decomposed into its component contributions — <b>liquidity, ERA, depth, momentum (RS), and rs_blend</b> — stored per asset in <code>ledger/signals.json</code> and rendered in the terminal's Asset Detail drawer. This is what turns the model from a black box into research: you can ask not just <i>"why did UNI rank first?"</i> but <i>"which factor has generated alpha over the last 18 months?"</i> — the prerequisite for factor-level backtesting.</p>
 
-  <div class="glass">
-    <h3><span class="tag d">D</span> LAVL Leverage Overlay &nbsp;·&nbsp; multiplies momentum</h3>
-    <p>The Liquidity-Adjusted Velocity &amp; Leverage regime applies a <b>RiskMult<sub>perp</sub></b> to the momentum component, sourced from live perpetual-futures funding (Bybit primary, OKX fallback — keyless, geo-resilient). It penalizes overheated longs (funding &gt; 0.05% → ×0.85) and rewards short capitulation (negative funding → ×1.15). Assets with no perp market, or when the feed is unavailable, default to neutral ×1.0.</p>
-    <div class="formula">c = cd + (cm · RiskMult_perp)<br>
-RiskMult_perp ∈ {0.85, 1.0, 1.15}</div>
-    <p class="muted">This is the only module the live terminal cannot compute in-browser (no cross-origin perp feed). The terminal instead reads each asset's <code>perp_mult</code> from the nightly ledger, so the live leaders and the index use the same overlay.</p>
-  </div>
-
-  <div class="formula" style="border-color:var(--neon)">conviction = clamp( a + b + c , 0, 100 )&nbsp;&nbsp;&nbsp;signal: STRONG ≥80 · BUY ≥70 · HOLD ≥55 · WATCH ≥40 · AVOID &lt;40</div>
-
-  <div class="callout ok"><b>Conjunctive gate.</b> Beyond the score, an asset is "qualified" only if it simultaneously passes Liquidity (turnover 30–60%), Dilution (FDV/MC ≤ 2.0), and Regime (not COMPRESS / LIQ TRAP). The gate is a hard filter on <i>eligibility</i>; the score is the <i>ranking</i> among eligible assets. The Alpha Map shows both.</div>
-
-  <!-- ============ INDEX ============ -->
-  <h2>2 · The Conviction-Weighted Index</h2>
-  <p>The index is a paper portfolio of the <b>top-10 eligible assets by conviction</b>, held with <b>score-proportional weights</b> — each asset's weight is its conviction ÷ the sum of the top-10 convictions. This is a conviction tilt, not an equal-weight bucket: higher-conviction assets command larger allocations.</p>
-
+  <h2>4 · Portfolio Construction</h2>
+  <p>The index is a paper portfolio of the <b>top-10 eligible assets by conviction</b>, held with <b>score-proportional weights</b>.</p>
   <div class="glass">
     <h3>Construction</h3>
     <div class="formula">holdings = top 10 by conviction (eligible universe)<br>
-w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)<br>
-Σ w_i = 1.0</div>
-    <p>Entry prices are snapped at rebalance. Between rebalances, each holding's weight <b>drifts</b> with its live price — the dashboard shows both the <b>target weight</b> (at rebalance) and the <b>live weight</b> (current), plus the per-asset return and the cumulative basket vs benchmark.</p>
+w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)&nbsp;&nbsp;·&nbsp;&nbsp;Σ w_i = 1.0</div>
   </div>
-
-  <h3>Rebalance cadence</h3>
-  <p>The basket rebalances on two triggers, whichever comes first:</p>
-  <table>
-    <tr><th>Trigger</th><th>Condition</th><th>Why</th></tr>
-    <tr><td>Calendar</td><td>Every 7 days</td><td>Weekly refresh prevents multi-week compounding drift from polluting the macro comparison; the global-cap baseline is re-locked at each rebalance.</td></tr>
-    <tr><td>Drift / membership</td><td>A holding drops out of the top-10 eligible set</td><td>If conviction re-ranking ejects a name, the basket realigns immediately rather than carrying a fallen asset for a week.</td></tr>
-  </table>
-  <div class="callout">The benchmark baseline is <b>locked at each rebalance event</b>, not at basket creation. This is the key architectural fix: every rebalance period starts from a clean baseline, so the basket-vs-market comparison is horizon-matched and not distorted by stale entry marks.</div>
-
-  <h3>Benchmark — the #2 Global Market Cap</h3>
-  <p>The index is measured against total crypto market cap (CoinGecko <code>/global</code>), entry-anchored at the last rebalance. This is an <b>apples-to-apples</b> macro comparison: the same asset class, the same window. Reported as <code>basket_return</code> vs <code>benchmark_return</code>, with alpha = basket − benchmark.</p>
-
-  <!-- ============ PERFORMANCE ============ -->
-  <h2>3 · Performance &amp; Track Record</h2>
-  <p>The nightly job (06:17 UTC) appends one row per day to <code>ledger/index.csv</code> and recomputes the cumulative basket and benchmark curves in <code>ledger/index.json</code>. The terminal's "Conviction-Weighted Index" panel renders this as a live paper track record.</p>
-
-  <div class="kpis">
-    <div class="kpi"><b id="k-basket">—</b><span>Basket return (cum)</span></div>
-    <div class="kpi"><b id="k-bench">—</b><span>Benchmark (mkt cap)</span></div>
-    <div class="kpi"><b id="k-alpha">—</b><span>Alpha vs benchmark</span></div>
-    <div class="kpi"><b id="k-hold">—</b><span>Current holdings</span></div>
-  </div>
-
-  <h3>What the audit trail shows</h3>
-  <ul>
-    <li><b>Per-asset entry vs current price</b>, target weight vs live (drifted) weight, and per-asset return — a full audit of every position, every day.</li>
-    <li><b>Rebalance flag</b> — which days reset the baseline (so you can see exactly when the horizon-matched window starts).</li>
-    <li><b>Global market cap</b> at each snapshot, so the benchmark is fully reconstructable from the ledger alone.</li>
-  </ul>
-
-  <div class="callout"><b>Risk statistics are computed from the ledger, not invented.</b> Once ≥30 days of history exist, Sharpe (on the daily basket-return series vs the benchmark's), maximum drawdown of the cumulative basket curve, and rebalance win-rate (fraction of rebalances where the dropped asset underperformed the added one) are derived directly from <code>ledger/index.csv</code> — no extra API calls, no fabricated history. They appear here once the nightly has accrued enough rows.</div>
-
-  <!-- ============ REBALANCE DISCIPLINE ============ -->
-  <h2>3.5 · Rebalance Discipline &amp; Risk Overlays</h2>
-  <p>Four guards keep the paper track record honest and the turnover under control. All are derived from the ledger — none require extra feeds.</p>
-
+  <h3>Hysteresis · Execution · Ejection · Macro (risk overlays)</h3>
   <div class="glass">
-    <h3><span class="tag a">A</span> Rebalance Hysteresis (Turnover Drag Buffer)</h3>
-    <p>A holding is ejected only if it drops to <b>rank ≥ 13</b> <i>or</i> its conviction falls <b>more than 5 points below</b> the marginal entrant (rank 11). A #10↔#11 flip therefore does <b>not</b> trigger a rebalance — it would only churn alpha in execution costs. The basket still rebalances weekly on the calendar, or immediately when a name structurally falls out of the top tier.</p>
+    <h3><span class="tag a">A</span> Rebalance Hysteresis</h3>
+    <p>A holding is ejected only if it drops to <b>rank ≥ 13</b> <i>or</i> its conviction falls <b>&gt; 5 points below</b> the rank-11 entrant. A #10↔#11 flip does not churn. Calendar rebalance every 7 days, or immediately on structural exit.</p>
   </div>
-
   <div class="glass">
     <h3><span class="tag b">B</span> Execution-Adjusted Counterfactual</h3>
-    <p>Real fills cost spread + fees. The raw paper return is kept pure; in parallel we track an <b>execution-adjusted return</b> that deducts a one-way <b>25 bps</b> cost applied to the one-way turnover at each rebalance. Turnover = Σ|new weight − old weight| across changed holdings. Genesis (basket creation) charges no cost. Both curves ship in <code>ledger/index.json</code> so you see the frictionless vs real-world path side by side.</p>
-    <div class="formula">exec_adjusted_return = raw_return − (25bps) × (one_way_turnover)</div>
+    <p>Raw paper return stays pure; in parallel an <b>execution-adjusted return</b> deducts 25 bps one-way × one-way turnover at each rebalance. Genesis charges 0. Both curves ship in <code>index.json</code>.</p>
+    <div class="formula">exec_adjusted_return = raw_return − (25bps) × one_way_turnover</div>
   </div>
-
   <div class="glass">
     <h3><span class="tag c">C</span> Ejection Alpha Delta</h3>
-    <p>At each rebalance we record the ejected vs entrant symbols and the ejected holdings' average realized return since entry. Δ<sub>eject</sub> = R<sub>entrant</sub>(0 at entry) − R<sub>ejected</sub>(realized). A positive cumulative Δ means the rotation dropped underperformers. The full R<sub>entrant</sub>-vs-R<sub>ejected</sub> both-over-the-holding-window figure is refined automatically once ≥2 rebalances exist (entry prices are persisted in <code>basket.json</code>).</p>
-    <div class="formula">Δ_eject = mean(R_entrant) − mean(R_ejected);&nbsp; cumulative Δ tracked in index.json</div>
+    <p>At each rebalance: Δ<sub>eject</sub> = mean(R<sub>entrant</sub>) − mean(R<sub>ejected realized</sub>). Positive cumulative Δ = the rotation dropped underperformers. Full both-over-window figure refines automatically once ≥2 rebalances exist (entry prices persisted in <code>basket.json</code>).</p>
   </div>
-
   <div class="glass">
     <h3><span class="tag d">D</span> Macro Liquidity Gate — Passive / Display-Only</h3>
-    <p>The 7-day total market-cap trend is computed from the ledger: <b>RISK-OFF</b> if global cap is down &gt; 8% over 7 days, else <b>RISK-ON</b>. This is shown as a passive regime pill in the Index panel and recorded in <code>ledger/index.csv</code> — it provides macro context but <b>does not alter holdings</b>. Promoting it to an active filter (e.g. raise the gate threshold in risk-off) is deferred until enough history exists to backtest whether it adds alpha.</p>
+    <p><b>RISK-OFF</b> if 7-day global cap &lt; −8%, else <b>RISK-ON</b>. Shown as a regime pill and recorded in <code>index.csv</code> — <b>does not alter holdings</b>. Promoting to an active filter is deferred until enough history exists to backtest it.</p>
+  </div>
+  <div class="callout ok"><b>Sharpe convention (pinned).</b> At ≥30 days: Sharpe = mean(daily basket return)/std(daily basket return) × √365, rf = 0. Max drawdown = largest peak-to-trough of the cumulative curve. Both recomputed nightly into <code>index.json</code> under <code>risk</code>.</div>
+
+  <h2>5 · Analytics</h2>
+  <p>Conviction becomes a <b>time series</b> the moment the ledger accumulates daily snapshots. From that series we derive market-level signals that are far richer than a static ranking:</p>
+  <div class="glass">
+    <h3>Conviction Breadth &amp; Dispersion</h3>
+    <ul>
+      <li><b>Breadth</b> — % of the universe scoring ≥70 / ≥80. A rising market with collapsing breadth is dangerous; a falling market with expanding breadth often marks bottoms.</li>
+      <li><b>Dispersion σ</b> — stdev of conviction across the universe. Low σ → no edge (everything scores alike); high σ → concentrated opportunity.</li>
+      <li><b>Persistence</b> — assets scoring ≥70 for 30 / 90 consecutive days. Persistent leadership is more meaningful than one-day leadership.</li>
+    </ul>
+  </div>
+  <div class="glass">
+    <h3>Conviction Change Feed</h3>
+    <p>Largest 10-day conviction <b>increases</b> and <b>collapses</b> — the homepage-worthy, actionable view. A rapidly improving asset is often more valuable than the highest-scoring static one. Populates automatically once ≥11 daily snapshots exist (needs a Δ10d window).</p>
+  </div>
+  <div class="glass">
+    <h3>Index Statistics</h3>
+    <p>Nightly <code>ledger/index.csv</code> + <code>index.json</code> track the basket vs the #2 global market cap (horizon-matched at each rebalance), turnover, execution-adjusted return, ejection delta, and macro regime — a full, reconstructable audit trail.</p>
   </div>
 
-  <div class="callout ok"><b>Sharpe convention (pinned).</b> When ≥30 days accrue: Sharpe = mean(daily basket return) / std(daily basket return) × √365, with <b>risk-free rate = 0</b>. Max drawdown = largest peak-to-trough decline of the cumulative basket curve. Both are recomputed nightly from <code>ledger/index.csv</code> and surfaced in <code>ledger/index.json</code> under <code>risk</code>.</div>
-
   <!-- ============ HONEST CAVEATS ============ -->
-  <h2>4 · Honest Caveats</h2>
+  <h2>6 · Honest Caveats</h2>
   <div class="glass">
     <ul>
-      <li><b>Live vs snapshot.</b> The Alpha Map's "top-10 conviction leaders" are computed live from CoinGecko at page load. The Index holdings come from the 06:17 UTC nightly snapshot. Intraday price moves mean the two lists can differ slightly by ordering — this is expected, not a bug. The Index is the authoritative, persisted record.</li>
-      <li><b>Module B is a proxy until Dune is connected.</b> Without <code>DUNE_UNLOCK_QUERY_ID</code>, ERA uses 24h stability. Real on-chain unlock schedules replace it when configured. We never estimate unlock data we don't have.</li>
-      <li><b>Perp overlay via server-side feed.</b> RiskMult<sub>perp</sub> requires a derivatives feed (Bybit/OKX) that can't be called cross-origin from the browser. The terminal reads the nightly-computed <code>perp_mult</code> so it stays consistent with the index.</li>
-      <li><b>Free-tier data limits.</b> No intraday, RSI, order-book, or funding history from the free CoinGecko tier. We scope every module to real payload fields and label anything we cannot source as unavailable.</li>
-      <li><b>Paper only.</b> This is a research signal system, not investment advice. Conviction is a quantitative tilt, not a promise.</li>
+      <li><b>Live vs snapshot.</b> The terminal's top-10 leaders are computed live; the Index comes from the 06:17 UTC nightly snapshot. Minor intraday ordering differences are expected. The Index is the authoritative record.</li>
+      <li><b>Module B is a proxy until Dune is connected.</b> Without <code>DUNE_UNLOCK_QUERY_ID</code>, ERA uses 24h stability. Real on-chain unlock data replaces it when configured — never estimated.</li>
+      <li><b>Perp overlay is server-side.</b> RiskMult<sub>perp</sub> needs a derivatives feed that can't be called cross-origin. The terminal reads the nightly <code>perp_mult</code> so it stays consistent with the index.</li>
+      <li><b>Free-tier limits.</b> No intraday/RSI/order-book/funding history from the free CoinGecko tier. Modules are scoped to real payload fields; anything we can't source is labeled unavailable (90d RS excluded for this reason).</li>
+      <li><b>Paper only.</b> A research signal system, not investment advice.</li>
+      <li><b>Model is additive today.</b> conviction = a + b + c. As factors grow, a multiplicative architecture (Structural Quality × Market Confirmation × Risk Adjustment) is the planned v2 — so a catastrophic weakness in one dimension can't be fully offset by strengths elsewhere. Not changed yet; being designed.</li>
     </ul>
   </div>
 

@@ -45,6 +45,14 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 .pill{font-size:8px;letter-spacing:.5px;color:var(--tert);border:1px solid var(--border);border-radius:10px;padding:2px 8px;white-space:nowrap}
 .pill.on{color:var(--green);border-color:rgba(123,201,160,.4)}
 .pill.off{color:var(--red);border-color:rgba(232,145,127,.4)}
+.cf-col{display:inline-block;vertical-align:top;width:49%}
+.cf-h{font-size:9px;letter-spacing:.5px;margin:2px 0 4px}
+.cf-row{display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid var(--grid);font-size:11px}
+.cf-row b{color:var(--txt)}
+.factor-attr{margin-top:10px;border-top:1px solid var(--grid);padding-top:8px}
+.fa-h{font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--tert);margin-bottom:3px}
+.fa-bar{display:flex;justify-content:space-between;padding:2px 0;font-size:11px;border-bottom:1px solid var(--grid)}
+.fa-l{color:var(--sec)} .fa-v{color:var(--txt);font-variant-numeric:tabular-nums}
 
 /* Center tables */
 .col-center{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0}
@@ -122,7 +130,6 @@ canvas{display:block;width:100%}
   <!-- RIBBON -->
   <div class="ribbon glass">
     <div class="brand">CRYPTO <span class="live">CONVICTION</span> MONITOR</div>
-    <a href="methodology.html" style="font-size:10px;color:var(--sec);border:1px solid var(--border);padding:4px 8px;border-radius:4px;white-space:nowrap">METHODOLOGY &amp; PERFORMANCE →</a>
     <div class="stat"><b id="rb-mcap" class="num">—</b><span>Tracked Mkt Cap</span></div>
     <div class="stat"><b id="rb-turn" class="num">—</b><span>Avg Turnover</span></div>
     <div class="stat"><b id="rb-conv" class="num">—</b><span>Avg Conviction</span></div>
@@ -214,6 +221,18 @@ canvas{display:block;width:100%}
         </div>
       </div>
     </div>
+    <div class="glass">
+      <div class="card-h">CONVICTION CHANGE FEED <span class="muted">Δ10d · largest movers</span></div>
+      <div class="card-b" id="chg-feed">
+        <div class="muted" style="padding:8px 12px">Conviction time-series pending — accrues with the nightly ledger.</div>
+      </div>
+    </div>
+    <div class="glass">
+      <div class="card-h">CONVICTION BREADTH <span class="muted">market-level signal</span></div>
+      <div class="card-b" id="breadth" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px">
+        <div class="muted" style="padding:8px 12px;grid-column:1/-1">Breadth / dispersion pending — accrues with the nightly ledger.</div>
+      </div>
+    </div>
   </main>
 
   <!-- RIGHT -->
@@ -235,10 +254,6 @@ canvas{display:block;width:100%}
     </div>
     <div class="glass">
       <div class="card-h">CONVICTION-WEIGHTED INDEX <span class="muted" id="idx-rebal">—</span></div>
-      <div style="display:flex;gap:6px;align-items:center;padding:5px 12px 0;flex-wrap:wrap">
-        <span class="pill" id="idx-snapshot">NIGHTLY SNAPSHOT · 06:17 UTC</span>
-        <span class="pill" id="idx-macro" style="display:none"></span>
-      </div>
       <div class="chart-box"><canvas id="idx" height="120" style="height:120px"></canvas>
         <div class="muted" id="idx-note">Cumulative basket vs market · live paper track record</div></div>
       <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
@@ -254,7 +269,7 @@ canvas{display:block;width:100%}
 </div>
 
 <script>
-const API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h,7d";
+const API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h,7d,14d,30d,200d";
 // Non-speculative pegged assets excluded from all conviction math (stablecoins + commodity pegs).
 const EXCLUDED = new Set(["usdt","usdc","usd1","usdg","usds","usde","usdd","dai","busd","tusd","fdusd","frax","pyusd","gusd","u","xaut","paxg"]);
 const TIER = {
@@ -268,6 +283,7 @@ let STATE = [];
 let LEDGER = [];   // nightly signals.json rows (Module B real data when present)
 let INDEX = null;  // nightly index.json (conviction-weighted basket track record)
 let PERP = {};     // symbol -> RiskMult_perp (LAVL leverage overlay) from nightly ledger
+let BREADTH = null; // market_breadth.json: conviction time-series, breadth, dispersion, persistence
 async function loadLedger(){
   try{
     const r=await fetch("ledger/signals.json",{cache:"no-store"});
@@ -287,6 +303,10 @@ async function loadLedger(){
     const ri=await fetch("ledger/index.json",{cache:"no-store"});
     if(ri.ok) INDEX = await ri.json();
   }catch(e){ /* index absent — track record pending */ }
+  try{
+    const rb=await fetch("ledger/market_breadth.json",{cache:"no-store"});
+    if(rb.ok) BREADTH = await rb.json();
+  }catch(e){ /* breadth absent — change feed pending */ }
 }
 
 // ---- helpers ----
@@ -315,20 +335,34 @@ function liquidityFit(turn){ // turn = vol/mc as a FRACTION (0.05 = 5%). Mirrors
 function momentum(chg){ if(chg==null||isNaN(chg))return 50; if(chg<-15)return 4; if(chg<0)return 12-Math.abs(chg)*0.6;
   if(chg<=8)return 14+chg*1.0; if(chg<=20)return 20; return Math.max(8,20-(chg-20)*1.0);}
 function depthScore(mc){ if(!mc)return 0; return Math.max(0,Math.min(1,(Math.log10(mc)-6)/4.0));}
-function conviction(t, perp){ perp = perp||1; // perp = RiskMult_perp (LAVL leverage overlay) from nightly ledger; default 1.0
+function conviction(t, perp, rsBlend){ perp = perp||1; // perp = RiskMult_perp (LAVL overlay); rsBlend = multi-timeframe RS vs BTC (or 0 if unknown)
   const turn=t.vol/t.mc; const a=liquidityFit(turn); // fraction
   const ag=Math.abs(t.chg)<5?15:Math.abs(t.chg)<15?10:5; const era=5/ag;
   const b=era<0.7?20:era<1.0?15:era<1.5?10:era<2.0?5:0;
-  const c=depthScore(t.mc)*20+momentum(t.chg)*perp; return Math.max(0,Math.min(100,Math.round(a+b+c)));}
+  const cd=depthScore(t.mc)*20;
+  // Momentum = blended relative strength vs BTC, mapped to 4..20 (replaces 24h noise).
+  const cmRaw = (rsBlend==null)?12.0:Math.max(4, Math.min(20, 12 + (rsBlend||0)*0.4));
+  const cm = cmRaw*perp;
+  const conv = Math.max(0, Math.min(100, Math.round(a+b+cd+cm)));
+  const comp = {liquidity:Math.round(a*10)/10, era:Math.round(b*10)/10, depth:Math.round(cd*10)/10,
+                momentum:Math.round(cm*10)/10, rsBlend:Math.round((rsBlend||0)*100)/100};
+  return {conv, comp};
+}
 function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
 
 // ---- build model ----
 // STATE is the single filtered subset consumed by every module (A, B, C).
 function build(raw){
+  const btc = raw.find(t=>(t.symbol||"").toUpperCase()==="BTC") || null;
+  const btcPct = tf => btc ? (btc["price_change_percentage_"+tf+"d_in_currency"]||0) : 0;
   return raw.filter(t=>t.symbol && !EXCLUDED.has(t.symbol.toLowerCase())).map(t=>{
     const price=t.current_price, mc=t.market_cap||0, vol=t.total_volume||0;
     const turn=mc?vol/mc*100:0, chg=t.price_change_percentage_24h||0;
-    const conv=conviction({vol,mc,chg}, PERP[(t.symbol||"").toUpperCase()]||1); const sig=signal(conv);
+    const pct = tf => (t["price_change_percentage_"+tf+"d_in_currency"]||0) - btcPct(tf);
+    const rs7=pct(7), rs14=pct(14), rs30=pct(30), rs200=pct(200);
+    const rsBlend = 0.30*rs7 + 0.25*rs14 + 0.25*rs30 + 0.20*rs200;
+    const {conv, comp} = conviction({vol,mc,chg}, PERP[(t.symbol||"").toUpperCase()]||1, rsBlend);
+    const sig=signal(conv);
     // Mean-reversion Z (relative to all-time range, since free API lacks 30d MA).
     const ath=t.ath||0, atl=t.atl||0;
     let z=0;
@@ -340,7 +374,9 @@ function build(raw){
       tier:tierOf(t.symbol), spark:t.sparkline_in_7d?.price||null,
       ath, atl, z:Math.round(z*100)/100, divergence,
       high24:t.high_24h||0, low24:t.low_24h||0, mcapChg,
-      fdv:t.fully_diluted_valuation||0, chg7d:t.price_change_percentage_7d_in_currency||0};
+      fdv:t.fully_diluted_valuation||0, chg7d:t.price_change_percentage_7d_in_currency||0,
+      rs7:Math.round(rs7*10)/10, rs14:Math.round(rs14*10)/10, rs30:Math.round(rs30*10)/10,
+      rs200:Math.round(rs200*10)/10, rsBlend:Math.round(rsBlend*10)/10, comp};
   }).sort((a,b)=>b.conv-a.conv).map(t=>{
     // Module B proxy ERA from real payload: structural dilution vs 24h volume interest.
     // PROXY ERA = ((FDV/MC) - 1) / (24h volume %). Null when FDV missing or vol% ~ 0.
@@ -598,17 +634,10 @@ function alphaMap(){
 }
 function heat(){ alphaMap(); } // alias kept for any stale caller
 function renderIndex(){
-  const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal"), snap=$("#idx-snapshot"), macro=$("#idx-macro");
-  if(!INDEX){ wrap.innerHTML='<div class="muted" style="padding:8px 12px">Awaiting Nightly Ledger Run — the index track record will compound automatically once the GitHub Actions workflow executes (06:17 UTC daily).</div>'; note.textContent="Cumulative basket vs market · live paper track record"; reb.textContent="—"; if(snap) snap.style.display="none"; if(macro) macro.style.display="none"; return; }
+  const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal");
+  if(!INDEX){ wrap.innerHTML='<div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div>'; note.textContent="Cumulative basket vs market · live paper track record"; reb.textContent="—"; return; }
   const rows=INDEX.rows||[];
   reb.textContent="reb "+(INDEX.latest?.rebalanced?"✓":"·");
-  // Macro Liquidity Gate (D) — passive display only
-  const reg=INDEX.macro_regime||"N/A";
-  if(macro){
-    if(reg==="RISK-OFF"){ macro.textContent="MACRO · RISK-OFF"; macro.className="pill off"; macro.style.display=""; }
-    else if(reg==="RISK-ON"){ macro.textContent="MACRO · RISK-ON"; macro.className="pill on"; macro.style.display=""; }
-    else { macro.style.display="none"; }
-  }
   // cumulative line chart (chained daily returns)
   const cv=$("#idx"), w=cv.clientWidth, h=cv.clientHeight||120; cv.width=w; cv.height=h; const x=cv.getContext("2d");
   x.clearRect(0,0,w,h);
@@ -634,7 +663,7 @@ function renderIndex(){
         +`<span class="alloc-w num">${tw}%<span class="alloc-live ${driftCls}">→${lw}%</span></span>`
         +`<span class="muted alloc-c">${ret>=0?"+":""}${ret.toFixed(1)}%</span></div>`;
     }).join("")
-      +`<div class="alloc-foot">basket ${bPct.toFixed(1)}% · bench ${mPct.toFixed(1)}% · α ${(bPct-mPct).toFixed(1)}% · exec-adj ${(((INDEX.exec_adjusted_total_return||1)-1)*100).toFixed(1)}% (horizon-matched, total mcap)</div>`;
+      +`<div class="alloc-foot">basket ${bPct.toFixed(1)}% · bench ${mPct.toFixed(1)}% · α ${(bPct-mPct).toFixed(1)}% (horizon-matched, total mcap)</div>`;
   } else { wrap.innerHTML='<div class="muted" style="padding:8px 12px">Basket empty.</div>'; }
 }
 function factorBreakdown(sym){
@@ -689,6 +718,18 @@ function openDrawer(sym){
     perpCell.className=pcls; perpCell.textContent=plbl+" ("+p.toFixed(2)+")";
   } else { perpCell.className="neu"; perpCell.textContent="null (perp off)"; }
   const led="<a href='ledger/signals.json' target='_blank' style='color:#3B82F6'>view nightly ledger ↗</a>";
+  const comp=t.comp||{};
+  const attr=`<div class="factor-attr">
+    <div class="fa-h">FACTOR ATTRIBUTION (conviction components)</div>
+    <div class="fa-bar"><span class="fa-l">Liquidity</span><span class="fa-v">${comp.liquidity??"—"}</span></div>
+    <div class="fa-bar"><span class="fa-l">ERA (stability)</span><span class="fa-v">${comp.era??"—"}</span></div>
+    <div class="fa-bar"><span class="fa-l">Depth</span><span class="fa-v">${comp.depth??"—"}</span></div>
+    <div class="fa-bar"><span class="fa-l">Momentum (RS)</span><span class="fa-v">${comp.momentum??"—"}</span></div>
+    <div class="fa-h" style="margin-top:6px">RELATIVE STRENGTH vs BTC</div>
+    <div class="fa-bar"><span class="fa-l">RS 7d / 14d</span><span class="fa-v">${t.rs7??"—"} / ${t.rs14??"—"}</span></div>
+    <div class="fa-bar"><span class="fa-l">RS 30d / 200d</span><span class="fa-v">${t.rs30??"—"} / ${t.rs200??"—"}</span></div>
+    <div class="fa-bar"><span class="fa-l">RS blend</span><span class="fa-v">${t.rsBlend??"—"}</span></div>
+  </div>`;
   $("#dw-body").innerHTML=`
     <div class="kv"><span>Price</span><b class="num">${fmtPrice(t.price)}</b></div>
     <div class="kv"><span>24H</span><b class="num ${cls(t.chg)}">${sgn(t.chg)}</b></div>
@@ -701,10 +742,29 @@ function openDrawer(sym){
     <div class="kv"><span>Module B ERA</span><b id="dw-era" class="neu">checking…</b></div>
     <div class="kv"><span>LAVL Perp</span><b id="dw-perp" class="neu">checking…</b></div>
     <div style="margin-top:14px" class="muted">${led}</div>
-    <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>`;
+    <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>${attr}`;
   $("#drawer").classList.add("open");
 }
 function closeDrawer(){document.getElementById("drawer").classList.remove("open");}
+
+// Conviction Change Feed + Breadth/Dispersion/Persistence from market_breadth.json.
+function renderBreadth(){
+  const feed=$("#chg-feed"), br=$("#breadth");
+  if(!BREADTH){ return; }
+  const cf=BREADTH.conviction_change_feed||{gains:[],losses:[]};
+  feed.innerHTML = `<div class="cf-col"><div class="cf-h pos">▲ LARGEST GAINS</div>`+
+    (cf.gains.length?cf.gains.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="pos">+${g.d10}</span></div>`).join(""):`<div class="muted" style="padding:4px 0">—</div>`)+
+    `</div><div class="cf-col"><div class="cf-h neg">▼ LARGEST COLLAPSES</div>`+
+    (cf.losses.length?cf.losses.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="neg">${g.d10}</span></div>`).join(""):`<div class="muted" style="padding:4px 0">—</div>`)+`</div>`;
+  const p30=(BREADTH.persistent_30d||[]).length, p90=(BREADTH.persistent_90d||[]).length;
+  br.innerHTML =
+    `<div class="kv"><span>Above 70</span><b>${BREADTH.breadth_above70}/${BREADTH.n_assets} (${BREADTH.breadth_pct_above70}%)</b></div>`+
+    `<div class="kv"><span>Above 80</span><b>${BREADTH.breadth_above80}</b></div>`+
+    `<div class="kv"><span>Dispersion σ</span><b>${BREADTH.dispersion}</b></div>`+
+    `<div class="kv"><span>Persistent 30d</span><b>${p30}</b></div>`+
+    `<div class="kv"><span>Persistent 90d</span><b>${p90}</b></div>`+
+    `<div class="kv" style="grid-column:1/-1"><span class="muted">Dispersion = how spread conviction is across the universe. Low σ → no edge; high σ → concentrated opportunity.</span></div>`;
+}
 
 // ---- portfolio overlay ----
 let HOLDINGS={};
@@ -731,7 +791,7 @@ async function load(){
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
     renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); if(SEL) factorBreakdown(SEL);
-    loadLedger().then(renderIndex);
+    loadLedger().then(()=>{ renderIndex(); renderBreadth(); });
     st.textContent="OK"; st.className="live"; $("#sys-rl").textContent="nominal";
   }catch(e){
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";

@@ -24,6 +24,8 @@ LEDGER_CSV = LEDGER_DIR / "signals.csv"
 LEDGER_JSON = LEDGER_DIR / "signals.json"
 FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           "erosion_ratio", "conviction", "signal",
+          "rs7", "rs14", "rs30", "rs200", "rs_blend",
+          "c_liquidity", "c_era", "c_depth", "c_momentum",
           "unlocks_usd", "supply_increase_pct", "addr_growth_pct", "era",
           "roi_30d", "roi_90d", "survived", "perp_mult"]
 
@@ -100,7 +102,7 @@ def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5) -> 
     for page in range(1, pages + 1):
         url = (f"{CG_BASE}/coins/markets?vs_currency=usd"
                f"&order=market_cap_desc&per_page={per_page}&page={page}"
-               f"&price_change_percentage=24h")
+               f"&price_change_percentage=24h,7d,14d,30d,200d")
         backoff = 5.0
         for attempt in range(4):
             try:
@@ -124,11 +126,32 @@ def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5) -> 
     return out
 
 
-def score(t: dict, perps_map: dict | None = None) -> tuple[float, int, str]:
+def score(t: dict, perps_map: dict | None = None,
+          btc: dict | None = None) -> tuple[float, int, str, dict]:
+    """Conviction score (0-100) with multi-timeframe relative strength.
+
+    Momentum (Module C) now uses RELATIVE STRENGTH vs BTC across 7d/14d/30d/200d
+    instead of 24h price change alone — 24h is mostly noise; a coin quietly
+    outperforming BTC over 30-200d is the structural signal. Returns
+    (era, total, sig, components) where components decomposes the score for
+    attribution (liquidity/era/depth/momentum/rs_blend/perp_mult).
+    """
     mc = t.get("market_cap") or 0
     vol = t.get("total_volume") or 0
     chg = t.get("price_change_percentage_24h") or 0.0
     turnover = (vol / mc) if mc else 0.0
+
+    # --- Multi-timeframe relative strength vs BTC (7/14/30/200d; 90d is null
+    # on the free tier, so it is intentionally excluded — no fabrication) ---
+    def _pct(tf: int) -> float:
+        return float(t.get(f"price_change_percentage_{tf}d_in_currency") or 0.0)
+    def _btc(tf: int) -> float:
+        return float((btc or {}).get(f"price_change_percentage_{tf}d_in_currency") or 0.0)
+    rs = {tf: _pct(tf) - _btc(tf) for tf in (7, 14, 30, 200)}
+    # Blended RS: weight recent Horizons but keep the long window loud enough
+    # to surface quiet 60-200d outperformers. Volatility-adjustment deferred
+    # (needs a return series the free tier doesn't provide).
+    rs_blend = 0.30 * rs[7] + 0.25 * rs[14] + 0.25 * rs[30] + 0.20 * rs[200]
 
     # Module A (0-30): liquidity fit, soft curve, peak 30-60%
     if turnover <= 0:
@@ -148,19 +171,11 @@ def score(t: dict, perps_map: dict | None = None) -> tuple[float, int, str]:
     era = 5.0 / ag
     b = 20 if era < 0.7 else 15 if era < 1.0 else 10 if era < 1.5 else 5 if era < 2.0 else 0
 
-    # Module C (0-40): depth (log mc) + momentum, attenuated by LAVL leverage regime
+    # Module C (0-40): depth (log mc) + RS momentum, attenuated by LAVL leverage
     depth = max(0.0, min(1.0, (math.log10(mc) - 6) / 4.0)) if mc else 0
     cd = depth * 20
-    if chg < -15:
-        cm = 4
-    elif chg < 0:
-        cm = 12 - abs(chg) * 0.6
-    elif chg <= 8:
-        cm = 14 + chg * 1.0
-    elif chg <= 20:
-        cm = 20
-    else:
-        cm = max(8, 20 - (chg - 20) * 1.0)
+    # Map blended RS (-40..+40 typical) to a 4..20 momentum score.
+    cm = max(4.0, min(20.0, 12.0 + rs_blend * 0.4))
     # LAVL leverage-micro-regime: penalize overheated longs, reward short capitulation
     if perps_map is not None:
         cm *= lavl_perp_mult((t.get("symbol") or "").upper(), perps_map)
@@ -169,7 +184,15 @@ def score(t: dict, perps_map: dict | None = None) -> tuple[float, int, str]:
     total = max(0, min(100, int(round(a + b + c))))
     sig = "STRONG" if total >= 80 else "BUY" if total >= 70 else "HOLD" if total >= 55 \
         else "WATCH" if total >= 40 else "AVOID"
-    return era, total, sig
+    comp = {
+        "liquidity": round(a, 1), "era": round(b, 1), "depth": round(cd, 1),
+        "momentum": round(cm, 1), "rs_blend": round(rs_blend, 2),
+        "rs7": round(rs[7], 2), "rs14": round(rs[14], 2),
+        "rs30": round(rs[30], 2), "rs200": round(rs[200], 2),
+        "perp_mult": round(lavl_perp_mult((t.get("symbol") or "").upper(),
+                                           perps_map or {}), 3),
+    }
+    return era, total, sig, comp
 
 
 def _lavl_regime(t: dict) -> str:
@@ -324,6 +347,96 @@ def _risk_stats(idx_rows: list[dict]) -> dict | None:
     }
 
 
+def _compute_market_breadth() -> dict:
+    """Conviction as a time-series (reviewer #3) + breadth/dispersion/persistence
+    (the three differentiated signals). Purely derived from the signals ledger —
+    no new feeds. Returns a dict written to ledger/market_breadth.json.
+
+    Per asset: conviction delta over 10d and 30d (trend/acceleration) from the
+    stored daily conviction series.
+    Market level: % assets scoring >70 / >80 (breadth), conviction dispersion
+    (stdev across the universe, the Conviction Dispersion Index), and persistent
+    leadership (assets >=70 for 30d and 90d).
+    """
+    if not LEDGER_CSV.exists():
+        return {}
+    with LEDGER_CSV.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    # Build per-symbol series of (date, conviction)
+    series: dict[str, list] = {}
+    for r in rows:
+        sym = r.get("symbol")
+        if not sym:
+            continue
+        try:
+            conv = float(r.get("conviction") or 0)
+        except ValueError:
+            continue
+        series.setdefault(sym, []).append((r.get("date"), conv))
+
+    # Sort each series by date and compute deltas
+    def _at(seq, days_back):
+        if len(seq) <= days_back:
+            return None
+        return seq[-1][1] - seq[-(days_back + 1)][1]
+
+    trend = {}
+    for sym, seq in series.items():
+        seq.sort(key=lambda x: x[0])
+        trend[sym] = {
+            "conviction": seq[-1][1] if seq else 0,
+            "d10": _at(seq, 10),
+            "d30": _at(seq, 30),
+        }
+
+    # Market-level aggregates are computed over the LATEST daily snapshot only
+    # (the current investable universe), not the union of all history — otherwise
+    # assets that left the universe would distort breadth/dispersion.
+    all_dates = [d for seq in series.values() for d, _ in seq]
+    latest_date = max(all_dates) if all_dates else None
+    latest_conv = [
+        seq[-1][1] for seq in series.values()
+        if seq and seq[-1][0] == latest_date and seq[-1][1] is not None
+    ]
+    n = len(latest_conv) or 1
+    above70 = sum(1 for c in latest_conv if c >= 70)
+    above80 = sum(1 for c in latest_conv if c >= 80)
+    dispersion = (sum((c - (sum(latest_conv) / n)) ** 2 for c in latest_conv) / n) ** 0.5 if n > 1 else 0.0
+
+    # Persistence: assets >=70 for the last 30 / 90 consecutive daily snapshots
+    persistent30, persistent90 = [], []
+    for sym, seq in series.items():
+        seq.sort(key=lambda x: x[0])
+        cons30 = all(c >= 70 for _, c in seq[-30:]) if len(seq) >= 30 else False
+        cons90 = all(c >= 70 for _, c in seq[-90:]) if len(seq) >= 90 else False
+        if cons30:
+            persistent30.append(sym)
+        if cons90:
+            persistent90.append(sym)
+
+    # Conviction change feed: largest increases / collapses over 10d
+    movers = [(sym, t["d10"]) for sym, t in trend.items() if t.get("d10") is not None]
+    movers.sort(key=lambda x: x[1], reverse=True)
+    gains = [{"symbol": s, "d10": round(d, 1)} for s, d in movers[:8] if d > 0]
+    losses = [{"symbol": s, "d10": round(d, 1)} for s, d in reversed(movers[-8:]) if d < 0]
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "n_assets": n,  # latest-day investable universe (not the historical union)
+        "breadth_above70": above70,
+        "breadth_above80": above80,
+        "breadth_pct_above70": round(100 * above70 / n, 1),
+        "dispersion": round(dispersion, 2),
+        "persistent_30d": persistent30,
+        "persistent_90d": persistent90,
+        "conviction_change_feed": {"gains": gains, "losses": losses},
+        "trend": {s: {"conviction": round(t["conviction"], 1),
+                       "d10": round(t["d10"], 1) if t["d10"] is not None else None,
+                       "d30": round(t["d30"], 1) if t["d30"] is not None else None}
+                 for s, t in sorted(trend.items(), key=lambda x: -x[1]["conviction"])},
+    }
+
+
 def _macro_regime_from_ledger() -> str:
     """Macro Liquidity Gate (D) — PASSIVE / display-only.
 
@@ -359,6 +472,7 @@ def _macro_regime_from_ledger() -> str:
 BASKET_JSON = LEDGER_DIR / "basket.json"
 INDEX_CSV = LEDGER_DIR / "index.csv"
 INDEX_JSON = LEDGER_DIR / "index.json"
+MARKET_BREADTH_JSON = LEDGER_DIR / "market_breadth.json"
 REBALANCE_DAYS = 7
 # Rebalance hysteresis (A): don't eject a holding just because it slipped one
 # rank. Keep it unless it drops to rank >= EJECT_RANK or its score falls more
@@ -371,7 +485,7 @@ EJECT_GAP = 5.0
 EXEC_BPS_ONEWAY = 25.0
 
 
-def build_basket(markets: list[dict], today: str) -> dict:
+def build_basket(markets: list[dict], today: str, btc: dict | None = None) -> dict:
     """Conviction-weighted Top-10 basket with score-proportional target weights.
 
     Tracks, per day:
@@ -385,7 +499,7 @@ def build_basket(markets: list[dict], today: str) -> dict:
         sym = (t.get("symbol") or "").upper()
         if not sym or sym in STABLES:
             continue
-        era, conv, _ = score(t)
+        era, conv, _, _ = score(t, None, btc)
         if _conjunctive_gate(t, conv):
             scored.append((sym, t, conv))
     scored.sort(key=lambda x: x[2], reverse=True)
@@ -397,7 +511,7 @@ def build_basket(markets: list[dict], today: str) -> dict:
             sym = (t.get("symbol") or "").upper()
             if not sym or sym in STABLES:
                 continue
-            era, conv, _ = score(t)
+            era, conv, _, _ = score(t, None, btc)
             scored.append((sym, t, conv))
         scored.sort(key=lambda x: x[2], reverse=True)
     top = scored[:10]
@@ -681,7 +795,9 @@ def main() -> int:
               file=__import__("sys").stderr)
     else:
         print("[perp] no perp feed; RiskMult_perp neutral (1.0) for all.", file=__import__("sys").stderr)
-    basket = build_basket(markets, today)
+    # BTC = market-neutral reference for multi-timeframe relative strength.
+    btc = next((m for m in markets if (m.get("symbol") or "").upper() == "BTC"), None)
+    basket = build_basket(markets, today, btc)
     rows = []
     seen = set()
     for t in markets:
@@ -689,7 +805,7 @@ def main() -> int:
         if not sym or sym in seen or sym in STABLES:
             continue
         seen.add(sym)
-        era, conv, sig = score(t, perps_map)
+        era, conv, sig, comp = score(t, perps_map, btc)
         pm = lavl_perp_mult(sym, perps_map)
         b = dune_b.get(sym)  # real Dune fields if present, else None -> null
         rows.append({
@@ -697,6 +813,10 @@ def main() -> int:
             "price": t.get("current_price") or 0, "market_cap": t.get("market_cap") or 0,
             "turnover_pct": round((t.get("total_volume", 0) / t.get("market_cap", 1)) * 100, 2) if t.get("market_cap") else 0,
             "erosion_ratio": round(era, 3), "conviction": conv, "signal": sig,
+            "rs7": comp["rs7"], "rs14": comp["rs14"], "rs30": comp["rs30"],
+            "rs200": comp["rs200"], "rs_blend": comp["rs_blend"],
+            "c_liquidity": comp["liquidity"], "c_era": comp["era"],
+            "c_depth": comp["depth"], "c_momentum": comp["momentum"],
             "unlocks_usd": b["unlocks_usd"] if b else None,
             "supply_increase_pct": b["supply_increase_pct"] if b else None,
             "addr_growth_pct": b["addr_growth_pct"] if b else None,
@@ -769,6 +889,12 @@ def main() -> int:
     }
     with LEDGER_JSON.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
+
+    # Conviction time-series + breadth/dispersion/persistence (reviewer #3 + the
+    # three differentiated signals). Derived purely from the signals ledger.
+    breadth = _compute_market_breadth()
+    if breadth:
+        MARKET_BREADTH_JSON.write_text(json.dumps(breadth, indent=2))
 
     print(f"Nightly {today}: wrote {len(rows[:25])} signals, backfilled {updated}. "
           f"Ledger total: {len(all_rows)}.")
