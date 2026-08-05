@@ -171,22 +171,43 @@ def score(t: dict, perps_map: dict | None = None,
     era = 5.0 / ag
     b = 20 if era < 0.7 else 15 if era < 1.0 else 10 if era < 1.5 else 5 if era < 2.0 else 0
 
-    # Module C (0-40): depth (log mc) + RS momentum, attenuated by LAVL leverage
+    # v2 MULTIPLICATIVE conviction = Quality x Confirmation x RiskAdjustment.
+    # This replaces the additive model that saturated momentum at a hard clamp
+    # (PUMP and HYPE collided at c_momentum=20). Composition:
+    #   Q (Structural Quality)   = log-mcap depth, 0-1        (thin caps shrink the floor)
+    #   C (Market Confirmation)  = soft sigmoid over RS_blnd, 0-1  (NO clamp -> rankable within tier)
+    #   R (Risk Adjustment)      = mcap-aware liquidity, 0.4-1.0  (low turnover does NOT punish blue-chips)
+    # A high-mcap asset (depth~1) with low turnover keeps R=1.0; only micro-caps /
+    # low-depth names get the liquidity haircut. This is what pushes PUMP below HYPE/ADA.
     depth = max(0.0, min(1.0, (math.log10(mc) - 6) / 4.0)) if mc else 0
-    cd = depth * 20
-    # Map blended RS (-40..+40 typical) to a 4..20 momentum score.
-    cm = max(4.0, min(20.0, 12.0 + rs_blend * 0.4))
-    # LAVL leverage-micro-regime: penalize overheated longs, reward short capitulation
+    cm = 0.10 + 0.90 * ((math.tanh(rs_blend / 25.0) + 1.0) / 2.0)  # confirmation, [0.10,0.91]
+    # Risk: liquidity-fit fraction, but floored to 1.0 (no penalty) for established
+    # depth (>=0.90 log-mcap) so blue-chip perps are not punished for low %.
+    if depth >= 0.90:
+        a_frac = 1.0
+    else:
+        if turnover <= 0:
+            a_frac = 0.0
+        elif turnover <= 0.30:
+            a_frac = (10 + (turnover / 0.30) * 20) / 30.0
+        elif turnover <= 0.60:
+            a_frac = (30 - abs(turnover - 0.45) / 0.15 * 6) / 30.0
+        elif turnover <= 1.20:
+            a_frac = (20 - (turnover - 0.60) / 0.60 * 12) / 30.0
+        else:
+            a_frac = max(2.0, 8 - (turnover - 1.20) * 4) / 30.0
+        a_frac = max(0.4, a_frac)  # never zero out a name; cap the haircut at 60%
+    risk = a_frac
     if perps_map is not None:
-        cm *= lavl_perp_mult((t.get("symbol") or "").upper(), perps_map)
-    c = cd + cm
+        risk *= lavl_perp_mult((t.get("symbol") or "").upper(), perps_map)
 
-    total = max(0, min(100, int(round(a + b + c))))
+    total = max(0, min(100, int(round(100 * depth * cm * risk))))
     sig = "STRONG" if total >= 80 else "BUY" if total >= 70 else "HOLD" if total >= 55 \
         else "WATCH" if total >= 40 else "AVOID"
     comp = {
-        "liquidity": round(a, 1), "era": round(b, 1), "depth": round(cd, 1),
-        "momentum": round(cm, 1), "rs_blend": round(rs_blend, 2),
+        "liquidity": round(a_frac * 30, 1), "era": round(b, 1),
+        "depth": round(depth * 20, 1), "momentum": round(cm * 20, 1),  # confirmation, display-scaled
+        "risk_adjustment": round(risk, 3), "rs_blend": round(rs_blend, 2),
         "rs7": round(rs[7], 2), "rs14": round(rs[14], 2),
         "rs30": round(rs[30], 2), "rs200": round(rs[200], 2),
         "perp_mult": round(lavl_perp_mult((t.get("symbol") or "").upper(),

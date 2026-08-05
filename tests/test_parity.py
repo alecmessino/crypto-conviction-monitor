@@ -50,19 +50,31 @@ def depth_score(mc):
 
 
 def frontend_conviction(vol, mc, chg, perp, rs_blend):
-    """Exact port of launch_skew.html conviction(t, perp, rsBlend)."""
+    """Exact port of launch_skew.html conviction(t, perp, rsBlend) — v2 multiplicative.
+    Mirrors nightly.score()'s Quality x Confirmation x RiskAdjustment composition."""
+    import math
     turn = vol / mc
-    a = liquidity_fit(turn)
+    # Module B era (24h stability) — kept for attribution, no longer in the v2 product
     ag = 15 if abs(chg) < 5 else 10 if abs(chg) < 15 else 5
     era = 5 / ag
     b = 20 if era < 0.7 else 15 if era < 1.0 else 10 if era < 1.5 else 5 if era < 2.0 else 0
-    cd = depth_score(mc) * 20
-    cm_raw = 12.0 if rs_blend is None else max(4, min(20, 12 + (rs_blend or 0) * 0.4))
-    cm = cm_raw * perp
-    conv = max(0, min(100, round(a + b + cd + cm)))
+    # Q (Structural Quality): log-mcap depth, 0-1
+    depth = max(0.0, min(1.0, (math.log10(mc) - 6) / 4.0)) if mc else 0
+    # C (Market Confirmation): soft sigmoid over rs_blend — NO hard clamp
+    cm = 0.10 + 0.90 * ((math.tanh((rs_blend or 0) / 25.0) + 1.0) / 2.0)  # [0.10,0.91]
+    # R (Risk Adjustment): mcap-aware liquidity, floored to 1.0 for depth>=0.90
+    if depth >= 0.90:
+        a_frac = 1.0
+    else:
+        a_frac = liquidity_fit(turn) / 30.0  # normalize Module A a (0-30) to 0-1
+        a_frac = max(0.4, a_frac)            # cap haircut at 60%
+    risk = a_frac * perp
+    conv = max(0, min(100, int(round(100 * depth * cm * risk))))
     comp = {
-        "liquidity": round(a, 1), "era": round(b, 1), "depth": round(cd, 1),
-        "momentum": round(cm, 1), "rsBlend": round((rs_blend or 0), 2),
+        "liquidity": round(a_frac * 30, 1), "era": round(b, 1),
+        "depth": round(depth * 20, 1),
+        "momentum": round(cm * 20, 1),  # confirmation, display-scaled
+        "risk_adjustment": round(risk, 3), "rsBlend": round((rs_blend or 0), 2),
     }
     return conv, comp
 
@@ -141,12 +153,14 @@ def check_parity_under_perp_overlay():
         assert fe_conv == be_conv, f"{sym}@perp{pm}: frontend {fe_conv} != backend {be_conv}"
 
 
-# ---- frozen regression: the scoring engine must not silently drift ----
+# ---- frozen regression: the v2 multiplicative scoring engine must not drift ----
+# Pinned to the v2 composition (Quality x Confirmation x RiskAdjustment).
+# If a future edit changes these, the check fails and forces a conscious sign-off.
 FROZEN_CONVICTION = {
-    "ETH": 71,
-    "SOL": 73,
+    "ETH": 81,
+    "SOL": 92,
     "ADA": 69,
-    "LINK": 69,
+    "LINK": 70,
 }
 
 

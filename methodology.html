@@ -103,17 +103,19 @@ rs_blend = 0.30·RS7 + 0.25·RS14 + 0.25·RS30 + 0.20·RS200</div>
   <h2>3 · Conviction Model</h2>
   <p>Each eligible asset gets one 0–100 score. The exact same function runs in the terminal (JS) and the nightly builder (Python) and is tested for byte-identical output.</p>
   <div class="glass">
-    <h3><span class="tag a">A</span> Liquidity Fit · 0–30 &nbsp; <span class="tag b">B</span> Stability/ERA · 0–20 &nbsp; <span class="tag c">C</span> Depth + RS Momentum · 0–40 &nbsp; <span class="tag d">D</span> LAVL Overlay · ×momentum</h3>
-    <div class="formula">cd = depth · 20<br>
-cm = clamp(12 + rs_blend·0.4, 4, 20) · RiskMult_perp<br>
-conviction = clamp( a + b + (cd + cm) , 0, 100 )<br>
+    <h3><span class="tag a">Q</span> Structural Quality · depth (log-mcap) &nbsp; <span class="tag b">C</span> Market Confirmation · RS sigmoid &nbsp; <span class="tag d">D</span> Risk Adjustment · liquidity × LAVL</h3>
+    <div class="formula">Q = clamp( (log10(mc) − 6) / 4, 0, 1 ) · 100<br>
+C = 0.10 + 0.90 · ( 1 + tanh(rs_blend / 25) ) / 2 &nbsp;<span class="muted small">(soft — no hard clamp, rankable within a tier)</span><br>
+R = liquidityFit(turnover) × RiskMult<sub>perp</sub> &nbsp;<span class="muted small">(floored to 1.0 for depth ≥ 0.90)</span><br>
+<i>v2 multiplicative:</i> conviction = clamp( 100 · Q · C · R , 0, 100 )<br>
+<i>v1 additive (deprecated):</i> conviction = a + b + (depth·20 + clamp(12+rs_blend·0.4,4,20))<br>
 signal: STRONG ≥80 · BUY ≥70 · HOLD ≥55 · WATCH ≥40 · AVOID &lt;40</div>
-    <p class="muted">Momentum is now driven by <b>blended RS vs BTC</b>, not 24h change. Module D multiplies the momentum component by RiskMult<sub>perp</sub>.</p>
+    <p class="muted">The switch to <b>multiplication</b> was forced by a ceiling collision in v1: the hard-clamped momentum term pinned PUMP, KAITO and HYPE to the same c_momentum=20, erasing any way to rank a thin-float pump below a blue-chip RS leader on RS strength alone. Under v2, a weak Q (small market cap) or a weak R (thin liquidity) <i>multiplies the whole score down</i> instead of being additively offset, so thin names can no longer overrank quality even on a hot 24h. Confirmation is a soft sigmoid over rs_blend — monotonic, no clamp → names inside the BUY tier stay rankable.</p>
   </div>
   <div class="callout"><b>Conjunctive gate (eligibility).</b> An asset is "qualified" only if it passes Liquidity (turnover 30–60%), Dilution (FDV/MC ≤ 2.0), and Regime (not COMPRESS / LIQ TRAP) <i>simultaneously</i>. The gate filters <i>eligibility</i>; the score ranks among eligible assets.</div>
 
   <h3>Factor Attribution</h3>
-  <p>Every score is decomposed into its component contributions — <b>liquidity, ERA, depth, momentum (RS), and rs_blend</b> — stored per asset in <code>ledger/signals.json</code> and rendered in the terminal's Asset Detail drawer. This is what turns the model from a black box into research: you can ask not just <i>"why did UNI rank first?"</i> but <i>"which factor has generated alpha over the last 18 months?"</i> — the prerequisite for factor-level backtesting.</p>
+  <p>Every score is decomposed into its component contributions — <b>quality (depth), confirmation (RS sigmoid), risk (liquidity-fit × perp leverage), and rs_blend</b> — stored per asset in <code>ledger/signals.json</code> and rendered in the terminal's Asset Detail drawer. This is what turns the model from a black box into research: you can ask not just <i>"why did UNI rank first?"</i> but <i>"which factor has generated alpha over the last 18 months?"</i> — the prerequisite for factor-level backtesting.</p>
 
   <h2>4 · Portfolio Construction</h2>
   <p>The index is a paper portfolio of the <b>top-10 eligible assets by conviction</b>, held with <b>score-proportional weights</b>.</p>
@@ -170,7 +172,7 @@ w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)&nbsp;&nbsp;·&nbsp;&
       <li><b>Perp overlay is server-side.</b> RiskMult<sub>perp</sub> needs a derivatives feed that can't be called cross-origin. The terminal reads the nightly <code>perp_mult</code> so it stays consistent with the index.</li>
       <li><b>Free-tier limits.</b> No intraday/RSI/order-book/funding history from the free CoinGecko tier. Modules are scoped to real payload fields; anything we can't source is labeled unavailable (90d RS excluded for this reason).</li>
       <li><b>Paper only.</b> A research signal system, not investment advice.</li>
-      <li><b>Model is additive today.</b> conviction = a + b + c. As factors grow, a multiplicative architecture (Structural Quality × Market Confirmation × Risk Adjustment) is the planned v2 — so a catastrophic weakness in one dimension can't be fully offset by strengths elsewhere. Not changed yet; being designed.</li>
+      <li><b>v2 multiplicative is now live.</b> conviction = 100·Q·C·R replaces the additive model so a saturated clamp can no longer erase discrimination between thin pumps and blue-chip RS leaders. Log-return / per-timeframe volatility normalization for RS is the remaining deferral.</li>
     </ul>
   </div>
 
