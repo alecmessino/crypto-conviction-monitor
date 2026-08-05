@@ -691,6 +691,35 @@ def build_basket(markets: list[dict], today: str, btc: dict | None = None) -> di
     return basket
 
 
+def _normalize_live(audit: list, live_holdings: list) -> list:
+    """Active-basket slice of the audit trail with target weights Σ=1.0.
+
+    ``current_holdings`` (the audit trail) can carry stale rows from ejected
+    symbols whose ``target_weight`` no longer represents the live basket — that
+    made the terminal's allocation column sum to >100% (e.g. 383.3%). This
+    returns only the symbols currently in the live basket, with their
+    target weights re-normalised so Σ target_weight == 1.0, and synthesises a
+    parallel ``live_weight`` (drifted by price) and ``return`` so the terminal
+    needs zero schema changes.
+    """
+    live_syms = {h.get("symbol") for h in live_holdings}
+    active = [h for h in audit if h.get("ticker") in live_syms]
+    if not active:
+        return []
+    raw_sum = sum(h.get("target_weight", 0) for h in active) or 1.0
+    out = []
+    for h in active:
+        tw = h.get("target_weight", 0) / raw_sum
+        ep = h.get("entry_price") or 0
+        cur = h.get("current_price") or 0
+        ret = ((cur - ep) / ep) if (cur and ep) else 0.0
+        live_w = tw * (cur / ep) if (cur and ep) else tw
+        out.append({"ticker": h.get("ticker"), "entry_price": ep,
+                    "current_price": cur, "target_weight": round(tw, 4),
+                    "live_weight": round(live_w, 4), "return": round(ret, 4)})
+    return out
+
+
 def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
                      live: dict | None = None, macro_regime: str | None = None,
                      eject_delta: float = 0.0, ejected_syms: list | None = None,
@@ -789,6 +818,7 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
         "sharpe_convention": "rf=0; daily returns annualized x sqrt(365); computed when len(rows)>=30",
         "risk": risk,
         "current_holdings": audit,
+        "latest_holdings": _normalize_live(audit, basket.get("holdings", [])),
         "rows": idx_rows,
     }, indent=2))
 

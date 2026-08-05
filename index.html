@@ -674,7 +674,7 @@ function renderIndex(){
   x.fillStyle="#475569";x.font="7px monospace";x.fillText("mkt "+(mPct>=0?"+":"")+mPct.toFixed(1)+"%",px(rows.length)-30,py(cumM[cumM.length-1])-3);
   x.fillStyle="#00FF66";x.fillText("basket "+(bPct>=0?"+":"")+bPct.toFixed(1)+"%",px(rows.length)-48,py(cumB[cumB.length-1])+9);
   // allocation table: target vs live weight + audit trail
-  const hs=INDEX.current_holdings||[];
+  const hs=INDEX.latest_holdings||INDEX.current_holdings||[];
   if(hs.length){
     wrap.innerHTML=hs.map(h=>{
       const tw=(h.target_weight*100).toFixed(1), lw=(h.live_weight*100).toFixed(1);
