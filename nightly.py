@@ -368,6 +368,99 @@ def _risk_stats(idx_rows: list[dict]) -> dict | None:
     }
 
 
+# A tier change caused by a move no larger than this is the label crossing a threshold,
+# not a change of view. Matched to the equity terminal, where the same diagnostic
+# measured 47 of 73 overnight tier changes falling inside it — a "new BUY" list built
+# without the distinction is wrong in detail most mornings.
+MARGINAL_MOVE = 2.0
+
+# The same cuts _score() applies. Used only to fill a tier for a historical row that
+# predates the signal column; a row that recorded its own signal keeps it, so an old
+# night is never silently reinterpreted under today's thresholds.
+TIER_CUTS = ((80, "STRONG"), (70, "BUY"), (55, "HOLD"), (40, "WATCH"), (0, "AVOID"))
+
+
+def _tier_for(conviction: float) -> str:
+    for cut, name in TIER_CUTS:
+        if conviction >= cut:
+            return name
+    return "AVOID"
+
+
+def _compute_tier_diff() -> dict:
+    """Overnight tier transitions, separating real reclassifications from boundary noise.
+
+    This is a diff, not a rule. Nothing here feeds back into scoring. The alternative
+    fix for boundary churn is hysteresis — refusing to change a tier until a name moves
+    far enough past the threshold — and that puts a memory of yesterday inside tonight's
+    score, so a name's tier would depend on the path it took to reach its conviction
+    rather than on the conviction itself. The score stays a pure function of tonight's
+    inputs; the presentation carries the caveat.
+
+    Derived entirely from the signals ledger. No new feeds.
+    """
+    if not LEDGER_CSV.exists():
+        return {}
+    with LEDGER_CSV.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+
+    by_date: dict[str, dict[str, dict]] = {}
+    for r in rows:
+        d, sym = r.get("date"), r.get("symbol")
+        if not d or not sym:
+            continue
+        try:
+            conv = float(r.get("conviction") or 0)
+        except ValueError:
+            continue
+        by_date.setdefault(d, {})[sym] = {
+            "conviction": conv,
+            "tier": r.get("signal") or _tier_for(conv),
+            "name": r.get("name") or sym,
+        }
+
+    dates = sorted(by_date)
+    if len(dates) < 2:
+        return {"from": None, "to": dates[-1] if dates else None, "pending": True,
+                "marginal_move": MARGINAL_MOVE, "changed": [], "marginal": [],
+                "counts": {}}
+
+    prev_d, curr_d = dates[-2], dates[-1]
+    prev, curr = by_date[prev_d], by_date[curr_d]
+
+    changed, marginal = [], []
+    for sym, now in curr.items():
+        was = prev.get(sym)
+        if not was or was["tier"] == now["tier"]:
+            continue
+        delta = now["conviction"] - was["conviction"]
+        entry = {
+            "symbol": sym, "name": now["name"],
+            "from": round(was["conviction"], 1), "to": round(now["conviction"], 1),
+            "delta": round(delta, 1),
+            "from_tier": was["tier"], "to_tier": now["tier"],
+            "marginal": abs(delta) <= MARGINAL_MOVE,
+        }
+        (marginal if entry["marginal"] else changed).append(entry)
+
+    changed.sort(key=lambda e: -abs(e["delta"]))
+    marginal.sort(key=lambda e: -abs(e["delta"]))
+    total = len(changed) + len(marginal)
+    return {
+        "from": prev_d, "to": curr_d, "pending": False,
+        "marginal_move": MARGINAL_MOVE,
+        "names_compared": len(set(prev) & set(curr)),
+        "changed": changed,
+        "marginal": marginal,
+        "counts": {
+            "tier_changes": total,
+            "real": len(changed),
+            "marginal": len(marginal),
+            "marginal_share": round(len(marginal) / total, 3) if total else None,
+        },
+    }
+
+
 def _compute_market_breadth() -> dict:
     """Conviction as a time-series (reviewer #3) + breadth/dispersion/persistence
     (the three differentiated signals). Purely derived from the signals ledger —
@@ -945,7 +1038,16 @@ def main() -> int:
     # three differentiated signals). Derived purely from the signals ledger.
     breadth = _compute_market_breadth()
     if breadth:
+        # Overnight tier transitions, split into real reclassifications and boundary
+        # crossings. Attached to breadth rather than given its own file: it is the same
+        # kind of derived-from-the-ledger diagnostic and the terminal already loads this.
+        breadth["tier_diff"] = _compute_tier_diff()
         MARKET_BREADTH_JSON.write_text(json.dumps(breadth, indent=2))
+        td = breadth["tier_diff"]
+        if td and not td.get("pending"):
+            c = td["counts"]
+            print(f"[tiers] {td['from']} -> {td['to']}: {c['tier_changes']} changed "
+                  f"({c['real']} real, {c['marginal']} on <= {td['marginal_move']} pts)")
 
     print(f"Nightly {today}: wrote {len(rows[:25])} signals, backfilled {updated}. "
           f"Ledger total: {len(all_rows)}.")
