@@ -338,16 +338,21 @@ def fetch_global_market_cap() -> float | None:
         return None
 
 
-def _risk_stats(idx_rows: list[dict]) -> dict | None:
-    """Risk statistics derived purely from the ledger (no fabrication).
+def _risk_stats(daily_returns: list[float]) -> dict | None:
+    """Risk statistics from a series of OVERNIGHT returns.
 
-    Sharpe: rf=0, mean(daily basket_return) / std(daily basket_return) * sqrt(365).
-    Max drawdown: largest peak-to-trough decline of the cumulative basket curve.
-    Only meaningful with enough history; caller gates on len(idx_rows) >= 30.
+    Takes the returns explicitly rather than reading index.csv, because that file's
+    return columns are cumulative since the basket's cost basis, not daily. Feeding them
+    to a Sharpe ratio computes the dispersion of a running total, which rises with the
+    length of the series rather than with the volatility of anything. Gated at 30
+    observations, so it had never fired — a landmine rather than a live wrong number.
+
+    Sharpe: rf=0, mean(daily) / std(daily) * sqrt(365).
+    Max drawdown: largest peak-to-trough decline of the compounded curve.
     """
-    if len(idx_rows) < 30:
+    if len(daily_returns) < 30:
         return None
-    rets = [float(r.get("basket_return") or 0) / 100.0 for r in idx_rows]
+    rets = list(daily_returns)
     mean = sum(rets) / len(rets)
     var = sum((x - mean) ** 2 for x in rets) / len(rets)
     std = math.sqrt(var) if var > 0 else 0.0
@@ -726,11 +731,12 @@ def _macro_regime_from_ledger() -> str:
     Returns "RISK-OFF" / "RISK-ON" / "N/A" (no history). This is a logged
     context signal only — it NEVER changes basket holdings.
     """
-    if not INDEX_CSV.exists():
-        return "N/A"
     try:
-        with INDEX_CSV.open(newline="", encoding="utf-8") as f:
-            rows = list(csv.DictReader(f))
+        # Through the schema-checked reader: a mismatched header yields no rows rather
+        # than a column of misread values.
+        rows = read_index_rows()
+        if not rows:
+            return "N/A"
         caps = [(r["date"], float(r["global_market_cap"])) for r in rows
                 if r.get("global_market_cap") not in (None, "", "None")]
         if len(caps) < 2:
@@ -752,6 +758,110 @@ def _macro_regime_from_ledger() -> str:
 
 BASKET_JSON = LEDGER_DIR / "basket.json"
 INDEX_CSV = LEDGER_DIR / "index.csv"
+# Where a file whose header cannot be reconciled with INDEX_FIELDS is set aside. Kept
+# rather than deleted: it is the only record of what the pipeline actually emitted, and
+# the malformed rows are evidence even though they are not data.
+INDEX_LEGACY_CSV = LEDGER_DIR / "index.legacy.csv"
+
+# The schema, in one place. Previously the header was `list(row.keys())` written only
+# when the file did not yet exist, so when six columns were added to `row` the existing
+# file kept its seven-column header while every new line appended thirteen values. A
+# DictReader then filed the alpha figure under n_holdings and a dollar amount under
+# rebalanced, with no error and no visible symptom — the same class of failure the
+# equity ledger's append-only column check exists to catch.
+INDEX_FIELDS = [
+    "date", "global_market_cap",
+    "basket_return_since_entry", "benchmark_return_since_entry", "alpha_since_entry",
+    "exec_adjusted_return_since_entry", "turnover_bps", "macro_regime",
+    "eject_delta", "ejected_syms", "entrants_syms", "n_holdings", "rebalanced",
+]
+
+
+def _read_signals_rows() -> list[dict]:
+    """Existing signals rows, normalised onto the current FIELDS."""
+    if not LEDGER_CSV.exists():
+        return []
+    with LEDGER_CSV.open(newline="", encoding="utf-8") as f:
+        return [{k: r.get(k) for k in FIELDS} for r in csv.DictReader(f)]
+
+
+def dedupe_signals() -> int:
+    """Collapse duplicate (date, symbol) rows, latest occurrence winning.
+
+    A one-shot repair for the history a blind append already produced. Returns the
+    number of rows removed. Not run automatically — a caller decides, because silently
+    rewriting a ledger is the kind of thing this project is meant to be careful about.
+    """
+    rows = _read_signals_rows()
+    if not rows:
+        return 0
+    seen: dict[tuple, dict] = {}
+    for r in rows:
+        seen[(r.get("date"), r.get("symbol"))] = r
+    out = sorted(seen.values(), key=lambda r: (r.get("date") or "", r.get("symbol") or ""))
+    removed = len(rows) - len(out)
+    if removed:
+        with LEDGER_CSV.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=FIELDS)
+            w.writeheader()
+            w.writerows(out)
+    return removed
+
+
+def read_index_rows(path=None) -> list[dict]:
+    """Rows from index.csv, or [] if its header does not match the current schema.
+
+    Refusing to read a mismatched file is the point. Parsing it anyway is what produced
+    a published chart of fabricated alpha.
+    """
+    path = path or INDEX_CSV
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return []
+        if header != INDEX_FIELDS:
+            return []
+        return [dict(zip(header, r)) for r in reader if len(r) == len(header)]
+
+
+def _persist_index_row(row: dict, path=None) -> list[dict]:
+    """Write today's row and return the full series.
+
+    Rewrites the whole file every run rather than appending, which fixes three things at
+    once: the header can never drift from the rows, a re-run on the same date replaces
+    that date instead of adding a duplicate, and a file whose header no longer matches
+    the schema is moved aside instead of being appended to. At ledger scale — one row a
+    day — a full rewrite costs nothing.
+    """
+    path = path or INDEX_CSV
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    if path.exists():
+        with path.open(newline="", encoding="utf-8") as f:
+            header = next(csv.reader(f), [])
+        if header != INDEX_FIELDS:
+            legacy = INDEX_LEGACY_CSV
+            path.replace(legacy)
+            print(f"[index] header did not match the schema ({len(header)} columns vs "
+                  f"{len(INDEX_FIELDS)}); moved the old file to {legacy.name} and started "
+                  f"a clean series. Those rows are not recoverable: their values are "
+                  f"positionally misaligned against the header they were written under.")
+
+    rows = [r for r in read_index_rows(path) if r.get("date") != row["date"]]
+    rows.append({k: ("" if row.get(k) is None else row.get(k)) for k in INDEX_FIELDS})
+    rows.sort(key=lambda r: r.get("date") or "")
+
+    tmp = path.with_suffix(".csv.tmp")
+    with tmp.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=INDEX_FIELDS)
+        w.writeheader()
+        w.writerows(rows)
+    tmp.replace(path)
+    return rows
 INDEX_JSON = LEDGER_DIR / "index.json"
 MARKET_BREADTH_JSON = LEDGER_DIR / "market_breadth.json"
 REBALANCE_DAYS = 7
@@ -867,8 +977,14 @@ def build_basket(markets: list[dict], today: str, btc: dict | None = None) -> di
         days_since = REBALANCE_DAYS
     rebalanced = (days_since >= REBALANCE_DAYS) or (cur_syms != prev_syms)
     if rebalanced:
-        # Snapshot the macro baseline at rebalance so the benchmark is horizon-matched.
-        gmc = fetch_global_market_cap()
+        # The benchmark baseline is carried over, not re-snapshotted. Resetting it here
+        # while kept holdings keep their original entry_price measured the two legs over
+        # different horizons: the basket accumulated from its first entry while the
+        # benchmark restarted from zero on every rebalance. Since `rebalanced` was true
+        # on nine of the first ten runs, benchmark_return was 0.0 on every row and the
+        # reported alpha was the basket's raw return under another name. Only a genuinely
+        # new basket — no prior baseline — takes today's reading.
+        gmc = prev.get("entry_global_mcap") or fetch_global_market_cap()
         basket = {"rebalanced": today, "entry_global_mcap": gmc, "holdings": holdings}
         BASKET_JSON.write_text(json.dumps(basket, indent=2))
     else:
@@ -1023,10 +1139,15 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
     row = {
         "date": today,
         "global_market_cap": round(gmc_now, 0) if gmc_now else None,
-        "basket_return": round(wret * 100, 3),
-        "benchmark_return": round((bench_total - 1) * 100, 3),
-        "alpha_vs_benchmark": round((wret - (bench_total - 1)) * 100, 3),
-        "exec_adjusted_return": round(exec_adjusted_return * 100, 3),
+        # Renamed from basket_return / benchmark_return. Both are cumulative since the
+        # basket's cost basis, never overnight, and the old names invited exactly the
+        # mistake the consumer made: compounding ten since-entry figures as if they were
+        # ten daily ones. Overnight return lives in market_breadth.json's `performance`
+        # block, which chains it from the signals ledger.
+        "basket_return_since_entry": round(wret * 100, 3),
+        "benchmark_return_since_entry": round((bench_total - 1) * 100, 3),
+        "alpha_since_entry": round((wret - (bench_total - 1)) * 100, 3),
+        "exec_adjusted_return_since_entry": round(exec_adjusted_return * 100, 3),
         "turnover_bps": round(turnover_bps, 1),
         "macro_regime": macro_regime,
         "eject_delta": round(eject_delta * 100, 3) if rebalanced else "",
@@ -1035,25 +1156,16 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
         "n_holdings": len(audit),
         "rebalanced": rebalanced,
     }
-    INDEX_CSV.parent.mkdir(parents=True, exist_ok=True)
-    idx_exists = INDEX_CSV.exists()
-    with INDEX_CSV.open("a", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=list(row.keys()))
-        if not idx_exists:
-            w.writeheader()
-        w.writerow(row)
-    idx_rows = []
-    if INDEX_CSV.exists():
-        with INDEX_CSV.open(newline="", encoding="utf-8") as f:
-            idx_rows = list(csv.DictReader(f))
-    cum_basket = 1.0
-    for r in idx_rows:
-        cum_basket *= (1 + (float(r.get("basket_return") or 0) / 100.0))
-    # Cumulative execution-adjusted track record (B counterfactual) — parallel
-    # to the raw paper curve, never replacing it.
-    cum_exec = 1.0
-    for r in idx_rows:
-        cum_exec *= (1 + (float(r.get("exec_adjusted_return") or 0) / 100.0))
+    idx_rows = _persist_index_row(row)
+    # The latest reading, not a product of every reading. These columns are cumulative
+    # since the basket's cost basis, so compounding the series multiplied one number by
+    # its own history — ten rows each already up 80-120% chained into a total return of
+    # 4.53x. A cumulative figure is read, not accumulated.
+    def _last(field):
+        vals = [r.get(field) for r in idx_rows if r.get(field) not in (None, "", "None")]
+        return 1 + float(vals[-1]) / 100.0 if vals else 1.0
+    cum_basket = _last("basket_return_since_entry")
+    cum_exec = _last("exec_adjusted_return_since_entry")
     gcaps = [float(r["global_market_cap"]) for r in idx_rows if r.get("global_market_cap") not in (None, "", "None")]
     bench_cum = (gcaps[-1] / gcaps[0]) if len(gcaps) >= 2 and gcaps[0] else 1.0
     # Macro regime summary (D, passive) + ejection-alpha tally (C)
@@ -1065,7 +1177,16 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
     eject_alpha_cum = round(sum(eject_deltas) / 100.0, 4) if eject_deltas else None
     # Risk stats (Sharpe / max drawdown) — derived from the ledger once >=30 days
     # of history exist. Convention: rf=0, daily returns annualized x sqrt(365).
-    risk = _risk_stats(idx_rows) if len(idx_rows) >= 30 else None
+    # From the overnight series in market_breadth.json, the only daily one we have.
+    perf_legs = _compute_performance()
+    daily = [l for l in (perf_legs.get("series") or [])]
+    dailies = []
+    prev_cum = 0.0
+    for pt in daily:
+        cum = (pt.get("book") or 0.0) / 100.0
+        dailies.append((1 + cum) / (1 + prev_cum) - 1)
+        prev_cum = cum
+    risk = _risk_stats(dailies[1:])
     INDEX_JSON.write_text(json.dumps({
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "latest": row,
@@ -1138,13 +1259,18 @@ def main() -> int:
     rows.sort(key=lambda r: r["conviction"], reverse=True)
 
     LEDGER_DIR.mkdir(parents=True, exist_ok=True)
-    exists = LEDGER_CSV.exists()
-    with LEDGER_CSV.open("a", newline="", encoding="utf-8") as f:
+    # Replace today's rows rather than appending them. A blind append made a second run
+    # on the same day a second copy of that day's board: 2026-08-02 was recorded nine
+    # times and 2026-08-03 twice, 460 duplicate (date, symbol) pairs in all. Anything
+    # reading this as a daily series then counts one day nine times and computes returns
+    # between a day and itself. Prior days are untouched — this replaces a re-run, it
+    # does not rewrite history.
+    kept = [r for r in _read_signals_rows() if r.get("date") != today]
+    fresh = [{k: r.get(k) for k in FIELDS} for r in rows[:50]]
+    with LEDGER_CSV.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=FIELDS)
-        if not exists:
-            w.writeheader()
-        for r in rows[:50]:
-            w.writerow(r)
+        w.writeheader()
+        w.writerows(kept + fresh)
 
     # Backfill ROI from today's live prices for aged rows
     live = { (t.get("symbol") or "").upper(): t.get("current_price") or 0 for t in markets }

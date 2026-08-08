@@ -113,7 +113,9 @@ def test_exec_adjusted_zero_on_genesis(monkeypatch, tmp_path):
     nightly.build_basket(_markets(), "2026-08-02")
     row = json.loads((tmp_path / "index.json").read_text())["latest"]
     assert row["turnover_bps"] == 0.0
-    assert row["exec_adjusted_return"] == 0.0
+    # Renamed: these columns are cumulative since the basket's cost basis,
+    # never overnight, and the old names invited the consumer to compound them.
+    assert row["exec_adjusted_return_since_entry"] == 0.0
 
 
 def test_macro_regime_passive_na_without_history(monkeypatch, tmp_path):
