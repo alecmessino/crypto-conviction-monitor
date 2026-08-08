@@ -53,7 +53,7 @@ jobs:
           # index.legacy.csv is included so that if the writer ever has to quarantine a
           # mismatched file again, the evidence is committed rather than lost with the
           # runner. --ignore-unmatch: it does not exist on a healthy run.
-          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json
+          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json
           git add ledger/index.legacy.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes to commit"

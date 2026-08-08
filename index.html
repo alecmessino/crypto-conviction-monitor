@@ -88,6 +88,12 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
    it matters is when you are looking at this row and reading STRONG as news. Dotted
    rather than recoloured: it qualifies the label, it is not a sixth signal state. */
 .badge.marginal{border-bottom:1px dotted currentColor;cursor:help}
+.chk{display:flex;align-items:baseline;gap:8px;padding:4px 12px;border-bottom:1px solid var(--grid);font-size:10.5px}
+.chk:last-of-type{border-bottom:0}
+.chk-dot{width:6px;height:6px;border-radius:50%;flex:none;transform:translateY(-1px)}
+.chk-n{color:var(--txt);min-width:150px}
+.chk-d{color:var(--sec);flex:1}
+.chk-s{font-size:8px;font-weight:700;letter-spacing:.5px}
 .badge.g{background:rgba(123,201,160,.20);color:var(--green)}
 .badge.r{background:rgba(232,145,127,.20);color:var(--red)}
 .badge.a{background:rgba(224,179,114,.20);color:var(--amber)}
@@ -252,6 +258,12 @@ canvas{display:block;width:100%}
         <div class="muted" style="padding:8px 12px;grid-column:1/-1">Breadth / dispersion pending — accrues with the nightly ledger.</div>
       </div>
     </div>
+    <div class="glass">
+      <div class="card-h">PIPELINE HEALTH <span class="muted" id="mon-obs">operational condition, not predictive power</span></div>
+      <div class="card-b" id="monitor">
+        <div class="muted" style="padding:8px 12px">Monitor pending — <code>ledger/monitor.json</code> was not produced.</div>
+      </div>
+    </div>
   </main>
 
   <!-- RIGHT -->
@@ -306,6 +318,7 @@ let LEDGER = [];   // nightly signals.json rows (Module B real data when present
 let INDEX = null;  // nightly index.json (conviction-weighted basket track record)
 let PERP = {};     // symbol -> RiskMult_perp (LAVL leverage overlay) from nightly ledger
 let BREADTH = null; // market_breadth.json: conviction time-series, breadth, dispersion, persistence
+let MONITOR = null; // monitor.json: pipeline health, stability, field presence, spec continuity
 async function loadLedger(){
   try{
     const r=await fetch("ledger/signals.json",{cache:"no-store"});
@@ -329,6 +342,10 @@ async function loadLedger(){
     const rb=await fetch("ledger/market_breadth.json",{cache:"no-store"});
     if(rb.ok) BREADTH = await rb.json();
   }catch(e){ /* breadth absent — change feed pending */ }
+  try{
+    const rm=await fetch("ledger/monitor.json",{cache:"no-store"});
+    if(rm.ok) MONITOR = await rm.json();
+  }catch(e){ /* monitor absent — the panel says so rather than rendering defaults */ }
   buildMarginal();
 }
 
@@ -694,6 +711,63 @@ function alphaMap(){
   x.fillText("grey dust = "+ndust+" non-qualified (macro context)", px(xmin)+2, h-2);
 }
 function heat(){ alphaMap(); } // alias kept for any stale caller
+/* Pipeline health. Deliberately not a port of the equity Monitor tab: two of its
+   panels do not transfer to this architecture and would render as findings while
+   measuring nothing. Stability is computed on the surviving cohort with churn shown
+   beside it, because this universe turns over 8-20% a night by construction; coverage
+   is field presence rather than imputation share, because nothing here imputes. */
+const MON_TONE = {pass:"var(--green)", warn:"var(--amber)", fail:"var(--red)",
+                  pending:"var(--sec)"};
+function renderMonitor(){
+  const host=$("#monitor"), sub=$("#mon-obs");
+  if(!MONITOR || !(MONITOR.health||[]).length){
+    host.innerHTML='<div class="muted" style="padding:8px 12px">Monitor pending — '
+      +'<code>ledger/monitor.json</code> was not produced. Nothing is rendered in its place.</div>';
+    return;
+  }
+  const m=MONITOR;
+  if(sub) sub.textContent=`${m.observations} day(s) recorded · ${m.from} to ${m.to}`
+    + (m.spec_hash?` · spec ${m.spec_hash}`:"");
+
+  const checks=m.health.map(c=>`<div class="chk">
+      <span class="chk-dot" style="background:${MON_TONE[c.status]||"var(--sec)"}"></span>
+      <span class="chk-n">${c.name}</span>
+      <span class="chk-d">${c.detail}</span>
+      <span class="chk-s" style="color:${MON_TONE[c.status]||"var(--sec)"}">${c.status.toUpperCase()}</span>
+    </div>`).join("");
+
+  const st=m.stability;
+  const stab = st && st.rank_correlation!=null ? `<div class="chk" style="border-top:1px solid var(--grid)">
+      <span class="chk-n">Stability</span>
+      <span class="chk-d">rank correlation <b style="color:var(--txt)">${st.rank_correlation}</b>
+        on the ${st.shared} names held in common, mean move ${st.mean_abs_move} pts ·
+        ${st.entered.length} in / ${st.left.length} out of ${st.universe_curr}
+        (${Math.round((st.churn||0)*100)}% churn)</span>
+    </div>` : "";
+
+  // The weakest inputs first: a field going to zero is an upstream dropout, and the
+  // factor it feeds stops contributing without anything raising.
+  const cov=m.coverage&&m.coverage.latest||{};
+  const worst=Object.entries(cov).sort((a,b)=>a[1]-b[1]).slice(0,4);
+  const fields = worst.length ? `<div style="padding:6px 12px 2px">
+      <div class="muted" style="margin-bottom:4px">Weakest inputs</div>
+      ${worst.map(([k,v])=>`<div style="display:flex;align-items:center;gap:8px;font-size:10px;margin-bottom:3px">
+        <span style="min-width:96px;color:${v<(m.coverage.warn_below||0.9)?"var(--amber)":"var(--sec)"}">${k}</span>
+        <span class="bar" style="flex:1"><i style="width:${(v*100).toFixed(0)}%"></i></span>
+        <span class="num" style="min-width:34px;text-align:right;color:var(--sec)">${(v*100).toFixed(0)}%</span>
+      </div>`).join("")}
+    </div>` : "";
+
+  const brk=(m.specification&&m.specification.suspected_breaks)||[];
+  const breaks = brk.length ? `<div class="muted" style="padding:6px 12px 10px;border-top:1px solid var(--grid)">
+      <b style="color:var(--amber)">Specification boundary</b> at ${brk.map(b=>b.to).join(", ")} —
+      ${brk[0].detail}. Any return study spanning it is a number about two different models.
+    </div>` : "";
+
+  host.innerHTML = checks + stab + fields + breaks
+    + `<div class="muted" style="padding:6px 12px 10px">${m.scope}</div>`;
+}
+
 function renderIndex(){
   const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal"), snap=$("#idx-snapshot"), macro=$("#idx-macro");
   if(!INDEX){ wrap.innerHTML='<div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div>'; note.textContent="Paper return · awaiting the nightly ledger"; reb.textContent="—"; macro.style.display="none"; return; }
@@ -913,7 +987,7 @@ async function load(){
     // The ledger arrives after the first paint, and the marginal-crossing markers come
     // out of it — so the tables have to be drawn again once it lands, or the first
     // render is the one the user reads and it is missing them.
-    loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderTables(); });
+    loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderTables(); });
     st.textContent="OK"; st.className="live"; $("#sys-rl").textContent="nominal";
   }catch(e){
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
