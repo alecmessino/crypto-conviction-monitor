@@ -14,6 +14,7 @@ import csv
 import json
 import math
 import os
+import sys
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
@@ -27,7 +28,12 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           "rs7", "rs14", "rs30", "rs200", "rs_blend",
           "c_liquidity", "c_era", "c_depth", "c_momentum",
           "unlocks_usd", "supply_increase_pct", "addr_growth_pct", "era",
-          "roi_30d", "roi_90d", "survived", "perp_mult"]
+          "roi_30d", "roi_90d", "survived", "perp_mult",
+          # Appended, never inserted: the columns are positional in every reader, and
+          # inserting one mid-list would reinterpret every row already written.
+          # Historical rows carry an empty value — their specification is genuinely
+          # unknown and must report as unknown rather than be assumed to match today's.
+          "spec_hash"]
 
 # Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
@@ -41,6 +47,83 @@ STABLES = {"USDT", "USDC", "DAI", "BUSD", "TUSD", "USDD", "FDUSD", "USDE",
            "XAUT", "PAXG"}
 
 
+
+
+# ---------------------------------------------------------------------------
+# specification identity
+# ---------------------------------------------------------------------------
+# Every function whose text can change a published score. Named here rather than
+# inferred, so adding a scoring function is a deliberate act that shows up in review.
+SPEC_FUNCTIONS = ("score", "_lavl_regime", "lavl_perp_mult", "_tier_for")
+SPEC_CONSTANTS = ("TIER_CUTS", "STABLES")
+
+
+def spec() -> dict:
+    """A canonical form of everything that can change a score.
+
+    The sibling equity project enumerates named constants because its thresholds *are*
+    named constants. Here they are literals inside the scoring curves — ``turnover <=
+    0.30``, ``era < 0.7`` — so there is nothing to list. The specification is therefore
+    derived from the code itself: each scoring function is parsed, its docstrings
+    stripped, and unparsed back to canonical source. Editing a threshold changes the
+    result; editing a comment or reflowing a line does not.
+
+    Without this the history is not segmentable, and an Information Coefficient or a
+    track record computed across a silent threshold change is a number about two
+    different models.
+    """
+    import ast
+
+    # Read this file directly rather than via sys.modules: the validator and the tests
+    # load this module through importlib under names that are never registered there,
+    # and a specification that only computes when imported normally is not a
+    # specification.
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    wanted = set(SPEC_FUNCTIONS)
+    parts = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
+            body = node.body
+            # Drop the docstring so prose edits do not falsely segment the series.
+            if (body and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)):
+                body = body[1:]
+            stripped = ast.FunctionDef(
+                name=node.name, args=node.args, body=body or [ast.Pass()],
+                decorator_list=[], returns=None, type_comment=None,
+                type_params=getattr(node, "type_params", []))
+            ast.fix_missing_locations(stripped)
+            parts[node.name] = ast.unparse(stripped)
+
+    missing = wanted - set(parts)
+    if missing:
+        # A renamed scoring function must not silently drop out of the specification.
+        raise RuntimeError(f"spec() cannot find scoring function(s): {sorted(missing)}")
+
+    consts = {}
+    for name in SPEC_CONSTANTS:
+        value = globals().get(name)
+        consts[name] = sorted(value) if isinstance(value, set) else value
+    return {"functions": parts, "constants": consts}
+
+
+def spec_hash() -> str:
+    """Short stable digest of spec(), recorded on every row.
+
+    Tied to the interpreter's ``ast.unparse`` output, so a Python upgrade can in
+    principle shift it without the model changing. That is visible rather than silent —
+    the monitor reports the hash per day and a spurious change shows up as a boundary
+    with no accompanying code change.
+    """
+    import hashlib
+    blob = json.dumps(spec(), sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(blob).hexdigest()[:12]
+
+
+# Computed once at import. spec() parses this module's source, which is not something
+# to do per row.
+SPEC_HASH = spec_hash()
 
 
 def _get_json(url: str, headers: dict | None = None) -> dict:
@@ -613,9 +696,18 @@ def _compute_performance() -> dict:
     if series and not any(p["equal_weight"] is not None for p in series[1:]):
         series[0]["equal_weight"] = None
 
+    # A leg that straddles a specification boundary chains a book chosen by one model
+    # onto returns scored by another. Reported rather than hidden, exactly as the equity
+    # terminal reports a curve spanning two spec hashes: it is two series drawn end to
+    # end, and the reader has to know which.
+    breaks = {b["to"] for b in _spec_breaks()}
+    crossed = sorted({l["to"] for l in usable if l["to"] in breaks})
+
     return {
         "days": len(dates),
         "min_days": PERF_MIN_DAYS,
+        "spec_breaks_crossed": crossed,
+        "spec_stable": not crossed,
         "renderable": len(usable) >= PERF_MIN_DAYS - 1,
         "legs": len(usable),
         "legs_dropped": len(legs) - len(usable),
@@ -630,6 +722,336 @@ def _compute_performance() -> dict:
         "benchmark_total": round((bench - 1.0) * 100, 4) if bench_live else None,
         "equal_weight_total": round((eqc - 1.0) * 100, 4) if usable else None,
         "series": series,
+    }
+
+
+# ---------------------------------------------------------------------------
+# model monitoring
+# ---------------------------------------------------------------------------
+# Every threshold below is tuned against the days actually on file, not carried over
+# from the equity project. Two of its panels do not transfer at all and are deliberately
+# replaced rather than copied:
+#
+#   * Equity ranks a fixed index constituent list, so its rank correlation is a
+#     statement about scoring stability. This universe is "top N by market cap from
+#     CoinGecko" and turns over 8-20% a night by construction, so the same statistic
+#     across all names would mostly report which coins were large that morning.
+#     Stability is therefore measured on the surviving cohort only, with the churn
+#     reported beside it so the number is never read without its context.
+#
+#   * Equity's coverage panel measures the share of inputs that came from a filing
+#     rather than a sector-median substitution. Nothing here imputes, so that has no
+#     analogue. The equivalent early warning is field presence: if CoinGecko stops
+#     returning rs200, or Dune's Module B flatlines, a factor quietly goes to zero and
+#     the only symptom is a column of nulls.
+#
+# Dispersion is a warn, never a fail. Equity's percentiles guarantee dispersion by
+# construction, so a collapse there is always a pipeline defect. These are absolute
+# thresholds over raw turnover and momentum, so a collapse can be a genuine market —
+# everything correlated, or liquidity gone. It is a regime reading, not a bug report.
+MON_MIN_ASSETS = 25
+MON_DISPERSION_WARN = 8.0        # observed 17.9 on the latest recorded board
+MON_STABILITY_WARN = 0.70
+MON_CHURN_WARN = 0.35            # settled nights run 8-20%; the first two were 44-63%
+MON_STALE_HOURS = 36
+# Fields whose disappearance would silently zero a factor rather than raise anything.
+MON_TRACKED_FIELDS = ("price", "market_cap", "turnover_pct", "conviction",
+                      "rs7", "rs14", "rs30", "rs200", "perp_mult", "era")
+MON_FIELD_PRESENCE_WARN = 0.90
+
+
+def _spearman(a: list, b: list):
+    """Rank correlation, ties averaged. None below three pairs."""
+    n = len(a)
+    if n < 3:
+        return None
+
+    def ranks(xs):
+        order = sorted(range(n), key=lambda i: xs[i])
+        out = [0.0] * n
+        i = 0
+        while i < n:
+            j = i
+            while j + 1 < n and xs[order[j + 1]] == xs[order[i]]:
+                j += 1
+            avg = (i + j) / 2.0 + 1.0
+            for k in range(i, j + 1):
+                out[order[k]] = avg
+            i = j + 1
+        return out
+
+    ra, rb = ranks(a), ranks(b)
+    ma, mb = sum(ra) / n, sum(rb) / n
+    num = sum((x - ma) * (y - mb) for x, y in zip(ra, rb))
+    da = sum((x - ma) ** 2 for x in ra) ** 0.5
+    db = sum((y - mb) ** 2 for y in rb) ** 0.5
+    return round(num / (da * db), 4) if da and db else None
+
+
+def _mon_check(name, status, detail, value=None) -> dict:
+    return {"name": name, "status": status, "detail": detail, "value": value}
+
+
+def _mon_float(r, k):
+    try:
+        v = r.get(k)
+        return float(v) if v not in (None, "", "None") else None
+    except (TypeError, ValueError):
+        return None
+
+
+# A suspected specification change, detected from the data rather than declared.
+# The hash makes a change visible going forward; this catches one that predates the
+# hash, or one shipped by someone who edited a threshold without the hash noticing —
+# and it is the backstop that found the 2026-08-05 break in this ledger, where the
+# median conviction moved 36 points on a night the median price moved 0.00%.
+BREAK_SCORE_MOVE = 10.0      # median |delta conviction|, points
+BREAK_PRICE_MOVE = 0.02      # median |price move| below which the market cannot explain it
+
+
+def _spec_breaks() -> list:
+    """Nights where the scores moved and the market did not.
+
+    Conviction is a function of price and liquidity inputs. If the median asset's score
+    moves double digits while the median asset's price barely moves, the function
+    changed — that is a specification boundary regardless of whether anything recorded
+    one, and any return study or Information Coefficient spanning it is a number about
+    two different models.
+    """
+    rows = _read_signals_rows()
+    by_date = {}
+    for r in rows:
+        d, sym = r.get("date"), (r.get("symbol") or "").upper()
+        if d and sym:
+            by_date.setdefault(d, {})[sym] = r
+    dates = sorted(by_date)
+    out = []
+    for a, b in zip(dates, dates[1:]):
+        prev, curr = by_date[a], by_date[b]
+        shared = sorted(set(prev) & set(curr))
+        dconv, dpx = [], []
+        for s in shared:
+            c0, c1 = _mon_float(prev[s], "conviction"), _mon_float(curr[s], "conviction")
+            p0, p1 = _mon_float(prev[s], "price"), _mon_float(curr[s], "price")
+            if c0 is not None and c1 is not None:
+                dconv.append(abs(c1 - c0))
+            if p0 and p1:
+                dpx.append(abs(p1 / p0 - 1.0))
+        if len(dconv) < 5 or len(dpx) < 5:
+            continue
+        med_c = sorted(dconv)[len(dconv) // 2]
+        med_p = sorted(dpx)[len(dpx) // 2]
+        if med_c >= BREAK_SCORE_MOVE and med_p <= BREAK_PRICE_MOVE:
+            out.append({
+                "from": a, "to": b, "shared": len(shared),
+                "median_score_move": round(med_c, 1),
+                "median_price_move": round(med_p * 100, 2),
+                "detail": ("the median asset's score moved %.0f points on a night its "
+                           "price moved %.2f%% — the scoring function changed"
+                           % (med_c, med_p * 100)),
+            })
+    return out
+
+
+def _compute_monitor() -> dict:
+    """Operational condition of the pipeline. Never a claim about predictive power.
+
+    A board can be fresh, dispersed, fully covered and perfectly stable while
+    forecasting nothing at all. Whether high-conviction assets outperform is a separate
+    measurement needing months inside one specification hash — which is what the
+    spec_hash column exists to make possible, and why it is reported here.
+    """
+    rows = _read_signals_rows()
+    if not rows:
+        return {}
+
+    by_date = {}
+    for r in rows:
+        d, sym = r.get("date"), (r.get("symbol") or "").upper()
+        if d and sym:
+            by_date.setdefault(d, {})[sym] = r
+    dates = sorted(by_date)
+    if not dates:
+        return {}
+    latest = by_date[dates[-1]]
+
+    # --- stability, on the surviving cohort ---------------------------------
+    stability = None
+    if len(dates) >= 2:
+        prev, curr = by_date[dates[-2]], by_date[dates[-1]]
+        shared = sorted(set(prev) & set(curr))
+        pairs = [(x, y) for x, y in
+                 ((_mon_float(prev[s], "conviction"), _mon_float(curr[s], "conviction"))
+                  for s in shared)
+                 if x is not None and y is not None]
+        entered, left = sorted(set(curr) - set(prev)), sorted(set(prev) - set(curr))
+        moves = [abs(y - x) for x, y in pairs]
+        stability = {
+            "from": dates[-2], "to": dates[-1],
+            "shared": len(pairs),
+            "rank_correlation": _spearman([p[0] for p in pairs], [p[1] for p in pairs]),
+            "mean_abs_move": round(sum(moves) / len(moves), 2) if moves else None,
+            "max_abs_move": round(max(moves), 1) if moves else None,
+            # Reported with the correlation, always. A stability reading on a population
+            # that replaced a fifth of itself overnight is not a statement about scoring.
+            "entered": entered, "left": left,
+            "churn": round(len(entered) / len(curr), 3) if curr else None,
+            "universe_prev": len(prev), "universe_curr": len(curr),
+        }
+
+    # --- field presence, and its trend --------------------------------------
+    def presence(day):
+        return {f: (round(sum(1 for r in day.values() if _mon_float(r, f) is not None)
+                          / len(day), 4) if day else 0.0)
+                for f in MON_TRACKED_FIELDS}
+
+    coverage_series = [dict(date=d, n=len(by_date[d]), **presence(by_date[d])) for d in dates]
+    latest_presence = presence(latest)
+
+    # --- dispersion, as a regime reading ------------------------------------
+    def sigma(day):
+        cs = [c for c in (_mon_float(r, "conviction") for r in day.values()) if c is not None]
+        if len(cs) < 2:
+            return None, None
+        m = sum(cs) / len(cs)
+        return (round((sum((c - m) ** 2 for c in cs) / (len(cs) - 1)) ** 0.5, 2),
+                round(sorted(cs)[len(cs) // 2], 1))
+
+    dispersion, _median = sigma(latest)
+    disp_series = []
+    for d in dates:
+        s, med = sigma(by_date[d])
+        if s is not None:
+            disp_series.append({"date": d, "dispersion": s, "median": med})
+    convs = [c for c in (_mon_float(r, "conviction") for r in latest.values()) if c is not None]
+
+    # --- specification continuity -------------------------------------------
+    spec_spans, unknown_days = [], 0
+    for d in dates:
+        hashes = {r.get("spec_hash") for r in by_date[d].values() if r.get("spec_hash")}
+        h = sorted(hashes)[0] if hashes else None
+        if not h:
+            unknown_days += 1
+        if spec_spans and spec_spans[-1]["spec_hash"] == h:
+            spec_spans[-1]["to"] = d
+            spec_spans[-1]["days"] += 1
+        else:
+            spec_spans.append({"spec_hash": h, "from": d, "to": d, "days": 1})
+
+    # --- health -------------------------------------------------------------
+    checks = []
+    try:
+        age_h = (datetime.now(timezone.utc)
+                 - datetime.fromisoformat(dates[-1] + "T00:00:00+00:00")).total_seconds() / 3600
+        checks.append(_mon_check(
+            "Data freshness", "pass" if age_h <= MON_STALE_HOURS else "fail",
+            "latest board %s (%.0fh old)" % (dates[-1], age_h), round(age_h, 1)))
+    except ValueError:
+        checks.append(_mon_check("Data freshness", "fail", "unparseable latest date"))
+
+    checks.append(_mon_check(
+        "Universe size", "pass" if len(latest) >= MON_MIN_ASSETS else "fail",
+        "%d assets scored on %s" % (len(latest), dates[-1]), len(latest)))
+
+    tiers = {r.get("signal") for r in latest.values() if r.get("signal")}
+    checks.append(_mon_check(
+        "Signal tiers populated", "pass" if len(tiers) >= 3 else "warn",
+        "%d of 5 tiers in use" % len(tiers), len(tiers)))
+
+    # Warn, never fail — see the note above the thresholds.
+    ok = (dispersion or 0) >= MON_DISPERSION_WARN
+    checks.append(_mon_check(
+        "Score dispersion", "pass" if ok else "warn",
+        "sigma = %s across %d assets" % (dispersion, len(convs))
+        + ("" if ok else " — compressed. On absolute thresholds this can be the market, "
+                         "not the pipeline"),
+        dispersion))
+
+    if latest_presence:
+        worst = min(latest_presence.items(), key=lambda kv: kv[1])
+        checks.append(_mon_check(
+            "Field presence", "pass" if worst[1] >= MON_FIELD_PRESENCE_WARN else "warn",
+            "weakest input `%s` present for %.0f%% of the board" % (worst[0], worst[1] * 100),
+            round(worst[1], 4)))
+
+    if stability and stability["rank_correlation"] is not None:
+        rc, churn = stability["rank_correlation"], stability["churn"] or 0
+        checks.append(_mon_check(
+            "Ranking stability", "pass" if rc >= MON_STABILITY_WARN else "warn",
+            "rank correlation %s across %d names held in common" % (rc, stability["shared"]),
+            rc))
+        checks.append(_mon_check(
+            "Universe churn", "pass" if churn <= MON_CHURN_WARN else "warn",
+            "%d of %d assets are new (%.0f%%) — the ranking above is measured only on the rest"
+            % (len(stability["entered"]), stability["universe_curr"], churn * 100),
+            round(churn, 3)))
+    else:
+        checks.append(_mon_check("Ranking stability", "pending",
+                                 "needs two recorded days; nothing to compare against yet"))
+
+    real_spans = [s for s in spec_spans if s["spec_hash"]]
+    if unknown_days and not real_spans:
+        checks.append(_mon_check(
+            "Specification history", "pending",
+            "%d day(s) recorded before the specification was hashed — unknown, not "
+            "assumed to match today's" % unknown_days, 0))
+    else:
+        multi = len(real_spans) > 1
+        checks.append(_mon_check(
+            "Specification history", "warn" if multi else "pass",
+            "%d specification(s) across %d recorded day(s)"
+            % (len(real_spans), sum(s["days"] for s in real_spans))
+            + ("; %d earlier day(s) unhashed" % unknown_days if unknown_days else "")
+            + ("  — a series spanning two hashes is two datasets" if multi else ""),
+            len(real_spans)))
+
+    breaks = _spec_breaks()
+    if breaks:
+        # Fails only when this run introduced one. A boundary in the recorded past is an
+        # immutable fact about the history — failing on it forever would block every
+        # future deploy and train everyone to ignore the gate, which is worse than not
+        # having it. A fresh one means tonight's run changed the scoring, and that
+        # should stop the build.
+        fresh = [b for b in breaks if b["to"] == dates[-1]]
+        checks.append(_mon_check(
+            "Undeclared specification change", "fail" if fresh else "warn",
+            ("this run changed the scoring: " + fresh[0]["detail"]) if fresh else
+            ("%d boundary in the recorded past (%s) — history either side of it is two "
+             "datasets, not one, and any return study has to segment there"
+             % (len(breaks), ", ".join(b["to"] for b in breaks))),
+            len(breaks)))
+    else:
+        checks.append(_mon_check(
+            "Undeclared specification change", "pass",
+            "no night where the median score moved without the median price", 0))
+
+    dupes = len(rows) - len({(r.get("date"), r.get("symbol")) for r in rows})
+    checks.append(_mon_check(
+        "Ledger integrity", "pass" if dupes == 0 else "fail",
+        "one row per (date, symbol)" if dupes == 0
+        else "%d duplicate row(s) — the daily series is not daily" % dupes, dupes))
+
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "spec_hash": SPEC_HASH,
+        "observations": len(dates),
+        "from": dates[0], "to": dates[-1],
+        "health": checks,
+        "stability": stability,
+        "dispersion": {"latest": dispersion, "series": disp_series,
+                       "warn_below": MON_DISPERSION_WARN},
+        "coverage": {"latest": latest_presence, "series": coverage_series,
+                     "warn_below": MON_FIELD_PRESENCE_WARN,
+                     "basis": ("Share of the board carrying a usable value for each input. "
+                               "Nothing here is imputed, so this measures feed health rather "
+                               "than substitution: a field going to zero is an upstream "
+                               "dropout, and the factor it feeds quietly stops contributing.")},
+        "specification": {"spans": spec_spans, "unknown_days": unknown_days,
+                          "suspected_breaks": breaks},
+        "scope": ("Operational condition only. Whether these scores predict returns is a "
+                  "separate question needing months of history inside one specification "
+                  "hash. Nothing here is evidence that the conviction score forecasts "
+                  "anything; it is evidence that the pipeline producing it is behaving."),
     }
 
 
@@ -864,6 +1286,7 @@ def _persist_index_row(row: dict, path=None) -> list[dict]:
     return rows
 INDEX_JSON = LEDGER_DIR / "index.json"
 MARKET_BREADTH_JSON = LEDGER_DIR / "market_breadth.json"
+MONITOR_JSON = LEDGER_DIR / "monitor.json"
 REBALANCE_DAYS = 7
 # Rebalance hysteresis (A): don't eject a holding just because it slipped one
 # rank. Keep it unless it drops to rank >= EJECT_RANK or its score falls more
@@ -1266,6 +1689,7 @@ def main() -> int:
             "era": b["era"] if b else None,
             "roi_30d": None, "roi_90d": None, "survived": None,
             "perp_mult": round(pm, 3),
+            "spec_hash": SPEC_HASH,
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
 
@@ -1350,6 +1774,21 @@ def main() -> int:
         # signals.csv rather than index.json — see _compute_performance for why.
         breadth["performance"] = _compute_performance()
         MARKET_BREADTH_JSON.write_text(json.dumps(breadth, indent=2))
+        # Operational condition of the pipeline, in its own file: it is a monitoring
+        # artifact rather than a market view, and pinning it to breadth would couple the
+        # two.
+        mon = _compute_monitor()
+        if mon:
+            MONITOR_JSON.write_text(json.dumps(mon, indent=2))
+            counts = {}
+            for c in mon["health"]:
+                counts[c["status"]] = counts.get(c["status"], 0) + 1
+            print("[monitor] " + "  ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+                  + f"  (observations={mon['observations']})")
+            for c in mon["health"]:
+                if c["status"] in ("fail", "warn"):
+                    print(f"  {c['status'].upper()}: {c['name']} — {c['detail']}")
+
         pf = breadth["performance"]
         if pf.get("legs"):
             print(f"[perf] {pf['legs']} leg(s), basket {pf['book_total']:+.2f}%"

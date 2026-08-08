@@ -68,17 +68,28 @@ def _basket(path, weights=None):
         {"rebalanced": "2026-03-03", "entry_global_mcap": 1e12, "holdings": hs}))
 
 
+def _monitor(path, to="2026-03-03", health=None):
+    (path / "monitor.json").write_text(json.dumps({
+        "generated_at": "2026-03-03T00:00:00+00:00", "observations": 3,
+        "from": "2026-03-01", "to": to,
+        "health": health if health is not None else [
+            {"name": "Data freshness", "status": "pass", "detail": "fresh"}],
+    }))
+
+
 @pytest.fixture
 def ledger(tmp_path):
     _signals(tmp_path)
     _index(tmp_path)
     _basket(tmp_path)
+    _monitor(tmp_path)
     return tmp_path
 
 
 def run(ledger):
     return (v.check_headers(ledger) + v.check_no_duplicates(ledger) + v.check_mirror(ledger)
-            + v.check_board(ledger, 25) + v.check_returns(ledger) + v.check_basket(ledger))
+            + v.check_board(ledger, 25) + v.check_returns(ledger) + v.check_basket(ledger)
+            + v.check_monitor(ledger))
 
 
 def test_a_healthy_ledger_passes(ledger):
@@ -266,3 +277,30 @@ def test_the_cli_exits_zero_on_a_healthy_ledger(ledger, monkeypatch, capsys):
     monkeypatch.setattr("sys.argv", ["v", "--ledger", str(ledger)])
     assert v.main() == 0
     assert "PASS" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# the monitor artifact must itself be healthy
+# ---------------------------------------------------------------------------
+def test_a_missing_monitor_fails(ledger):
+    (ledger / "monitor.json").unlink()
+    assert any("health report" in p for p in v.check_monitor(ledger))
+
+
+def test_a_monitor_that_did_not_rerun_fails(ledger):
+    """The worst failure mode for a health report is going stale while still rendering:
+    it keeps showing the last good reading while the thing it watches degrades."""
+    _monitor(ledger, to="2026-03-01")
+    assert any("did not rerun" in p for p in v.check_monitor(ledger))
+
+
+def test_a_failing_health_check_blocks_the_build(ledger):
+    _monitor(ledger, health=[{"name": "Ledger integrity", "status": "fail",
+                              "detail": "4 duplicate rows"}])
+    assert any("Ledger integrity" in p for p in v.check_monitor(ledger))
+
+
+def test_a_warning_health_check_does_not_block(ledger):
+    _monitor(ledger, health=[{"name": "Score dispersion", "status": "warn",
+                              "detail": "compressed"}])
+    assert v.check_monitor(ledger) == []

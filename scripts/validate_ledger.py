@@ -262,6 +262,38 @@ def check_returns(ledger: Path) -> list[str]:
     return problems
 
 
+def check_monitor(ledger: Path) -> list[str]:
+    """The health report must itself be healthy.
+
+    A monitoring artifact that silently stops updating is worse than none: it keeps
+    displaying the last good reading while the thing it watches degrades. So the gate
+    checks that it was produced, that it describes the ledger actually on disk, and that
+    nothing in it is failing.
+    """
+    path = ledger / "monitor.json"
+    if not path.exists():
+        return ["monitor.json was not produced — the health report is the thing that "
+                "notices degradation, and it is missing"]
+    try:
+        mon = json.loads(path.read_text())
+    except Exception as exc:
+        return [f"monitor.json unreadable: {exc}"]
+
+    problems = []
+    sig = ledger / "signals.csv"
+    if sig.exists():
+        rows = list(csv.DictReader(sig.open(newline="", encoding="utf-8")))
+        latest = max((r.get("date") or "" for r in rows), default=None)
+        if latest and mon.get("to") != latest:
+            problems.append(f"monitor.json reports through {mon.get('to')} while the "
+                            f"ledger runs to {latest} — it did not rerun")
+
+    for check in mon.get("health") or []:
+        if check.get("status") == "fail":
+            problems.append(f"health check failing: {check.get('name')} — {check.get('detail')}")
+    return problems
+
+
 def check_basket(ledger: Path) -> list[str]:
     path = ledger / "basket.json"
     if not path.exists():
@@ -305,6 +337,7 @@ def main() -> int:
     problems += check_board(ledger, args.min_assets)
     problems += check_returns(ledger)
     problems += check_basket(ledger)
+    problems += check_monitor(ledger)
 
     # Context, printed whether or not the gate passes — a validator that only speaks up
     # on failure teaches nobody what healthy looks like.
