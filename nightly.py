@@ -461,6 +461,173 @@ def _compute_tier_diff() -> dict:
     }
 
 
+# Snapshot days required before the paper curve is drawn. Below this it would be one or
+# two segments, a shape the eye reads as a trend and which is nothing of the kind.
+PERF_MIN_DAYS = 5
+
+# Basket size and weighting mirror build_basket(): top 10 by conviction, weighted in
+# proportion to it. The hysteresis buffer is deliberately *not* replicated — this curve
+# answers "what did the score say to hold", and reconstructing the ejection rules from a
+# ledger that never recorded which names were actually held would be a guess dressed as
+# a record.
+PERF_TOP_N = 10
+
+# A leg that loses more than this share of the book to unpriceable or departed names is
+# not a return, it is a data outage wearing one.
+PERF_MAX_WEIGHT_LOSS = 0.10
+
+# The benchmark. Present on every recorded day, and the closest crypto analogue to the
+# index the equity terminal measures against.
+PERF_BENCHMARK = "BTC"
+
+
+def _perf_by_date() -> tuple[dict, int]:
+    """signals.csv as {date: {symbol: row}}, latest run per (date, symbol) winning.
+
+    The ledger has been appended to more than once on some days — 2026-08-02 carries
+    nine runs — so a naive read counts one day's board nine times and computes returns
+    between a day and itself. Collapsing on (date, symbol) is the only reading that
+    makes a daily series daily; the count of collapsed rows is reported rather than
+    swallowed, because a rising number means the workflow is firing more than once.
+    """
+    if not LEDGER_CSV.exists():
+        return {}, 0
+    with LEDGER_CSV.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    by_date: dict[str, dict[str, dict]] = {}
+    collapsed = 0
+    for r in rows:
+        d, sym = r.get("date"), (r.get("symbol") or "").upper()
+        if not d or not sym:
+            continue
+        try:
+            price = float(r.get("price") or 0)
+            conv = float(r.get("conviction") or 0)
+        except ValueError:
+            continue
+        if price <= 0:
+            continue
+        day = by_date.setdefault(d, {})
+        if sym in day:
+            collapsed += 1
+        day[sym] = {"price": price, "conviction": conv}
+    return by_date, collapsed
+
+
+def _perf_weights(day: dict) -> dict:
+    """Conviction-weighted top N, as build_basket() would have published it."""
+    ranked = sorted(day.items(), key=lambda kv: -kv[1]["conviction"])[:PERF_TOP_N]
+    total = sum(v["conviction"] for _, v in ranked) or 1.0
+    return {sym: v["conviction"] / total for sym, v in ranked if v["conviction"] > 0}
+
+
+def _compute_performance() -> dict:
+    """Paper return of the published basket, chained across recorded days.
+
+    The same three rules as the equity terminal, for the same reasons:
+
+    * **Weights from the earlier night, prices from both.** Using tonight's weights
+      against tonight's prices prints alpha every day forever and looks entirely
+      plausible doing it.
+    * **Only recorded dates.** No back-fill. A day that was not recorded is gone.
+    * **A missing benchmark is a gap, not a flat segment.** Flat reads as "the market
+      did not move" where the truth is "it was not recorded".
+
+    Deliberately NOT built on ledger/index.json. That file's row series is unusable: its
+    header declares seven columns while eight of ten rows carry thirteen, so a DictReader
+    silently files the alpha figure under n_holdings and a dollar amount under
+    rebalanced; several dates repeat; and benchmark_return is identically 0.0 on every
+    row, which makes its "alpha" the raw return under another name. signals.csv is
+    structurally sound and is the source here.
+    """
+    by_date, collapsed = _perf_by_date()
+    dates = sorted(by_date)
+    if len(dates) < 2:
+        return {"days": len(dates), "legs": 0, "min_days": PERF_MIN_DAYS,
+                "renderable": False, "series": [], "duplicates_collapsed": collapsed,
+                "benchmark": PERF_BENCHMARK}
+
+    legs = []
+    for a, b in zip(dates, dates[1:]):
+        prev, curr = by_date[a], by_date[b]
+        weights = _perf_weights(prev)
+        num = held = missing = 0.0
+        names = 0
+        for sym, w in weights.items():
+            held += w
+            p1 = (curr.get(sym) or {}).get("price")
+            if not p1:
+                missing += w      # left the universe, or unpriceable tonight
+                continue
+            num += w * (p1 / prev[sym]["price"] - 1.0)
+            names += 1
+        kept = held - missing
+        if held <= 0 or kept <= 0:
+            continue
+
+        shared = [s for s in prev if s in curr]
+        eq = (sum(curr[s]["price"] / prev[s]["price"] - 1.0 for s in shared) / len(shared)
+              if shared else None)
+        bp0 = (prev.get(PERF_BENCHMARK) or {}).get("price")
+        bp1 = (curr.get(PERF_BENCHMARK) or {}).get("price")
+        legs.append({
+            "from": a, "to": b,
+            "book": num / kept,
+            "benchmark": (bp1 / bp0 - 1.0) if (bp0 and bp1) else None,
+            "equal_weight": eq,
+            "names": names,
+            "weight_lost": missing / held,
+            "usable": (missing / held) <= PERF_MAX_WEIGHT_LOSS,
+        })
+
+    usable = [l for l in legs if l["usable"]]
+    series, book, bench, eqc = [], 1.0, 1.0, 1.0
+    bench_live = False
+    # The origin is where measurement starts, which is the first *usable* leg's earlier
+    # date — not the first date on file. Anchoring at dates[0] when the opening legs
+    # were dropped draws the first segment from 08-01 to 08-05 and attributes one
+    # night's return to four days of chart.
+    if usable:
+        series.append({"date": usable[0]["from"], "book": 0.0,
+                       "benchmark": 0.0, "equal_weight": 0.0})
+    for l in usable:
+        book *= (1.0 + l["book"])
+        if l["benchmark"] is not None:
+            bench *= (1.0 + l["benchmark"]); bench_live = True
+        if l["equal_weight"] is not None:
+            eqc *= (1.0 + l["equal_weight"])
+        series.append({
+            "date": l["to"],
+            "book": round((book - 1.0) * 100, 4),
+            "benchmark": round((bench - 1.0) * 100, 4) if l["benchmark"] is not None else None,
+            "equal_weight": round((eqc - 1.0) * 100, 4) if l["equal_weight"] is not None else None,
+        })
+    # The origin is only a real point on a line that has real points.
+    if series and not bench_live:
+        series[0]["benchmark"] = None
+    if series and not any(p["equal_weight"] is not None for p in series[1:]):
+        series[0]["equal_weight"] = None
+
+    return {
+        "days": len(dates),
+        "min_days": PERF_MIN_DAYS,
+        "renderable": len(usable) >= PERF_MIN_DAYS - 1,
+        "legs": len(usable),
+        "legs_dropped": len(legs) - len(usable),
+        "duplicates_collapsed": collapsed,
+        "from": usable[0]["from"] if usable else dates[0],
+        "to": usable[-1]["to"] if usable else dates[-1],
+        "recorded_from": dates[0], "recorded_to": dates[-1],
+        "benchmark": PERF_BENCHMARK,
+        "benchmark_available": bench_live,
+        "top_n": PERF_TOP_N,
+        "book_total": round((book - 1.0) * 100, 4) if usable else None,
+        "benchmark_total": round((bench - 1.0) * 100, 4) if bench_live else None,
+        "equal_weight_total": round((eqc - 1.0) * 100, 4) if usable else None,
+        "series": series,
+    }
+
+
 def _compute_market_breadth() -> dict:
     """Conviction as a time-series (reviewer #3) + breadth/dispersion/persistence
     (the three differentiated signals). Purely derived from the signals ledger —
@@ -1042,7 +1209,22 @@ def main() -> int:
         # crossings. Attached to breadth rather than given its own file: it is the same
         # kind of derived-from-the-ledger diagnostic and the terminal already loads this.
         breadth["tier_diff"] = _compute_tier_diff()
+        # Paper return of the published basket, chained across recorded days. Built from
+        # signals.csv rather than index.json — see _compute_performance for why.
+        breadth["performance"] = _compute_performance()
         MARKET_BREADTH_JSON.write_text(json.dumps(breadth, indent=2))
+        pf = breadth["performance"]
+        if pf.get("legs"):
+            print(f"[perf] {pf['legs']} leg(s), basket {pf['book_total']:+.2f}%"
+                  + (f", {pf['benchmark']} {pf['benchmark_total']:+.2f}%"
+                     if pf["benchmark_available"] else ", benchmark missing")
+                  + (f", equal-weight {pf['equal_weight_total']:+.2f}%"
+                     if pf.get("equal_weight_total") is not None else "")
+                  + ("" if pf["renderable"] else
+                     f" — below the {pf['min_days']}-day render threshold"))
+            if pf.get("duplicates_collapsed"):
+                print(f"[perf] collapsed {pf['duplicates_collapsed']} duplicate "
+                      f"(date, symbol) rows — the workflow ran more than once on some days")
         td = breadth["tier_diff"]
         if td and not td.get("pending"):
             c = td["counts"]
