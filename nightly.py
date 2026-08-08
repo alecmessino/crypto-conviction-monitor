@@ -947,25 +947,36 @@ def build_basket(markets: list[dict], today: str, btc: dict | None = None) -> di
     kept_holdings = [h for h in prev.get("holdings", []) if h["symbol"] in keep]
     new_top = [x for x in top if x[0] not in prev_syms]
     holdings = []
-    total_conv = sum(c for _, _, c in top) or 1
     for h in kept_holdings:
         sym = h["symbol"]
-        # refresh weight/conviction from current scoring
+        # refresh conviction from current scoring
         nh = next((x for x in top if x[0] == sym), None)
         conv = nh[2] if nh else h.get("conviction", 0)
-        w = conv / total_conv
         holdings.append({
-            "symbol": sym, "conviction": conv, "weight": round(w, 4),
+            "symbol": sym, "conviction": conv, "weight": 0.0,
             "entry_price": h.get("entry_price") or 0,
             "current_price": (next((t.get("current_price") for _, t, _ in top if _ and (t.get("symbol") or "").upper() == sym), None)) or h.get("current_price") or 0,
         })
     for sym, t, conv in new_top:
-        w = conv / total_conv
         holdings.append({
-            "symbol": sym, "conviction": conv, "weight": round(w, 4),
+            "symbol": sym, "conviction": conv, "weight": 0.0,
             "entry_price": t.get("current_price") or 0,
             "current_price": t.get("current_price") or 0,
         })
+
+    # Normalise over the holdings that actually exist, not over the top N.
+    #
+    # The denominator used to be the sum of the top ten's convictions while the weights
+    # were applied to kept + new entrants — a superset whenever the hysteresis buffer
+    # retains a name that has slipped out of the top ten. The two sets only coincide
+    # when nothing is being held over, so the weights stopped summing to 1 the moment
+    # the buffer did its job. On 2026-08-08 the denominator was 9 (a single name in
+    # `top`) against eleven holdings, and the weights summed to 76.6 — so every
+    # `wret = sum(weight * return)` in the index was inflated roughly seventy-six-fold,
+    # which is where the published "daily" returns of 87% and 123% came from.
+    total_conv = sum(h["conviction"] for h in holdings) or 1
+    for h in holdings:
+        h["weight"] = round(h["conviction"] / total_conv, 4)
 
     # Rebalance decision: calendar OR membership changed vs the (hysteresis-
     # filtered) previous basket. A pure #10<->#11 flip no longer triggers.

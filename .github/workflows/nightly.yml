@@ -34,6 +34,15 @@ jobs:
         # break the nightly commit.
         run: python tests/test_parity.py
 
+      - name: Ledger integrity gate
+        # Sits between the build and the commit, so a degenerate or malformed ledger is
+        # never committed and never deploys. This is the check that was missing while
+        # four write-path bugs shipped a chart of fabricated alpha: nothing threw, the
+        # workflow reported success, and the only thing wrong was the numbers. Runs
+        # standalone like the parity gate — a missing package must not be able to skip
+        # it.
+        run: python scripts/validate_ledger.py
+
       - name: Commit ledger
         run: |
           git config user.name "conviction-bot"
@@ -41,7 +50,11 @@ jobs:
           # nightly.py writes the signals ledger, the conviction-weighted index
           # (index.csv/index.json), the basket state (basket.json), and the
           # market breadth / conviction time-series (market_breadth.json).
+          # index.legacy.csv is included so that if the writer ever has to quarantine a
+          # mismatched file again, the evidence is committed rather than lost with the
+          # runner. --ignore-unmatch: it does not exist on a healthy run.
           git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json
+          git add ledger/index.legacy.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
