@@ -199,3 +199,54 @@ def test_returns_compound_rather_than_summing(ledger):
     ledger([("2026-03-01", "A", 100.0, 90), ("2026-03-02", "A", 110.0, 90),
             ("2026-03-03", "A", 121.0, 90)])
     assert nightly._compute_performance()["book_total"] == pytest.approx(21.0)
+
+
+# ---------------------------------------------------------------------------
+# the specification boundary
+# ---------------------------------------------------------------------------
+def test_the_curve_starts_after_the_most_recent_specification_boundary(ledger):
+    """A leg straddling a boundary chains a book chosen by one model onto returns
+    scored by another. Averaging across that is not a track record for either model —
+    it is a number about one that never existed.
+
+    Days 1-2 are the old scoring (conviction 65 flat), days 3-5 the new (30 flat), with
+    prices untouched throughout so the break is unambiguous.
+    """
+    # At least five names on both boards: the detector refuses to call a break on a
+    # handful of assets, so a thin day cannot manufacture one.
+    rows = []
+    for d, conv in ((1, 65), (2, 65), (3, 30), (4, 30), (5, 30)):
+        rows.append((f"2026-03-{d:02d}", "BTC", 50.0 + d, conv))
+        rows += [(f"2026-03-{d:02d}", f"A{i}", 100.0 + d + i, conv) for i in range(8)]
+    ledger(rows)
+    out = nightly._compute_performance()
+    assert out["spec_boundary"] == "2026-03-03"
+    assert out["from"] == "2026-03-03"          # not 2026-03-01
+    assert out["legs_before_boundary"] == 2
+    assert out["spec_stable"] is True           # nothing left crosses it
+    assert out["series"][0]["date"] == "2026-03-03"
+
+
+def test_a_clean_history_keeps_every_leg(ledger):
+    rows = []
+    for d in range(1, 6):
+        rows.append((f"2026-03-{d:02d}", "BTC", 50.0 + d, 65))
+        rows += [(f"2026-03-{d:02d}", f"A{i}", 100.0 + d + i, 65) for i in range(8)]
+    ledger(rows)
+    out = nightly._compute_performance()
+    assert out["spec_boundary"] is None
+    assert out["legs_before_boundary"] == 0
+    assert out["from"] == "2026-03-01"
+
+
+def test_excluding_the_pre_boundary_legs_can_make_the_curve_unrenderable(ledger):
+    """And it must, rather than quietly drawing fewer points. Losing history to a
+    boundary is the honest cost of not averaging across two models."""
+    rows = []
+    for d, conv in ((1, 65), (2, 65), (3, 65), (4, 30), (5, 30)):
+        rows += [(f"2026-03-{d:02d}", f"A{i}", 100.0 + d + i, conv) for i in range(8)]
+    ledger(rows)
+    out = nightly._compute_performance()
+    assert out["spec_boundary"] == "2026-03-04"
+    assert out["legs"] == 1
+    assert out["renderable"] is False

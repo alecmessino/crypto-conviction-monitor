@@ -669,6 +669,21 @@ def _compute_performance() -> dict:
         })
 
     usable = [l for l in legs if l["usable"]]
+
+    # Start after the most recent specification boundary. A leg that straddles one
+    # chains a book chosen by one model onto returns scored by another, and averaging
+    # across that is not a track record for either — it is a number about a model that
+    # never existed. The legs before the boundary are still real measurements of the
+    # model that produced them; they are excluded from *this* curve, not deleted, and
+    # the count is reported so the exclusion is visible rather than implied.
+    breaks = sorted(b["to"] for b in _spec_breaks())
+    boundary = breaks[-1] if breaks else None
+    dropped_pre_break = 0
+    if boundary:
+        before = [l for l in usable if l["from"] < boundary]
+        dropped_pre_break = len(before)
+        usable = [l for l in usable if l["from"] >= boundary]
+
     series, book, bench, eqc = [], 1.0, 1.0, 1.0
     bench_live = False
     # The origin is where measurement starts, which is the first *usable* leg's earlier
@@ -700,14 +715,15 @@ def _compute_performance() -> dict:
     # onto returns scored by another. Reported rather than hidden, exactly as the equity
     # terminal reports a curve spanning two spec hashes: it is two series drawn end to
     # end, and the reader has to know which.
-    breaks = {b["to"] for b in _spec_breaks()}
-    crossed = sorted({l["to"] for l in usable if l["to"] in breaks})
+    crossed = sorted({l["to"] for l in usable if l["to"] in set(breaks)})
 
     return {
         "days": len(dates),
         "min_days": PERF_MIN_DAYS,
         "spec_breaks_crossed": crossed,
         "spec_stable": not crossed,
+        "spec_boundary": boundary,
+        "legs_before_boundary": dropped_pre_break,
         "renderable": len(usable) >= PERF_MIN_DAYS - 1,
         "legs": len(usable),
         "legs_dropped": len(legs) - len(usable),

@@ -794,11 +794,20 @@ function renderIndex(){
     // The empty state is the default branch. A curve through one or two points reads as
     // a trend and is not one.
     const have=(PF&&PF.legs)||0, need=(PF&&PF.min_days)||5;
+    const bnd=PF&&PF.spec_boundary, pre=(PF&&PF.legs_before_boundary)||0;
     x.fillStyle="#94A3B8"; x.font="9px monospace";
-    x.fillText(`Awaiting historical baseline (${have?have+1:0}/${need} days accumulating)`,10,h/2-3);
+    x.fillText(`Awaiting historical baseline (${have?have+1:0}/${need} days accumulating)`,10,h/2-13);
     x.fillStyle="#475569"; x.font="8px monospace";
-    x.fillText(`${have} night${have===1?"":"s"} measured · nothing is back-filled`,10,h/2+11);
-    note.textContent=`Paper return · below the ${need}-day threshold, so no curve is drawn`;
+    x.fillText(`${have} night${have===1?"":"s"} measured · nothing is back-filled`,10,h/2);
+    // Say why the count is short of the recorded history, or the panel reads as broken
+    // to anyone who knows eight days are on file. Two short lines rather than one long
+    // one: this canvas is ~330px and the third line was running off the edge.
+    if(bnd){
+      x.fillText(`restarted at the ${bnd} spec boundary`,10,h/2+12);
+      if(pre) x.fillText(`${pre} earlier night${pre===1?"":"s"} measure the previous model`,10,h/2+23);
+    }
+    note.textContent=`Paper return · below the ${need}-day threshold, so no curve is drawn`
+      + (bnd?` · measuring from ${bnd}, when the scoring last changed`:"");
   } else {
     const s=PF.series;
     bPct=PF.book_total||0; mPct=PF.benchmark_total||0;
@@ -840,6 +849,8 @@ function renderIndex(){
     note.innerHTML=`${PF.legs} night${PF.legs===1?"":"s"} measured, ${PF.from} to ${PF.to}`
       + (eq!=null?` · equal-weight universe ${eq>=0?"+":""}${eq.toFixed(1)}%`:"")
       + (PF.legs_dropped?` · ${PF.legs_dropped} excluded for an unpriceable book`:"")
+      + (PF.legs_before_boundary?` · ${PF.legs_before_boundary} night${PF.legs_before_boundary===1?"":"s"}`
+          + ` before the ${PF.spec_boundary} specification boundary excluded — they measure a different model`:"")
       + `. Weights from the earlier night, priced at both ends. <b>Not evidence the model `
       + `works</b> — ${PF.legs} nights is a handful of coin flips.`;
   }
