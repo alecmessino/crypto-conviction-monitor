@@ -279,7 +279,7 @@ canvas{display:block;width:100%}
       <div class="chart-box"><canvas id="idx" height="120" style="height:120px"></canvas>
         <div class="muted" id="idx-note">Cumulative basket vs market · live paper track record</div></div>
       <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
-      <div class="muted" style="padding:4px 12px 10px">Nightly Top-10 basket (06:17 UTC snapshot), score-proportional weights. The <b>live</b> conviction leaders in the Alpha Map use the same formula but diverge slightly on intraday price moves. PnL vs equal-weight market benchmark.</div>
+      <div class="muted" style="padding:4px 12px 10px">Nightly Top-10 basket (06:17 UTC snapshot), score-proportional weights. The <b>live</b> conviction leaders in the Alpha Map use the same formula but diverge slightly on intraday price moves. Paper return is chained from the recorded signals ledger — weights from the earlier night, priced at both ends — against BTC, with the equal-weight universe as the control that separates selection from market beta.</div>
     </div>
   </aside>
 </div>
@@ -696,7 +696,7 @@ function alphaMap(){
 function heat(){ alphaMap(); } // alias kept for any stale caller
 function renderIndex(){
   const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal"), snap=$("#idx-snapshot"), macro=$("#idx-macro");
-  if(!INDEX){ wrap.innerHTML='<div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div>'; note.textContent="Cumulative basket vs market · live paper track record"; reb.textContent="—"; macro.style.display="none"; return; }
+  if(!INDEX){ wrap.innerHTML='<div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div>'; note.textContent="Paper return · awaiting the nightly ledger"; reb.textContent="—"; macro.style.display="none"; return; }
   const rows=INDEX.rows||[];
   reb.textContent="reb "+(INDEX.latest?.rebalanced?"✓":"·");
   // macro regime pill (display-only gate)
@@ -704,20 +704,71 @@ function renderIndex(){
   if(reg==="RISK-OFF"){ macro.textContent="MACRO · RISK-OFF"; macro.className="pill off"; macro.style.display=""; }
   else if(reg==="RISK-ON"){ macro.textContent="MACRO · RISK-ON"; macro.className="pill on"; macro.style.display=""; }
   else { macro.style.display="none"; }
-  // cumulative line chart (chained daily returns)
+  // Cumulative paper return, from market_breadth.json's `performance` block rather than
+  // index.json's row series. Those rows are unusable: the header declares seven columns
+  // while eight of ten carry thirteen, so a reader files the alpha figure under
+  // n_holdings and a dollar amount under rebalanced; several dates repeat; single rows
+  // carry "daily" returns of 87% and 123%; and benchmark_return is identically 0.0 on
+  // every row — which drew the market line flat at zero across the whole chart and made
+  // the reported alpha the raw basket return under a different name.
+  const PF = (typeof BREADTH!=="undefined" && BREADTH && BREADTH.performance) || null;
   const cv=$("#idx"), w=cv.clientWidth, h=cv.clientHeight||120; cv.width=w; cv.height=h; const x=cv.getContext("2d");
   x.clearRect(0,0,w,h);
-  const cumB=[1], cumM=[1];
-  rows.forEach(r=>{ cumB.push(cumB[cumB.length-1]*(1+(parseFloat(r.basket_return)||0)/100));
-                    cumM.push(cumM[cumM.length-1]*(1+(parseFloat(r.benchmark_return)||0)/100)); });
-  const bPct=(cumB[cumB.length-1]-1)*100, mPct=(cumM[cumM.length-1]-1)*100;
-  const all=cumB.concat(cumM); const lo=Math.min(1,...all), hi=Math.max(1.001,...all);
-  const px=i=>rows.length<1?w/2:8+i*(w-16)/Math.max(1,rows.length);
-  const py=v=>h-6-(v-lo)/(hi-lo||1)*(h-12);
-  const line=(arr,col)=>{x.beginPath();arr.forEach((v,i)=>{i?x.lineTo(px(i),py(v)):x.moveTo(px(i),py(v));});x.strokeStyle=col;x.lineWidth=1.5;x.stroke();};
-  line(cumM,"#475569"); line(cumB,"#00FF66");
-  x.fillStyle="#475569";x.font="7px monospace";x.fillText("mkt "+(mPct>=0?"+":"")+mPct.toFixed(1)+"%",px(rows.length)-30,py(cumM[cumM.length-1])-3);
-  x.fillStyle="#00FF66";x.fillText("basket "+(bPct>=0?"+":"")+bPct.toFixed(1)+"%",px(rows.length)-48,py(cumB[cumB.length-1])+9);
+  let bPct=0, mPct=0;
+
+  if(!PF || !PF.renderable){
+    // The empty state is the default branch. A curve through one or two points reads as
+    // a trend and is not one.
+    const have=(PF&&PF.legs)||0, need=(PF&&PF.min_days)||5;
+    x.fillStyle="#94A3B8"; x.font="9px monospace";
+    x.fillText(`Awaiting historical baseline (${have?have+1:0}/${need} days accumulating)`,10,h/2-3);
+    x.fillStyle="#475569"; x.font="8px monospace";
+    x.fillText(`${have} night${have===1?"":"s"} measured · nothing is back-filled`,10,h/2+11);
+    note.textContent=`Paper return · below the ${need}-day threshold, so no curve is drawn`;
+  } else {
+    const s=PF.series;
+    bPct=PF.book_total||0; mPct=PF.benchmark_total||0;
+    const vals=s.flatMap(d=>[d.book,d.benchmark,d.equal_weight].filter(v=>v!=null));
+    const lo=Math.min(0,...vals), hi=Math.max(0,...vals), pad=Math.max(0.4,(hi-lo)*0.15);
+    // Positioned by date, not index: equal spacing draws a stretch where legs were
+    // dropped as one ordinary segment, attributing a single night's move to all of it.
+    const day=d=>Date.parse(d+"T00:00:00Z")/864e5;
+    const t0=day(s[0].date), span=(day(s[s.length-1].date)-t0)||1;
+    const px=i=>10+(day(s[i].date)-t0)/span*(w-20);
+    const py=v=>h-10-((v-(lo-pad))/((hi+pad)-(lo-pad)))*(h-20);
+    x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([2,3]);
+    x.beginPath(); x.moveTo(10,py(0)); x.lineTo(w-10,py(0)); x.stroke(); x.setLineDash([]);
+    const line=(key,col,width,dash)=>{
+      // Drawn in segments, so a night with no recorded benchmark breaks the line rather
+      // than being bridged straight across the gap.
+      x.strokeStyle=col; x.lineWidth=width; x.setLineDash(dash||[]);
+      let drawing=false;
+      s.forEach((d,i)=>{
+        if(d[key]==null){ if(drawing){ x.stroke(); drawing=false; } return; }
+        if(!drawing){ x.beginPath(); x.moveTo(px(i),py(d[key])); drawing=true; }
+        else x.lineTo(px(i),py(d[key]));
+      });
+      if(drawing) x.stroke();
+      x.setLineDash([]);
+    };
+    line("equal_weight","#334155",1.2,[3,3]);
+    line("benchmark","#475569",1.4);
+    line("book","#00FF66",1.6);
+    const last=s[s.length-1];
+    x.font="7px monospace";
+    if(last.benchmark!=null){
+      x.fillStyle="#475569";
+      x.fillText(`${PF.benchmark} ${mPct>=0?"+":""}${mPct.toFixed(1)}%`,px(s.length-1)-36,py(last.benchmark)-3);
+    }
+    x.fillStyle="#00FF66";
+    x.fillText(`basket ${bPct>=0?"+":""}${bPct.toFixed(1)}%`,px(s.length-1)-50,py(last.book)+9);
+    const eq=PF.equal_weight_total;
+    note.innerHTML=`${PF.legs} night${PF.legs===1?"":"s"} measured, ${PF.from} to ${PF.to}`
+      + (eq!=null?` · equal-weight universe ${eq>=0?"+":""}${eq.toFixed(1)}%`:"")
+      + (PF.legs_dropped?` · ${PF.legs_dropped} excluded for an unpriceable book`:"")
+      + `. Weights from the earlier night, priced at both ends. <b>Not evidence the model `
+      + `works</b> — ${PF.legs} nights is a handful of coin flips.`;
+  }
   // allocation table: target vs live weight + audit trail
   const hs=INDEX.latest_holdings||INDEX.current_holdings||[];
   if(hs.length){
@@ -729,7 +780,9 @@ function renderIndex(){
         +`<span class="alloc-w num">${tw}%<span class="alloc-live ${driftCls}">→${lw}%</span></span>`
         +`<span class="muted alloc-c">${ret>=0?"+":""}${ret.toFixed(1)}%</span></div>`;
     }).join("")
-      +`<div class="alloc-foot">basket ${bPct.toFixed(1)}% · bench ${mPct.toFixed(1)}% · α ${(bPct-mPct).toFixed(1)}% · exec-adj ${(((INDEX.exec_adjusted_total_return||1)-1)*100).toFixed(1)}% (horizon-matched, total mcap)</div>`;
+      +(PF&&PF.renderable
+        ? `<div class="alloc-foot">basket ${bPct.toFixed(1)}% · ${PF.benchmark} ${mPct.toFixed(1)}% · α ${(bPct-mPct).toFixed(1)}% over ${PF.legs} measured night${PF.legs===1?"":"s"}</div>`
+        : `<div class="alloc-foot">Return figures appear once ${(PF&&PF.min_days)||5} days are on file. The exec-adjusted and total-return fields in index.json are not shown: that row series is malformed.</div>`);
   } else { wrap.innerHTML='<div class="muted" style="padding:8px 12px">Basket empty.</div>'; }
 }
 function factorBreakdown(sym){
