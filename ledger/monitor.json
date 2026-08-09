@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-08T23:37:01.792548+00:00",
+  "generated_at": "2026-08-09T06:20:14.081800+00:00",
   "spec_hash": "d600984ec00b",
   "observations": 8,
   "from": "2026-08-01",
@@ -8,8 +8,8 @@
     {
       "name": "Data freshness",
       "status": "pass",
-      "detail": "latest board 2026-08-08 (24h old)",
-      "value": 23.6
+      "detail": "latest board 2026-08-08 (30h old)",
+      "value": 30.3
     },
     {
       "name": "Universe size",
@@ -31,8 +31,14 @@
     },
     {
       "name": "Field presence",
-      "status": "warn",
-      "detail": "weakest input `era` present for 0% of the board",
+      "status": "pass",
+      "detail": "weakest input `price` present for 100% of the board",
+      "value": 1.0
+    },
+    {
+      "name": "Contextual feeds",
+      "status": "info",
+      "detail": "no contextual fields carry values \u2014 the Dune feed is unconfigured or down. Nothing scored depends on it",
       "value": 0.0
     },
     {
@@ -145,8 +151,7 @@
       "rs14": 1.0,
       "rs30": 1.0,
       "rs200": 1.0,
-      "perp_mult": 1.0,
-      "era": 0.0
+      "perp_mult": 1.0
     },
     "series": [
       {
@@ -160,8 +165,7 @@
         "rs14": 0.0,
         "rs30": 0.0,
         "rs200": 0.0,
-        "perp_mult": 0.0,
-        "era": 0.0
+        "perp_mult": 0.0
       },
       {
         "date": "2026-08-02",
@@ -174,8 +178,7 @@
         "rs14": 0.0,
         "rs30": 0.0,
         "rs200": 0.0,
-        "perp_mult": 1.0,
-        "era": 0.0
+        "perp_mult": 1.0
       },
       {
         "date": "2026-08-03",
@@ -188,8 +191,7 @@
         "rs14": 0.9259,
         "rs30": 0.9259,
         "rs200": 0.9259,
-        "perp_mult": 1.0,
-        "era": 0.0741
+        "perp_mult": 1.0
       },
       {
         "date": "2026-08-04",
@@ -202,8 +204,7 @@
         "rs14": 1.0,
         "rs30": 1.0,
         "rs200": 1.0,
-        "perp_mult": 1.0,
-        "era": 0.0
+        "perp_mult": 1.0
       },
       {
         "date": "2026-08-05",
@@ -216,8 +217,7 @@
         "rs14": 1.0,
         "rs30": 1.0,
         "rs200": 1.0,
-        "perp_mult": 1.0,
-        "era": 0.0
+        "perp_mult": 1.0
       },
       {
         "date": "2026-08-06",
@@ -230,8 +230,7 @@
         "rs14": 1.0,
         "rs30": 1.0,
         "rs200": 1.0,
-        "perp_mult": 1.0,
-        "era": 0.0
+        "perp_mult": 1.0
       },
       {
         "date": "2026-08-07",
@@ -244,8 +243,7 @@
         "rs14": 1.0,
         "rs30": 1.0,
         "rs200": 1.0,
-        "perp_mult": 1.0,
-        "era": 0.0
+        "perp_mult": 1.0
       },
       {
         "date": "2026-08-08",
@@ -258,12 +256,78 @@
         "rs14": 1.0,
         "rs30": 1.0,
         "rs200": 1.0,
-        "perp_mult": 1.0,
-        "era": 0.0
+        "perp_mult": 1.0
       }
     ],
     "warn_below": 0.9,
-    "basis": "Share of the board carrying a usable value for each input. Nothing here is imputed, so this measures feed health rather than substitution: a field going to zero is an upstream dropout, and the factor it feeds quietly stops contributing."
+    "basis": "Share of the board carrying a usable value for each input. Nothing here is imputed, so this measures feed health rather than substitution: a field going to zero is an upstream dropout, and the factor it feeds quietly stops contributing.",
+    "context": {
+      "latest": {
+        "era": 0.0,
+        "unlocks_usd": 0.0,
+        "supply_increase_pct": 0.0,
+        "addr_growth_pct": 0.0
+      },
+      "series": [
+        {
+          "date": "2026-08-01",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.0
+        },
+        {
+          "date": "2026-08-02",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.0
+        },
+        {
+          "date": "2026-08-03",
+          "era": 0.0741,
+          "unlocks_usd": 0.0741,
+          "supply_increase_pct": 0.0741,
+          "addr_growth_pct": 0.0741
+        },
+        {
+          "date": "2026-08-04",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.0
+        },
+        {
+          "date": "2026-08-05",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.0
+        },
+        {
+          "date": "2026-08-06",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.0
+        },
+        {
+          "date": "2026-08-07",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.0
+        },
+        {
+          "date": "2026-08-08",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.0
+        }
+      ],
+      "basis": "Recorded, not scored. These columns are logged beside every board so they can be studied against realised returns before anyone argues for adopting them; adoption would change the specification hash and start a new track record. Nulls here are expected \u2014 unlock schedules are contractual, not on-chain, and are recorded only for tokens whose vesting contracts are enumerated in the query."
+    }
   },
   "specification": {
     "spans": [

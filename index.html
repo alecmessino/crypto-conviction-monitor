@@ -717,7 +717,7 @@ function heat(){ alphaMap(); } // alias kept for any stale caller
    beside it, because this universe turns over 8-20% a night by construction; coverage
    is field presence rather than imputation share, because nothing here imputes. */
 const MON_TONE = {pass:"var(--green)", warn:"var(--amber)", fail:"var(--red)",
-                  pending:"var(--sec)"};
+                  pending:"var(--sec)", info:"var(--sec)"};
 function brkDates(m){
   return ((m.specification&&m.specification.suspected_breaks)||[]).map(b=>b.to);
 }
@@ -761,6 +761,28 @@ function renderMonitor(){
       </div>`).join("")}
     </div>` : "";
 
+  // Recorded, not scored. Kept visually separate from the inputs above — same bars
+  // would read as "another thing that is broken", when a null here is the expected
+  // state for most tokens and the panel above is the only one where a gap is a defect.
+  const ctx=(m.coverage&&m.coverage.context)||null;
+  const cl=(ctx&&ctx.latest)||{};
+  const ctxKeys=Object.keys(cl);
+  const anyCtx=ctxKeys.some(k=>cl[k]>0);
+  const context = !ctxKeys.length ? "" : `<div style="padding:6px 12px 2px;border-top:1px solid var(--grid)">
+      <div class="muted" style="margin-bottom:4px">Recorded, not scored
+        <span style="opacity:.7">— logged beside every board, read by nothing in the model</span></div>
+      ${anyCtx ? ctxKeys.map(k=>`<div style="display:flex;align-items:center;gap:8px;font-size:10px;margin-bottom:3px">
+        <span style="min-width:96px;color:var(--sec)">${k}</span>
+        <span class="bar" style="flex:1;opacity:.55"><i style="width:${(cl[k]*100).toFixed(0)}%;background:var(--sec)"></i></span>
+        <span class="num" style="min-width:34px;text-align:right;color:var(--sec)">${(cl[k]*100).toFixed(0)}%</span>
+      </div>`).join("")
+      : `<div class="muted" style="font-size:10px">${ctxKeys.join(", ")} — no values recorded yet.
+         The Dune feed is unconfigured or down. Nothing scored depends on it.</div>`}
+      <div class="muted" style="font-size:9px;margin-top:3px">Adopting any of these would change
+        the specification hash and start a new track record. Unlock schedules are contractual,
+        not on-chain — a null there is the honest reading, not a gap to fill.</div>
+    </div>`;
+
   // Dispersion over time, with the boundary ruled where it happened. This is the
   // clearest single picture of the 2026-08-05 break — sigma steps 3.2 to 19.1 across
   // one night — and a shaded band communicates the regime change without anyone having
@@ -800,7 +822,7 @@ function renderMonitor(){
       ${brk[0].detail}. Any return study spanning it is a number about two different models.
     </div>` : "";
 
-  host.innerHTML = checks + stab + trend + fields + breaks
+  host.innerHTML = checks + stab + trend + fields + context + breaks
     + `<div class="muted" style="padding:6px 12px 10px">${m.scope}</div>`;
 }
 
@@ -1023,6 +1045,12 @@ document.getElementById("pf-btn").onclick=applyHoldings;
 // ---- load ----
 async function load(){
   const st=$("#status");
+  // The ledger is a static file in this repo and owes nothing to CoinGecko, so it loads
+  // outside the live-price try. It used to sit inside it, which meant a rate-limited
+  // visitor lost the monitor, the paper return and the basket — the panels that say
+  // whether the pipeline is healthy went blank at exactly the moment something was
+  // visibly wrong, and the page reported only that prices were throttled.
+  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); });
   try{
     const r=await fetch(API,{headers:{Accept:"application/json"}});
     if(!r.ok) throw new Error("HTTP "+r.status);
@@ -1031,10 +1059,10 @@ async function load(){
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
     renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); if(SEL) factorBreakdown(SEL);
-    // The ledger arrives after the first paint, and the marginal-crossing markers come
-    // out of it — so the tables have to be drawn again once it lands, or the first
-    // render is the one the user reads and it is missing them.
-    loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderTables(); });
+    // The marginal-crossing markers come out of the ledger, so the tables are drawn
+    // again once it lands — otherwise the first render is the one the user reads and
+    // it is missing them.
+    ledger.then(renderTables);
     st.textContent="OK"; st.className="live"; $("#sys-rl").textContent="nominal";
   }catch(e){
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
