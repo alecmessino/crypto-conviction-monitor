@@ -718,6 +718,9 @@ function heat(){ alphaMap(); } // alias kept for any stale caller
    is field presence rather than imputation share, because nothing here imputes. */
 const MON_TONE = {pass:"var(--green)", warn:"var(--amber)", fail:"var(--red)",
                   pending:"var(--sec)"};
+function brkDates(m){
+  return ((m.specification&&m.specification.suspected_breaks)||[]).map(b=>b.to);
+}
 function renderMonitor(){
   const host=$("#monitor"), sub=$("#mon-obs");
   if(!MONITOR || !(MONITOR.health||[]).length){
@@ -758,13 +761,46 @@ function renderMonitor(){
       </div>`).join("")}
     </div>` : "";
 
+  // Dispersion over time, with the boundary ruled where it happened. This is the
+  // clearest single picture of the 2026-08-05 break — sigma steps 3.2 to 19.1 across
+  // one night — and a shaded band communicates the regime change without anyone having
+  // to read the note under it.
+  const ds=(m.dispersion&&m.dispersion.series)||[];
+  let trend="";
+  if(ds.length>1){
+    const W=320,H=44,pad=4;
+    const vals=ds.map(d=>d.dispersion);
+    const lo=Math.min(...vals), hi=Math.max(...vals), rng=(hi-lo)||1;
+    const px=i=>pad+i/(ds.length-1)*(W-pad*2);
+    const py=v=>H-pad-((v-lo)/rng)*(H-pad*2);
+    const pts=ds.map((d,i)=>`${px(i).toFixed(1)},${py(d.dispersion).toFixed(1)}`).join(" ");
+    const bset=new Set(brkDates(m));
+    const marks=ds.map((d,i)=>bset.has(d.date)
+      ? `<line x1="${px(i).toFixed(1)}" y1="0" x2="${px(i).toFixed(1)}" y2="${H}"
+             stroke="var(--amber)" stroke-width="1" stroke-dasharray="2 2"/>`
+        + `<rect x="0" y="0" width="${px(i).toFixed(1)}" height="${H}"
+             fill="var(--amber)" fill-opacity="0.05"/>`
+      : "").join("");
+    trend = `<div style="padding:6px 12px 2px">
+      <div class="muted" style="margin-bottom:3px">Score dispersion, ${ds[0].date} to ${ds[ds.length-1].date}</div>
+      <svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block">
+        ${marks}
+        <polyline points="${pts}" fill="none" stroke="var(--blue)" stroke-width="1.4"
+                  stroke-linejoin="round"/>
+      </svg>
+      <div class="muted" style="font-size:9px;margin-top:2px">
+        ${vals[0].toFixed(1)} → ${vals[vals.length-1].toFixed(1)}
+        ${bset.size?" · shaded region predates the specification boundary":""}</div>
+    </div>`;
+  }
+
   const brk=(m.specification&&m.specification.suspected_breaks)||[];
   const breaks = brk.length ? `<div class="muted" style="padding:6px 12px 10px;border-top:1px solid var(--grid)">
       <b style="color:var(--amber)">Specification boundary</b> at ${brk.map(b=>b.to).join(", ")} —
       ${brk[0].detail}. Any return study spanning it is a number about two different models.
     </div>` : "";
 
-  host.innerHTML = checks + stab + fields + breaks
+  host.innerHTML = checks + stab + trend + fields + breaks
     + `<div class="muted" style="padding:6px 12px 10px">${m.scope}</div>`;
 }
 
