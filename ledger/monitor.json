@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-08-09T06:20:14.081800+00:00",
+  "generated_at": "2026-08-09T07:19:04.196013+00:00",
   "spec_hash": "d600984ec00b",
-  "observations": 8,
+  "observations": 9,
   "from": "2026-08-01",
-  "to": "2026-08-08",
+  "to": "2026-08-09",
   "health": [
     {
       "name": "Data freshness",
       "status": "pass",
-      "detail": "latest board 2026-08-08 (30h old)",
-      "value": 30.3
+      "detail": "latest board 2026-08-09 (7h old)",
+      "value": 7.3
     },
     {
       "name": "Universe size",
       "status": "pass",
-      "detail": "50 assets scored on 2026-08-08",
+      "detail": "50 assets scored on 2026-08-09",
       "value": 50
     },
     {
@@ -26,8 +26,8 @@
     {
       "name": "Score dispersion",
       "status": "pass",
-      "detail": "sigma = 17.94 across 50 assets",
-      "value": 17.94
+      "detail": "sigma = 18.75 across 50 assets",
+      "value": 18.75
     },
     {
       "name": "Field presence",
@@ -44,20 +44,20 @@
     {
       "name": "Ranking stability",
       "status": "pass",
-      "detail": "rank correlation 0.9713 across 46 names held in common",
-      "value": 0.9713
+      "detail": "rank correlation 0.9477 across 42 names held in common",
+      "value": 0.9477
     },
     {
       "name": "Universe churn",
       "status": "pass",
-      "detail": "4 of 50 assets are new (8%) \u2014 the ranking above is measured only on the rest",
-      "value": 0.08
+      "detail": "8 of 50 assets are new (16%) \u2014 the ranking above is measured only on the rest",
+      "value": 0.16
     },
     {
       "name": "Specification history",
-      "status": "pending",
-      "detail": "8 day(s) recorded before the specification was hashed \u2014 unknown, not assumed to match today's",
-      "value": 0
+      "status": "pass",
+      "detail": "1 specification(s) across 1 recorded day(s); 8 earlier day(s) unhashed",
+      "value": 1
     },
     {
       "name": "Undeclared specification change",
@@ -73,30 +73,38 @@
     }
   ],
   "stability": {
-    "from": "2026-08-07",
-    "to": "2026-08-08",
-    "shared": 46,
-    "rank_correlation": 0.9713,
-    "mean_abs_move": 2.41,
-    "max_abs_move": 10.0,
+    "from": "2026-08-08",
+    "to": "2026-08-09",
+    "shared": 42,
+    "rank_correlation": 0.9477,
+    "mean_abs_move": 2.69,
+    "max_abs_move": 13.0,
     "entered": [
-      "GLIDR",
-      "GRX",
-      "ONDO",
-      "PIEVERSE"
+      "BDX",
+      "COCO",
+      "CRV",
+      "HTX",
+      "LTC",
+      "SKYAI",
+      "TAO",
+      "TUT"
     ],
     "left": [
-      "AVAX",
-      "CRV",
-      "LTC",
-      "ZAMA"
+      "ENA",
+      "GLIDR",
+      "ONDO",
+      "PEPE",
+      "PIEVERSE",
+      "RLUSD",
+      "RUNE",
+      "U"
     ],
-    "churn": 0.08,
+    "churn": 0.16,
     "universe_prev": 50,
     "universe_curr": 50
   },
   "dispersion": {
-    "latest": 17.94,
+    "latest": 18.75,
     "series": [
       {
         "date": "2026-08-01",
@@ -137,6 +145,11 @@
         "date": "2026-08-08",
         "dispersion": 17.94,
         "median": 31.0
+      },
+      {
+        "date": "2026-08-09",
+        "dispersion": 18.75,
+        "median": 30.0
       }
     ],
     "warn_below": 8.0
@@ -257,6 +270,19 @@
         "rs30": 1.0,
         "rs200": 1.0,
         "perp_mult": 1.0
+      },
+      {
+        "date": "2026-08-09",
+        "n": 50,
+        "price": 1.0,
+        "market_cap": 1.0,
+        "turnover_pct": 1.0,
+        "conviction": 1.0,
+        "rs7": 1.0,
+        "rs14": 1.0,
+        "rs30": 1.0,
+        "rs200": 1.0,
+        "perp_mult": 1.0
       }
     ],
     "warn_below": 0.9,
@@ -324,6 +350,13 @@
           "unlocks_usd": 0.0,
           "supply_increase_pct": 0.0,
           "addr_growth_pct": 0.0
+        },
+        {
+          "date": "2026-08-09",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.0
         }
       ],
       "basis": "Recorded, not scored. These columns are logged beside every board so they can be studied against realised returns before anyone argues for adopting them; adoption would change the specification hash and start a new track record. Nulls here are expected \u2014 unlock schedules are contractual, not on-chain, and are recorded only for tokens whose vesting contracts are enumerated in the query."
@@ -336,6 +369,12 @@
         "from": "2026-08-01",
         "to": "2026-08-08",
         "days": 8
+      },
+      {
+        "spec_hash": "d600984ec00b",
+        "from": "2026-08-09",
+        "to": "2026-08-09",
+        "days": 1
       }
     ],
     "unknown_days": 8,
