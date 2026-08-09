@@ -89,10 +89,25 @@ def check_headers(ledger: Path) -> list[str]:
             header = next(reader, [])
             widths = {len(r) for r in reader if r}
         if header != fields:
+            # A header that is a strict prefix of the schema, over rows of its own
+            # width, is a schema that grew — not the original bug. The writer reads by
+            # column name and rewrites the whole file, so the next run widens it and
+            # backfills the new columns as empty; nothing is misaligned. Still a
+            # blocking problem, because it means the run that should have migrated it
+            # did not finish — but saying "unrepairable" about a file that repairs
+            # itself would send someone to quarantine a healthy ledger.
+            widened = header == fields[:len(header)] and widths <= {len(header)}
             problems.append(
+                f"{name}: header is {len(header)} columns against a {len(fields)}-column "
+                f"schema, and the columns it does have match. The schema grew and this "
+                f"file has not been rewritten since — the next completed run migrates it "
+                f"in place. Do not hand-edit or quarantine it."
+                if widened else
                 f"{name}: header does not match the writer's schema "
                 f"({len(header)} columns vs {len(fields)}). Rows written under a stale "
                 f"header are positionally misaligned and cannot be repaired.")
+            if widened:
+                continue
         bad = {w for w in widths if w != len(fields)}
         if bad:
             problems.append(f"{name}: rows of width {sorted(bad)} against a "

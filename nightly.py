@@ -33,7 +33,12 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           # inserting one mid-list would reinterpret every row already written.
           # Historical rows carry an empty value — their specification is genuinely
           # unknown and must report as unknown rather than be assumed to match today's.
-          "spec_hash"]
+          "spec_hash",
+          # Derived from the Dune columns above. Observational: score() reads neither,
+          # and adopting them would be a separate, hashed decision. Appended at the end
+          # for the reason stated above — the file on disk was written under the shorter
+          # header, and a strict prefix is what lets the next run widen it cleanly.
+          "unlock_overhang_pct", "adoption_dilution"]
 
 # Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
@@ -132,36 +137,96 @@ def _get_json(url: str, headers: dict | None = None) -> dict:
         return json.loads(resp.read().decode())
 
 
-def fetch_dune_module_b(query_id: str, api_key: str) -> dict:
-    """Fetch a saved Dune query's latest results -> {SYMBOL: {unlocks_usd, supply_increase_pct,
-    addr_growth_pct, era}}. Returns {} if the call fails — caller falls back to null (no fabricate).
+# Column-name tolerance. A Dune query is written by a human in a web editor and the
+# column will be called whatever they called it; a fetch that only accepts one spelling
+# silently returns nothing and looks identical to "no data".
+DUNE_ALIASES = {
+    "symbol": ("symbol", "token", "ticker", "asset"),
+    "unlocks_usd": ("unlocks_usd", "unlocks", "unlock_usd", "unlock_value_usd",
+                    "upcoming_unlocks_usd"),
+    "supply_increase_pct": ("supply_increase_pct", "supply_increase", "emission_pct",
+                            "inflation_pct", "supply_growth_pct"),
+    "addr_growth_pct": ("addr_growth_pct", "address_growth", "address_growth_pct",
+                        "active_address_growth_pct", "adoption_pct"),
+    "era": ("era", "erosion_ratio", "emission_adoption_ratio"),
+}
 
-    Expected query shape (columns): symbol, unlocks_usd, supply_increase_pct, addr_growth_pct.
-    ERA = supply_increase_pct / addr_growth_pct when both present and addr_growth_pct > 0.
+
+def _pick(row: dict, field: str):
+    """First alias present in the row, matched case-insensitively."""
+    lower = {str(k).lower(): v for k, v in row.items()}
+    for alias in DUNE_ALIASES[field]:
+        if alias in lower and lower[alias] not in (None, ""):
+            return lower[alias]
+    return None
+
+
+def fetch_dune_module_b(query_id: str, api_key: str) -> dict:
+    """A saved Dune query's latest results, keyed by symbol.
+
+    Returns ``{SYMBOL: {unlocks_usd, supply_increase_pct, addr_growth_pct, era}}``, or
+    ``{}`` on any failure — the caller writes nulls rather than substituting anything.
+    That is the whole contract: this feed is **observational**. Nothing it returns
+    reaches ``score()``, which computes its own ERA proxy from 24-hour stability and has
+    never read these columns. Recording them without scoring them is deliberate: the
+    fields accumulate history now, and adopting them into the score later is a separate,
+    hashed decision that will draw its own specification boundary.
+
+    Expected query columns (aliases in DUNE_ALIASES): symbol, unlocks_usd,
+    supply_increase_pct, addr_growth_pct. See ``docs/dune_module_b.sql`` for a query
+    that produces them.
+
+    ERA = supply_increase_pct / addr_growth_pct — emission against adoption. Above 1 the
+    token is diluting faster than it is being adopted.
     """
     out: dict = {}
     try:
-        url = f"{DUNE_BASE}/query/{query_id}/results?limit=5000"
-        data = _get_json(url, headers={"X-Dune-Api-Key": api_key})
-        rows = (data.get("result") or {}).get("rows") or []
-        for r in rows:
-            sym = str(r.get("symbol") or r.get("token") or r.get("SYMBOL") or "").upper()
-            if not sym:
-                continue
-            unlocks = r.get("unlocks_usd") or r.get("unlocks") or r.get("UNLOCKS_USD")
-            sup = r.get("supply_increase_pct") or r.get("supply_increase")
-            addr = r.get("addr_growth_pct") or r.get("address_growth")
-            era = r.get("era")
-            rec = {"unlocks_usd": _num(unlocks), "supply_increase_pct": _num(sup),
-                   "addr_growth_pct": _num(addr), "era": _num(era)}
-            if rec["era"] is None and sup is not None and addr not in (None, 0, "0"):
-                try:
-                    rec["era"] = round(float(sup) / float(addr), 3)
-                except (ValueError, ZeroDivisionError):
-                    rec["era"] = None
-            out[sym] = rec
+        # Paged: a saved query over the full token universe exceeds one page, and a
+        # silently truncated result is indistinguishable from a partial feed.
+        offset, limit = 0, 1000
+        for _ in range(10):
+            url = f"{DUNE_BASE}/query/{query_id}/results?limit={limit}&offset={offset}"
+            data = _get_json(url, headers={"X-Dune-Api-Key": api_key})
+            rows = (data.get("result") or {}).get("rows") or []
+            for r in rows:
+                sym = str(_pick(r, "symbol") or "").upper().strip()
+                if not sym:
+                    continue
+                rec = {k: _num(_pick(r, k)) for k in
+                       ("unlocks_usd", "supply_increase_pct", "addr_growth_pct", "era")}
+                if rec["era"] is None:
+                    sup, addr = rec["supply_increase_pct"], rec["addr_growth_pct"]
+                    if sup is not None and addr:
+                        rec["era"] = round(sup / addr, 3)
+                out[sym] = rec
+            if len(rows) < limit:
+                break
+            offset += limit
     except Exception as e:  # noqa: BLE001
         print(f"[dune] fetch failed, Module B -> null: {e}", file=__import__("sys").stderr)
+    return out
+
+
+def dune_context(rec: dict | None, market_cap: float | None) -> dict:
+    """The two derived readings, recorded alongside the raw fields.
+
+    ``unlock_overhang_pct`` normalises the dollar unlock by market cap, which is the
+    only form in which it means anything: a $10m unlock is noise for a $2t asset and an
+    existential event for a $30m one.
+
+    ``adoption_dilution`` inverts ERA so that larger is better, matching the direction
+    of every other reading on the board. Both are context, not inputs — nothing here is
+    read by ``score()``.
+    """
+    out = {"unlock_overhang_pct": None, "adoption_dilution": None}
+    if not rec:
+        return out
+    unl = rec.get("unlocks_usd")
+    if unl is not None and market_cap:
+        out["unlock_overhang_pct"] = round(100.0 * unl / market_cap, 4)
+    era = rec.get("era")
+    if era is not None and era > 0:
+        out["adoption_dilution"] = round(1.0 / era, 4)
     return out
 
 
@@ -771,8 +836,16 @@ MON_STABILITY_WARN = 0.70
 MON_CHURN_WARN = 0.35            # settled nights run 8-20%; the first two were 44-63%
 MON_STALE_HOURS = 36
 # Fields whose disappearance would silently zero a factor rather than raise anything.
+# These are model inputs: an absence here is a defect, and it sets the check's status.
 MON_TRACKED_FIELDS = ("price", "market_cap", "turnover_pct", "conviction",
-                      "rs7", "rs14", "rs30", "rs200", "perp_mult", "era")
+                      "rs7", "rs14", "rs30", "rs200", "perp_mult")
+# Recorded-but-not-scored context: the Dune feed, and the emission/adoption ratio beside
+# it — score() computes its own internal adoption proxy and never reads any of these.
+# Coverage is reported so a dead feed stays visible, but it must not set the status.
+# `unlocks_usd` is null for most tokens *by construction* — unlock schedules are not
+# on-chain in the general case — so folding it into the warn would pin this panel to a
+# permanent amber and hide a real dropout in price or rs200 behind it.
+MON_CONTEXT_FIELDS = ("era", "unlocks_usd", "supply_increase_pct", "addr_growth_pct")
 MON_FIELD_PRESENCE_WARN = 0.90
 
 
@@ -916,13 +989,15 @@ def _compute_monitor() -> dict:
         }
 
     # --- field presence, and its trend --------------------------------------
-    def presence(day):
+    def presence(day, fields=MON_TRACKED_FIELDS):
         return {f: (round(sum(1 for r in day.values() if _mon_float(r, f) is not None)
                           / len(day), 4) if day else 0.0)
-                for f in MON_TRACKED_FIELDS}
+                for f in fields}
 
     coverage_series = [dict(date=d, n=len(by_date[d]), **presence(by_date[d])) for d in dates]
     latest_presence = presence(latest)
+    context_presence = presence(latest, MON_CONTEXT_FIELDS)
+    context_series = [dict(date=d, **presence(by_date[d], MON_CONTEXT_FIELDS)) for d in dates]
 
     # --- dispersion, as a regime reading ------------------------------------
     def sigma(day):
@@ -989,6 +1064,21 @@ def _compute_monitor() -> dict:
             "Field presence", "pass" if worst[1] >= MON_FIELD_PRESENCE_WARN else "warn",
             "weakest input `%s` present for %.0f%% of the board" % (worst[0], worst[1] * 100),
             round(worst[1], 4)))
+
+    if context_presence:
+        live = [f for f, v in context_presence.items() if v > 0]
+        # Informational by design — see MON_CONTEXT_FIELDS. A feed that has never been
+        # configured and a feed that died last night look identical in a single number,
+        # so this states the count rather than grading it.
+        checks.append(_mon_check(
+            "Contextual feeds", "info",
+            ("%d of %d recorded-not-scored fields carry values (%s) — observational only, "
+             "nothing here reaches score()"
+             % (len(live), len(context_presence), ", ".join(live)))
+            if live else
+            "no contextual fields carry values — the Dune feed is unconfigured or down. "
+            "Nothing scored depends on it",
+            round(len(live) / len(context_presence), 4)))
 
     if stability and stability["rank_correlation"] is not None:
         rc, churn = stability["rank_correlation"], stability["churn"] or 0
@@ -1061,7 +1151,17 @@ def _compute_monitor() -> dict:
                      "basis": ("Share of the board carrying a usable value for each input. "
                                "Nothing here is imputed, so this measures feed health rather "
                                "than substitution: a field going to zero is an upstream "
-                               "dropout, and the factor it feeds quietly stops contributing.")},
+                               "dropout, and the factor it feeds quietly stops contributing."),
+                     "context": {"latest": context_presence, "series": context_series,
+                                 "basis": ("Recorded, not scored. These columns are logged "
+                                           "beside every board so they can be studied "
+                                           "against realised returns before anyone argues "
+                                           "for adopting them; adoption would change the "
+                                           "specification hash and start a new track "
+                                           "record. Nulls here are expected — unlock "
+                                           "schedules are contractual, not on-chain, and "
+                                           "are recorded only for tokens whose vesting "
+                                           "contracts are enumerated in the query.")}},
         "specification": {"spans": spec_spans, "unknown_days": unknown_days,
                           "suspected_breaks": breaks},
         "scope": ("Operational condition only. Whether these scores predict returns is a "
@@ -1703,6 +1803,7 @@ def main() -> int:
             "supply_increase_pct": b["supply_increase_pct"] if b else None,
             "addr_growth_pct": b["addr_growth_pct"] if b else None,
             "era": b["era"] if b else None,
+            **dune_context(b, t.get("market_cap")),
             "roi_30d": None, "roi_90d": None, "survived": None,
             "perp_mult": round(pm, 3),
             "spec_hash": SPEC_HASH,
