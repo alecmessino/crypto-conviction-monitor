@@ -1,0 +1,40 @@
+name: Check Dune query
+
+# Manual only. The Dune credentials exist as repository secrets and nowhere else, so
+# this is the only place the query id can actually be verified — locally you would have
+# to paste the key into a shell to find out whether a number is the right number.
+#
+# Read-only: it fetches the saved query's last results. It does not execute the query,
+# spend credits, or write anything to the repository.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify the configured query id
+        env:
+          DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
+          DUNE_UNLOCK_QUERY_ID: ${{ secrets.DUNE_UNLOCK_QUERY_ID }}
+        run: |
+          if [ -z "$DUNE_API_KEY" ]; then
+            echo "DUNE_API_KEY is not set as a repository secret."; exit 2
+          fi
+          if [ -z "$DUNE_UNLOCK_QUERY_ID" ]; then
+            echo "DUNE_UNLOCK_QUERY_ID is not set as a repository secret."; exit 2
+          fi
+          # The id is not a credential — printing it is what makes a wrong value
+          # visible. The key is never echoed and check_dune.py never prints it.
+          echo "Configured query id: $DUNE_UNLOCK_QUERY_ID"
+          python scripts/check_dune.py "$DUNE_UNLOCK_QUERY_ID"
