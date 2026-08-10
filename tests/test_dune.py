@@ -201,6 +201,10 @@ def status(mon, name):
     return next(c["status"] for c in mon["health"] if c["name"] == name)
 
 
+def status_detail(mon, name):
+    return next(c["detail"] for c in mon["health"] if c["name"] == name)
+
+
 def test_an_absent_dune_feed_does_not_amber_the_input_panel(ledger):
     """The feed is null until the query is configured, and for `unlocks_usd` it stays
     largely null forever — unlock schedules are contractual, not on-chain. Folding that
@@ -233,6 +237,78 @@ def test_no_field_is_both_an_input_and_context():
     assert not set(nightly.MON_TRACKED_FIELDS) & set(nightly.MON_CONTEXT_FIELDS)
     for f in nightly.MON_CONTEXT_FIELDS:
         assert f in nightly.FIELDS
+
+
+# ---------------------------------------------------------------------------
+# telling apart the four ways this ends in a table of nulls
+# ---------------------------------------------------------------------------
+def test_no_configuration_is_reported_as_such():
+    assert nightly.fetch_dune_report("", "")["status"] == "unconfigured"
+    assert nightly.fetch_dune_report("123", None)["status"] == "unconfigured"
+
+
+def test_a_failed_call_is_unreachable_not_unusable(monkeypatch):
+    def boom(url, headers=None):
+        raise RuntimeError("HTTP 401")
+    monkeypatch.setattr(nightly, "_get_json", boom)
+    rep = nightly.fetch_dune_report("1", "k")
+    assert rep["status"] == "unreachable" and rep["data"] == {}
+
+
+def test_the_wrong_query_is_unusable_and_names_its_columns(monkeypatch):
+    """The case that actually happened: a valid key and a real query id pointing at a
+    query about 24h volume. Every row was dropped for want of a symbol column, and a
+    single "no data" message would have read as "unconfigured or down" while the feed
+    was configured and up."""
+    stub(monkeypatch, [[{"cryptocurrency": "BTC", "volume_24h_usd": 4.2e10}]])
+    rep = nightly.fetch_dune_report("6987652", "k")
+    assert rep["status"] == "unusable"
+    # Structured, so a reader is told exactly what came back instead of being left to
+    # guess which of four failures they are looking at.
+    assert rep["columns"] == ["cryptocurrency", "volume_24h_usd"]
+    assert "no column this feed recognises" in rep["detail"]
+
+
+def test_the_expected_steady_state_is_partial_not_broken(monkeypatch):
+    """Unlock schedules are contractual, so that column is null for most tokens even on
+    a perfectly healthy feed. Calling that a failure would train someone to ignore it."""
+    stub(monkeypatch, [[{"symbol": "ARB", "supply_increase_pct": 4.0,
+                         "addr_growth_pct": 2.0}]])
+    rep = nightly.fetch_dune_report("1", "k")
+    assert rep["status"] == "partial" and "unlocks_usd" in rep["detail"]
+
+
+def test_a_complete_feed_is_live(monkeypatch):
+    stub(monkeypatch, [[{"symbol": "ARB", "unlocks_usd": 1e6,
+                         "supply_increase_pct": 4.0, "addr_growth_pct": 2.0}]])
+    assert nightly.fetch_dune_report("1", "k")["status"] == "live"
+
+
+def test_the_monitor_repeats_the_reason_rather_than_guessing(ledger):
+    ledger(board("2026-03-01") + board("2026-03-02"))
+    # With no report there is no way to know why, so it must not assert one. This is
+    # the branch the old message got wrong: it claimed "unconfigured or down" from the
+    # columns alone, which was flatly false for a configured feed pointing at the
+    # wrong query.
+    plain = status_detail(nightly._compute_monitor(), "Contextual feeds")
+    assert "no contextual fields carry values" in plain
+    assert "unconfigured" not in plain and "down" not in plain
+
+    mon = nightly._compute_monitor({"status": "unusable", "columns": ["volume_24h_usd"],
+                                    "detail": "returned 5 row(s) but no column this "
+                                              "feed recognises"})
+    detail = status_detail(mon, "Contextual feeds")
+    assert "different question" in detail and "volume_24h_usd" in detail
+    # Still informational: a wrong query is a configuration mistake, not a pipeline
+    # defect, and nothing scored moved because of it.
+    assert status(mon, "Contextual feeds") == "info"
+
+
+def test_the_reason_is_persisted_for_the_dashboard(ledger):
+    ledger(board("2026-03-01") + board("2026-03-02"))
+    rep = {"status": "unreachable", "detail": "the call failed (HTTP 404)", "data": {}}
+    feed = nightly._compute_monitor(rep)["coverage"]["context"]["feed"]
+    assert feed["status"] == "unreachable" and "data" not in feed
 
 
 # ---------------------------------------------------------------------------

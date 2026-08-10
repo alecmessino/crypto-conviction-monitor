@@ -161,25 +161,39 @@ def _pick(row: dict, field: str):
     return None
 
 
-def fetch_dune_module_b(query_id: str, api_key: str) -> dict:
-    """A saved Dune query's latest results, keyed by symbol.
+def fetch_dune_report(query_id: str, api_key: str) -> dict:
+    """The Module B fetch, plus why it produced what it produced.
 
-    Returns ``{SYMBOL: {unlocks_usd, supply_increase_pct, addr_growth_pct, era}}``, or
-    ``{}`` on any failure — the caller writes nulls rather than substituting anything.
-    That is the whole contract: this feed is **observational**. Nothing it returns
-    reaches ``score()``, which computes its own ERA proxy from 24-hour stability and has
-    never read these columns. Recording them without scoring them is deliberate: the
-    fields accumulate history now, and adopting them into the score later is a separate,
-    hashed decision that will draw its own specification boundary.
+    ``{"data": {SYMBOL: {...}}, "status": ..., "detail": ..., "columns": [...]}``.
 
-    Expected query columns (aliases in DUNE_ALIASES): symbol, unlocks_usd,
-    supply_increase_pct, addr_growth_pct. See ``docs/dune_module_b.sql`` for a query
-    that produces them.
+    The status matters because four different situations all end in a table of nulls,
+    and a single "no data" message cannot tell a reader which one they are in. The one
+    that actually happened here: a valid key and a real query id pointing at a query
+    about something else entirely — it returned ``cryptocurrency`` and
+    ``volume_24h_usd``, every row was dropped for want of a symbol column, and the
+    dashboard would have said "unconfigured or down" while being configured and up.
+
+      unconfigured  no key or no query id
+      unreachable   the call failed — wrong key, missing query, never executed
+      unusable      rows came back but nothing in them was recognisable
+      partial       symbols recognised, some fields absent (the expected steady state:
+                    unlock schedules are contractual, so that column is mostly null)
+      live          symbols and every expected field present
+
+    Nothing here reaches ``score()``, which computes its own ERA proxy from 24-hour
+    stability and has never read these columns. Recording without scoring is deliberate:
+    the fields accumulate history now, and adopting them later is a separate, hashed
+    decision that will draw its own specification boundary.
 
     ERA = supply_increase_pct / addr_growth_pct — emission against adoption. Above 1 the
     token is diluting faster than it is being adopted.
     """
     out: dict = {}
+    columns: list = []
+    seen = 0
+    if not (query_id and api_key):
+        return {"data": out, "status": "unconfigured", "columns": columns,
+                "detail": "no query id or key configured"}
     try:
         # Paged: a saved query over the full token universe exceeds one page, and a
         # silently truncated result is indistinguishable from a partial feed.
@@ -188,6 +202,9 @@ def fetch_dune_module_b(query_id: str, api_key: str) -> dict:
             url = f"{DUNE_BASE}/query/{query_id}/results?limit={limit}&offset={offset}"
             data = _get_json(url, headers={"X-Dune-Api-Key": api_key})
             rows = (data.get("result") or {}).get("rows") or []
+            if rows and not columns:
+                columns = list(rows[0].keys())
+            seen += len(rows)
             for r in rows:
                 sym = str(_pick(r, "symbol") or "").upper().strip()
                 if not sym:
@@ -204,7 +221,28 @@ def fetch_dune_module_b(query_id: str, api_key: str) -> dict:
             offset += limit
     except Exception as e:  # noqa: BLE001
         print(f"[dune] fetch failed, Module B -> null: {e}", file=__import__("sys").stderr)
-    return out
+        return {"data": {}, "status": "unreachable", "columns": columns,
+                "detail": f"the call failed ({e}) — wrong key, no such query, or a "
+                          f"query that has never been executed"}
+
+    if not out:
+        return {"data": out, "status": "unusable", "columns": columns,
+                "detail": "the query returned %d row(s) but no column this feed "
+                          "recognises" % seen}
+
+    covered = {f: sum(1 for r in out.values() if r.get(f) is not None)
+               for f in ("unlocks_usd", "supply_increase_pct", "addr_growth_pct")}
+    missing = [f for f, n in covered.items() if n == 0]
+    return {"data": out, "columns": columns,
+            "status": "partial" if missing else "live",
+            "detail": ("%d token(s) enriched" % len(out))
+                      + ("; no values for " + ", ".join(missing) if missing else
+                         "; every expected field present")}
+
+
+def fetch_dune_module_b(query_id: str, api_key: str) -> dict:
+    """Just the data. See :func:`fetch_dune_report` for why it is what it is."""
+    return fetch_dune_report(query_id, api_key)["data"]
 
 
 def dune_context(rec: dict | None, market_cap: float | None) -> dict:
@@ -942,13 +980,18 @@ def _spec_breaks() -> list:
     return out
 
 
-def _compute_monitor() -> dict:
+def _compute_monitor(dune_report: dict | None = None) -> dict:
     """Operational condition of the pipeline. Never a claim about predictive power.
 
     A board can be fresh, dispersed, fully covered and perfectly stable while
     forecasting nothing at all. Whether high-conviction assets outperform is a separate
     measurement needing months inside one specification hash — which is what the
     spec_hash column exists to make possible, and why it is reported here.
+
+    ``dune_report`` is this run's fetch report, when there was one. Without it the
+    contextual feed can only be described from the columns on disk, which cannot tell a
+    feed that is switched off from one that is switched on and pointing at the wrong
+    query.
     """
     rows = _read_signals_rows()
     if not rows:
@@ -1067,17 +1110,35 @@ def _compute_monitor() -> dict:
 
     if context_presence:
         live = [f for f, v in context_presence.items() if v > 0]
-        # Informational by design — see MON_CONTEXT_FIELDS. A feed that has never been
-        # configured and a feed that died last night look identical in a single number,
-        # so this states the count rather than grading it.
+        # Informational by design — see MON_CONTEXT_FIELDS. Never graded: a null here is
+        # the expected state, not a defect. But *why* it is null is worth saying, which
+        # is what the fetch report supplies — a query id pointing at the wrong query
+        # produces exactly the same empty columns as no configuration at all.
+        why = {
+            "unconfigured": "no Dune query configured",
+            "unreachable": "the Dune call failed — wrong key, no such query, or a query "
+                           "that has never been executed",
+            "unusable": "the configured Dune query returned rows this feed cannot read "
+                        "— it is answering a different question",
+        }.get((dune_report or {}).get("status"))
+        # Only where the reason needs evidence. "no Dune query configured" is complete
+        # on its own; the other two are claims about a remote system and have to show
+        # what came back. Columns come from the structured field rather than being read
+        # back out of the prose, so the two cannot drift apart.
+        if why and (dune_report or {}).get("status") != "unconfigured":
+            bits = [b for b in (dune_report.get("detail"),
+                                "returned: " + ", ".join(dune_report["columns"])
+                                if dune_report.get("columns") else None) if b]
+            if bits:
+                why += " (%s)" % "; ".join(bits)
         checks.append(_mon_check(
             "Contextual feeds", "info",
             ("%d of %d recorded-not-scored fields carry values (%s) — observational only, "
              "nothing here reaches score()"
              % (len(live), len(context_presence), ", ".join(live)))
             if live else
-            "no contextual fields carry values — the Dune feed is unconfigured or down. "
-            "Nothing scored depends on it",
+            (why or "no contextual fields carry values") +
+            ". Nothing scored depends on it",
             round(len(live) / len(context_presence), 4)))
 
     if stability and stability["rank_correlation"] is not None:
@@ -1153,6 +1214,8 @@ def _compute_monitor() -> dict:
                                "than substitution: a field going to zero is an upstream "
                                "dropout, and the factor it feeds quietly stops contributing."),
                      "context": {"latest": context_presence, "series": context_series,
+                                 "feed": {k: v for k, v in (dune_report or {}).items()
+                                          if k != "data"} or None,
                                  "basis": ("Recorded, not scored. These columns are logged "
                                            "beside every board so they can be studied "
                                            "against realised returns before anyone argues "
@@ -1757,16 +1820,16 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
 def main() -> int:
     today = date.today().isoformat()
 
-    # Module B (Dune): only when BOTH key and a saved query id are present.
-    dune_b: dict = {}
-    api_key = os.environ.get("DUNE_API_KEY")
-    query_id = os.environ.get("DUNE_UNLOCK_QUERY_ID")
-    if api_key and query_id:
-        dune_b = fetch_dune_module_b(query_id, api_key)
-        print(f"[dune] Module B active: {len(dune_b)} tokens enriched.", file=__import__("sys").stderr)
-    else:
-        print("[dune] not configured — Module B columns null (no fabricated data).",
-              file=__import__("sys").stderr)
+    # Module B (Dune). The report, not just the data — a configured query pointing at
+    # the wrong thing produces the same empty table as no configuration at all, and the
+    # dashboard has to be able to say which.
+    dune_report = fetch_dune_report(os.environ.get("DUNE_UNLOCK_QUERY_ID"),
+                                    os.environ.get("DUNE_API_KEY"))
+    dune_b = dune_report["data"]
+    print(f"[dune] {dune_report['status']}: {dune_report['detail']}"
+          + (" | returned: " + ", ".join(dune_report["columns"])
+             if dune_report.get("columns") else ""),
+          file=__import__("sys").stderr)
 
     markets = fetch_markets()
     scored_syms = {(t.get("symbol") or "").upper() for t in markets
@@ -1894,7 +1957,7 @@ def main() -> int:
         # Operational condition of the pipeline, in its own file: it is a monitoring
         # artifact rather than a market view, and pinning it to breadth would couple the
         # two.
-        mon = _compute_monitor()
+        mon = _compute_monitor(dune_report)
         if mon:
             MONITOR_JSON.write_text(json.dumps(mon, indent=2))
             counts = {}

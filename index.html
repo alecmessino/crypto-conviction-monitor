@@ -776,8 +776,10 @@ function renderMonitor(){
         <span class="bar" style="flex:1;opacity:.55"><i style="width:${(cl[k]*100).toFixed(0)}%;background:var(--sec)"></i></span>
         <span class="num" style="min-width:34px;text-align:right;color:var(--sec)">${(cl[k]*100).toFixed(0)}%</span>
       </div>`).join("")
-      : `<div class="muted" style="font-size:10px">${ctxKeys.join(", ")} — no values recorded yet.
-         The Dune feed is unconfigured or down. Nothing scored depends on it.</div>`}
+      : `<div class="muted" style="font-size:10px">${ctxKeys.join(", ")} — no values recorded.
+         ${(ctx.feed&&ctx.feed.detail) ? `<span style="color:var(--amber)">${ctx.feed.status}</span>
+           — ${ctx.feed.detail}.` : "The Dune feed is unconfigured."}
+         Nothing scored depends on it.</div>`}
       <div class="muted" style="font-size:9px;margin-top:3px">Adopting any of these would change
         the specification hash and start a new track record. Unlock schedules are contractual,
         not on-chain — a null there is the honest reading, not a gap to fill.</div>
