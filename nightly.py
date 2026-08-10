@@ -202,8 +202,11 @@ def fetch_dune_report(query_id: str, api_key: str) -> dict:
             url = f"{DUNE_BASE}/query/{query_id}/results?limit={limit}&offset={offset}"
             data = _get_json(url, headers={"X-Dune-Api-Key": api_key})
             rows = (data.get("result") or {}).get("rows") or []
-            if rows and not columns:
-                columns = list(rows[0].keys())
+            # Union across rows, not rows[0]: Dune omits keys whose value is null, so
+            # any single row understates the result set. Reading the first row alone is
+            # what made a feed enriching 99 tokens look like it returned nothing
+            # recognisable.
+            columns = sorted(set(columns) | {k for r in rows for k in r})
             seen += len(rows)
             for r in rows:
                 sym = str(_pick(r, "symbol") or "").upper().strip()

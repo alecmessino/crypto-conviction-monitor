@@ -39,7 +39,12 @@ def main() -> int:
               "as an argument, where it lands in your shell history.", file=sys.stderr)
         return 2
 
-    url = f"{nightly.DUNE_BASE}/query/{args.query_id}/results?limit=5"
+    # A real page, not a sample. The first version of this script asked for five rows
+    # and read the column names off rows[0], and reported "no column this feed
+    # recognises" about a query that was in fact enriching 99 tokens — the sampled rows
+    # simply were not representative of the result set. A diagnostic that is confidently
+    # wrong is worse than none, because it gets believed.
+    url = f"{nightly.DUNE_BASE}/query/{args.query_id}/results?limit=1000"
     try:
         data = nightly._get_json(url, headers={"X-Dune-Api-Key": key})
     except Exception as exc:  # noqa: BLE001
@@ -61,35 +66,59 @@ def main() -> int:
               "a fresh one.", file=sys.stderr)
         return 1
 
-    columns = list(rows[0].keys())
-    print(f"query {args.query_id}: {len(rows)} sample row(s)")
-    print(f"columns returned: {', '.join(columns)}\n")
+    # Union across every row. Dune omits keys whose value is null, so a column present
+    # in the query can be missing from any given row.
+    columns = sorted({k for r in rows for k in r})
+    print(f"query {args.query_id}: {len(rows)} row(s)")
+    print(f"columns across all rows: {', '.join(columns)}\n")
 
     # Recognition, not just presence: the fetcher matches through DUNE_ALIASES, so a
-    # column can be there under a name nothing looks for. That is the failure this
-    # script exists to make visible, because it is invisible everywhere else.
-    sym = nightly._pick(rows[0], "symbol")
-    ok = sym is not None
-    print(f"  {'OK  ' if ok else 'MISS'} symbol -> {sym!r}")
-    for field in WANTED:
-        v = nightly._pick(rows[0], field)
-        print(f"  {'OK  ' if v is not None else 'MISS'} {field} -> {v!r}")
-        ok = ok and v is not None
+    # column can be there under a name nothing looks for. Counted over the whole page,
+    # because "does row zero have it" is a different question from "does this feed
+    # carry it" and only the second one matters.
+    resolved = {f: sum(1 for r in rows if nightly._pick(r, f) is not None)
+                for f in ("symbol",) + WANTED}
+    for field, n in resolved.items():
+        pct = 100.0 * n / len(rows)
+        print(f"  {'OK  ' if n else 'MISS'} {field:<20} {n:>5}/{len(rows)} rows ({pct:.0f}%)")
 
-    unrecognised = [c for c in columns
-                    if not any(c.lower() in a for a in nightly.DUNE_ALIASES.values())]
+    known = {a for aliases in nightly.DUNE_ALIASES.values() for a in aliases}
+    unrecognised = [c for c in columns if c.lower() not in known]
     if unrecognised:
         print(f"\nnot recognised: {', '.join(unrecognised)}")
         print("If one of these is the data you want, add its name to the matching entry "
               "in DUNE_ALIASES in nightly.py rather than renaming the column in Dune.")
 
-    if not sym:
+    if not resolved["symbol"]:
         print("\nWithout a symbol column every row is dropped and the feed records as "
               "null — same as not configuring it at all.")
         return 1
-    if not ok:
-        print("\nUsable, partially. Recognised columns record; the rest stay null, "
-              "which is the honest reading and breaks nothing — nothing here is scored.")
+
+    # The number that actually decides whether this query is worth keeping: how much of
+    # it lands on the board being scored. A query can be perfectly healthy and still be
+    # about a universe this project never looks at.
+    syms = {str(nightly._pick(r, "symbol")).upper().strip() for r in rows}
+    syms.discard("NONE")
+    try:
+        board_rows = nightly._read_signals_rows()
+        latest = max((r.get("date") or "" for r in board_rows), default="")
+        board = {(r.get("symbol") or "").upper() for r in board_rows
+                 if r.get("date") == latest and r.get("symbol")}
+    except Exception:  # noqa: BLE001
+        board = set()
+    if board:
+        hit = syms & board
+        print(f"\noverlap with the {latest} board: {len(hit)} of {len(board)} scored "
+              f"assets ({', '.join(sorted(hit)[:12]) or 'none'})")
+        if len(hit) < len(board) * 0.2:
+            print("Most of the board gets nothing from this query. It resolves and it "
+                  "records, but it is largely about a different universe.")
+
+    missing = [f for f in WANTED if not resolved[f]]
+    if missing:
+        print(f"\nUsable, partially — no values at all for {', '.join(missing)}. "
+              "Recognised columns record; the rest stay null, which is the honest "
+              "reading and breaks nothing, since nothing here is scored.")
         return 0
     print("\nAll four resolve. Set DUNE_UNLOCK_QUERY_ID to this id.")
     return 0

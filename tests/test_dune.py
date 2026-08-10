@@ -269,6 +269,18 @@ def test_the_wrong_query_is_unusable_and_names_its_columns(monkeypatch):
     assert "no column this feed recognises" in rep["detail"]
 
 
+def test_columns_are_unioned_across_rows_not_read_off_the_first(monkeypatch):
+    """Dune omits keys whose value is null, so the first row understates the result set.
+    Reading rows[0] alone reported a feed that was enriching 99 tokens as returning
+    nothing recognisable — and the wrong diagnosis got believed and acted on."""
+    stub(monkeypatch, [[{"cryptocurrency": "n/a"},
+                        {"symbol": "ETH", "addr_growth_pct": 0.0}]])
+    rep = nightly.fetch_dune_report("1", "k")
+    assert rep["columns"] == ["addr_growth_pct", "cryptocurrency", "symbol"]
+    # And the row that *does* resolve is kept, so the feed is not written off.
+    assert rep["status"] == "partial" and set(rep["data"]) == {"ETH"}
+
+
 def test_the_expected_steady_state_is_partial_not_broken(monkeypatch):
     """Unlock schedules are contractual, so that column is null for most tokens even on
     a perfectly healthy feed. Calling that a failure would train someone to ignore it."""
