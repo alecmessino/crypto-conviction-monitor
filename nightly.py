@@ -815,6 +815,194 @@ PERF_MAX_WEIGHT_LOSS = 0.10
 # index the equity terminal measures against.
 PERF_BENCHMARK = "BTC"
 
+# ---------------------------------------------------------------------------
+# Selection edge
+# ---------------------------------------------------------------------------
+# Does conviction predict the next day's return? This is the only question that decides
+# whether the score is worth acting on, and it is a different question from "is the
+# basket beating the benchmark".
+#
+# The distinction matters because the basket IS losing to equal weight — about -283bp
+# over the six legs since the 2026-08-05 boundary — and the obvious reading of that is
+# "the selection is subtracting value". The measurement does not support that reading.
+# The information coefficient over the same legs is +0.006 with a 95% interval of
+# roughly [-0.09, +0.10]: indistinguishable from zero in either direction. A
+# concentrated book with no measurable edge underperforms an equal-weight control as a
+# matter of course, because concentration adds variance without adding expected return.
+# That is the honest description of the current state, and it is neither "the model
+# works" nor "the model is broken".
+#
+# So this panel leads with the interval and the sample size, not with a ranked list of
+# which names hurt. Ranking six observations by contribution produces a confident-looking
+# table of noise, and acting on it is how a model gets fitted to its own sampling error.
+# The per-name accounting is computed and shown, clearly labelled as arithmetic rather
+# than evidence.
+EDGE_MIN_NAMES = 10        # below this a rank correlation is not worth computing
+EDGE_QUINTILE = 5
+# Targets used to state how much history is still needed. 0.03 is a respectable
+# cross-sectional signal; 0.05 would be a strong one.
+EDGE_TARGET_ICS = (0.02, 0.03, 0.05)
+# Legs needed before the mean IC is worth reading at all. Chosen so the standard error
+# of the mean is at most about half a plausible true signal.
+EDGE_MIN_LEGS = 40
+
+
+def _edge_legs(by_date: dict, boundary: str | None) -> list[dict]:
+    """Per-leg information coefficient and quintile spread, after the boundary.
+
+    Legs before a specification change are excluded rather than blended: an IC averaged
+    across two different scoring functions is a number about a model that never existed.
+    """
+    out = []
+    dates = sorted(by_date)
+    for a, b in zip(dates, dates[1:]):
+        if boundary and a < boundary:
+            continue
+        prev, curr = by_date[a], by_date[b]
+        pairs = []
+        for sym, row in prev.items():
+            nxt = curr.get(sym)
+            conv, p0 = _mon_float(row, "conviction"), _mon_float(row, "price")
+            p1 = _mon_float(nxt, "price") if nxt else None
+            if conv is None or not p0 or not p1:
+                continue
+            pairs.append((conv, p1 / p0 - 1.0))
+        if len(pairs) < EDGE_MIN_NAMES:
+            continue
+        rho = _spearman([p[0] for p in pairs], [p[1] for p in pairs])
+        ranked = sorted(pairs, key=lambda p: -p[0])
+        k = max(3, len(ranked) // EDGE_QUINTILE)
+        top = sum(p[1] for p in ranked[:k]) / k
+        bot = sum(p[1] for p in ranked[-k:]) / k
+        out.append({"from": a, "to": b, "ic": rho, "names": len(pairs),
+                    "top_quintile": round(top * 100, 4),
+                    "bottom_quintile": round(bot * 100, 4),
+                    "spread_bp": round((top - bot) * 1e4, 1)})
+    return out
+
+
+def _active_contributions(by_date: dict, boundary: str | None, limit: int = 8) -> dict:
+    """Where the basket-minus-equal-weight gap came from, name by name.
+
+    Pure accounting: contribution = active weight x (return - universe mean), summed
+    over legs. It always adds up to the realised gap, which is exactly why it is
+    seductive and exactly why it is labelled. Over six legs the ranking is dominated by
+    sampling noise, and treating it as a list of names to drop is how a model gets
+    fitted to its own error.
+
+    Split by whether the position was over- or under-weight, because the two are
+    different mistakes: an overweight name that fell is a selection error, an
+    underweight name that rose is an omission, and they have different remedies.
+    """
+    dates = sorted(by_date)
+    contrib: dict[str, float] = {}
+    held: dict[str, float] = {}
+    legs = 0
+    for a, b in zip(dates, dates[1:]):
+        if boundary and a < boundary:
+            continue
+        prev, curr = by_date[a], by_date[b]
+        rets = {}
+        for sym, row in prev.items():
+            nxt = curr.get(sym)
+            p0 = _mon_float(row, "price")
+            p1 = _mon_float(nxt, "price") if nxt else None
+            if p0 and p1:
+                rets[sym] = p1 / p0 - 1.0
+        if len(rets) < EDGE_MIN_NAMES:
+            continue
+        legs += 1
+        w = _perf_weights(prev)
+        tw = sum(v for s, v in w.items() if s in rets) or 1.0
+        mean_r = sum(rets.values()) / len(rets)
+        for sym, r in rets.items():
+            active = (w.get(sym, 0.0) / tw) - 1.0 / len(rets)
+            contrib[sym] = contrib.get(sym, 0.0) + active * (r - mean_r)
+            held[sym] = held.get(sym, 0.0) + active
+    ranked = sorted(contrib.items(), key=lambda kv: kv[1])
+    def row(sym, v):
+        return {"symbol": sym, "bp": round(v * 1e4, 1),
+                "stance": "overweight" if held.get(sym, 0.0) > 0 else "underweight"}
+    return {
+        "legs": legs,
+        "total_bp": round(sum(contrib.values()) * 1e4, 1),
+        "detractors": [row(s, v) for s, v in ranked[:limit]],
+        "contributors": [row(s, v) for s, v in ranked[-limit:][::-1]],
+        "basis": ("Arithmetic, not evidence. Contribution = active weight x (return - "
+                  "universe mean), summed over legs; it reconciles to the realised gap "
+                  "by construction. Over this many legs the ordering is mostly sampling "
+                  "noise, so it is a description of what happened and not a list of "
+                  "names to act on. An overweight name that fell is a selection error; "
+                  "an underweight name that rose is an omission."),
+    }
+
+
+def _compute_edge() -> dict:
+    """Whether the conviction score has demonstrable predictive power yet.
+
+    Reports the interval, not just the point estimate. A mean IC quoted alone invites
+    the reader to treat +0.006 as "slightly positive" when the honest statement is
+    "cannot be distinguished from nothing with the data on hand".
+    """
+    by_date, _ = _perf_by_date()
+    perf = _compute_performance()
+    boundary = perf.get("spec_boundary")
+    legs = _edge_legs(by_date, boundary)
+    attribution = _active_contributions(by_date, boundary)
+    ics = [l["ic"] for l in legs if l["ic"] is not None]
+    spreads = [l["spread_bp"] for l in legs]
+    base = {"legs": len(legs), "min_legs": EDGE_MIN_LEGS, "boundary": boundary,
+            "spec_hash": SPEC_HASH, "series": legs, "attribution": attribution,
+            # The realised gap the attribution reconciles to. Carried here so the panel
+            # can state the underperformance and the null result side by side, which is
+            # the pairing that stops either being misread on its own.
+            "book_total": perf.get("book_total"),
+            "equal_weight_total": perf.get("equal_weight_total"),
+            "benchmark_total": perf.get("benchmark_total"),
+            "basis": ("Information coefficient = rank correlation between tonight's "
+                      "conviction and tomorrow's return, across the assets scored on "
+                      "both nights. It answers whether the ordering is informative, "
+                      "which is a different question from whether the basket beat the "
+                      "benchmark — a concentrated book with no edge underperforms an "
+                      "equal-weight control as a matter of course.")}
+    if len(ics) < 2:
+        return {**base, "measurable": False, "mean_ic": None, "ci": None,
+                "verdict": "Not enough legs to measure anything."}
+
+    mean = sum(ics) / len(ics)
+    var = sum((i - mean) ** 2 for i in ics) / (len(ics) - 1)
+    se = (var / len(ics)) ** 0.5
+    lo, hi = mean - 1.96 * se, mean + 1.96 * se
+    measurable = len(ics) >= EDGE_MIN_LEGS and (lo > 0 or hi < 0)
+    # Per-leg IC noise is about 1/sqrt(n-3); the legs needed to resolve a given true
+    # signal follows from wanting a standard error of half that signal.
+    nbar = sum(l["names"] for l in legs) / len(legs)
+    per_leg = 1.0 / max(1.0, (nbar - 3)) ** 0.5
+    needed = {f"{t:.2f}": int(round((per_leg / (t / 2.0)) ** 2)) for t in EDGE_TARGET_ICS}
+    return {
+        **base,
+        "measurable": measurable,
+        "mean_ic": round(mean, 4),
+        "median_ic": round(sorted(ics)[len(ics) // 2], 4),
+        "ic_sd": round(var ** 0.5, 4),
+        "ic_se": round(se, 4),
+        "ci": [round(lo, 4), round(hi, 4)],
+        "t_stat": round(mean / se, 3) if se else None,
+        "legs_positive": sum(1 for i in ics if i > 0),
+        "mean_spread_bp": round(sum(spreads) / len(spreads), 1) if spreads else None,
+        "spreads_positive": sum(1 for s in spreads if s > 0),
+        "per_leg_noise": round(per_leg, 3),
+        "legs_needed": needed,
+        "verdict": (
+            "Conviction orders the universe informatively."
+            if measurable and mean > 0 else
+            "Conviction orders the universe backwards — the ranking is inverted."
+            if measurable else
+            "No measurable relationship between conviction and next-day return. The "
+            "interval spans zero, so this is neither evidence the score works nor "
+            "evidence it does not — there is simply not enough history yet."),
+    }
+
 
 def _perf_by_date() -> tuple[dict, int]:
     """signals.csv as {date: {symbol: row}}, latest run per (date, symbol) winning.
@@ -1591,6 +1779,9 @@ def _compute_market_breadth() -> dict:
         # Regime per asset, plus the bar count so the terminal can say what it is still
         # waiting for rather than rendering an empty cell.
         "chop": _chop_by_symbol(),
+        # Whether the ordering is informative at all — the question that decides
+        # whether any of the rest is worth acting on.
+        "edge": _compute_edge(),
         "chop_period": CHOP_PERIOD,
         "trend": {s: {"conviction": round(t["conviction"], 1),
                       **{h: (round(t[h], 1) if t[h] is not None else None)

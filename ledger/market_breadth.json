@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-11T07:40:07.178227+00:00",
+  "generated_at": "2026-08-11T22:42:14.727376+00:00",
   "n_assets": 50,
   "breadth_above70": 3,
   "breadth_above80": 1,
@@ -327,6 +327,181 @@
       "regime": null,
       "bars": 1
     }
+  },
+  "edge": {
+    "legs": 6,
+    "min_legs": 40,
+    "boundary": "2026-08-05",
+    "spec_hash": "d600984ec00b",
+    "series": [
+      {
+        "from": "2026-08-05",
+        "to": "2026-08-06",
+        "ic": -0.148,
+        "names": 44,
+        "top_quintile": -0.6845,
+        "bottom_quintile": 0.2052,
+        "spread_bp": -89.0
+      },
+      {
+        "from": "2026-08-06",
+        "to": "2026-08-07",
+        "ic": 0.0411,
+        "names": 41,
+        "top_quintile": 0.5305,
+        "bottom_quintile": -1.7699,
+        "spread_bp": 230.0
+      },
+      {
+        "from": "2026-08-07",
+        "to": "2026-08-08",
+        "ic": 0.1508,
+        "names": 46,
+        "top_quintile": -0.4282,
+        "bottom_quintile": -2.3523,
+        "spread_bp": 192.4
+      },
+      {
+        "from": "2026-08-08",
+        "to": "2026-08-09",
+        "ic": 0.0524,
+        "names": 42,
+        "top_quintile": 0.1843,
+        "bottom_quintile": -0.0465,
+        "spread_bp": 23.1
+      },
+      {
+        "from": "2026-08-09",
+        "to": "2026-08-10",
+        "ic": 0.0716,
+        "names": 43,
+        "top_quintile": 0.1987,
+        "bottom_quintile": 0.3798,
+        "spread_bp": -18.1
+      },
+      {
+        "from": "2026-08-10",
+        "to": "2026-08-11",
+        "ic": -0.1332,
+        "names": 45,
+        "top_quintile": -0.9873,
+        "bottom_quintile": 1.8008,
+        "spread_bp": -278.8
+      }
+    ],
+    "attribution": {
+      "legs": 6,
+      "total_bp": -283.0,
+      "detractors": [
+        {
+          "symbol": "CYS",
+          "bp": -155.3,
+          "stance": "underweight"
+        },
+        {
+          "symbol": "BTW",
+          "bp": -121.1,
+          "stance": "underweight"
+        },
+        {
+          "symbol": "ZEC",
+          "bp": -71.4,
+          "stance": "overweight"
+        },
+        {
+          "symbol": "HYPE",
+          "bp": -62.4,
+          "stance": "overweight"
+        },
+        {
+          "symbol": "UB",
+          "bp": -56.3,
+          "stance": "overweight"
+        },
+        {
+          "symbol": "CRV",
+          "bp": -34.4,
+          "stance": "underweight"
+        },
+        {
+          "symbol": "PUMP",
+          "bp": -30.0,
+          "stance": "underweight"
+        },
+        {
+          "symbol": "LEO",
+          "bp": -29.9,
+          "stance": "overweight"
+        }
+      ],
+      "contributors": [
+        {
+          "symbol": "KAITO",
+          "bp": 74.1,
+          "stance": "underweight"
+        },
+        {
+          "symbol": "BEAT",
+          "bp": 67.5,
+          "stance": "underweight"
+        },
+        {
+          "symbol": "US",
+          "bp": 38.9,
+          "stance": "underweight"
+        },
+        {
+          "symbol": "XMR",
+          "bp": 21.6,
+          "stance": "overweight"
+        },
+        {
+          "symbol": "VELVET",
+          "bp": 20.5,
+          "stance": "underweight"
+        },
+        {
+          "symbol": "CARDS",
+          "bp": 20.4,
+          "stance": "underweight"
+        },
+        {
+          "symbol": "JST",
+          "bp": 19.9,
+          "stance": "underweight"
+        },
+        {
+          "symbol": "XRP",
+          "bp": 17.2,
+          "stance": "underweight"
+        }
+      ],
+      "basis": "Arithmetic, not evidence. Contribution = active weight x (return - universe mean), summed over legs; it reconciles to the realised gap by construction. Over this many legs the ordering is mostly sampling noise, so it is a description of what happened and not a list of names to act on. An overweight name that fell is a selection error; an underweight name that rose is an omission."
+    },
+    "book_total": -1.3498,
+    "equal_weight_total": 1.466,
+    "benchmark_total": -0.1483,
+    "basis": "Information coefficient = rank correlation between tonight's conviction and tomorrow's return, across the assets scored on both nights. It answers whether the ordering is informative, which is a different question from whether the basket beat the benchmark \u2014 a concentrated book with no edge underperforms an equal-weight control as a matter of course.",
+    "measurable": false,
+    "mean_ic": 0.0058,
+    "median_ic": 0.0524,
+    "ic_sd": 0.1198,
+    "ic_se": 0.0489,
+    "ci": [
+      -0.0901,
+      0.1016
+    ],
+    "t_stat": 0.118,
+    "legs_positive": 4,
+    "mean_spread_bp": 9.9,
+    "spreads_positive": 3,
+    "per_leg_noise": 0.157,
+    "legs_needed": {
+      "0.02": 247,
+      "0.03": 110,
+      "0.05": 40
+    },
+    "verdict": "No measurable relationship between conviction and next-day return. The interval spans zero, so this is neither evidence the score works nor evidence it does not \u2014 there is simply not enough history yet."
   },
   "chop_period": 14,
   "trend": {
@@ -1122,63 +1297,6 @@
       "d30": null
     }
   },
-  "tier_diff": {
-    "from": "2026-08-10",
-    "to": "2026-08-11",
-    "pending": false,
-    "marginal_move": 2.0,
-    "names_compared": 45,
-    "changed": [
-      {
-        "symbol": "CRV",
-        "name": "Curve DAO",
-        "from": 30.0,
-        "to": 48.0,
-        "delta": 18.0,
-        "from_tier": "AVOID",
-        "to_tier": "WATCH",
-        "marginal": false
-      },
-      {
-        "symbol": "TRX",
-        "name": "TRON",
-        "from": 76.0,
-        "to": 69.0,
-        "delta": -7.0,
-        "from_tier": "BUY",
-        "to_tier": "HOLD",
-        "marginal": false
-      },
-      {
-        "symbol": "BEAT",
-        "name": "Audiera",
-        "from": 38.0,
-        "to": 43.0,
-        "delta": 5.0,
-        "from_tier": "AVOID",
-        "to_tier": "WATCH",
-        "marginal": false
-      }
-    ],
-    "marginal": [
-      {
-        "symbol": "CYS",
-        "name": "Cysic",
-        "from": 54.0,
-        "to": 56.0,
-        "delta": 2.0,
-        "from_tier": "WATCH",
-        "to_tier": "HOLD",
-        "marginal": true
-      }
-    ],
-    "counts": {
-      "tier_changes": 4,
-      "real": 3,
-      "marginal": 1,
-      "marginal_share": 0.25
-    }
-  },
   "performance": {
     "days": 11,
     "min_days": 5,
@@ -1244,5 +1362,62 @@
         "equal_weight": 1.466
       }
     ]
+  },
+  "tier_diff": {
+    "from": "2026-08-10",
+    "to": "2026-08-11",
+    "pending": false,
+    "marginal_move": 2.0,
+    "names_compared": 45,
+    "changed": [
+      {
+        "symbol": "CRV",
+        "name": "Curve DAO",
+        "from": 30.0,
+        "to": 48.0,
+        "delta": 18.0,
+        "from_tier": "AVOID",
+        "to_tier": "WATCH",
+        "marginal": false
+      },
+      {
+        "symbol": "TRX",
+        "name": "TRON",
+        "from": 76.0,
+        "to": 69.0,
+        "delta": -7.0,
+        "from_tier": "BUY",
+        "to_tier": "HOLD",
+        "marginal": false
+      },
+      {
+        "symbol": "BEAT",
+        "name": "Audiera",
+        "from": 38.0,
+        "to": 43.0,
+        "delta": 5.0,
+        "from_tier": "AVOID",
+        "to_tier": "WATCH",
+        "marginal": false
+      }
+    ],
+    "marginal": [
+      {
+        "symbol": "CYS",
+        "name": "Cysic",
+        "from": 54.0,
+        "to": 56.0,
+        "delta": 2.0,
+        "from_tier": "WATCH",
+        "to_tier": "HOLD",
+        "marginal": true
+      }
+    ],
+    "counts": {
+      "tier_changes": 4,
+      "real": 3,
+      "marginal": 1,
+      "marginal_share": 0.25
+    }
   }
 }
