@@ -193,6 +193,7 @@ def board(date, n=30, **extra):
              "conviction": 90 - i * 2.0, "signal": nightly._tier_for(90 - i * 2.0),
              "price": 1.0 + i, "market_cap": 1e9, "turnover_pct": 30.0,
              "rs7": 1.0, "rs14": 1.0, "rs30": 1.0, "rs200": 1.0, "perp_mult": 1.0,
+             "high_24h": 1.05 + i, "low_24h": 0.95 + i,
              "spec_hash": "abc123", **extra}
             for i in range(n)]
 
@@ -326,14 +327,19 @@ def test_the_reason_is_persisted_for_the_dashboard(ledger):
 # ---------------------------------------------------------------------------
 # schema growth
 # ---------------------------------------------------------------------------
-def test_the_new_columns_are_appended_so_the_old_header_is_a_prefix():
+def test_the_dune_columns_sit_after_everything_that_predates_them():
     """signals.csv is rewritten in full each night from name-keyed rows, so a schema
     that grows at the end migrates itself. Inserting mid-list instead would leave the
-    committed file's header no longer a prefix of the schema, which is the shape the
-    validator cannot distinguish from the misalignment bug it exists to catch."""
-    old = [f for f in nightly.FIELDS if f not in ("unlock_overhang_pct", "adoption_dilution")]
-    assert nightly.FIELDS[:len(old)] == old
-    assert nightly.FIELDS[-2:] == ["unlock_overhang_pct", "adoption_dilution"]
+    committed header no longer a prefix of the schema — the one shape the validator
+    cannot tell apart from the positional-misalignment bug it exists to catch.
+
+    Later modules have since appended after these, so this pins the relative order
+    rather than the tail. The exhaustive column order lives in test_perps.py.
+    """
+    i = nightly.FIELDS.index
+    assert i("spec_hash") < i("unlock_overhang_pct") < i("adoption_dilution")
+    for f in ("unlocks_usd", "supply_increase_pct", "addr_growth_pct", "era"):
+        assert i(f) < i("unlock_overhang_pct")
 
 
 # ---------------------------------------------------------------------------
