@@ -38,7 +38,21 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           # and adopting them would be a separate, hashed decision. Appended at the end
           # for the reason stated above — the file on disk was written under the shorter
           # header, and a strict prefix is what lets the next run widen it cleanly.
-          "unlock_overhang_pct", "adoption_dilution"]
+          "unlock_overhang_pct", "adoption_dilution",
+          # Module 1 — derivatives. funding_rate already reaches score() through
+          # lavl_perp_mult and has done since before this column existed; recording it
+          # changes nothing about that. Everything else here is observational, on the
+          # same terms as the Dune columns: score() reads none of it, and adopting any
+          # of it would be a separate decision that moves the specification hash.
+          # oi_usd in particular was already being fetched from Bybit on every run and
+          # thrown away — the ingestion cost was being paid and the data discarded.
+          "funding_rate", "funding_ann_pct", "oi_usd", "oi_chg_24h_pct",
+          "oi_to_mcap", "long_short_ratio", "oi_price_divergence",
+          # Module 2 — the daily bar. Recorded so ATR and the choppiness index can be
+          # computed from accumulated history; CoinGecko has no daily-granularity OHLC
+          # endpoint, but high_24h/low_24h are already in the markets response that
+          # every run makes, so this costs nothing and back-fills nothing.
+          "high_24h", "low_24h"]
 
 # Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
@@ -495,6 +509,35 @@ def fetch_perps_map(symbols: set[str] | None = None) -> dict:
     return m
 
 
+def fetch_long_short(perps_map: dict, symbols: set[str] | None = None,
+                     limit: int = 60) -> int:
+    """Binance's global long/short account ratio, merged into `perps_map` in place.
+
+    Keyless and public, but one request per symbol, so it is bounded to the symbols
+    actually being scored and capped. Anything not fetched keeps a null ratio rather
+    than a neutral 1.0 — "half the accounts are long" is a real reading and must not be
+    manufactured by a failed request.
+
+    Returns how many symbols were enriched, so the caller can log coverage instead of
+    reporting a silent partial.
+    """
+    if not symbols:
+        return 0
+    got = 0
+    for base in sorted(symbols)[:limit]:
+        try:
+            data = _get_json(
+                "https://fapi.binance.com/futures/data/globalLongShortAccountRatio"
+                f"?symbol={base}USDT&period=1d&limit=1")
+            row = (data or [{}])[0]
+            ratio = float(row.get("longShortRatio"))
+        except Exception:  # noqa: BLE001
+            continue      # per-asset null; never a fabricated neutral
+        perps_map.setdefault(base, {})["long_short_ratio"] = round(ratio, 4)
+        got += 1
+    return got
+
+
 def lavl_perp_mult(ticker: str, perps_map: dict) -> float:
     """LAVL leverage-micro-regime multiplier (RiskMult_perp).
 
@@ -511,6 +554,104 @@ def lavl_perp_mult(ticker: str, perps_map: dict) -> float:
     if fr < 0.0:
         return 1.15
     return 1.0
+
+# Funding is quoted per 8-hour interval, so three settlements a day.
+FUNDING_INTERVALS_PER_YEAR = 3 * 365
+# Beyond these the carry is doing something a spot-only reader cannot see.
+FUNDING_HOT_APR = 30.0
+FUNDING_COLD_APR = -20.0
+# Below this a "divergence" is rounding, on either axis.
+DIVERGENCE_EPS_PRICE = 0.5      # percent
+DIVERGENCE_EPS_OI = 1.0         # percent
+
+
+def funding_ann_pct(funding_rate) -> float | None:
+    """Funding as an annualised percentage carry.
+
+    The raw 8-hour rate is unreadable at a glance — 0.0005 and 0.01 both look like
+    small numbers and mean 55% and 1,095% a year. Annualising is the only form in which
+    the figure can be compared against anything else on the board.
+    """
+    if funding_rate is None:
+        return None
+    try:
+        return round(float(funding_rate) * FUNDING_INTERVALS_PER_YEAR * 100.0, 4)
+    except (TypeError, ValueError):
+        return None
+
+
+def oi_price_divergence(price_chg_pct, oi_chg_pct) -> str | None:
+    """Where open interest went while price went somewhere.
+
+    The four states are the standard reading of positioning against direction:
+
+      price up,   OI up    ACCUMULATION   new money backing the move
+      price up,   OI down  SHORT_SQUEEZE  the rally is shorts closing, not buyers
+      price down, OI up    SHORT_BUILD    new money positioned against it
+      price down, OI down  LONG_FLUSH     leverage being unwound, not distribution
+
+    None when either leg is missing or too small to be a direction. Guessing a quadrant
+    from a 0.1% drift would produce a confident badge on noise, and a badge is read as
+    a claim.
+    """
+    if price_chg_pct is None or oi_chg_pct is None:
+        return None
+    try:
+        p, o = float(price_chg_pct), float(oi_chg_pct)
+    except (TypeError, ValueError):
+        return None
+    if abs(p) < DIVERGENCE_EPS_PRICE or abs(o) < DIVERGENCE_EPS_OI:
+        return "FLAT"
+    if p > 0:
+        return "ACCUMULATION" if o > 0 else "SHORT_SQUEEZE"
+    return "SHORT_BUILD" if o > 0 else "LONG_FLUSH"
+
+
+def _prev_oi_by_symbol() -> dict:
+    """Yesterday's recorded open interest, for the 24h delta.
+
+    Read from the ledger rather than fetched, because Bybit's tickers endpoint reports
+    a point-in-time value with no history. On the first night after this column lands
+    there is nothing to compare against and the delta is null — which is the honest
+    reading, and specifically not zero, since zero is a claim that OI did not move.
+    """
+    rows = _read_signals_rows()
+    if not rows:
+        return {}
+    dates = sorted({r.get("date") for r in rows if r.get("date")})
+    if len(dates) < 2:
+        return {}
+    prev = dates[-1]
+    out = {}
+    for r in rows:
+        if r.get("date") != prev:
+            continue
+        v = _num(r.get("oi_usd"))
+        if v:
+            out[(r.get("symbol") or "").upper()] = v
+    return out
+
+
+def perp_context(ticker: str, perps_map: dict, market_cap, price_chg_pct,
+                 prev_oi: dict) -> dict:
+    """The recorded derivatives columns for one asset. Observational throughout."""
+    info = perps_map.get(ticker) or {}
+    fr = info.get("funding_rate")
+    oi = info.get("oi_usd")
+    p0 = prev_oi.get(ticker)
+    oi_chg = round(100.0 * (oi / p0 - 1.0), 4) if (oi and p0) else None
+    return {
+        "funding_rate": fr,
+        "funding_ann_pct": funding_ann_pct(fr),
+        "oi_usd": oi,
+        "oi_chg_24h_pct": oi_chg,
+        # Leverage relative to the size of the asset. A $1bn book is enormous on a
+        # $2bn token and unremarkable on a $200bn one.
+        "oi_to_mcap": round(oi / market_cap, 6) if (oi and market_cap) else None,
+        "long_short_ratio": info.get("long_short_ratio"),
+        "oi_price_divergence": oi_price_divergence(price_chg_pct, oi_chg),
+    }
+
 
 def fetch_global_market_cap() -> float | None:
     """Total crypto market cap (USD) from CoinGecko's free /global endpoint.
@@ -879,14 +1020,26 @@ MON_STALE_HOURS = 36
 # Fields whose disappearance would silently zero a factor rather than raise anything.
 # These are model inputs: an absence here is a defect, and it sets the check's status.
 MON_TRACKED_FIELDS = ("price", "market_cap", "turnover_pct", "conviction",
-                      "rs7", "rs14", "rs30", "rs200", "perp_mult")
+                      "rs7", "rs14", "rs30", "rs200", "perp_mult",
+                      # Genuine model inputs, not context: _lavl_regime — a captured
+                      # SPEC_FUNCTION — reads high_24h/low_24h off the live payload and
+                      # always has. Recording them as columns did not put them into the
+                      # specification; they were already in it. If CoinGecko stops
+                      # returning them the LAVL band silently changes for every asset,
+                      # which is precisely the dropout this panel exists to catch.
+                      "high_24h", "low_24h")
 # Recorded-but-not-scored context: the Dune feed, and the emission/adoption ratio beside
 # it — score() computes its own internal adoption proxy and never reads any of these.
 # Coverage is reported so a dead feed stays visible, but it must not set the status.
 # `unlocks_usd` is null for most tokens *by construction* — unlock schedules are not
 # on-chain in the general case — so folding it into the warn would pin this panel to a
 # permanent amber and hide a real dropout in price or rs200 behind it.
-MON_CONTEXT_FIELDS = ("era", "unlocks_usd", "supply_increase_pct", "addr_growth_pct")
+MON_CONTEXT_FIELDS = ("era", "unlocks_usd", "supply_increase_pct", "addr_growth_pct",
+                      # Derivatives and the daily bar. Observational on the same terms:
+                      # score() reads none of them. funding_rate is the one exception
+                      # worth naming — it has always reached score() via lavl_perp_mult,
+                      # but through perps_map at run time, never through this column.
+                      "funding_rate", "oi_usd", "long_short_ratio")
 MON_FIELD_PRESENCE_WARN = 0.90
 
 
@@ -1237,6 +1390,119 @@ def _compute_monitor(dune_report: dict | None = None) -> dict:
     }
 
 
+CHOP_PERIOD = 14
+CHOP_TRENDING = 38.2
+CHOP_CHOPPY = 61.8
+
+
+def choppiness(bars: list) -> float | None:
+    """The 14-period Choppiness Index over accumulated daily bars.
+
+        CHOP = 100 * log10(sum(ATR1) / (maxHigh - minLow)) / log10(period)
+
+    Low means directional, high means range-bound. It is deliberately computed from
+    bars this pipeline recorded itself: CoinGecko's /ohlc endpoint has no daily
+    granularity at all (30-minute at 1 day, 4-hour to 30 days, 4-day beyond), so a
+    "14-day" CHOP taken from it would be a 14-bar CHOP over 56 hours wearing the wrong
+    label. high_24h/low_24h are already in the markets response, so the honest version
+    costs no extra request and simply needs fourteen nights to exist.
+
+    Returns None below `CHOP_PERIOD + 1` bars — the panel says how many it has rather
+    than showing a number computed from a shorter window.
+    """
+    if len(bars) < CHOP_PERIOD + 1:
+        return None
+    window = bars[-(CHOP_PERIOD + 1):]
+    trs = []
+    for prev, cur in zip(window, window[1:]):
+        h, lo, pc = cur.get("high"), cur.get("low"), prev.get("close")
+        if h is None or lo is None or pc is None:
+            return None
+        trs.append(max(h - lo, abs(h - pc), abs(lo - pc)))
+    recent = window[1:]
+    highs = [b["high"] for b in recent if b.get("high") is not None]
+    lows = [b["low"] for b in recent if b.get("low") is not None]
+    if len(highs) < CHOP_PERIOD or len(lows) < CHOP_PERIOD:
+        return None
+    rng = max(highs) - min(lows)
+    total = sum(trs)
+    if rng <= 0 or total <= 0:
+        return None
+    return round(100.0 * math.log10(total / rng) / math.log10(CHOP_PERIOD), 2)
+
+
+def chop_regime(chop) -> str | None:
+    if chop is None:
+        return None
+    return ("TRENDING" if chop < CHOP_TRENDING
+            else "RANGE-BOUND" if chop > CHOP_CHOPPY
+            else "TRANSITIONAL")
+
+
+def _chop_by_symbol() -> dict:
+    """Choppiness per asset from the recorded bars, plus how far off it is otherwise.
+
+    ``{SYMBOL: {"chop": float|None, "regime": str|None, "bars": int}}`` — the bar count
+    travels with the value so the terminal can render "accumulating (10/15)" instead of
+    an empty cell that reads as a broken column.
+    """
+    rows = _read_signals_rows()
+    bars: dict[str, list] = {}
+    for r in sorted(rows, key=lambda x: (x.get("date") or "")):
+        sym = (r.get("symbol") or "").upper()
+        if not sym:
+            continue
+        h, lo, c = _num(r.get("high_24h")), _num(r.get("low_24h")), _num(r.get("price"))
+        if h is None or lo is None or c is None:
+            continue
+        bars.setdefault(sym, []).append({"high": h, "low": lo, "close": c})
+    out = {}
+    for sym, seq in bars.items():
+        ch = choppiness(seq)
+        out[sym] = {"chop": ch, "regime": chop_regime(ch), "bars": len(seq)}
+    return out
+
+
+# Horizons the change feed will use, longest first, with the recorded days each needs.
+# A delta over N days needs N+1 recorded boards to have two endpoints.
+FEED_HORIZONS = (("d30", 31), ("d10", 11), ("d7", 8), ("d1", 2))
+FEED_LIMIT = 8
+
+
+def _change_feed(trend: dict, days_recorded: int) -> dict:
+    """Largest conviction gains and losses, over the longest horizon that has data.
+
+    This used to be hardwired to a 10-day delta, which needs eleven recorded boards.
+    The ledger has never had that many, so `d10` was None for every asset on every run
+    and the feed serialised as {"gains": [], "losses": []} — rendering as an empty
+    panel that looks exactly like a broken one. It would have started working on its
+    own eventually, silently, which is its own problem: nobody would have known whether
+    it was fixed or still faulty.
+
+    So it degrades instead. It reports the horizon it actually used and what the longer
+    ones are still waiting for, and the panel says so rather than showing nothing.
+    """
+    pending = {h: {"needs": need, "have": days_recorded}
+               for h, need in FEED_HORIZONS if days_recorded < need}
+    for horizon, need in FEED_HORIZONS:
+        if days_recorded < need:
+            continue
+        movers = [(s, t[horizon]) for s, t in trend.items() if t.get(horizon) is not None]
+        if not movers:
+            continue
+        movers.sort(key=lambda x: x[1], reverse=True)
+        return {
+            "horizon": horizon,
+            "days": int(horizon[1:]),
+            "gains": [{"symbol": s, "delta": round(d, 1), horizon: round(d, 1)}
+                      for s, d in movers[:FEED_LIMIT] if d > 0],
+            "losses": [{"symbol": s, "delta": round(d, 1), horizon: round(d, 1)}
+                       for s, d in reversed(movers[-FEED_LIMIT:]) if d < 0],
+            "pending": pending,
+        }
+    return {"horizon": None, "days": None, "gains": [], "losses": [], "pending": pending}
+
+
 def _compute_market_breadth() -> dict:
     """Conviction as a time-series (reviewer #3) + breadth/dispersion/persistence
     (the three differentiated signals). Purely derived from the signals ledger —
@@ -1275,6 +1541,12 @@ def _compute_market_breadth() -> dict:
         seq.sort(key=lambda x: x[0])
         trend[sym] = {
             "conviction": seq[-1][1] if seq else 0,
+            # d1 and d7 exist because d10 needs eleven recorded days and the ledger has
+            # had fewer for its entire life so far. The feed was serialising as
+            # {"gains": [], "losses": []} every night and rendering as nothing, which
+            # is indistinguishable from a broken panel — see _change_feed below.
+            "d1": _at(seq, 1),
+            "d7": _at(seq, 7),
             "d10": _at(seq, 10),
             "d30": _at(seq, 30),
         }
@@ -1304,11 +1576,7 @@ def _compute_market_breadth() -> dict:
         if cons90:
             persistent90.append(sym)
 
-    # Conviction change feed: largest increases / collapses over 10d
-    movers = [(sym, t["d10"]) for sym, t in trend.items() if t.get("d10") is not None]
-    movers.sort(key=lambda x: x[1], reverse=True)
-    gains = [{"symbol": s, "d10": round(d, 1)} for s, d in movers[:8] if d > 0]
-    losses = [{"symbol": s, "d10": round(d, 1)} for s, d in reversed(movers[-8:]) if d < 0]
+    change_feed = _change_feed(trend, len(set(all_dates)))
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1319,10 +1587,14 @@ def _compute_market_breadth() -> dict:
         "dispersion": round(dispersion, 2),
         "persistent_30d": persistent30,
         "persistent_90d": persistent90,
-        "conviction_change_feed": {"gains": gains, "losses": losses},
+        "conviction_change_feed": change_feed,
+        # Regime per asset, plus the bar count so the terminal can say what it is still
+        # waiting for rather than rendering an empty cell.
+        "chop": _chop_by_symbol(),
+        "chop_period": CHOP_PERIOD,
         "trend": {s: {"conviction": round(t["conviction"], 1),
-                       "d10": round(t["d10"], 1) if t["d10"] is not None else None,
-                       "d30": round(t["d30"], 1) if t["d30"] is not None else None}
+                      **{h: (round(t[h], 1) if t[h] is not None else None)
+                         for h in ("d1", "d7", "d10", "d30")}}
                  for s, t in sorted(trend.items(), key=lambda x: -x[1]["conviction"])},
     }
 
@@ -1843,6 +2115,15 @@ def main() -> int:
               file=__import__("sys").stderr)
     else:
         print("[perp] no perp feed; RiskMult_perp neutral (1.0) for all.", file=__import__("sys").stderr)
+    # Long/short is a separate, per-symbol endpoint, so it is fetched only for the
+    # names being scored and its coverage is reported rather than assumed.
+    n_ls = fetch_long_short(perps_map, scored_syms)
+    print(f"[perp] long/short ratio for {n_ls}/{len(scored_syms)} symbols.",
+          file=__import__("sys").stderr)
+    prev_oi = _prev_oi_by_symbol()
+    print(f"[perp] prior-night open interest for {len(prev_oi)} symbols"
+          + ("" if prev_oi else " — the 24h OI delta is null tonight, not zero"),
+          file=__import__("sys").stderr)
     # BTC = market-neutral reference for multi-timeframe relative strength.
     btc = next((m for m in markets if (m.get("symbol") or "").upper() == "BTC"), None)
     basket = build_basket(markets, today, btc)
@@ -1873,6 +2154,11 @@ def main() -> int:
             "roi_30d": None, "roi_90d": None, "survived": None,
             "perp_mult": round(pm, 3),
             "spec_hash": SPEC_HASH,
+            **perp_context(sym, perps_map, t.get("market_cap"),
+                           t.get("price_change_percentage_24h"), prev_oi),
+            # The daily bar, for ATR and choppiness once enough of them exist.
+            "high_24h": t.get("high_24h"),
+            "low_24h": t.get("low_24h"),
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
 

@@ -14,10 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -53,7 +53,11 @@ jobs:
           # index.legacy.csv is included so that if the writer ever has to quarantine a
           # mismatched file again, the evidence is committed rather than lost with the
           # runner. --ignore-unmatch: it does not exist on a healthy run.
-          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json
+          # parity.json is the real result of the gate that ran two steps above, not a
+          # badge. The terminal's diagnostic bar renders it, and a hardcoded status
+          # there would be exactly the kind of ornamental "PASS" this project has
+          # already had to remove once.
+          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json
           git add ledger/index.legacy.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes to commit"

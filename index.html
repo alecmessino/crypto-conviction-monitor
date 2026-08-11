@@ -57,6 +57,19 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 /* Center tables */
 .col-center{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0}
 .scroll-pane{max-height:34vh;overflow:auto}
+/* Sticky headers. Scrolling a dense board without them means holding thirteen column
+   positions in your head, and these columns are not self-describing — "1/15" and
+   "-33%*" mean nothing without the label above them.
+   Deliberately NOT virtualized: the universe is 50 rows. Virtual scrolling below a few
+   thousand costs a scroll-position bug surface and buys nothing measurable here. */
+thead th{position:sticky;top:0;z-index:2;background:#0c1320}
+#screen-filter{background:#0c1320;color:var(--txt);border:1px solid var(--border);
+  border-radius:4px;font-family:inherit;font-size:10px;padding:3px 7px;width:130px}
+#screen-filter:focus{outline:none;border-color:#3B82F6}
+#filter-note{font-size:10px;color:var(--amber);margin-left:6px;cursor:pointer}
+.diag{display:flex;gap:14px;flex-wrap:wrap;font-size:10px;color:var(--sec);padding:5px 0 0}
+.diag b{color:var(--txt);font-variant-numeric:tabular-nums}
+.tier[data-filter]{cursor:pointer}
 /* A scroll port whose height is not a multiple of the row height cuts its last row
    through the middle, and a half-drawn row reads as a broken panel rather than as more
    content below it. 34vh is never a whole number of rows, so all four of these do it.
@@ -172,6 +185,7 @@ canvas{display:block;width:100%}
         <div class="kv"><span>Universe</span><b id="sys-n" class="num">—</b></div>
         <div class="kv"><span>Rate limit</span><b id="sys-rl" class="neu">—</b></div>
         <div class="kv"><span>Skew Qualified</span><b id="sys-skew" class="num">—</b></div>
+        <div class="diag" id="diag"></div>
         <div class="note" style="padding:8px 0 0">Module B uses a live <b>FDV/MCap dilution proxy</b> (real CoinGecko payload) until a Dune unlock feed is connected via repo secret <b>DUNE_API_KEY</b> + <b>DUNE_UNLOCK_QUERY_ID</b> (on-chain override). No fabricated numbers.</div>
         <div class="switches" id="tf">
           <div class="sw on" data-tf="24h">24H</div>
@@ -209,13 +223,19 @@ canvas{display:block;width:100%}
         <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--sec);cursor:pointer;user-select:none">
           <input type="checkbox" id="hide-nq" style="accent-color:#00FF66;cursor:pointer"> <b style="color:#00FF66">HIDE NON-QUALIFIED</b>
         </label>
+        <input id="screen-filter" type="search" placeholder="filter  ( / )" autocomplete="off"
+               title="Filter by ticker, name, signal tier or regime. Press / to focus, Esc to clear.">
+        <span id="filter-note" hidden></span>
         <span id="marginal-note" class="muted" hidden></span>
         <span id="skew" class="muted" style="margin-left:auto"></span>
       </div>
       <div class="scroll-pane">
         <table id="tbl-conv"><thead><tr>
-          <th>#</th><th>Ticker</th><th>Price</th><th>24H Δ</th><th>Spark</th>
-          <th>Turnover</th><th>Liquidity</th><th>Z(ATH)</th><th>Conv</th><th>Signal</th><th>⧉</th>
+          <th>#</th><th>Ticker</th><th>Price</th><th id="th-delta">24H Δ</th><th>Spark</th>
+          <th>Turnover</th><th>Liquidity</th><th>Z(ATH)</th>
+          <th title="Annualised funding carry from the recorded perp feed. Observational — it does not feed conviction.">Funding</th>
+          <th title="Choppiness index over accumulated daily bars. Observational — it does not feed conviction.">Regime</th>
+          <th>Conv</th><th>Signal</th><th>⧉</th>
         </tr></thead><tbody></tbody></table>
       </div>
     </div>
@@ -317,6 +337,15 @@ let STATE = [];
 let LEDGER = [];   // nightly signals.json rows (Module B real data when present)
 let INDEX = null;  // nightly index.json (conviction-weighted basket track record)
 let PERP = {};     // symbol -> RiskMult_perp (LAVL leverage overlay) from nightly ledger
+// False until the overlay has actually been loaded. Without it every multiplier
+// defaults to 1.0 and the board reorders — a live table that quietly disagrees with the
+// published one is worse than a table that says it is degraded, so this is rendered.
+let PERP_LOADED = false;
+let PERPS = {};    // symbol -> recorded derivatives context (Module 1, non-scoring)
+let CHOP = {};     // symbol -> {chop, regime, bars} (Module 2, non-scoring)
+let TF = "24h";    // active timeframe for the delta column
+let PARITY = null; // parity.json: the real result of the gate that admitted the ledger
+let LATENCY = null;// measured round-trip to the price feed, in ms
 let BREADTH = null; // market_breadth.json: conviction time-series, breadth, dispersion, persistence
 let MONITOR = null; // monitor.json: pipeline health, stability, field presence, spec continuity
 async function loadLedger(){
@@ -330,6 +359,15 @@ async function loadLedger(){
     PERP = {};
     (j.rows||[]).forEach(r=>{ const pm=r.perp_mult;
       if(pm!=null && pm!=="None" && pm!==""){ const v=parseFloat(pm); if(!isNaN(v)) PERP[(r.symbol||"").toUpperCase()]=v; } });
+    PERP_LOADED = Object.keys(PERP).length > 0;
+    // Module 1: the recorded derivatives columns, keyed by symbol. Observational —
+    // none of this feeds conviction, and the drawer says so where it is displayed.
+    PERPS = {};
+    (j.rows||[]).forEach(r=>{ const s=(r.symbol||"").toUpperCase(); if(!s) return;
+      const n=k=>{ const v=r[k]; return (v==null||v===""||v==="None"||isNaN(parseFloat(v)))?null:parseFloat(v); };
+      PERPS[s]={fundingAnn:n("funding_ann_pct"), oi:n("oi_usd"), oiChg:n("oi_chg_24h_pct"),
+                oiToMcap:n("oi_to_mcap"), ls:n("long_short_ratio"),
+                divergence:(r.oi_price_divergence||null)}; });
     const dune=$("#sys-dune");
     if(LEDGER.length){ dune.className="pos"; dune.textContent="LIVE ("+LEDGER.length+" tk)"; }
     else { dune.className="neu"; dune.textContent="OFF"; }
@@ -340,12 +378,16 @@ async function loadLedger(){
   }catch(e){ /* index absent — track record pending */ }
   try{
     const rb=await fetch("ledger/market_breadth.json",{cache:"no-store"});
-    if(rb.ok) BREADTH = await rb.json();
+    if(rb.ok){ BREADTH = await rb.json(); CHOP = BREADTH.chop || {}; }
   }catch(e){ /* breadth absent — change feed pending */ }
   try{
     const rm=await fetch("ledger/monitor.json",{cache:"no-store"});
     if(rm.ok) MONITOR = await rm.json();
   }catch(e){ /* monitor absent — the panel says so rather than rendering defaults */ }
+  try{
+    const rp=await fetch("ledger/parity.json",{cache:"no-store"});
+    if(rp.ok) PARITY = await rp.json();
+  }catch(e){ /* parity artifact absent — the bar reports unknown, never PASS */ }
   buildMarginal();
 }
 
@@ -381,6 +423,16 @@ const sgn = v=>(v>0?"+":"")+(v==null?0:v).toFixed(1)+"%";
 
 function tierOf(sym){const s=sym.toLowerCase(); if(EXCLUDED.has(s))return "STABLE"; return TIER[sym]||"ALT";}
 
+/* MODEL PORT — everything between these markers is executed verbatim by
+   tests/test_parity.py under node and compared against nightly.score(). It must stay
+   free of DOM access and of any reference to state outside this block, or the gate
+   cannot run it.
+
+   The gate used to compare nightly.score() against a hand-written Python transcription
+   of this maths and never opened this file at all, so editing the JS alone left parity
+   green while the live terminal quietly disagreed with the ledger. Keep the block
+   self-contained and the check stays honest.
+*/
 // ---- scoring (mirrors backend) ----
 // LiquidityFit: linear ramp into the 30-60% turnover sweet spot; sharp penalty
 // below 10% (illiquid) and above 75% (wash-trading risk).
@@ -417,6 +469,15 @@ function conviction(t, perp, rsBlend){ perp = perp||1; rsBlend = rsBlend||0; // 
   return {conv, comp};
 }
 function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
+// Blended relative strength vs BTC. Lives inside the port because it feeds conviction
+// directly — a drift here moves every score, and a gate that covered conviction() but
+// not its input would report parity while the two sides ranked differently.
+function rsBlendOf(t, btc){
+  const pct = tf => (t["price_change_percentage_"+tf+"d_in_currency"]||0)
+                  - (btc ? (btc["price_change_percentage_"+tf+"d_in_currency"]||0) : 0);
+  return 0.30*pct(7) + 0.25*pct(14) + 0.25*pct(30) + 0.20*pct(200);
+}
+/* END MODEL PORT */
 
 // ---- build model ----
 // STATE is the single filtered subset consumed by every module (A, B, C).
@@ -428,7 +489,7 @@ function build(raw){
     const turn=mc?vol/mc*100:0, chg=t.price_change_percentage_24h||0;
     const pct = tf => (t["price_change_percentage_"+tf+"d_in_currency"]||0) - btcPct(tf);
     const rs7=pct(7), rs14=pct(14), rs30=pct(30), rs200=pct(200);
-    const rsBlend = 0.30*rs7 + 0.25*rs14 + 0.25*rs30 + 0.20*rs200;
+    const rsBlend = rsBlendOf(t, btc);   // inside MODEL PORT — see the gate
     const {conv, comp} = conviction({vol,mc,chg}, PERP[(t.symbol||"").toUpperCase()]||1, rsBlend);
     const sig=signal(conv);
     // Mean-reversion Z (relative to all-time range, since free API lacks 30d MA).
@@ -443,6 +504,11 @@ function build(raw){
       ath, atl, z:Math.round(z*100)/100, divergence,
       high24:t.high_24h||0, low24:t.low_24h||0, mcapChg,
       fdv:t.fully_diluted_valuation||0, chg7d:t.price_change_percentage_7d_in_currency||0,
+      // Absolute (not BTC-relative) moves for the timeframe toggle. 1h/7d/30d are what
+      // the markets endpoint offers; 4h, 90d and YTD have no free source and are simply
+      // not shown rather than approximated from a neighbouring window.
+      chg1h:t.price_change_percentage_1h_in_currency,
+      chg30d:t.price_change_percentage_30d_in_currency,
       rs7:Math.round(rs7*10)/10, rs14:Math.round(rs14*10)/10, rs30:Math.round(rs30*10)/10,
       rs200:Math.round(rs200*10)/10, rsBlend:Math.round(rsBlend*10)/10, comp};
   }).sort((a,b)=>b.conv-a.conv).map(t=>{
@@ -528,13 +594,18 @@ function rowConv(t,i,gated){
   const zc=t.z>0.5?"neg":t.z<-0.5?"pos":"neu"; // far above ATH = overbought(red), far below ATL = oversold(green)
   const div=t.divergence?'<span class="badge a" title="Price soft / liquidity rising — accumulation">ACCUM</span>':'';
   tr.innerHTML=`<td class="muted num">${i+1}</td>
-    <td class="tick">${t.sym}<span class="tier ${t.tier}">${t.tier}</span></td>
+    <td class="tick">${t.sym}<span class="tier ${t.tier}" data-filter title="Filter the board to ${t.tier}">${t.tier}</span></td>
     <td class="num">${fmtPrice(t.price)}</td>
-    <td class="num" style="color:${deltaColor(t.chg)}">${sgn(t.chg)}<span class="dbar" style="background:${deltaColor(t.chg)};width:${Math.min(28,Math.abs(t.chg)*3)}px"></span></td>
+    ${(()=>{ const d=tfDelta(t);
+       return d==null
+         ? `<td class="num muted" title="No free source for the ${TF} window on this asset — absent rather than approximated from a neighbouring one.">—</td>`
+         : `<td class="num" style="color:${deltaColor(d)}">${sgn(d)}<span class="dbar" style="background:${deltaColor(d)};width:${Math.min(28,Math.abs(d)*3)}px"></span></td>`;})()}
     <td><span class="spark" data-spark></span></td>
     <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
     <td><span class="bar"><i style="width:${Math.min(100,t.mc/2e10*100)}%"></i></span></td>
     <td class="num ${zc}" title="Distance from all-time range (-1 floor .. +1 ATH)">${t.z>0?'+':''}${t.z.toFixed(2)}</td>
+    <td>${fundingCell(PERPS[t.sym])}${divBadge(PERPS[t.sym])}</td>
+    <td>${regimeCell(t.sym)}</td>
     <td class="num ${t.conv>=70?'pos':t.conv>=55?'neu':'neg'}">${t.conv}</td>
     <td>${sigBadge(t)}</td>
     <td>${div}<span class="copy" data-copy="${t.sym}">⧉</span></td>`;
@@ -543,12 +614,142 @@ function rowConv(t,i,gated){
 }
 function signalClass(c){return c>=70?"pos":c>=55?"neu":"neg";}
 
+/* ---------- filtering ----------
+   One predicate, used by the text box and by the cross-panel chips alike, so a click
+   on a tier and a typed "alt" cannot diverge in what they mean. */
+let FILTER = "";
+function matchesFilter(t){
+  const q=FILTER.toLowerCase();
+  if(!q) return true;
+  const c=CHOP[t.sym];
+  return [t.sym, t.name, t.tier, t.sig&&t.sig[0], c&&c.regime,
+          PERPS[t.sym]&&PERPS[t.sym].divergence]
+    .filter(Boolean).some(v=>String(v).toLowerCase().includes(q));
+}
+/* ---------- diagnostic bar ----------
+   Every figure here is measured or read from an artifact. The parity line in
+   particular is the recorded result of the gate that admitted this ledger, not a
+   badge: a hardcoded "PASS 8/8" is the class of decorative status this project has
+   already had to delete once. When the artifact is missing it reads UNKNOWN, which is
+   the one honest thing to say about a check whose outcome was not recorded. */
+function renderDiag(){
+  const host=$("#diag"); if(!host) return;
+  const bits=[];
+  bits.push(`<span>latency <b>${LATENCY==null?"—":Math.round(LATENCY)+"ms"}</b></span>`);
+  const to = MONITOR && MONITOR.to;
+  if(to){
+    const age = Math.round((Date.now()-Date.parse(to+"T00:00:00Z"))/36e5);
+    bits.push(`<span title="Date of the most recent recorded board">ledger <b>${to}</b>
+      <span style="color:${age>36?"var(--amber)":"var(--sec)"}">(${age}h)</span></span>`);
+  }
+  if(PARITY){
+    const ok=PARITY.ok;
+    bits.push(`<span title="Result of the JS↔Python parity gate that ran before this ledger was committed. It executes the terminal's own scoring block under node and compares it against nightly.score().">parity
+      <b style="color:${ok?"var(--green)":"var(--red)"}">${ok?"PASS":"FAIL"} ${PARITY.passed}/${PARITY.total}</b></span>`);
+    if(PARITY.spec_hash) bits.push(`<span title="Frozen scoring specification. A change here starts a new track record.">spec <b>${PARITY.spec_hash}</b></span>`);
+  } else {
+    bits.push(`<span title="ledger/parity.json was not published, so the gate's outcome is not known here. It is not reported as passing.">parity <b style="color:var(--sec)">UNKNOWN</b></span>`);
+  }
+  const cov = MONITOR && MONITOR.coverage && MONITOR.coverage.context
+              && MONITOR.coverage.context.latest;
+  if(cov){
+    const keys=Object.keys(cov), live=keys.filter(k=>cov[k]>0).length;
+    bits.push(`<span title="Recorded-but-not-scored fields carrying values. Nulls here are expected; nothing scored depends on them.">context feeds <b>${live}/${keys.length}</b></span>`);
+  }
+  host.innerHTML = bits.join("");
+}
+
+function setFilter(q){
+  FILTER = (q||"").trim();
+  const box=$("#screen-filter"); if(box && box.value!==FILTER) box.value=FILTER;
+  if(STATE.length) renderTables();
+}
+
+/* ---------- Module 1: derivatives, and Module 2: regime ----------
+   Both are recorded-not-scored. Every cell below distinguishes "no value" from a
+   value, because a dash and a zero mean opposite things here: no perp market at all
+   versus flat funding on one that exists. */
+const DIV_LABEL = {ACCUMULATION:["ACCUM","g","price up on rising open interest — new money behind the move"],
+                   SHORT_SQUEEZE:["SQUEEZE","a","price up on falling open interest — shorts closing, not buyers arriving"],
+                   SHORT_BUILD:["SHORT","r","price down on rising open interest — new money positioned against it"],
+                   LONG_FLUSH:["FLUSH","a","price down on falling open interest — leverage unwinding rather than distribution"],
+                   FLAT:["FLAT","n","neither leg moved enough to have a direction"]};
+// Matches nightly.FUNDING_HOT_APR / FUNDING_COLD_APR.
+const FUNDING_HOT=30, FUNDING_COLD=-20;
+function fundingCell(p){
+  if(!p || p.fundingAnn==null) return '<span class="muted">—</span>';
+  const f=p.fundingAnn;
+  const cls = f>FUNDING_HOT?"neg":f<FUNDING_COLD?"pos":"neu";
+  const flag = (f>FUNDING_HOT||f<FUNDING_COLD)?"*":"";
+  return `<span class="num ${cls}" title="Annualised funding carry: ${f.toFixed(1)}% APR${
+    f>FUNDING_HOT?" — longs paying heavily, crowded"
+    :f<FUNDING_COLD?" — shorts paying, squeeze asymmetry":""}">${f.toFixed(0)}%${flag}</span>`;
+}
+function divBadge(p){
+  if(!p || !p.divergence) return "";
+  const d=DIV_LABEL[p.divergence]; if(!d) return "";
+  return `<span class="badge ${d[1]}" title="${d[2]}">${d[0]}</span>`;
+}
+function regimeCell(sym){
+  const c=CHOP[sym];
+  if(!c) return '<span class="muted">—</span>';
+  if(c.chop==null){
+    // Not an empty cell: an empty cell reads as a broken column, and this one is
+    // simply not old enough yet. The bar count is the whole message.
+    const need=(BREADTH&&BREADTH.chop_period?BREADTH.chop_period:14)+1;
+    return `<span class="muted" title="The choppiness index needs ${need} recorded daily bars. CoinGecko has no daily-granularity OHLC endpoint, so these are accumulated one night at a time and never back-filled.">${c.bars}/${need}</span>`;
+  }
+  const cls=c.regime==="TRENDING"?"g":c.regime==="RANGE-BOUND"?"a":"n";
+  return `<span class="badge ${cls}" title="Choppiness index ${c.chop} over ${c.bars} daily bars">${c.regime}</span>`;
+}
+// The delta the table is oriented around. 1H is available from CoinGecko but is not
+// recorded, so it is live-only; 4H, 90D and YTD have no free source and are absent
+// rather than approximated from something else.
+const TF_FIELD={"24h":"chg","7d":"chg7d","30d":"chg30d"};
+function tfDelta(t){ const v=t[TF_FIELD[TF]||"chg"]; return (v==null||isNaN(v))?null:v; }
+
+/* The Perpetual Market Structure block in the drawer. Every row can be absent, and an
+   absent row says so — most of the board is spot-only, and a fabricated neutral would
+   be a claim about a market that does not exist. */
+function perpBlock(t){
+  const p=PERPS[t.sym], c=CHOP[t.sym];
+  const has = p && (p.fundingAnn!=null||p.oi!=null||p.ls!=null);
+  if(!has && !(c&&c.chop!=null))
+    return `<div class="note" style="margin-top:12px">No perpetual market recorded for
+      ${t.sym}, and no regime reading yet. Both are observational; conviction is unaffected.</div>`;
+  const usd=v=>v==null?'<span class="muted">—</span>':fmtUsd(v);
+  const pct=(v,d)=>v==null?'<span class="muted">—</span>':
+    `<span class="${v>0?'pos':v<0?'neg':'neu'}">${v>0?'+':''}${v.toFixed(d==null?1:d)}%</span>`;
+  const dv=p&&p.divergence?DIV_LABEL[p.divergence]:null;
+  return `<div class="card-h" style="margin-top:14px">PERPETUAL MARKET STRUCTURE
+      <span class="muted">recorded, not scored</span></div>
+    <div class="kv"><span>Funding (ann.)</span><b>${p&&p.fundingAnn!=null?pct(p.fundingAnn):'<span class="muted">—</span>'}</b></div>
+    <div class="kv"><span>Open interest</span><b class="num">${usd(p&&p.oi)}</b></div>
+    <div class="kv"><span>24h OI Δ</span><b>${p?pct(p.oiChg):'<span class="muted">—</span>'}</b></div>
+    <div class="kv"><span>OI / market cap</span><b class="num">${p&&p.oiToMcap!=null?(p.oiToMcap*100).toFixed(2)+'%':'<span class="muted">—</span>'}</b></div>
+    <div class="kv"><span>Long/short accounts</span><b class="num">${p&&p.ls!=null?p.ls.toFixed(2):'<span class="muted">—</span>'}</b></div>
+    <div class="kv"><span>Positioning</span><b>${dv?`<span class="badge ${dv[1]}">${dv[0]}</span> <span class="muted">${dv[2]}</span>`:'<span class="muted">not enough movement on both legs to call one</span>'}</b></div>
+    <div class="kv"><span>Regime</span><b>${regimeCell(t.sym)}</b></div>
+    <div class="note">Liquidation volume and implied-volatility percentile are not shown:
+      there is no free source for either, and an estimate here would be indistinguishable
+      from a measurement.</div>`;
+}
+
 function renderTables(){
   // Conjunctive gate: qualified coins clear Liquidity + Dilution + Regime.
   const gated = STATE.filter(t=>t.gated);
   const hide = document.getElementById("hide-nq")?.checked;
   // When filtering, show ALL qualified tokens (they should be few); else top 10 by conviction.
-  const VIEW = hide ? gated : STATE.slice(0,10);
+  // A text filter searches the whole universe rather than the visible ten — a filter
+  // that only searches what is already on screen is a highlighter, not a filter.
+  const base = hide ? gated : STATE;
+  const matched = FILTER ? base.filter(matchesFilter) : base;
+  const VIEW = FILTER ? matched.slice(0, 50) : (hide ? gated : base.slice(0,10));
+  const fn=$("#filter-note");
+  if(fn){
+    fn.hidden = !FILTER;
+    if(FILTER) fn.textContent = `“${FILTER}” · ${matched.length} of ${base.length} — Esc to clear`;
+  }
   const tb=$("#tbl-conv tbody"); tb.innerHTML="";
   VIEW.forEach((t,i)=>tb.appendChild(rowConv(t,i,t.gated)));
   // The legend appears only when a marked row is actually on screen.
@@ -965,22 +1166,27 @@ function openDrawer(sym){
   const t=STATE.find(s=>s.sym===sym); if(!t)return;
   $("#dw-sym").textContent=t.sym+" · "+t.name;
   const lb=LEDGER.find(r=>r.symbol===sym);
-  const eraCell=$("#dw-era");
-  const perpCell=$("#dw-perp");
+  // These two are computed as values here and written into the markup below, rather
+  // than queried and mutated. They used to be looked up as #dw-era / #dw-perp *before*
+  // the innerHTML that creates them — so the lookups returned null, assigning to them
+  // threw, and the assignment never ran. The drawer had been failing on every click:
+  // the header rendered, the body did not, and nothing surfaced because the throw was
+  // inside a click handler. Deriving the strings first removes the ordering entirely.
+  let eraCls="neu", eraTxt="null (Dune off)";
   if(lb && lb.era!=null && lb.era!=="None" && lb.era!==""){
     const e=parseFloat(lb.era);
-    const cls=e<1?"pos":e<2?"neu":"neg";
-    const lbl=e<1?"BULLISH":e<2?"NEUTRAL":"BEARISH";
-    let extra = lb.unlocks_usd!=null ? ` · unlocks $${fmtUsd(lb.unlocks_usd)}` : "";
-    eraCell.className=cls; eraCell.textContent=lbl+" ("+e.toFixed(2)+")"+extra;
-  } else { eraCell.className="neu"; eraCell.textContent="null (Dune off)"; }
+    eraCls = e<1?"pos":e<2?"neu":"neg";
+    eraTxt = (e<1?"BULLISH":e<2?"NEUTRAL":"BEARISH") + " ("+e.toFixed(2)+")"
+           + (lb.unlocks_usd!=null && lb.unlocks_usd!=="" ? ` · unlocks $${fmtUsd(lb.unlocks_usd)}` : "");
+  }
+  let perpCls="neu", perpTxt="null (perp off)";
   if(lb && lb.perp_mult!=null && lb.perp_mult!=="None" && lb.perp_mult!==""){
     const p=parseFloat(lb.perp_mult);
     // 0.85 penalized (overheated longs), 1.15 rewarded (short capitulation), 1.0 neutral
-    const pcls = p<1 ? "neg" : p>1 ? "pos" : "neu";
-    const plbl = p<1 ? "OVERHEATED LONGS" : p>1 ? "SHORT CAPITULATION" : "NEUTRAL";
-    perpCell.className=pcls; perpCell.textContent=plbl+" ("+p.toFixed(2)+")";
-  } else { perpCell.className="neu"; perpCell.textContent="null (perp off)"; }
+    perpCls = p<1 ? "neg" : p>1 ? "pos" : "neu";
+    perpTxt = (p<1 ? "OVERHEATED LONGS" : p>1 ? "SHORT CAPITULATION" : "NEUTRAL")
+            + " ("+p.toFixed(2)+")";
+  }
   const led="<a href='ledger/signals.json' target='_blank' style='color:#3B82F6'>view nightly ledger ↗</a>";
   const comp=t.comp||{};
   const attr=`<div class="factor-attr">
@@ -1003,8 +1209,9 @@ function openDrawer(sym){
     <div class="kv"><span>Conviction</span><b class="num ${signalClass(t.conv)}">${t.conv}/100</b></div>
     <div class="kv"><span>Signal</span><b>${sigBadge(t)}</b></div>
     <div class="kv"><span>Tier</span><b><span class="tier ${t.tier}">${t.tier}</span></b></div>
-    <div class="kv"><span>Module B ERA</span><b id="dw-era" class="neu">checking…</b></div>
-    <div class="kv"><span>LAVL Perp</span><b id="dw-perp" class="neu">checking…</b></div>
+    <div class="kv"><span>Module B ERA</span><b id="dw-era" class="${eraCls}">${eraTxt}</b></div>
+    <div class="kv"><span>LAVL Perp</span><b id="dw-perp" class="${perpCls}">${perpTxt}</b></div>
+    ${perpBlock(t)}
     <div style="margin-top:14px" class="muted">${led}</div>
     <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>${attr}`;
   $("#drawer").classList.add("open");
@@ -1016,10 +1223,26 @@ function renderBreadth(){
   const feed=$("#chg-feed"), br=$("#breadth");
   if(!BREADTH){ return; }
   const cf=BREADTH.conviction_change_feed||{gains:[],losses:[]};
-  feed.innerHTML = `<div class="cf-col"><div class="cf-h pos">▲ LARGEST GAINS</div>`+
-    (cf.gains.length?cf.gains.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="pos">+${g.d10}</span></div>`).join(""):`<div class="muted" style="padding:4px 0">—</div>`)+
+  // The horizon is named rather than assumed. The feed used to be hardwired to a
+  // 10-day delta, which needs eleven recorded boards — the ledger has never had that
+  // many, so it rendered as an empty panel indistinguishable from a broken one.
+  const hz = cf.days ? `${cf.days}-day` : null;
+  // Deltas carry `delta`; the old payload keyed them `d10`. Read both so a stale
+  // ledger.json served from cache renders numbers instead of "undefined".
+  const val = g => (g.delta!=null ? g.delta : g.d10);
+  const pend = Object.entries(cf.pending||{})
+    .map(([h,p])=>`${h.slice(1)}-day (${p.have}/${p.needs})`).join(", ");
+  const empty = `<div class="muted" style="padding:4px 0">—</div>`;
+  feed.innerHTML =
+    (hz ? `<div class="muted" style="grid-column:1/-1;margin-bottom:4px">Conviction move over ${hz}${
+        pend?` · still accumulating: ${pend}`:""}</div>`
+        : `<div class="muted" style="grid-column:1/-1;margin-bottom:4px">No horizon has enough
+           recorded history yet${pend?` — needs ${pend}`:""}. Nothing is being hidden; there is
+           not yet a second endpoint to measure against.</div>`)+
+    `<div class="cf-col"><div class="cf-h pos">▲ LARGEST GAINS</div>`+
+    (cf.gains.length?cf.gains.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="pos">+${val(g)}</span></div>`).join(""):empty)+
     `</div><div class="cf-col"><div class="cf-h neg">▼ LARGEST COLLAPSES</div>`+
-    (cf.losses.length?cf.losses.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="neg">${g.d10}</span></div>`).join(""):`<div class="muted" style="padding:4px 0">—</div>`)+`</div>`;
+    (cf.losses.length?cf.losses.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="neg">${val(g)}</span></div>`).join(""):empty)+`</div>`;
   const p30=(BREADTH.persistent_30d||[]).length, p90=(BREADTH.persistent_90d||[]).length;
   br.innerHTML =
     `<div class="kv"><span>Above 70</span><b>${BREADTH.breadth_above70}/${BREADTH.n_assets} (${BREADTH.breadth_pct_above70}%)</b></div>`+
@@ -1052,33 +1275,77 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); });
+  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderDiag(); });
   try{
+    const t0=performance.now();
     const r=await fetch(API,{headers:{Accept:"application/json"}});
+    LATENCY = performance.now()-t0;
     if(!r.ok) throw new Error("HTTP "+r.status);
     const raw=await r.json();
     if(!Array.isArray(raw)) throw new Error("rate-limited or empty");
+    // build() reads PERP for the LAVL leverage multiplier, so the ledger has to be in
+    // before conviction is computed — not merely started. Whichever request won the
+    // race used to decide whether the overlay applied at all: a cold load had PERP
+    // empty and every multiplier 1.0, a warm one had it populated, and the board
+    // reordered between the two. The cold ordering was the wrong one, disagreeing with
+    // both the nightly board and the published basket while looking entirely normal.
+    await ledger;
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
     renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); if(SEL) factorBreakdown(SEL);
-    // The marginal-crossing markers come out of the ledger, so the tables are drawn
-    // again once it lands — otherwise the first render is the one the user reads and
-    // it is missing them.
-    ledger.then(renderTables);
-    st.textContent="OK"; st.className="live"; $("#sys-rl").textContent="nominal";
+    // load() re-runs every 120s, so the banner is replaced rather than appended.
+    const old=$("#perp-warn"); if(old) old.remove();
+    if(PERP_LOADED){ st.textContent="OK"; st.className="live"; }
+    else { st.textContent="DEGRADED"; st.className="neu";
+           $("#tbl-conv").insertAdjacentHTML("beforebegin",
+             `<div class="err" id="perp-warn" style="padding:6px 12px">Leverage overlay
+              unavailable — <code>ledger/signals.json</code> did not load, so every
+              RiskMult_perp defaults to 1.0 and this ranking will not match the
+              published board. Scores shown are unadjusted, not wrong-but-close.</div>`); }
+    $("#sys-rl").textContent="nominal";
+    renderDiag();
   }catch(e){
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
-    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="9" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
+    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="13" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
   }
 }
-// timeframe switches (layout-only; real multi-period needs extra calls)
+// Timeframe switches. These used to be layout-only — they moved the highlight and
+// wrote a note, and the table went on showing the 24h delta whatever was selected. A
+// control that appears to change the view and does not is worse than no control.
 document.querySelectorAll("#tf .sw").forEach(s=>s.onclick=()=>{
   document.querySelectorAll("#tf .sw").forEach(x=>x.classList.remove("on")); s.classList.add("on");
-  $("#cm-note").textContent="view: "+s.dataset.tf+" (spot+24h shown; multi-period via Dune/Pro)";
+  TF = s.dataset.tf;
+  const th=$("#th-delta"); if(th) th.textContent = TF.toUpperCase()+" Δ";
+  $("#cm-note").textContent = "delta column: "+TF.toUpperCase()
+    + " · conviction is unchanged — it is scored on the blended RS, not on the selected window";
+  if(STATE.length) renderTables();
 });
 // Hide Non-Qualified toggle -> re-render all modules + quadrant
 const hideNq=document.getElementById("hide-nq");
 if(hideNq) hideNq.onchange=()=>{ if(STATE.length) renderTables(); };
+
+/* ---------- filter wiring and keybindings ----------
+   `/` focuses the filter, Esc clears it and closes the drawer. Deliberately no 1-4 tab
+   bindings: this terminal has no tabs, and binding keys to views that do not exist
+   would be a shortcut to nothing. */
+const fbox=$("#screen-filter");
+if(fbox) fbox.oninput=()=>setFilter(fbox.value);
+const fnote=$("#filter-note");
+if(fnote) fnote.onclick=()=>setFilter("");
+document.addEventListener("keydown",e=>{
+  const typing = /^(INPUT|TEXTAREA)$/.test((e.target&&e.target.tagName)||"");
+  if(e.key==="/" && !typing){ e.preventDefault(); if(fbox) fbox.focus(); return; }
+  if(e.key==="Escape"){
+    if(FILTER) setFilter("");
+    closeDrawer();
+    if(fbox) fbox.blur();
+  }
+});
+// Cross-panel filtering: a tier chip is a filter, not just a label.
+document.addEventListener("click",e=>{
+  const chip=e.target.closest&&e.target.closest(".tier");
+  if(chip && chip.dataset.filter!=null){ e.stopPropagation(); setFilter(chip.textContent.trim()); }
+});
 load(); setInterval(load,120000);
 </script>
 </body>

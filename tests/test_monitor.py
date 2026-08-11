@@ -45,7 +45,8 @@ def board(date, n=30, conv=lambda i: 90 - i * 2.0, price=lambda i: 1.0 + i,
              "conviction": conv(i), "signal": nightly._tier_for(conv(i)),
              "price": price(i), "market_cap": 1e9 + i * 1e8, "turnover_pct": 30.0,
              "rs7": 1.0, "rs14": 1.0, "rs30": 1.0, "rs200": 1.0, "perp_mult": 1.0,
-             "era": 0.8, "spec_hash": spec, **extra}
+             "era": 0.8, "high_24h": price(i) * 1.01, "low_24h": price(i) * 0.99,
+             "spec_hash": spec, **extra}
             for i in range(n)]
 
 
