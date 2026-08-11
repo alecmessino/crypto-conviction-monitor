@@ -228,9 +228,34 @@ def _run_all():
     return failures
 
 
+def _write_result(failures: list, total: int) -> None:
+    """Record the outcome as an artifact the terminal can read.
+
+    The diagnostic bar claims a parity status, and a hardcoded "PASS" there would be
+    decorative — this project has already removed one such string. This is the real
+    result of the run that gated the commit, written next to the ledger it gated.
+    """
+    ledger = os.path.join(_ROOT, "ledger")
+    if not os.path.isdir(ledger):
+        return
+    payload = {"passed": total - len(failures), "total": total,
+               "ok": not failures, "failed": failures,
+               "spec_hash": nightly.SPEC_HASH,
+               "node": bool(shutil.which("node"))}
+    with open(os.path.join(ledger, "parity.json"), "w") as fh:
+        json.dump(payload, fh, indent=1)
+
+
 if __name__ == "__main__":
     print("Parity + regression check (standalone mode, no pytest required):")
+    if shutil.which("node") is None:
+        # Not a skip. The gate cannot verify the frontend without node, and reporting
+        # success it did not establish is the failure mode this file exists to remove.
+        print("  ERROR node is not available — the frontend port cannot be executed")
+        _write_result(["node unavailable"], 4)
+        sys.exit(1)
     failures = _run_all()
+    _write_result(failures, 4)
     if failures:
         print(f"\nFAILED: {len(failures)} check(s): {failures}")
         sys.exit(1)

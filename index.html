@@ -57,6 +57,19 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 /* Center tables */
 .col-center{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0}
 .scroll-pane{max-height:34vh;overflow:auto}
+/* Sticky headers. Scrolling a dense board without them means holding thirteen column
+   positions in your head, and these columns are not self-describing — "1/15" and
+   "-33%*" mean nothing without the label above them.
+   Deliberately NOT virtualized: the universe is 50 rows. Virtual scrolling below a few
+   thousand costs a scroll-position bug surface and buys nothing measurable here. */
+thead th{position:sticky;top:0;z-index:2;background:#0c1320}
+#screen-filter{background:#0c1320;color:var(--txt);border:1px solid var(--border);
+  border-radius:4px;font-family:inherit;font-size:10px;padding:3px 7px;width:130px}
+#screen-filter:focus{outline:none;border-color:#3B82F6}
+#filter-note{font-size:10px;color:var(--amber);margin-left:6px;cursor:pointer}
+.diag{display:flex;gap:14px;flex-wrap:wrap;font-size:10px;color:var(--sec);padding:5px 0 0}
+.diag b{color:var(--txt);font-variant-numeric:tabular-nums}
+.tier[data-filter]{cursor:pointer}
 /* A scroll port whose height is not a multiple of the row height cuts its last row
    through the middle, and a half-drawn row reads as a broken panel rather than as more
    content below it. 34vh is never a whole number of rows, so all four of these do it.
@@ -172,6 +185,7 @@ canvas{display:block;width:100%}
         <div class="kv"><span>Universe</span><b id="sys-n" class="num">—</b></div>
         <div class="kv"><span>Rate limit</span><b id="sys-rl" class="neu">—</b></div>
         <div class="kv"><span>Skew Qualified</span><b id="sys-skew" class="num">—</b></div>
+        <div class="diag" id="diag"></div>
         <div class="note" style="padding:8px 0 0">Module B uses a live <b>FDV/MCap dilution proxy</b> (real CoinGecko payload) until a Dune unlock feed is connected via repo secret <b>DUNE_API_KEY</b> + <b>DUNE_UNLOCK_QUERY_ID</b> (on-chain override). No fabricated numbers.</div>
         <div class="switches" id="tf">
           <div class="sw on" data-tf="24h">24H</div>
@@ -209,6 +223,9 @@ canvas{display:block;width:100%}
         <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--sec);cursor:pointer;user-select:none">
           <input type="checkbox" id="hide-nq" style="accent-color:#00FF66;cursor:pointer"> <b style="color:#00FF66">HIDE NON-QUALIFIED</b>
         </label>
+        <input id="screen-filter" type="search" placeholder="filter  ( / )" autocomplete="off"
+               title="Filter by ticker, name, signal tier or regime. Press / to focus, Esc to clear.">
+        <span id="filter-note" hidden></span>
         <span id="marginal-note" class="muted" hidden></span>
         <span id="skew" class="muted" style="margin-left:auto"></span>
       </div>
@@ -327,6 +344,8 @@ let PERP_LOADED = false;
 let PERPS = {};    // symbol -> recorded derivatives context (Module 1, non-scoring)
 let CHOP = {};     // symbol -> {chop, regime, bars} (Module 2, non-scoring)
 let TF = "24h";    // active timeframe for the delta column
+let PARITY = null; // parity.json: the real result of the gate that admitted the ledger
+let LATENCY = null;// measured round-trip to the price feed, in ms
 let BREADTH = null; // market_breadth.json: conviction time-series, breadth, dispersion, persistence
 let MONITOR = null; // monitor.json: pipeline health, stability, field presence, spec continuity
 async function loadLedger(){
@@ -365,6 +384,10 @@ async function loadLedger(){
     const rm=await fetch("ledger/monitor.json",{cache:"no-store"});
     if(rm.ok) MONITOR = await rm.json();
   }catch(e){ /* monitor absent — the panel says so rather than rendering defaults */ }
+  try{
+    const rp=await fetch("ledger/parity.json",{cache:"no-store"});
+    if(rp.ok) PARITY = await rp.json();
+  }catch(e){ /* parity artifact absent — the bar reports unknown, never PASS */ }
   buildMarginal();
 }
 
@@ -571,7 +594,7 @@ function rowConv(t,i,gated){
   const zc=t.z>0.5?"neg":t.z<-0.5?"pos":"neu"; // far above ATH = overbought(red), far below ATL = oversold(green)
   const div=t.divergence?'<span class="badge a" title="Price soft / liquidity rising — accumulation">ACCUM</span>':'';
   tr.innerHTML=`<td class="muted num">${i+1}</td>
-    <td class="tick">${t.sym}<span class="tier ${t.tier}">${t.tier}</span></td>
+    <td class="tick">${t.sym}<span class="tier ${t.tier}" data-filter title="Filter the board to ${t.tier}">${t.tier}</span></td>
     <td class="num">${fmtPrice(t.price)}</td>
     ${(()=>{ const d=tfDelta(t);
        return d==null
@@ -590,6 +613,57 @@ function rowConv(t,i,gated){
   return tr;
 }
 function signalClass(c){return c>=70?"pos":c>=55?"neu":"neg";}
+
+/* ---------- filtering ----------
+   One predicate, used by the text box and by the cross-panel chips alike, so a click
+   on a tier and a typed "alt" cannot diverge in what they mean. */
+let FILTER = "";
+function matchesFilter(t){
+  const q=FILTER.toLowerCase();
+  if(!q) return true;
+  const c=CHOP[t.sym];
+  return [t.sym, t.name, t.tier, t.sig&&t.sig[0], c&&c.regime,
+          PERPS[t.sym]&&PERPS[t.sym].divergence]
+    .filter(Boolean).some(v=>String(v).toLowerCase().includes(q));
+}
+/* ---------- diagnostic bar ----------
+   Every figure here is measured or read from an artifact. The parity line in
+   particular is the recorded result of the gate that admitted this ledger, not a
+   badge: a hardcoded "PASS 8/8" is the class of decorative status this project has
+   already had to delete once. When the artifact is missing it reads UNKNOWN, which is
+   the one honest thing to say about a check whose outcome was not recorded. */
+function renderDiag(){
+  const host=$("#diag"); if(!host) return;
+  const bits=[];
+  bits.push(`<span>latency <b>${LATENCY==null?"—":Math.round(LATENCY)+"ms"}</b></span>`);
+  const to = MONITOR && MONITOR.to;
+  if(to){
+    const age = Math.round((Date.now()-Date.parse(to+"T00:00:00Z"))/36e5);
+    bits.push(`<span title="Date of the most recent recorded board">ledger <b>${to}</b>
+      <span style="color:${age>36?"var(--amber)":"var(--sec)"}">(${age}h)</span></span>`);
+  }
+  if(PARITY){
+    const ok=PARITY.ok;
+    bits.push(`<span title="Result of the JS↔Python parity gate that ran before this ledger was committed. It executes the terminal's own scoring block under node and compares it against nightly.score().">parity
+      <b style="color:${ok?"var(--green)":"var(--red)"}">${ok?"PASS":"FAIL"} ${PARITY.passed}/${PARITY.total}</b></span>`);
+    if(PARITY.spec_hash) bits.push(`<span title="Frozen scoring specification. A change here starts a new track record.">spec <b>${PARITY.spec_hash}</b></span>`);
+  } else {
+    bits.push(`<span title="ledger/parity.json was not published, so the gate's outcome is not known here. It is not reported as passing.">parity <b style="color:var(--sec)">UNKNOWN</b></span>`);
+  }
+  const cov = MONITOR && MONITOR.coverage && MONITOR.coverage.context
+              && MONITOR.coverage.context.latest;
+  if(cov){
+    const keys=Object.keys(cov), live=keys.filter(k=>cov[k]>0).length;
+    bits.push(`<span title="Recorded-but-not-scored fields carrying values. Nulls here are expected; nothing scored depends on them.">context feeds <b>${live}/${keys.length}</b></span>`);
+  }
+  host.innerHTML = bits.join("");
+}
+
+function setFilter(q){
+  FILTER = (q||"").trim();
+  const box=$("#screen-filter"); if(box && box.value!==FILTER) box.value=FILTER;
+  if(STATE.length) renderTables();
+}
 
 /* ---------- Module 1: derivatives, and Module 2: regime ----------
    Both are recorded-not-scored. Every cell below distinguishes "no value" from a
@@ -666,7 +740,16 @@ function renderTables(){
   const gated = STATE.filter(t=>t.gated);
   const hide = document.getElementById("hide-nq")?.checked;
   // When filtering, show ALL qualified tokens (they should be few); else top 10 by conviction.
-  const VIEW = hide ? gated : STATE.slice(0,10);
+  // A text filter searches the whole universe rather than the visible ten — a filter
+  // that only searches what is already on screen is a highlighter, not a filter.
+  const base = hide ? gated : STATE;
+  const matched = FILTER ? base.filter(matchesFilter) : base;
+  const VIEW = FILTER ? matched.slice(0, 50) : (hide ? gated : base.slice(0,10));
+  const fn=$("#filter-note");
+  if(fn){
+    fn.hidden = !FILTER;
+    if(FILTER) fn.textContent = `“${FILTER}” · ${matched.length} of ${base.length} — Esc to clear`;
+  }
   const tb=$("#tbl-conv tbody"); tb.innerHTML="";
   VIEW.forEach((t,i)=>tb.appendChild(rowConv(t,i,t.gated)));
   // The legend appears only when a marked row is actually on screen.
@@ -1192,9 +1275,11 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); });
+  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderDiag(); });
   try{
+    const t0=performance.now();
     const r=await fetch(API,{headers:{Accept:"application/json"}});
+    LATENCY = performance.now()-t0;
     if(!r.ok) throw new Error("HTTP "+r.status);
     const raw=await r.json();
     if(!Array.isArray(raw)) throw new Error("rate-limited or empty");
@@ -1218,6 +1303,7 @@ async function load(){
               RiskMult_perp defaults to 1.0 and this ranking will not match the
               published board. Scores shown are unadjusted, not wrong-but-close.</div>`); }
     $("#sys-rl").textContent="nominal";
+    renderDiag();
   }catch(e){
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
     $("#tbl-conv tbody").innerHTML=`<tr><td colspan="13" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
@@ -1237,6 +1323,29 @@ document.querySelectorAll("#tf .sw").forEach(s=>s.onclick=()=>{
 // Hide Non-Qualified toggle -> re-render all modules + quadrant
 const hideNq=document.getElementById("hide-nq");
 if(hideNq) hideNq.onchange=()=>{ if(STATE.length) renderTables(); };
+
+/* ---------- filter wiring and keybindings ----------
+   `/` focuses the filter, Esc clears it and closes the drawer. Deliberately no 1-4 tab
+   bindings: this terminal has no tabs, and binding keys to views that do not exist
+   would be a shortcut to nothing. */
+const fbox=$("#screen-filter");
+if(fbox) fbox.oninput=()=>setFilter(fbox.value);
+const fnote=$("#filter-note");
+if(fnote) fnote.onclick=()=>setFilter("");
+document.addEventListener("keydown",e=>{
+  const typing = /^(INPUT|TEXTAREA)$/.test((e.target&&e.target.tagName)||"");
+  if(e.key==="/" && !typing){ e.preventDefault(); if(fbox) fbox.focus(); return; }
+  if(e.key==="Escape"){
+    if(FILTER) setFilter("");
+    closeDrawer();
+    if(fbox) fbox.blur();
+  }
+});
+// Cross-panel filtering: a tier chip is a filter, not just a label.
+document.addEventListener("click",e=>{
+  const chip=e.target.closest&&e.target.closest(".tier");
+  if(chip && chip.dataset.filter!=null){ e.stopPropagation(); setFilter(chip.textContent.trim()); }
+});
 load(); setInterval(load,120000);
 </script>
 </body>

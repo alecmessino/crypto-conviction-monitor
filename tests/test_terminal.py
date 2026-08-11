@@ -16,6 +16,10 @@ import pytest
 
 HTML = (Path(__file__).resolve().parent.parent / "index.html").read_text(encoding="utf-8")
 SCRIPT = re.search(r"<script>(.*?)</script>", HTML, re.S).group(1)
+# Comments stripped, for assertions that must not be satisfied — or defeated — by
+# prose. A comment explaining why a pattern is forbidden necessarily contains that
+# pattern, and a naive substring check cannot tell the explanation from the offence.
+CODE = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", SCRIPT, flags=re.S))
 
 
 def test_no_element_is_queried_before_the_markup_that_creates_it():
@@ -79,3 +83,64 @@ def test_the_regime_cell_reports_progress_instead_of_an_empty_cell():
     """An empty cell reads as a broken column. The bar count is the message while the
     index is still accumulating."""
     assert "c.bars" in SCRIPT and "need" in SCRIPT
+
+
+# ---------------------------------------------------------------------------
+# Module 5: density, keybindings, telemetry
+# ---------------------------------------------------------------------------
+def test_headers_are_sticky():
+    """Thirteen columns, none of them self-describing — "1/15" and "-33%*" mean nothing
+    without the label above them."""
+    assert "thead th{position:sticky" in HTML
+
+
+def test_the_board_is_not_virtualized():
+    """The universe is 50 rows. Virtual scrolling below a few thousand buys nothing
+    measurable and adds a scroll-position bug surface, so the decision is recorded here
+    rather than left to be re-litigated."""
+    assert "NOT virtualized" in HTML
+    for marker in ("IntersectionObserver", "translateY(", "virtual"):
+        assert marker not in CODE
+
+
+def test_the_filter_searches_the_whole_universe_not_the_visible_rows():
+    """A filter that only searches what is already on screen is a highlighter."""
+    assert "const base = hide ? gated : STATE;" in SCRIPT
+    assert "base.filter(matchesFilter)" in SCRIPT
+
+
+def test_one_predicate_serves_the_text_box_and_the_chips():
+    """Two implementations would let a typed 'alt' and a clicked ALT chip drift apart."""
+    assert SCRIPT.count("function matchesFilter(") == 1
+    assert "setFilter(chip.textContent.trim())" in SCRIPT
+    assert "setFilter(fbox.value)" in SCRIPT
+
+
+def test_slash_focuses_and_escape_clears():
+    assert 'e.key==="/"' in SCRIPT and 'fbox.focus()' in SCRIPT
+    assert 'e.key==="Escape"' in SCRIPT
+
+
+def test_slash_does_not_hijack_typing_in_an_input():
+    """Binding a printable character globally makes it impossible to type that
+    character anywhere else on the page."""
+    assert '/^(INPUT|TEXTAREA)$/' in SCRIPT and "&& !typing" in SCRIPT
+
+
+def test_no_shortcuts_are_bound_to_views_that_do_not_exist():
+    """The brief asked for 1-4 to switch view tabs. This terminal has no tabs, and a
+    shortcut to nothing is worse than no shortcut."""
+    assert 'e.key==="1"' not in SCRIPT and "data-tab" not in HTML
+
+
+def test_the_parity_status_is_read_from_an_artifact_and_never_hardcoded():
+    """A decorative 'PASS 8/8' is the exact class of ornamental status this project has
+    already deleted once. Absent artifact must read UNKNOWN, not PASS."""
+    assert "PARITY.passed" in SCRIPT and "PARITY.total" in SCRIPT
+    assert "ledger/parity.json" in SCRIPT
+    assert 'parity <b style="color:var(--sec)">UNKNOWN' in SCRIPT
+    assert "PASS 8/8" not in CODE
+
+
+def test_latency_is_measured_rather_than_asserted():
+    assert "performance.now()" in SCRIPT and "LATENCY = performance.now()-t0" in SCRIPT
