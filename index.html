@@ -279,6 +279,12 @@ canvas{display:block;width:100%}
       </div>
     </div>
     <div class="glass">
+      <div class="card-h">SELECTION EDGE <span class="muted" id="edge-sub">does conviction predict tomorrow?</span></div>
+      <div class="card-b" id="edge">
+        <div class="muted" style="padding:8px 12px">Edge measurement pending — accrues with the nightly ledger.</div>
+      </div>
+    </div>
+    <div class="glass">
       <div class="card-h">PIPELINE HEALTH <span class="muted" id="mon-obs">operational condition, not predictive power</span></div>
       <div class="card-b" id="monitor">
         <div class="muted" style="padding:8px 12px">Monitor pending — <code>ledger/monitor.json</code> was not produced.</div>
@@ -1218,6 +1224,86 @@ function openDrawer(sym){
 }
 function closeDrawer(){document.getElementById("drawer").classList.remove("open");}
 
+/* Selection edge — the only panel that speaks to whether the score is worth acting on.
+   It leads with the interval, never the point estimate. A mean IC of +0.006 quoted
+   alone reads as "slightly positive"; with six legs the honest statement is "cannot be
+   told apart from nothing", and only the interval makes that visible.
+
+   It also states the realised gap beside the null result, because the two are read
+   wrongly in isolation. The basket losing to equal weight looks like proof the
+   selection subtracts value; it is what a concentrated book with no measurable edge
+   does by construction, since concentration adds variance and not expected return. */
+function renderEdge(){
+  const host=$("#edge"); if(!host) return;
+  const e=(BREADTH&&BREADTH.edge)||null;
+  if(!e || !e.legs){
+    host.innerHTML=`<div class="muted" style="padding:8px 12px">No measured legs yet.
+      The edge cannot be estimated before the ledger has two boards inside one
+      specification.</div>`;
+    return;
+  }
+  const sub=$("#edge-sub");
+  if(sub) sub.textContent = e.measurable ? "measured" : `not yet measurable · ${e.legs}/${e.min_legs} legs`;
+  const pct=v=>v==null?"—":(v>0?"+":"")+v.toFixed(2)+"%";
+  const gap = (e.book_total!=null && e.equal_weight_total!=null)
+      ? e.book_total - e.equal_weight_total : null;
+
+  // The verdict first, in the tone the numbers actually support.
+  const tone = e.measurable ? (e.mean_ic>0?"var(--green)":"var(--red)") : "var(--amber)";
+  let html=`<div style="padding:8px 12px 4px">
+    <div style="font-size:11px;color:${tone};font-weight:700;margin-bottom:4px">
+      ${e.measurable?(e.mean_ic>0?"EDGE PRESENT":"EDGE INVERTED"):"NOT YET MEASURABLE"}</div>
+    <div class="muted" style="font-size:10px;line-height:1.5">${e.verdict}</div>
+  </div>
+  <div class="kv"><span>Information coefficient</span><b class="num">${e.mean_ic>=0?"+":""}${e.mean_ic}</b></div>
+  <div class="kv"><span>95% interval</span><b class="num" style="color:${tone}">[${e.ci[0]}, ${e.ci[1]}]</b></div>
+  <div class="kv"><span>t-statistic</span><b class="num">${e.t_stat}</b></div>
+  <div class="kv"><span>Legs measured</span><b class="num">${e.legs} of ${e.min_legs} needed</b></div>
+  <div class="kv"><span>Legs with IC &gt; 0</span><b class="num">${e.legs_positive}/${e.legs}</b></div>
+  <div class="kv"><span>Top vs bottom quintile</span><b class="num">${e.mean_spread_bp>=0?"+":""}${e.mean_spread_bp} bp</b></div>`;
+
+  // The realised gap, paired with the null so neither is read alone.
+  if(gap!=null){
+    html+=`<div class="kv" style="border-top:1px solid var(--grid);margin-top:4px;padding-top:6px">
+        <span>Book vs equal weight</span>
+        <b class="num" style="color:${gap<0?"var(--red)":"var(--green)"}">${pct(gap)}</b></div>
+      <div class="kv"><span>Book / equal / ${esc0(e.benchmark_total!=null?"BTC":"—")}</span>
+        <b class="num">${pct(e.book_total)} · ${pct(e.equal_weight_total)} · ${pct(e.benchmark_total)}</b></div>`;
+  }
+
+  // Sample size still required, so "not yet" cannot be read as "never".
+  const need=e.legs_needed||{};
+  html+=`<div class="muted" style="padding:6px 12px 2px;font-size:10px">
+    Legs needed to resolve a true IC of
+    ${Object.entries(need).map(([k,v])=>`<b style="color:var(--txt)">${k}</b>&nbsp;${v}`).join(" · ")}
+    — at one leg per night, ${Math.round((need["0.03"]||0)/21)} trading months for a
+    respectable signal. Per-leg noise is ±${e.per_leg_noise}.</div>`;
+
+  // Attribution last, and labelled. Ranking six observations by contribution produces a
+  // confident-looking table of noise; acting on it fits the model to its own error.
+  const a=e.attribution;
+  if(a && (a.detractors||[]).length){
+    const row=d=>`<div class="cf-row"><b>${d.symbol}</b>
+      <span class="muted" style="font-size:9px">${d.stance==="overweight"?"held":"missed"}</span>
+      <span class="${d.bp<0?"neg":"pos"}">${d.bp>0?"+":""}${d.bp}</span></div>`;
+    html+=`<div style="padding:6px 12px 2px;border-top:1px solid var(--grid);margin-top:4px">
+      <div class="muted" style="margin-bottom:4px">Where the ${a.total_bp} bp gap came
+        from <span style="color:var(--amber)">— arithmetic, not evidence</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+        <div><div class="cf-h neg">▼ COST</div>${a.detractors.slice(0,5).map(row).join("")}</div>
+        <div><div class="cf-h pos">▲ HELPED</div>${a.contributors.slice(0,5).map(row).join("")}</div>
+      </div>
+      <div class="muted" style="font-size:9px;margin-top:4px">“held” = overweight and it
+        fell, a selection error. “missed” = underweight and it rose, an omission. Over
+        ${a.legs} legs this ordering is mostly sampling noise and is not a list of names
+        to act on.</div>
+    </div>`;
+  }
+  html+=`<div class="muted" style="padding:6px 12px 10px;font-size:9px">${e.basis}</div>`;
+  host.innerHTML=html;
+}
+function esc0(s){ return s==null?"":String(s); }
+
 // Conviction Change Feed + Breadth/Dispersion/Persistence from market_breadth.json.
 function renderBreadth(){
   const feed=$("#chg-feed"), br=$("#breadth");
@@ -1275,7 +1361,7 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderDiag(); });
+  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderDiag(); });
   try{
     const t0=performance.now();
     const r=await fetch(API,{headers:{Accept:"application/json"}});
