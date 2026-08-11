@@ -70,6 +70,13 @@ thead th{position:sticky;top:0;z-index:2;background:#0c1320}
 .diag{display:flex;gap:14px;flex-wrap:wrap;font-size:10px;color:var(--sec);padding:5px 0 0}
 .diag b{color:var(--txt);font-variant-numeric:tabular-nums}
 .tier[data-filter]{cursor:pointer}
+/* Persistence heatmap. Fixed cell size so the grid reads as a calendar rather than
+   stretching to whatever the panel width happens to be. */
+.hm-row{display:grid;grid-template-columns:92px 1fr 74px;gap:6px;align-items:center;margin-bottom:2px}
+.hm-cells{display:flex;gap:1px}
+.hm-c{flex:1;height:11px;border-radius:1px;min-width:4px}
+.hm-c.gap{background:repeating-linear-gradient(45deg,#1a2130,#1a2130 2px,transparent 2px,transparent 4px)}
+.hm-sym{font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* A scroll port whose height is not a multiple of the row height cuts its last row
    through the middle, and a half-drawn row reads as a broken panel rather than as more
    content below it. 34vh is never a whole number of rows, so all four of these do it.
@@ -290,6 +297,12 @@ canvas{display:block;width:100%}
       <div class="card-h">CONVICTION BREADTH <span class="muted">market-level signal</span></div>
       <div class="card-b" id="breadth" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px">
         <div class="muted" style="padding:8px 12px;grid-column:1/-1">Breadth / dispersion pending — accrues with the nightly ledger.</div>
+      </div>
+    </div>
+    <div class="glass">
+      <div class="card-h">CONVICTION PERSISTENCE <span class="muted" id="pers-sub">who holds the score, who spikes</span></div>
+      <div class="card-b" id="persist">
+        <div class="muted" style="padding:8px 12px">Persistence pending — accrues with the nightly ledger.</div>
       </div>
     </div>
     <div class="glass">
@@ -1337,6 +1350,56 @@ function renderSizing(){
       against. These are bounds on damage, not a bet size.</div>`;
 }
 
+/* ---------- conviction persistence ----------
+   Which names hold the score across nights and which clear the bar once. The existing
+   persistent_30d / persistent_90d fields answer a version of this, but they require 30
+   and 90 *consecutive* nights and the ledger has eleven, so both have been empty lists
+   since the day they were written — the same starvation that made the change feed look
+   broken. This measures over the history that exists and says what the window is.
+
+   A cell is a night. Absent is hatched, not dark: an asset that left the universe is a
+   different fact from one that scored badly, and colouring both the same would invent
+   a low reading that was never taken. */
+function convColor(c){
+  if(c==null) return null;
+  // Same breakpoints as the signal tiers, so the grid and the table agree on what a
+  // number means rather than introducing a second colour language.
+  if(c>=80) return "rgba(0,255,102,.85)";
+  if(c>=70) return "rgba(0,255,102,.5)";
+  if(c>=55) return "rgba(160,180,210,.45)";
+  if(c>=40) return "rgba(245,158,11,.45)";
+  return "rgba(239,68,68,.4)";
+}
+function renderPersistence(){
+  const host=$("#persist"); if(!host) return;
+  const p=(BREADTH&&BREADTH.persistence)||null;
+  if(!p || !(p.rows||[]).length){
+    host.innerHTML=`<div class="muted" style="padding:8px 12px">No recorded nights yet.
+      Persistence is measured from boards that were recorded and cannot be back-filled.</div>`;
+    return;
+  }
+  const sub=$("#pers-sub");
+  if(sub) sub.textContent=`${p.window} night${p.window===1?"":"s"} · ${p.n_backed} backed · ${p.n_spikes} one-offs`;
+  const rows=p.rows.slice(0,14).map(r=>{
+    const cells=r.cells.map((c,i)=>{
+      const col=convColor(c);
+      return `<span class="hm-c${col?"":" gap"}" ${col?`style="background:${col}"`:""}
+        title="${p.dates[i]} · ${c==null?"not on the board":c}"></span>`;}).join("");
+    return `<div class="hm-row" title="${r.symbol}: backed on ${r.nights_above} of ${r.nights} recorded nights · longest run ${r.best_streak} · mean ${r.mean} · sd ${r.sd} · peak ${r.peak}">
+      <span class="hm-sym">${r.symbol}${r.spike?` <span class="badge a" style="font-size:8px;padding:0 3px">1-OFF</span>`:""}</span>
+      <span class="hm-cells">${cells}</span>
+      <span class="num muted" style="font-size:9px;text-align:right">${r.nights_above}/${r.nights} · ${r.best_streak}</span>
+    </div>`;}).join("");
+  host.innerHTML=`<div style="padding:6px 12px 2px">
+      <div class="muted" style="font-size:9px;margin-bottom:5px">
+        ${p.dates[0]} → ${p.dates[p.dates.length-1]} · a cell is one night, brighter is
+        higher conviction, hatched means the asset was not on the board ·
+        right column is nights at or above ${p.level} / recorded, then longest run</div>
+      ${rows}
+      <div class="muted" style="font-size:9px;margin-top:6px;line-height:1.5">${p.basis}</div>
+    </div>`;
+}
+
 /* Selection edge — the only panel that speaks to whether the score is worth acting on.
    It leads with the interval, never the point estimate. A mean IC of +0.006 quoted
    alone reads as "slightly positive"; with six legs the honest statement is "cannot be
@@ -1481,7 +1544,7 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderDiag(); renderSizing(); });
+  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderDiag(); renderSizing(); });
   try{
     const t0=performance.now();
     const r=await fetch(API,{headers:{Accept:"application/json"}});

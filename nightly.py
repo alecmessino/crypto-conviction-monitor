@@ -1651,6 +1651,101 @@ def _chop_by_symbol() -> dict:
     return out
 
 
+# Conviction at or above this counts as the model backing a name. Matches the BUY cut in
+# TIER_CUTS; kept as its own constant so a change here is a deliberate reporting choice
+# rather than something that follows silently from a scoring edit.
+PERSIST_LEVEL = 70.0
+# A name whose best night clears the level but whose typical night does not. The gap is
+# what separates a position from a headline.
+PERSIST_SPIKE_GAP = 15.0
+PERSIST_MAX_NAMES = 40
+# Nights added to the denominator when ranking. A name seen once and backed once has a
+# raw share of 1.0 and would outrank one backed on nine nights of eleven, which is the
+# opposite of what persistent means. Shrinking toward zero costs a well-established name
+# almost nothing and costs a one-night sample most of its score — exactly the asymmetry
+# wanted. Reported as its own field rather than buried in a sort key.
+PERSIST_SHRINK = 2.0
+
+
+def _persistence(series: dict, dates: list) -> dict:
+    """Which names hold conviction across nights, and which spike for one.
+
+    The existing persistence fields required 30 and 90 *consecutive* nights above the
+    level. The ledger has eleven, so both have been empty lists since the day they were
+    written — the same starvation that made the change feed look broken. This measures
+    over the history that exists and states the window, rather than reporting nothing
+    until an arbitrary threshold is crossed.
+
+    Streaks are counted on consecutive *recorded* boards, not calendar days. A night the
+    pipeline did not run is a gap in observation, and treating it as a break would
+    understate persistence for a reason that has nothing to do with the asset. A name
+    absent from a board genuinely breaks its streak — it left the universe.
+    """
+    idx = {d: i for i, d in enumerate(dates)}
+    rows = []
+    for sym, seq in series.items():
+        pts = sorted(((d, c) for d, c in seq if c is not None), key=lambda x: x[0])
+        if not pts:
+            continue
+        convs = [c for _, c in pts]
+        seen = {d for d, _ in pts}
+        mean = sum(convs) / len(convs)
+        sd = (sum((c - mean) ** 2 for c in convs) / (len(convs) - 1)) ** 0.5 if len(convs) > 1 else 0.0
+        # Streaks walk the full date axis so a night the asset was missing breaks the
+        # run, which is the honest reading: it was not on the board to be held.
+        best = cur = run = 0
+        by_date = dict(pts)
+        for d in dates:
+            c = by_date.get(d)
+            run = run + 1 if (d in seen and c is not None and c >= PERSIST_LEVEL) else 0
+            best = max(best, run)
+        cur = run
+        above = sum(1 for c in convs if c >= PERSIST_LEVEL)
+        peak = max(convs)
+        rows.append({
+            "symbol": sym,
+            "nights": len(pts), "of": len(dates),
+            "mean": round(mean, 1), "sd": round(sd, 1),
+            "peak": round(peak, 1), "latest": round(pts[-1][1], 1),
+            "nights_above": above,
+            "share_above": round(above / len(pts), 3),
+            # The ranked figure. See PERSIST_SHRINK: a raw share cannot compare a
+            # one-night sample with an eleven-night one.
+            "persistence": round(above / (len(pts) + PERSIST_SHRINK), 3),
+            "best_streak": best, "current_streak": cur,
+            # A one-night wonder: it cleared the level at its best, but its typical
+            # night sits well below it. Shown as a flag rather than filtered out,
+            # because the interesting question is which of these the reader recognises.
+            "spike": peak >= PERSIST_LEVEL and (peak - mean) >= PERSIST_SPIKE_GAP
+                     and above <= max(1, len(pts) // 4),
+            # The row of the heatmap, aligned to the date axis. None where the asset was
+            # not on the board, which is a different cell from a low score.
+            "cells": [round(by_date[d], 1) if d in by_date and by_date[d] is not None else None
+                      for d in dates],
+        })
+    # Ranked by how much of its recorded life the name spent backed, then by how
+    # convincingly — which puts durable conviction above a single high reading.
+    rows.sort(key=lambda r: (-r["persistence"], -r["best_streak"], -r["mean"]))
+    return {
+        "dates": dates,
+        "level": PERSIST_LEVEL,
+        "window": len(dates),
+        "rows": rows[:PERSIST_MAX_NAMES],
+        "n_backed": sum(1 for r in rows if r["nights_above"] > 0),
+        "n_spikes": sum(1 for r in rows if r["spike"]),
+        "shrink": PERSIST_SHRINK,
+        "basis": ("Share of a name's recorded nights at or above conviction "
+                  f"{PERSIST_LEVEL:.0f}, with the longest consecutive run beside it. "
+                  "Streaks count recorded boards, not calendar days: a night the "
+                  "pipeline did not run is a gap in observation, while a night the "
+                  "asset was absent genuinely breaks the run because it was not there "
+                  "to hold. This is a description of what the score has done, not a "
+                  "forecast — a name can be perfectly persistent and still be wrong. "
+                  "Ranking uses a shrunk share so a name seen once cannot outrank one "
+                  "backed on most of eleven nights."),
+    }
+
+
 # Horizons the change feed will use, longest first, with the recorded days each needs.
 # A delta over N days needs N+1 recorded boards to have two endpoints.
 FEED_HORIZONS = (("d30", 31), ("d10", 11), ("d7", 8), ("d1", 2))
@@ -1753,7 +1848,11 @@ def _compute_market_breadth() -> dict:
     above80 = sum(1 for c in latest_conv if c >= 80)
     dispersion = (sum((c - (sum(latest_conv) / n)) ** 2 for c in latest_conv) / n) ** 0.5 if n > 1 else 0.0
 
-    # Persistence: assets >=70 for the last 30 / 90 consecutive daily snapshots
+    # Persistence: assets >=70 for the last 30 / 90 consecutive daily snapshots.
+    # Kept because a caller may still want the strict definition, but note that both
+    # have been empty for the whole life of the ledger — they need 30 and 90 recorded
+    # nights and there are eleven. `persistence` below measures the same idea over the
+    # history that actually exists.
     persistent30, persistent90 = [], []
     for sym, seq in series.items():
         seq.sort(key=lambda x: x[0])
@@ -1782,6 +1881,8 @@ def _compute_market_breadth() -> dict:
         # Whether the ordering is informative at all — the question that decides
         # whether any of the rest is worth acting on.
         "edge": _compute_edge(),
+        # Which names hold conviction across nights versus spike for one.
+        "persistence": _persistence(series, sorted(set(all_dates))),
         "chop_period": CHOP_PERIOD,
         "trend": {s: {"conviction": round(t["conviction"], 1),
                       **{h: (round(t[h], 1) if t[h] is not None else None)
