@@ -386,6 +386,16 @@ const sgn = v=>(v>0?"+":"")+(v==null?0:v).toFixed(1)+"%";
 
 function tierOf(sym){const s=sym.toLowerCase(); if(EXCLUDED.has(s))return "STABLE"; return TIER[sym]||"ALT";}
 
+/* MODEL PORT — everything between these markers is executed verbatim by
+   tests/test_parity.py under node and compared against nightly.score(). It must stay
+   free of DOM access and of any reference to state outside this block, or the gate
+   cannot run it.
+
+   The gate used to compare nightly.score() against a hand-written Python transcription
+   of this maths and never opened this file at all, so editing the JS alone left parity
+   green while the live terminal quietly disagreed with the ledger. Keep the block
+   self-contained and the check stays honest.
+*/
 // ---- scoring (mirrors backend) ----
 // LiquidityFit: linear ramp into the 30-60% turnover sweet spot; sharp penalty
 // below 10% (illiquid) and above 75% (wash-trading risk).
@@ -422,6 +432,15 @@ function conviction(t, perp, rsBlend){ perp = perp||1; rsBlend = rsBlend||0; // 
   return {conv, comp};
 }
 function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
+// Blended relative strength vs BTC. Lives inside the port because it feeds conviction
+// directly — a drift here moves every score, and a gate that covered conviction() but
+// not its input would report parity while the two sides ranked differently.
+function rsBlendOf(t, btc){
+  const pct = tf => (t["price_change_percentage_"+tf+"d_in_currency"]||0)
+                  - (btc ? (btc["price_change_percentage_"+tf+"d_in_currency"]||0) : 0);
+  return 0.30*pct(7) + 0.25*pct(14) + 0.25*pct(30) + 0.20*pct(200);
+}
+/* END MODEL PORT */
 
 // ---- build model ----
 // STATE is the single filtered subset consumed by every module (A, B, C).
@@ -433,7 +452,7 @@ function build(raw){
     const turn=mc?vol/mc*100:0, chg=t.price_change_percentage_24h||0;
     const pct = tf => (t["price_change_percentage_"+tf+"d_in_currency"]||0) - btcPct(tf);
     const rs7=pct(7), rs14=pct(14), rs30=pct(30), rs200=pct(200);
-    const rsBlend = 0.30*rs7 + 0.25*rs14 + 0.25*rs30 + 0.20*rs200;
+    const rsBlend = rsBlendOf(t, btc);   // inside MODEL PORT — see the gate
     const {conv, comp} = conviction({vol,mc,chg}, PERP[(t.symbol||"").toUpperCase()]||1, rsBlend);
     const sig=signal(conv);
     // Mean-reversion Z (relative to all-time range, since free API lacks 30d MA).

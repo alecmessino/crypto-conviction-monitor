@@ -1,90 +1,98 @@
 """Frontend<->backend parity (mandatory before every deploy) + frozen regression.
 
-The dashboard's `launch_skew.html` `conviction()`/`build()` must produce the SAME
-conviction + component attribution as the nightly `score()`. If they ever diverge,
-historical results become untrustworthy and the live terminal silently disagrees
-with the persisted Index. This check is enforced in CI — a parity break fails the build.
+The terminal's `conviction()` must produce the SAME conviction and component
+attribution as the nightly `score()`. If they diverge, the live board silently
+disagrees with the persisted ledger and every historical result becomes untrustworthy.
 
-It imports the REAL nightly.score() and compares against a faithful port of the
-frontend JS math (liquidityFit / depthScore / conviction with blended RS vs BTC).
+**This gate used to be unable to detect that.** It compared `nightly.score()` against a
+hand-written *Python transcription* of the frontend maths and never opened
+`index.html`. Editing the JS without editing the transcription left parity green while
+the real terminal drifted — the transcription was not the frontend, it was a second
+implementation that happened to agree with the backend.
+
+It now extracts the real JS between the `MODEL PORT` markers in `index.html` and
+executes it under node, which is the only version of this check that means anything.
 
 Runs two ways:
-  * `python -m pytest tests/test_parity.py`   (local / dev CI, needs pytest)
-  * `python tests/test_parity.py`            (CI nightly gate — NO pytest needed;
-                                             exits non-zero on any failure so the
-                                             workflow step fails and blocks the commit)
+  * `python -m pytest tests/test_parity.py`   (local / dev CI; skips without node)
+  * `python tests/test_parity.py`             (CI nightly gate — NO pytest needed;
+                                              exits non-zero on any failure, and
+                                              treats a missing node as a failure
+                                              rather than a pass)
 """
 import importlib.util
+import json
 import os
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.dirname(_HERE))
+_ROOT = os.path.dirname(_HERE)
+sys.path.insert(0, _ROOT)
 
-_spec = importlib.util.spec_from_file_location("nightly", os.path.join(os.path.dirname(_HERE), "nightly.py"))
+_spec = importlib.util.spec_from_file_location("nightly", os.path.join(_ROOT, "nightly.py"))
 nightly = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(nightly)
 
-
-# ---- faithful port of launch_skew.html frontend math ----
-def liquidity_fit(turn):  # turn is a FRACTION (0.05 = 5%); mirrors nightly Module A
-    if turn <= 0:
-        return 0
-    if turn <= 0.30:
-        return 10 + (turn / 0.30) * 20
-    if turn <= 0.60:
-        return 30 - abs(turn - 0.45) / 0.15 * 6
-    if turn <= 1.20:
-        return 20 - (turn - 0.60) / 0.60 * 12
-    return max(2, 8 - (turn - 1.20) * 4)
+TERMINAL = os.path.join(_ROOT, "index.html")
+MARKER_START = "MODEL PORT"
+MARKER_END = "END MODEL PORT"
 
 
-import math
-_math_log10 = math.log10
+def extract_port() -> str:
+    """Pull the delimited scoring block out of the terminal's inline script.
+
+    The markers sit inside comment blocks, so the slice runs from the *end* of the
+    opening comment to the *start* of the closing one — anything else hands node a
+    fragment of prose and fails with a syntax error rather than a parity result.
+    """
+    html = open(TERMINAL, encoding="utf-8").read()
+    script = re.search(r"<script>(.*?)</script>", html, re.S)
+    assert script, "index.html has no inline <script> block"
+    body = script.group(1)
+    start, end = body.find(MARKER_START), body.find(MARKER_END)
+    assert start != -1 and end != -1, (
+        f"could not find the {MARKER_START}/{MARKER_END} markers in index.html — "
+        "the parity gate cannot verify a port it cannot locate")
+    open_close = body.find("*/", start)
+    assert open_close != -1, "the opening MODEL PORT marker is not inside a /* */ comment"
+    close_open = body.rfind("/*", start, end)
+    assert close_open != -1, "the END MODEL PORT marker is not inside a /* */ comment"
+    port = body[open_close + 2:close_open]
+    assert "conviction" in port and "liquidityFit" in port, \
+        "the extracted block does not contain the scoring functions"
+    return port
 
 
-def depth_score(mc):
-    if not mc:
-        return 0
-    return max(0, min(1, (_math_log10(mc) - 6) / 4.0))
+def run_js(cases: list) -> list:
+    """Execute the real frontend scoring over `cases`, returning its own output.
 
-
-def frontend_conviction(vol, mc, chg, perp, rs_blend):
-    """Exact port of launch_skew.html conviction(t, perp, rsBlend) — v2 multiplicative.
-    Mirrors nightly.score()'s Quality x Confirmation x RiskAdjustment composition."""
-    import math
-    turn = vol / mc
-    # Module B era (24h stability) — kept for attribution, no longer in the v2 product
-    ag = 15 if abs(chg) < 5 else 10 if abs(chg) < 15 else 5
-    era = 5 / ag
-    b = 20 if era < 0.7 else 15 if era < 1.0 else 10 if era < 1.5 else 5 if era < 2.0 else 0
-    # Q (Structural Quality): log-mcap depth, 0-1
-    depth = max(0.0, min(1.0, (math.log10(mc) - 6) / 4.0)) if mc else 0
-    # C (Market Confirmation): soft sigmoid over rs_blend — NO hard clamp
-    cm = 0.10 + 0.90 * ((math.tanh((rs_blend or 0) / 25.0) + 1.0) / 2.0)  # [0.10,0.91]
-    # R (Risk Adjustment): mcap-aware liquidity, floored to 1.0 for depth>=0.90
-    if depth >= 0.90:
-        a_frac = 1.0
-    else:
-        a_frac = liquidity_fit(turn) / 30.0  # normalize Module A a (0-30) to 0-1
-        a_frac = max(0.4, a_frac)            # cap haircut at 60%
-    risk = a_frac * perp
-    conv = max(0, min(100, int(round(100 * depth * cm * risk))))
-    comp = {
-        "liquidity": round(a_frac * 30, 1), "era": round(b, 1),
-        "depth": round(depth * 20, 1),
-        "momentum": round(cm * 20, 1),  # confirmation, display-scaled
-        "risk_adjustment": round(risk, 3), "rsBlend": round((rs_blend or 0), 2),
-    }
-    return conv, comp
-
-
-def frontend_rs_blend(t, btc):
-    def pct(tf):
-        return (t.get(f"price_change_percentage_{tf}d_in_currency") or 0) - \
-               (btc.get(f"price_change_percentage_{tf}d_in_currency") or 0)
-    rs7, rs14, rs30, rs200 = pct(7), pct(14), pct(30), pct(200)
-    return 0.30 * rs7 + 0.25 * rs14 + 0.25 * rs30 + 0.20 * rs200
+    Each case is {"t": {vol, mc, chg}, "perp": float, "asset": {...}, "btc": {...}}.
+    """
+    node = shutil.which("node")
+    assert node, "node is required to execute the frontend port"
+    driver = extract_port() + """
+const CASES = %s;
+const out = CASES.map(c => {
+  const rs = rsBlendOf(c.asset, c.btc);
+  const r = conviction(c.t, c.perp, rs);
+  return {conv: r.conv, comp: r.comp, rsBlend: rs, signal: signal(r.conv)[0]};
+});
+console.log(JSON.stringify(out));
+""" % json.dumps(cases)
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(driver)
+        path = fh.name
+    try:
+        res = subprocess.run([node, path], capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            raise AssertionError(f"node failed running the extracted port: {res.stderr.strip()}")
+        return json.loads(res.stdout.strip().splitlines()[-1])
+    finally:
+        os.unlink(path)
 
 
 # ---- shared fixture: BTC reference + fixed assets (deterministic inputs) ----
@@ -119,38 +127,61 @@ def _asset(sym, perp_mult=1.0):
 
 
 def check_frontend_backend_parity():
-    """Frontend conviction + component attribution must equal nightly score()."""
-    for sym in FIXTURE:
+    """The real frontend conviction + attribution must equal nightly score()."""
+    syms = list(FIXTURE)
+    cases = []
+    for sym in syms:
         t, _ = _asset(sym)
-        rs_blend = frontend_rs_blend(t, BTC)
-        fe_conv, fe_comp = frontend_conviction(t["total_volume"], t["market_cap"],
-                                                t["price_change_percentage_24h"], 1.0, rs_blend)
-        # backend: score(t, perps_map={}, btc=BTC) -> (era, total, sig, comp)
+        cases.append({"t": {"vol": t["total_volume"], "mc": t["market_cap"],
+                            "chg": t["price_change_percentage_24h"]},
+                      "perp": 1.0, "asset": t, "btc": BTC})
+    fe_all = run_js(cases)
+    for sym, fe in zip(syms, fe_all):
+        t, _ = _asset(sym)
         era, be_conv, sig, be_comp = nightly.score(t, {}, BTC)
-        assert fe_conv == be_conv, f"{sym}: frontend {fe_conv} != backend {be_conv}"
-        # component attribution must match (this is what the drawer renders).
-        # frontend comp uses key "rsBlend"; backend uses "rs_blend" — compare values.
-        for k_fe, k_be in [("liquidity", "liquidity"), ("era", "era"),
-                            ("depth", "depth"), ("momentum", "momentum")]:
-            assert fe_comp[k_fe] == round(be_comp[k_be], 1), \
-                f"{sym}: {k_fe} fe={fe_comp[k_fe]} be={be_comp[k_be]}"
-        assert abs(fe_comp["rsBlend"] - be_comp["rs_blend"]) < 1e-9, \
-            f"{sym}: rsBlend fe={fe_comp['rsBlend']} be={be_comp['rs_blend']}"
+        assert fe["conv"] == be_conv, f"{sym}: frontend {fe['conv']} != backend {be_conv}"
+        assert fe["signal"] == sig, f"{sym}: signal fe={fe['signal']} be={sig}"
+        for k in ("liquidity", "era", "depth", "momentum"):
+            assert fe["comp"][k] == round(be_comp[k], 1), \
+                f"{sym}: {k} fe={fe['comp'][k]} be={be_comp[k]}"
+        assert abs(fe["comp"]["rsBlend"] - be_comp["rs_blend"]) < 1e-9, \
+            f"{sym}: rsBlend fe={fe['comp']['rsBlend']} be={be_comp['rs_blend']}"
 
 
 def check_parity_under_perp_overlay():
-    """LAVL perp overlay must agree. Frontend reads PERP[sym] = backend's
-    lavl_perp_mult() output, so derive the multiplier the same way."""
-    for sym, fr in [("SOL", -0.002), ("ETH", 0.002)]:
+    """The LAVL overlay must agree. The frontend reads PERP[sym], which is the backend's
+    lavl_perp_mult() output, so the multiplier is derived the same way on both sides."""
+    pairs = [("SOL", -0.002), ("ETH", 0.002)]
+    cases, mults = [], []
+    for sym, fr in pairs:
         t, _ = _asset(sym)
-        # backend-style perps_map: funding_rate drives the multiplier
-        perps_map = {sym: {"funding_rate": fr, "open_interest": 0.0}}
-        pm = nightly.lavl_perp_mult(sym, perps_map)  # what the frontend actually uses
-        rs_blend = frontend_rs_blend(t, BTC)
-        fe_conv, _ = frontend_conviction(t["total_volume"], t["market_cap"],
-                                          t["price_change_percentage_24h"], pm, rs_blend)
-        era, be_conv, sig, be_comp = nightly.score(t, perps_map, BTC)
-        assert fe_conv == be_conv, f"{sym}@perp{pm}: frontend {fe_conv} != backend {be_conv}"
+        pm = nightly.lavl_perp_mult(sym, {sym: {"funding_rate": fr, "open_interest": 0.0}})
+        mults.append(pm)
+        cases.append({"t": {"vol": t["total_volume"], "mc": t["market_cap"],
+                            "chg": t["price_change_percentage_24h"]},
+                      "perp": pm, "asset": t, "btc": BTC})
+    fe_all = run_js(cases)
+    for (sym, fr), pm, fe in zip(pairs, mults, fe_all):
+        t, _ = _asset(sym)
+        era, be_conv, sig, be_comp = nightly.score(
+            t, {sym: {"funding_rate": fr, "open_interest": 0.0}}, BTC)
+        assert fe["conv"] == be_conv, \
+            f"{sym}@perp{pm}: frontend {fe['conv']} != backend {be_conv}"
+
+
+def check_the_gate_reads_the_real_terminal():
+    """A guard on the guard.
+
+    If the markers vanish or the block stops containing the scoring functions, every
+    parity assertion above would still pass — against nothing. That is the failure this
+    whole rewrite exists to remove, so it is asserted rather than assumed.
+    """
+    port = extract_port()
+    for fn in ("function conviction", "function liquidityFit", "function depthScore",
+               "function signal", "function rsBlendOf"):
+        assert fn in port, f"{fn} is no longer inside the MODEL PORT markers"
+    assert "document." not in port and "PERP[" not in port, \
+        "the port block touches page state and can no longer be executed standalone"
 
 
 # ---- frozen regression: the v2 multiplicative scoring engine must not drift ----
@@ -183,6 +214,7 @@ def _run_all():
         ("frontend/backend parity", check_frontend_backend_parity),
         ("parity under perp overlay", check_parity_under_perp_overlay),
         ("frozen conviction regression", check_frozen_conviction_regression),
+        ("gate reads the real terminal", check_the_gate_reads_the_real_terminal),
     ]:
         try:
             fn()
@@ -208,11 +240,23 @@ else:
     # pytest mode: expose the same logic as decorated test functions.
     import pytest  # only needed when run under pytest
 
+    # A developer without node gets a skip; CI does not, because the standalone
+    # entrypoint above treats a missing node as a failure. A parity gate reporting
+    # success when it could not run is the same category of lie this file was
+    # rewritten to remove.
+    needs_node = pytest.mark.skipif(shutil.which("node") is None,
+                                    reason="node is required to execute the frontend port")
+
+    @needs_node
     def test_frontend_backend_parity():
         check_frontend_backend_parity()
 
+    @needs_node
     def test_parity_under_perp_overlay():
         check_parity_under_perp_overlay()
 
     def test_frozen_conviction_regression():
         check_frozen_conviction_regression()
+
+    def test_the_gate_reads_the_real_terminal():
+        check_the_gate_reads_the_real_terminal()
