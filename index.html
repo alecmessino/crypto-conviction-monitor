@@ -317,6 +317,10 @@ let STATE = [];
 let LEDGER = [];   // nightly signals.json rows (Module B real data when present)
 let INDEX = null;  // nightly index.json (conviction-weighted basket track record)
 let PERP = {};     // symbol -> RiskMult_perp (LAVL leverage overlay) from nightly ledger
+// False until the overlay has actually been loaded. Without it every multiplier
+// defaults to 1.0 and the board reorders — a live table that quietly disagrees with the
+// published one is worse than a table that says it is degraded, so this is rendered.
+let PERP_LOADED = false;
 let BREADTH = null; // market_breadth.json: conviction time-series, breadth, dispersion, persistence
 let MONITOR = null; // monitor.json: pipeline health, stability, field presence, spec continuity
 async function loadLedger(){
@@ -330,6 +334,7 @@ async function loadLedger(){
     PERP = {};
     (j.rows||[]).forEach(r=>{ const pm=r.perp_mult;
       if(pm!=null && pm!=="None" && pm!==""){ const v=parseFloat(pm); if(!isNaN(v)) PERP[(r.symbol||"").toUpperCase()]=v; } });
+    PERP_LOADED = Object.keys(PERP).length > 0;
     const dune=$("#sys-dune");
     if(LEDGER.length){ dune.className="pos"; dune.textContent="LIVE ("+LEDGER.length+" tk)"; }
     else { dune.className="neu"; dune.textContent="OFF"; }
@@ -1016,10 +1021,26 @@ function renderBreadth(){
   const feed=$("#chg-feed"), br=$("#breadth");
   if(!BREADTH){ return; }
   const cf=BREADTH.conviction_change_feed||{gains:[],losses:[]};
-  feed.innerHTML = `<div class="cf-col"><div class="cf-h pos">▲ LARGEST GAINS</div>`+
-    (cf.gains.length?cf.gains.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="pos">+${g.d10}</span></div>`).join(""):`<div class="muted" style="padding:4px 0">—</div>`)+
+  // The horizon is named rather than assumed. The feed used to be hardwired to a
+  // 10-day delta, which needs eleven recorded boards — the ledger has never had that
+  // many, so it rendered as an empty panel indistinguishable from a broken one.
+  const hz = cf.days ? `${cf.days}-day` : null;
+  // Deltas carry `delta`; the old payload keyed them `d10`. Read both so a stale
+  // ledger.json served from cache renders numbers instead of "undefined".
+  const val = g => (g.delta!=null ? g.delta : g.d10);
+  const pend = Object.entries(cf.pending||{})
+    .map(([h,p])=>`${h.slice(1)}-day (${p.have}/${p.needs})`).join(", ");
+  const empty = `<div class="muted" style="padding:4px 0">—</div>`;
+  feed.innerHTML =
+    (hz ? `<div class="muted" style="grid-column:1/-1;margin-bottom:4px">Conviction move over ${hz}${
+        pend?` · still accumulating: ${pend}`:""}</div>`
+        : `<div class="muted" style="grid-column:1/-1;margin-bottom:4px">No horizon has enough
+           recorded history yet${pend?` — needs ${pend}`:""}. Nothing is being hidden; there is
+           not yet a second endpoint to measure against.</div>`)+
+    `<div class="cf-col"><div class="cf-h pos">▲ LARGEST GAINS</div>`+
+    (cf.gains.length?cf.gains.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="pos">+${val(g)}</span></div>`).join(""):empty)+
     `</div><div class="cf-col"><div class="cf-h neg">▼ LARGEST COLLAPSES</div>`+
-    (cf.losses.length?cf.losses.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="neg">${g.d10}</span></div>`).join(""):`<div class="muted" style="padding:4px 0">—</div>`)+`</div>`;
+    (cf.losses.length?cf.losses.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="neg">${val(g)}</span></div>`).join(""):empty)+`</div>`;
   const p30=(BREADTH.persistent_30d||[]).length, p90=(BREADTH.persistent_90d||[]).length;
   br.innerHTML =
     `<div class="kv"><span>Above 70</span><b>${BREADTH.breadth_above70}/${BREADTH.n_assets} (${BREADTH.breadth_pct_above70}%)</b></div>`+
@@ -1058,14 +1079,26 @@ async function load(){
     if(!r.ok) throw new Error("HTTP "+r.status);
     const raw=await r.json();
     if(!Array.isArray(raw)) throw new Error("rate-limited or empty");
+    // build() reads PERP for the LAVL leverage multiplier, so the ledger has to be in
+    // before conviction is computed — not merely started. Whichever request won the
+    // race used to decide whether the overlay applied at all: a cold load had PERP
+    // empty and every multiplier 1.0, a warm one had it populated, and the board
+    // reordered between the two. The cold ordering was the wrong one, disagreeing with
+    // both the nightly board and the published basket while looking entirely normal.
+    await ledger;
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
     renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); if(SEL) factorBreakdown(SEL);
-    // The marginal-crossing markers come out of the ledger, so the tables are drawn
-    // again once it lands — otherwise the first render is the one the user reads and
-    // it is missing them.
-    ledger.then(renderTables);
-    st.textContent="OK"; st.className="live"; $("#sys-rl").textContent="nominal";
+    // load() re-runs every 120s, so the banner is replaced rather than appended.
+    const old=$("#perp-warn"); if(old) old.remove();
+    if(PERP_LOADED){ st.textContent="OK"; st.className="live"; }
+    else { st.textContent="DEGRADED"; st.className="neu";
+           $("#tbl-conv").insertAdjacentHTML("beforebegin",
+             `<div class="err" id="perp-warn" style="padding:6px 12px">Leverage overlay
+              unavailable — <code>ledger/signals.json</code> did not load, so every
+              RiskMult_perp defaults to 1.0 and this ranking will not match the
+              published board. Scores shown are unadjusted, not wrong-but-close.</div>`); }
+    $("#sys-rl").textContent="nominal";
   }catch(e){
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
     $("#tbl-conv tbody").innerHTML=`<tr><td colspan="9" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;

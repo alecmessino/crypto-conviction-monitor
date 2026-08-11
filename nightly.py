@@ -1237,6 +1237,46 @@ def _compute_monitor(dune_report: dict | None = None) -> dict:
     }
 
 
+# Horizons the change feed will use, longest first, with the recorded days each needs.
+# A delta over N days needs N+1 recorded boards to have two endpoints.
+FEED_HORIZONS = (("d30", 31), ("d10", 11), ("d7", 8), ("d1", 2))
+FEED_LIMIT = 8
+
+
+def _change_feed(trend: dict, days_recorded: int) -> dict:
+    """Largest conviction gains and losses, over the longest horizon that has data.
+
+    This used to be hardwired to a 10-day delta, which needs eleven recorded boards.
+    The ledger has never had that many, so `d10` was None for every asset on every run
+    and the feed serialised as {"gains": [], "losses": []} — rendering as an empty
+    panel that looks exactly like a broken one. It would have started working on its
+    own eventually, silently, which is its own problem: nobody would have known whether
+    it was fixed or still faulty.
+
+    So it degrades instead. It reports the horizon it actually used and what the longer
+    ones are still waiting for, and the panel says so rather than showing nothing.
+    """
+    pending = {h: {"needs": need, "have": days_recorded}
+               for h, need in FEED_HORIZONS if days_recorded < need}
+    for horizon, need in FEED_HORIZONS:
+        if days_recorded < need:
+            continue
+        movers = [(s, t[horizon]) for s, t in trend.items() if t.get(horizon) is not None]
+        if not movers:
+            continue
+        movers.sort(key=lambda x: x[1], reverse=True)
+        return {
+            "horizon": horizon,
+            "days": int(horizon[1:]),
+            "gains": [{"symbol": s, "delta": round(d, 1), horizon: round(d, 1)}
+                      for s, d in movers[:FEED_LIMIT] if d > 0],
+            "losses": [{"symbol": s, "delta": round(d, 1), horizon: round(d, 1)}
+                       for s, d in reversed(movers[-FEED_LIMIT:]) if d < 0],
+            "pending": pending,
+        }
+    return {"horizon": None, "days": None, "gains": [], "losses": [], "pending": pending}
+
+
 def _compute_market_breadth() -> dict:
     """Conviction as a time-series (reviewer #3) + breadth/dispersion/persistence
     (the three differentiated signals). Purely derived from the signals ledger —
@@ -1275,6 +1315,12 @@ def _compute_market_breadth() -> dict:
         seq.sort(key=lambda x: x[0])
         trend[sym] = {
             "conviction": seq[-1][1] if seq else 0,
+            # d1 and d7 exist because d10 needs eleven recorded days and the ledger has
+            # had fewer for its entire life so far. The feed was serialising as
+            # {"gains": [], "losses": []} every night and rendering as nothing, which
+            # is indistinguishable from a broken panel — see _change_feed below.
+            "d1": _at(seq, 1),
+            "d7": _at(seq, 7),
             "d10": _at(seq, 10),
             "d30": _at(seq, 30),
         }
@@ -1304,11 +1350,7 @@ def _compute_market_breadth() -> dict:
         if cons90:
             persistent90.append(sym)
 
-    # Conviction change feed: largest increases / collapses over 10d
-    movers = [(sym, t["d10"]) for sym, t in trend.items() if t.get("d10") is not None]
-    movers.sort(key=lambda x: x[1], reverse=True)
-    gains = [{"symbol": s, "d10": round(d, 1)} for s, d in movers[:8] if d > 0]
-    losses = [{"symbol": s, "d10": round(d, 1)} for s, d in reversed(movers[-8:]) if d < 0]
+    change_feed = _change_feed(trend, len(set(all_dates)))
 
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1319,10 +1361,10 @@ def _compute_market_breadth() -> dict:
         "dispersion": round(dispersion, 2),
         "persistent_30d": persistent30,
         "persistent_90d": persistent90,
-        "conviction_change_feed": {"gains": gains, "losses": losses},
+        "conviction_change_feed": change_feed,
         "trend": {s: {"conviction": round(t["conviction"], 1),
-                       "d10": round(t["d10"], 1) if t["d10"] is not None else None,
-                       "d30": round(t["d30"], 1) if t["d30"] is not None else None}
+                      **{h: (round(t[h], 1) if t[h] is not None else None)
+                         for h in ("d1", "d7", "d10", "d30")}}
                  for s, t in sorted(trend.items(), key=lambda x: -x[1]["conviction"])},
     }
 
