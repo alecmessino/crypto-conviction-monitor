@@ -195,6 +195,20 @@ canvas{display:block;width:100%}
       </div>
     </div>
     <div class="glass">
+      <div class="card-h">POSITION SIZING <span class="muted" id="sz-sub">liquidity-constrained</span></div>
+      <div class="card-b">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+          <label class="muted" style="font-size:10px">Book $</label>
+          <input id="sz-notional" type="number" min="0" step="1000" value="100000"
+                 style="flex:1;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:4px 6px">
+          <label class="muted" style="font-size:10px" title="Share of 24h volume you are willing to be. Above a few percent your own order is the price.">ADV %</label>
+          <input id="sz-participation" type="number" min="0.1" max="25" step="0.5" value="2"
+                 style="width:52px;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:4px 6px">
+        </div>
+        <div id="sz-out"></div>
+      </div>
+    </div>
+    <div class="glass">
       <div class="card-h">PORTFOLIO OVERLAY</div>
       <div class="card-b">
         <div class="muted" style="margin-bottom:6px">Paste holdings as JSON: {"BTC":0.5,"SOL":20} — overlays your bags on the matrix.</div>
@@ -1224,6 +1238,105 @@ function openDrawer(sym){
 }
 function closeDrawer(){document.getElementById("drawer").classList.remove("open");}
 
+/* ---------- position sizing ----------
+   Deliberately NOT an optimal allocation. Optimal sizing needs an expected return, and
+   the selection-edge panel measures the information coefficient at +0.006 with an
+   interval spanning zero — there is no expected return to optimise against yet, so any
+   Kelly-style number here would be an arbitrary constant wearing a formula.
+
+   What this does instead is bound the damage: conviction sets the *shape* of the book,
+   and liquidity and regime set the *ceiling* on each line. Both of those are
+   true regardless of whether the score predicts anything, which is exactly why this is
+   worth shipping now and the simulator is not.
+
+   Money the caps refuse is shown as unallocated rather than pushed into the next name.
+   Redistributing it would quietly concentrate the book into whatever happened to be
+   liquid, which is a different portfolio from the one the score recommended and would
+   be presented as if it were the same one. */
+const SZ_TOP_N = 10;
+// Only the case the ADV cap cannot see. Low turnover needs no separate haircut: the cap
+// is already a share of actual volume, so a thinly traded name is held down by it, and a
+// second penalty would apply the same constraint twice. High turnover is the opposite
+// problem — the volume is substantially wash, so the cap is a percentage of something
+// that is not really there and is too generous rather than too tight.
+// (A first version also cut anything under 15% turnover. The live board's median is
+// 2.9% and its 90th percentile 14.7%, so that flagged 46 of 50 names and said nothing.)
+const SZ_TURN_WASH = 90;
+// Multiplicative, so two problems compound rather than the worse one winning.
+const SZ_HAIRCUT = {wash: 0.5, chop: 0.75};
+
+function szInputs(){
+  const n = parseFloat($("#sz-notional")?.value);
+  const p = parseFloat($("#sz-participation")?.value);
+  return {notional: isFinite(n) && n > 0 ? n : 0,
+          participation: isFinite(p) && p > 0 ? Math.min(p, 25) / 100 : 0.02};
+}
+
+function sizeBook(state, notional, participation){
+  const held = state.filter(t => t.conv > 0).slice(0, SZ_TOP_N);
+  const totalConv = held.reduce((s, t) => s + t.conv, 0) || 1;
+  const rows = held.map(t => {
+    const target = notional * (t.conv / totalConv);
+    const adv = t.vol || 0;
+    const cap = adv * participation;
+    // Regime and turnover haircuts apply to the *target*, not the cap: they are
+    // statements about how much of this name you want, not how much you can trade.
+    const reasons = [];
+    let hair = 1;
+    if(t.turn > SZ_TURN_WASH){ hair *= SZ_HAIRCUT.wash; reasons.push("wash-risk turnover"); }
+    const regime = (CHOP[t.sym]||{}).regime;
+    if(regime === "RANGE-BOUND"){ hair *= SZ_HAIRCUT.chop; reasons.push("range-bound"); }
+    const wanted = target * hair;
+    // No volume figure means no cap can be computed. Sizing it anyway would put a
+    // number on an asset whose exit cost is unknown, so it is refused outright.
+    const sized = adv > 0 ? Math.min(wanted, cap) : 0;
+    const binding = adv <= 0 ? "no volume data"
+                  : sized < wanted - 0.01 ? "ADV cap"
+                  : reasons.length ? reasons.join(" + ") : "conviction";
+    return {sym: t.sym, conv: t.conv, target, wanted, cap, adv, sized, binding,
+            reasons, turn: t.turn, regime,
+            // Days to exit at the same participation rate — the number that decides
+            // whether a position is a position or a trap.
+            exitDays: adv > 0 && sized > 0 ? sized / (adv * participation) : null};
+  });
+  const allocated = rows.reduce((s, r) => s + r.sized, 0);
+  return {rows, allocated, unallocated: Math.max(0, notional - allocated),
+          capped: rows.filter(r => r.binding === "ADV cap").length,
+          refused: rows.filter(r => r.sized <= 0).length};
+}
+
+function renderSizing(){
+  const host=$("#sz-out"); if(!host) return;
+  if(!STATE.length){ host.innerHTML=`<div class="muted">Awaiting the live board.</div>`; return; }
+  const {notional, participation} = szInputs();
+  if(!notional){ host.innerHTML=`<div class="muted">Enter a book size to see suggested lines.</div>`; return; }
+  const b = sizeBook(STATE, notional, participation);
+  const usd = v => v>=1e6 ? "$"+(v/1e6).toFixed(2)+"M" : v>=1e3 ? "$"+(v/1e3).toFixed(0)+"k" : "$"+v.toFixed(0);
+  const sub=$("#sz-sub");
+  if(sub) sub.textContent = `${(participation*100).toFixed(1)}% of ADV · ${b.capped} capped`;
+  const rows = b.rows.map(r=>{
+    const tone = r.sized<=0 ? "var(--red)" : r.binding==="ADV cap" ? "var(--amber)" : "var(--sec)";
+    return `<div class="cf-row" title="target ${usd(r.target)} from conviction ${r.conv}${
+        r.reasons.length?" · haircut: "+r.reasons.join(", "):""} · ADV ${usd(r.adv)} · cap ${usd(r.cap)}${
+        r.exitDays!=null?` · ~${r.exitDays.toFixed(1)}d to exit`:""}">
+      <b style="min-width:56px">${r.sym}</b>
+      <span class="num" style="min-width:52px;text-align:right">${r.sized>0?usd(r.sized):"—"}</span>
+      <span class="muted" style="font-size:9px;color:${tone};flex:1;text-align:right">${r.binding}</span>
+    </div>`;}).join("");
+  host.innerHTML = rows + `
+    <div class="kv" style="border-top:1px solid var(--grid);margin-top:6px;padding-top:6px">
+      <span>Allocated</span><b class="num">${usd(b.allocated)}</b></div>
+    <div class="kv"><span>Unallocated</span>
+      <b class="num" style="color:${b.unallocated>notional*0.2?"var(--amber)":"var(--sec)"}">${usd(b.unallocated)}</b></div>
+    <div class="muted" style="font-size:9px;margin-top:6px;line-height:1.5">
+      Conviction sets the shape; the ADV cap and regime set the ceiling. Money the
+      caps refuse stays unallocated — pushing it into the next name would concentrate the
+      book into whatever happened to be liquid and present that as the same portfolio.
+      <b style="color:var(--amber)">Not an optimal allocation</b>: the measured information
+      coefficient is indistinguishable from zero, so there is no expected return to size
+      against. These are bounds on damage, not a bet size.</div>`;
+}
+
 /* Selection edge — the only panel that speaks to whether the score is worth acting on.
    It leads with the interval, never the point estimate. A mean IC of +0.006 quoted
    alone reads as "slightly positive"; with six legs the honest statement is "cannot be
@@ -1351,6 +1464,13 @@ function applyHoldings(){
   document.getElementById("pf-out").innerHTML = held.length? lines.join("<br>") : "No matching holdings in universe.";
 }
 document.getElementById("pf-btn").onclick=applyHoldings;
+// Sizing recomputes live: the whole point is one input away from a decision.
+["#sz-notional","#sz-participation"].forEach(sel=>{ const el=$(sel);
+  if(el) el.oninput=()=>{ try{ localStorage.setItem("sz"+sel, el.value); }catch(e){}
+                         renderSizing(); }; });
+// Restore the last book size, so it is not retyped every visit.
+try{ ["#sz-notional","#sz-participation"].forEach(sel=>{ const v=localStorage.getItem("sz"+sel);
+  const el=$(sel); if(v!=null && el) el.value=v; }); }catch(e){}
 
 
 // ---- load ----
@@ -1361,7 +1481,7 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderDiag(); });
+  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderDiag(); renderSizing(); });
   try{
     const t0=performance.now();
     const r=await fetch(API,{headers:{Accept:"application/json"}});
@@ -1378,7 +1498,7 @@ async function load(){
     await ledger;
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
-    renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); if(SEL) factorBreakdown(SEL);
+    renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); renderSizing(); if(SEL) factorBreakdown(SEL);
     // load() re-runs every 120s, so the banner is replaced rather than appended.
     const old=$("#perp-warn"); if(old) old.remove();
     if(PERP_LOADED){ st.textContent="OK"; st.className="live"; }

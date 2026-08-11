@@ -144,3 +144,46 @@ def test_the_parity_status_is_read_from_an_artifact_and_never_hardcoded():
 
 def test_latency_is_measured_rather_than_asserted():
     assert "performance.now()" in SCRIPT and "LATENCY = performance.now()-t0" in SCRIPT
+
+
+# ---------------------------------------------------------------------------
+# position sizing
+# ---------------------------------------------------------------------------
+def test_sizing_refuses_to_call_itself_optimal():
+    """Optimal sizing needs an expected return. The measured IC is indistinguishable
+    from zero, so a Kelly-style number here would be an arbitrary constant wearing a
+    formula — and would be acted on as if it were derived."""
+    assert "Not an optimal" in SCRIPT
+    assert "no expected return to" in SCRIPT
+
+
+def test_unfilled_size_is_left_unallocated_not_pushed_into_the_next_name():
+    """Redistributing a refused line concentrates the book into whatever happened to be
+    liquid, and presents that as the portfolio the score recommended."""
+    assert "unallocated: Math.max(0, notional - allocated)" in SCRIPT
+    assert "Unallocated" in SCRIPT
+
+
+def test_an_asset_with_no_volume_is_refused_rather_than_sized():
+    """Sizing it anyway puts a number on a position whose exit cost is unknown."""
+    assert "adv > 0 ? Math.min(wanted, cap) : 0" in SCRIPT
+    assert "no volume data" in SCRIPT
+
+
+def test_low_turnover_is_not_double_counted_against_the_adv_cap():
+    """The cap is already a share of actual volume, so a thin name is held down by it.
+    A separate thin-turnover haircut applied the same constraint twice — and calibrated
+    at 15% it flagged 46 of the 50 live names, which is the same as flagging none."""
+    assert "SZ_TURN_THIN" not in CODE
+    assert "SZ_TURN_WASH" in CODE
+
+
+def test_the_binding_constraint_is_named_per_line():
+    """A size with no reason attached cannot be argued with."""
+    assert '"ADV cap"' in SCRIPT and 'binding' in SCRIPT
+
+
+def test_exit_time_is_computed_at_the_same_participation_rate():
+    """Days-to-exit is the number that decides whether a position is a position or a
+    trap, and it has to use the rate the size was built from."""
+    assert "exitDays" in SCRIPT and "adv * participation" in SCRIPT
