@@ -27,6 +27,15 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 .ribbon .stat{display:flex;flex-direction:column;line-height:1.05}
 .ribbon .stat b{font-size:15px;font-weight:700;color:#FFFFFF;font-variant-numeric:tabular-nums}
 .ribbon .stat span{font-size:8px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-top:1px}
+.ribbon.health{grid-column:1/-1;background:rgba(10,15,26,.55);border-left:2px solid var(--blue);
+  padding:5px 14px;gap:10px;flex-wrap:wrap;min-height:26px}
+.hp{display:inline-flex;align-items:center;gap:5px;font-size:10px;padding:2px 8px;border-radius:10px;
+  background:rgba(148,163,184,.09);border:1px solid var(--grid);white-space:nowrap}
+.hp b{font-variant-numeric:tabular-nums;color:var(--txt)}
+.hp .lbl{color:var(--sec);text-transform:uppercase;letter-spacing:.6px;font-size:8px}
+.hp.act{cursor:pointer}
+.hp.act:hover{background:rgba(59,130,246,.16);border-color:var(--blue)}
+.hp .dotc{width:6px;height:6px;border-radius:50%}
 .ribbon .brand{font-weight:700;font-size:13px;letter-spacing:1px;margin-right:auto;white-space:nowrap}
 .live{color:var(--green)} .live::before{content:"●";margin-right:5px;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -181,6 +190,11 @@ canvas{display:block;width:100%}
     <div class="stat"><b id="rb-upd" class="num">—</b><span>Last Update</span></div>
     <div class="stat"><b id="status">INIT…</b><span>Feed</span></div>
   </div>
+
+  <!-- Model health. Secondary to the price ribbon above by design: these are
+       statements about the model, not about the market, and a reader scanning for
+       prices must not have to step over them. -->
+  <div class="ribbon health" id="health"></div>
 
   <!-- LEFT -->
   <aside class="side">
@@ -651,7 +665,12 @@ function signalClass(c){return c>=70?"pos":c>=55?"neu":"neg";}
    One predicate, used by the text box and by the cross-panel chips alike, so a click
    on a tier and a typed "alt" cannot diverge in what they mean. */
 let FILTER = "";
+// A set of symbols selected by clicking a ribbon counter. Held apart from the text
+// filter because "these four names" is not something the box can express, and
+// overloading the box would make the two impossible to clear independently.
+let FLIP_SET = null;
 function matchesFilter(t){
+  if(FLIP_SET) return FLIP_SET.has(t.sym);
   const q=FILTER.toLowerCase();
   if(!q) return true;
   const c=CHOP[t.sym];
@@ -693,6 +712,9 @@ function renderDiag(){
 }
 
 function setFilter(q){
+  // Typing always supersedes a pill selection, so the two can never both be live and
+  // silently intersect.
+  if(q) FLIP_SET = null;
   FILTER = (q||"").trim();
   const box=$("#screen-filter"); if(box && box.value!==FILTER) box.value=FILTER;
   if(STATE.length) renderTables();
@@ -776,12 +798,15 @@ function renderTables(){
   // A text filter searches the whole universe rather than the visible ten — a filter
   // that only searches what is already on screen is a highlighter, not a filter.
   const base = hide ? gated : STATE;
-  const matched = FILTER ? base.filter(matchesFilter) : base;
-  const VIEW = FILTER ? matched.slice(0, 50) : (hide ? gated : base.slice(0,10));
+  const active = FILTER || FLIP_SET;
+  const matched = active ? base.filter(matchesFilter) : base;
+  const VIEW = active ? matched.slice(0, 50) : (hide ? gated : base.slice(0,10));
   const fn=$("#filter-note");
   if(fn){
-    fn.hidden = !FILTER;
-    if(FILTER) fn.textContent = `“${FILTER}” · ${matched.length} of ${base.length} — Esc to clear`;
+    fn.hidden = !active;
+    if(active) fn.textContent = (FLIP_SET ? `${FLIP_SET.size} flipped name${FLIP_SET.size===1?"":"s"}`
+                                          : `“${FILTER}”`)
+      + ` · ${matched.length} of ${base.length} — Esc to clear`;
   }
   const tb=$("#tbl-conv tbody"); tb.innerHTML="";
   VIEW.forEach((t,i)=>tb.appendChild(rowConv(t,i,t.gated)));
@@ -1350,6 +1375,85 @@ function renderSizing(){
       against. These are bounds on damage, not a bet size.</div>`;
 }
 
+/* ---------- model health ribbon ----------
+   Sits under the price ribbon and above everything else, because the question it
+   answers comes first: is tonight's board a trend or a twitch? A screener read before
+   that is a list of numbers whose reliability is unknown.
+
+   Every figure carries its window. "Persistence 88.4% (30D)" would be the natural
+   badge to write and would be a fabrication here — there are eleven nights, and the
+   colour cannot be graded against a historical norm because eleven nights is not a
+   history to average. The badge states the window and the convention it is judged by,
+   rather than implying a baseline that does not exist. */
+function healthPill(label, value, opts){
+  const o=opts||{};
+  const dot=o.tone?`<span class="dotc" style="background:${o.tone}"></span>`:"";
+  return `<span class="hp${o.onClick?" act":""}"${o.title?` title="${o.title}"`:""}${
+    o.onClick?` data-hp="${o.onClick}"`:""}>${dot}<span class="lbl">${label}</span><b>${value}</b></span>`;
+}
+function renderHealth(){
+  const host=$("#health"); if(!host) return;
+  const h=(BREADTH&&BREADTH.health)||null;
+  const mon=MONITOR||null;
+  const bits=[];
+  if(!h || h.stickiness==null){
+    bits.push(healthPill("model health","awaiting a second recorded night",
+      {title:"Stickiness compares consecutive recorded boards. It cannot be computed from one."}));
+  }else{
+    const pct=(h.stickiness*100).toFixed(1)+"%";
+    const ok=h.stickiness>=h.sticky_warn;
+    bits.push(healthPill(`top-${h.cohort} stickiness · ${h.pairs} nights`, pct,
+      {tone: ok?"var(--green)":"var(--amber)",
+       title:`${h.basis} Judged against a stated convention of ${(h.sticky_warn*100).toFixed(0)}%, not against a historical average — this window is too short to be one.`}));
+    if(h.latest){
+      const churned=h.latest.of-h.latest.retained;
+      bits.push(healthPill("last night", `${h.latest.retained}/${h.latest.of} held`,
+        {tone: churned? "var(--amber)":"var(--green)",
+         title: churned?`in: ${h.latest.entered.join(", ")||"—"} · out: ${h.latest.left.join(", ")||"—"}`
+                       :"the top book did not change overnight"}));
+    }
+  }
+  // Flips are clickable: the point of a delta counter in a terminal is to get you to
+  // the names, not to tell you how many there were.
+  const f=(h&&h.flips)||null;
+  if(f && !f.pending){
+    const mk=(label,list,tone)=>list.length
+      ? healthPill(label, `${list.length}`, {tone, onClick:list.join("|"),
+          title:`${list.join(", ")} — click to filter the board to these`})
+      : healthPill(label, "0", {title:"none overnight"});
+    bits.push(mk("→ strong", f.into_strong, "var(--green)"));
+    bits.push(mk("→ buy+", f.into_buy, "var(--green)"));
+    bits.push(mk("← out of buy+", f.out_of_buy, "var(--red)"));
+  }
+  // Freshness, stated as an age rather than a manufactured percentage. There is no
+  // meaningful "99.2% fresh" to compute here; the board is from a date or it is not.
+  if(mon && mon.to){
+    const age=Math.round((Date.now()-Date.parse(mon.to+"T00:00:00Z"))/36e5);
+    bits.push(healthPill("board", `${mon.to} · ${age}h`,
+      {tone: age>36?"var(--amber)":"var(--green)", title:"Age of the most recent recorded board."}));
+  }
+  const inputs=mon&&mon.coverage&&mon.coverage.latest;
+  if(inputs){
+    const vals=Object.values(inputs), worst=Math.min(...vals);
+    bits.push(healthPill("input coverage", (worst*100).toFixed(0)+"%",
+      {tone: worst>=0.9?"var(--green)":"var(--amber)",
+       title:"Weakest model input present across the board. Observational feeds are excluded — a null there is expected and does not mean a dropout."}));
+  }
+  host.innerHTML=bits.join("");
+}
+// Delegated so the pills can be re-rendered freely without rebinding.
+document.addEventListener("click",e=>{
+  const pill=e.target.closest && e.target.closest("[data-hp]");
+  if(!pill) return;
+  const syms=pill.dataset.hp.split("|").filter(Boolean);
+  if(!syms.length) return;
+  // One name filters to it; several need a predicate the text box cannot express, so
+  // the list is held separately and the box shows what it is doing.
+  FLIP_SET = syms.length>1 ? new Set(syms) : null;
+  setFilter(syms.length>1 ? "" : syms[0]);
+  if(syms.length>1 && STATE.length) renderTables();
+});
+
 /* ---------- conviction persistence ----------
    Which names hold the score across nights and which clear the bar once. The existing
    persistent_30d / persistent_90d fields answer a version of this, but they require 30
@@ -1544,7 +1648,7 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderDiag(); renderSizing(); });
+  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderHealth(); renderDiag(); renderSizing(); });
   try{
     const t0=performance.now();
     const r=await fetch(API,{headers:{Accept:"application/json"}});
@@ -1600,11 +1704,12 @@ if(hideNq) hideNq.onchange=()=>{ if(STATE.length) renderTables(); };
 const fbox=$("#screen-filter");
 if(fbox) fbox.oninput=()=>setFilter(fbox.value);
 const fnote=$("#filter-note");
-if(fnote) fnote.onclick=()=>setFilter("");
+if(fnote) fnote.onclick=()=>{ FLIP_SET=null; setFilter(""); if(STATE.length) renderTables(); };
 document.addEventListener("keydown",e=>{
   const typing = /^(INPUT|TEXTAREA)$/.test((e.target&&e.target.tagName)||"");
   if(e.key==="/" && !typing){ e.preventDefault(); if(fbox) fbox.focus(); return; }
   if(e.key==="Escape"){
+    if(FLIP_SET){ FLIP_SET=null; if(STATE.length) renderTables(); }
     if(FILTER) setFilter("");
     closeDrawer();
     if(fbox) fbox.blur();

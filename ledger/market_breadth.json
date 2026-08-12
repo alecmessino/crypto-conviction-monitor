@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-11T23:06:21.611719+00:00",
+  "generated_at": "2026-08-12T03:32:44.348612+00:00",
   "n_assets": 50,
   "breadth_above70": 3,
   "breadth_above80": 1,
@@ -1645,6 +1645,28 @@
     "n_spikes": 13,
     "shrink": 2.0,
     "basis": "Share of a name's recorded nights at or above conviction 70, with the longest consecutive run beside it. Streaks count recorded boards, not calendar days: a night the pipeline did not run is a gap in observation, while a night the asset was absent genuinely breaks the run because it was not there to hold. This is a description of what the score has done, not a forecast \u2014 a name can be perfectly persistent and still be wrong. Ranking uses a shrunk share so a name seen once cannot outrank one backed on most of eleven nights."
+  },
+  "health": {
+    "cohort": 10,
+    "stickiness": 0.75,
+    "sticky_warn": 0.7,
+    "pairs": 10,
+    "window": 11,
+    "latest": {
+      "retained": 10,
+      "of": 10,
+      "entered": [],
+      "left": []
+    },
+    "flips": {
+      "into_buy": [],
+      "out_of_buy": [
+        "TRX"
+      ],
+      "into_strong": [],
+      "pending": false
+    },
+    "basis": "Share of the top 10 by conviction retained from one recorded night to the next, averaged over 10 pair(s). It is the churn a holder of that book would have paid for, which rank correlation across the whole universe does not measure \u2014 a board can reorder its tail violently while the top sits still. No comparison to a historical norm is drawn: this window is too short to be one."
   },
   "chop_period": 14,
   "trend": {
