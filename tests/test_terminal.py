@@ -187,3 +187,47 @@ def test_exit_time_is_computed_at_the_same_participation_rate():
     """Days-to-exit is the number that decides whether a position is a position or a
     trap, and it has to use the rate the size was built from."""
     assert "exitDays" in SCRIPT and "adv * participation" in SCRIPT
+
+
+# ---------------------------------------------------------------------------
+# model health ribbon
+# ---------------------------------------------------------------------------
+def test_the_health_ribbon_is_subordinate_to_the_price_ribbon():
+    """These are statements about the model, not the market. A reader scanning for
+    prices must not have to step over them."""
+    assert ".ribbon.health{" in HTML
+    assert "border-left:2px solid var(--blue)" in HTML
+    assert HTML.index('class="ribbon glass"') < HTML.index('class="ribbon health"')
+
+
+def test_flip_counters_are_clickable_and_carry_their_symbols():
+    """A delta counter in a terminal exists to get you to the names, not to tell you
+    how many there were."""
+    assert "data-hp=" in SCRIPT and 'closest("[data-hp]")' in SCRIPT
+    assert "FLIP_SET" in CODE
+
+
+def test_a_pill_selection_and_a_typed_filter_cannot_both_be_live():
+    """Two live filters would silently intersect, and neither could be cleared without
+    guessing which was doing the work."""
+    assert "if(q) FLIP_SET = null;" in SCRIPT
+    assert "if(FLIP_SET) return FLIP_SET.has(t.sym);" in SCRIPT
+
+
+def test_escape_clears_a_pill_selection_too():
+    assert "if(FLIP_SET){ FLIP_SET=null;" in SCRIPT
+
+
+def test_the_ribbon_states_its_window_rather_than_implying_thirty_days():
+    """'Persistence 88.4% (30D)' is the badge a terminal naturally writes. With eleven
+    nights on file it would be a fabrication, so the window is interpolated from the
+    data instead of being written into the label."""
+    assert "top-${h.cohort} stickiness · ${h.pairs} nights" in SCRIPT
+    assert "30D" not in CODE
+
+
+def test_freshness_is_an_age_not_a_manufactured_percentage():
+    """There is no meaningful '99.2% fresh' to compute — the board is from a date or it
+    is not."""
+    assert "Age of the most recent recorded board" in SCRIPT
+    assert "99.2" not in CODE

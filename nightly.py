@@ -1746,6 +1746,91 @@ def _persistence(series: dict, dates: list) -> dict:
     }
 
 
+# Size of the leading cohort whose retention defines stickiness. Ten is the book the
+# basket actually holds, so churn here is churn a holder would have paid for.
+HEALTH_COHORT = 10
+# Below this share retained night over night the model is reordering its own top book
+# faster than a holder could act on it. Not calibrated against a historical norm —
+# there is no history to calibrate against yet, and a threshold presented as one would
+# be a number invented and then dressed as evidence. It is a stated convention, and the
+# ribbon says which.
+HEALTH_STICKY_WARN = 0.70
+
+
+def _model_health(series: dict, dates: list, tier_diff: dict | None) -> dict:
+    """Is today's board a trend or a twitch?
+
+    Stickiness is the share of last night's top cohort still in tonight's, averaged over
+    every consecutive pair recorded. It answers the question a holder actually has —
+    "would I have been churning this book" — which rank correlation across the whole
+    universe does not: a board can reorder its tail violently while the top ten sit
+    still, and score a low correlation for movements nobody would have traded.
+
+    Reported with the window attached and no comparison to a historical average, because
+    eleven nights is not a history to average. A green badge implying "normal for this
+    model" would be inventing the baseline it claims to measure against.
+    """
+    by_date = {}
+    for sym, seq in series.items():
+        for d, c in seq:
+            if c is not None:
+                by_date.setdefault(d, {})[sym] = c
+    pairs, retained = 0, 0.0
+    for a, b in zip(dates, dates[1:]):
+        prev, curr = by_date.get(a) or {}, by_date.get(b) or {}
+        if len(prev) < HEALTH_COHORT or len(curr) < HEALTH_COHORT:
+            continue
+        top_prev = {s for s, _ in sorted(prev.items(), key=lambda kv: -kv[1])[:HEALTH_COHORT]}
+        top_curr = {s for s, _ in sorted(curr.items(), key=lambda kv: -kv[1])[:HEALTH_COHORT]}
+        retained += len(top_prev & top_curr) / HEALTH_COHORT
+        pairs += 1
+    sticky = round(retained / pairs, 4) if pairs else None
+
+    # Last night alone, for the "what just changed" half of the ribbon.
+    latest = None
+    if pairs:
+        a, b = dates[-2], dates[-1]
+        prev, curr = by_date.get(a) or {}, by_date.get(b) or {}
+        if len(prev) >= HEALTH_COHORT and len(curr) >= HEALTH_COHORT:
+            tp = {s for s, _ in sorted(prev.items(), key=lambda kv: -kv[1])[:HEALTH_COHORT]}
+            tc = {s for s, _ in sorted(curr.items(), key=lambda kv: -kv[1])[:HEALTH_COHORT]}
+            latest = {"retained": len(tp & tc), "of": HEALTH_COHORT,
+                      "entered": sorted(tc - tp), "left": sorted(tp - tc)}
+
+    # Promotions and demotions across the conviction tiers, from the diff already
+    # computed. Symbols travel with the counts so the ribbon can filter to them.
+    flips = {"into_buy": [], "out_of_buy": [], "into_strong": [], "pending": True}
+    if tier_diff and not tier_diff.get("pending"):
+        flips["pending"] = False
+        rank = {name: i for i, (_, name) in enumerate(TIER_CUTS)}   # 0 = STRONG
+        for c in tier_diff.get("changed") or []:
+            f, t = c.get("from_tier"), c.get("to_tier")
+            if f not in rank or t not in rank:
+                continue
+            if t == "STRONG" and f != "STRONG":
+                flips["into_strong"].append(c["symbol"])
+            # Lower index is a better tier, so a fall in index is a promotion.
+            if rank[t] < rank[f] and rank[t] <= rank["BUY"]:
+                flips["into_buy"].append(c["symbol"])
+            elif rank[f] <= rank["BUY"] < rank[t]:
+                flips["out_of_buy"].append(c["symbol"])
+    return {
+        "cohort": HEALTH_COHORT,
+        "stickiness": sticky,
+        "sticky_warn": HEALTH_STICKY_WARN,
+        "pairs": pairs,
+        "window": len(dates),
+        "latest": latest,
+        "flips": flips,
+        "basis": (f"Share of the top {HEALTH_COHORT} by conviction retained from one "
+                  f"recorded night to the next, averaged over {pairs} pair(s). It is "
+                  "the churn a holder of that book would have paid for, which rank "
+                  "correlation across the whole universe does not measure — a board can "
+                  "reorder its tail violently while the top sits still. No comparison "
+                  "to a historical norm is drawn: this window is too short to be one."),
+    }
+
+
 # Horizons the change feed will use, longest first, with the recorded days each needs.
 # A delta over N days needs N+1 recorded boards to have two endpoints.
 FEED_HORIZONS = (("d30", 31), ("d10", 11), ("d7", 8), ("d1", 2))
@@ -1883,6 +1968,8 @@ def _compute_market_breadth() -> dict:
         "edge": _compute_edge(),
         # Which names hold conviction across nights versus spike for one.
         "persistence": _persistence(series, sorted(set(all_dates))),
+        # Model health, for the ribbon: is tonight a trend or a twitch.
+        "health": _model_health(series, sorted(set(all_dates)), _compute_tier_diff()),
         "chop_period": CHOP_PERIOD,
         "trend": {s: {"conviction": round(t["conviction"], 1),
                       **{h: (round(t[h], 1) if t[h] is not None else None)
