@@ -70,7 +70,8 @@ li{margin:5px 0}
   <table>
     <tr><th>Source</th><th>Fields used</th><th>Role</th><th>Status</th></tr>
     <tr><td>CoinGecko <code>/coins/markets</code></td><td>market cap, volume, 24h/7d/14d/30d/200d % change, ATH/ATL, FDV</td><td>Spot universe + relative-strength inputs</td><td><span class="tag a">LIVE</span></td></tr>
-    <tr><td>Perpetual funding (Bybit → OKX fallback)</td><td>funding rate, open interest</td><td>LAVL leverage overlay (RiskMult<sub>perp</sub>)</td><td><span class="tag a">LIVE</span> (keyless)</td></tr>
+    <tr><td>Perpetual funding — Binance, Bybit, Hyperliquid, Coinbase Advanced</td><td>funding rate <b>and its settlement interval</b>, mark price, open interest</td><td>Annualised carry → regime → LAVL leverage overlay (RiskMult<sub>perp</sub>); cross-venue spread and carry screen</td><td><span class="tag a">LIVE</span> (keyless; each venue degrades independently)</td></tr>
+    <tr><td>Recorded closes (<code>ledger/signals.csv</code>)</td><td>daily close per symbol</td><td>7-period RSI — the confirming leg for the short-squeeze boost. Null until a symbol has eight recorded closes; there is no free daily-close series for this universe, so the ledger <i>is</i> the series</td><td><span class="tag a">LIVE</span> (accrues)</td></tr>
     <tr><td>Nightly ledger (<code>ledger/</code>)</td><td>daily conviction per symbol, index rows</td><td>Time-series: breadth, dispersion, persistence, change feed</td><td><span class="tag a">LIVE</span></td></tr>
     <tr><td>Dune Analytics (unlock/vesting)</td><td>unlocks USD, supply increase %, address growth</td><td>Replaces Module B proxy with real ERA</td><td><span class="tag b">OPTIONAL</span> (secret <code>DUNE_UNLOCK_QUERY_ID</code>)</td></tr>
   </table>
@@ -95,7 +96,13 @@ rs_blend = 0.30·RS7 + 0.25·RS14 + 0.25·RS30 + 0.20·RS200</div>
     <ul>
       <li><b>Depth</b> = clamp((log10(mc) − 6)/4, 0, 1) — log-scaled size, rewards real scale without over-weighting mega-caps.</li>
       <li><b>Dilution</b> = FDV / market cap — structural supply overhang (conjunctive gate requires ≤ 2.0).</li>
-      <li><b>Funding</b> → RiskMult<sub>perp</sub> ∈ {0.85, 1.0, 1.15}: penalizes overheated longs (funding &gt; 0.05% → ×0.85), rewards short capitulation (negative → ×1.15).</li>
+      <li><b>Funding</b> → RiskMult<sub>perp</sub> ∈ [0.85, 1.15], from the <b>annualised</b> carry consolidated across venues. Two adjustments, each requiring a confirming leg:
+        <ul>
+          <li><b>×0.85</b> when APR &gt; +40% <i>and</i> 24h price change &gt; +10% — crowded longs on an already-extended move.</li>
+          <li><b>×1.10 → ×1.15</b> when APR &lt; −15% <i>and</i> 7-period RSI &gt; 45, ramping with the depth of the inversion to a cap at −40% APR.</li>
+          <li><b>×1.0</b> otherwise, including whenever the confirming input was not observed. An unconfirmed adjustment is not applied at a reduced strength; it is not applied.</li>
+        </ul>
+        This replaced a rule that compared the <i>raw per-interval rate</i> against a fixed 0.0005 threshold. That constant silently encoded an 8-hour settlement clock: pointed at an hourly venue it triggered at roughly 8% APR rather than 55%, so the same code meant different things on different exchanges. Annualising first removes the ambiguity, and the settlement interval is now recorded beside every rate. The change moved the specification hash from <code>d600984ec00b</code> to <code>872935361713</code> — history either side of that boundary is two datasets.</li>
       <li><b>ERA</b> = 24h-stability proxy (5/ag) until a Dune unlock query replaces it with real emission-vs-adoption data.</li>
     </ul>
   </div>
@@ -170,14 +177,16 @@ w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)&nbsp;&nbsp;·&nbsp;&
       <li><b>Live vs snapshot.</b> The terminal's top-10 leaders are computed live; the Index comes from the 06:17 UTC nightly snapshot. Minor intraday ordering differences are expected. The Index is the authoritative record.</li>
       <li><b>Module B is a proxy until Dune is connected.</b> Without <code>DUNE_UNLOCK_QUERY_ID</code>, ERA uses 24h stability. Real on-chain unlock data replaces it when configured — never estimated.</li>
       <li><b>Perp overlay is server-side.</b> RiskMult<sub>perp</sub> needs a derivatives feed that can't be called cross-origin. The terminal reads the nightly <code>perp_mult</code> so it stays consistent with the index.</li>
-      <li><b>Free-tier limits.</b> No intraday/RSI/order-book/funding history from the free CoinGecko tier. Modules are scoped to real payload fields; anything we can't source is labeled unavailable (90d RS excluded for this reason).</li>
+      <li><b>Free-tier limits.</b> No intraday, order-book or funding <i>history</i> from the free CoinGecko tier. Modules are scoped to real payload fields; anything we can't source is labeled unavailable (90d RS excluded for this reason). RSI is the one item that came off this list — not by finding a feed, but because the nightly ledger has accumulated enough daily closes to compute one. It is therefore null for any symbol with fewer than eight recorded nights, and the short-squeeze boost cannot fire for those.</li>
+      <li><b>Funding is scored; positioning is not.</b> Open interest, the OI/price divergence quadrant, the long/short account ratio, the cross-venue spread and the choppiness index are recorded beside every board and read by no scoring function. Adopting any of them would be a separate decision that moves the specification hash. Funding is the exception and always has been — it has reached the score through RiskMult<sub>perp</sub> since before these columns existed.</li>
+      <li><b>Carry is not conviction.</b> The cash-and-carry screener ranks the same assets the conviction model penalises, and that is not a contradiction: a high positive funding rate is a reason to be cautious about a directional long and a reason to want the delta-neutral short-perp leg. The two panels answer different questions and are deliberately not reconciled.</li>
       <li><b>Paper only.</b> A research signal system, not investment advice.</li>
       <li><b>v2 multiplicative is now live.</b> conviction = 100·Q·C·R replaces the additive model so a saturated clamp can no longer erase discrimination between thin pumps and blue-chip RS leaders. Log-return / per-timeframe volatility normalization for RS is the remaining deferral.</li>
     </ul>
   </div>
 
   <div class="foot">
-    Conviction Monitor · built from the same scoring code that powers the terminal · data: CoinGecko (spot) + Bybit/OKX (perp funding) · index persisted nightly to <code>ledger/</code>.
+    Conviction Monitor · built from the same scoring code that powers the terminal · data: CoinGecko (spot) + Binance/Bybit/Hyperliquid/Coinbase (perp funding) · index persisted nightly to <code>ledger/</code>.
   </div>
 
 </div>

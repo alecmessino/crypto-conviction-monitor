@@ -134,6 +134,8 @@ def test_the_live_ledger_produces_a_populated_panel():
 
 
 def test_persistence_does_not_touch_the_specification():
-    assert nightly.SPEC_HASH == "d600984ec00b"
+    # d600984ec00b -> 872935361713: the funding regime rewrite of lavl_perp_mult, which
+    # is a scoring change and correctly broke this pin. See tests/test_perps.py.
+    assert nightly.SPEC_HASH == "872935361713"
     for fn in nightly.spec()["functions"].values():
         assert "_persistence" not in fn

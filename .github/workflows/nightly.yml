@@ -57,7 +57,13 @@ jobs:
           # badge. The terminal's diagnostic bar renders it, and a hardcoded status
           # there would be exactly the kind of ornamental "PASS" this project has
           # already had to remove once.
-          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json
+          # funding.json is Module 3's artifact: cross-venue funding, the regime each
+          # asset fell in, the score modifier it earned and the reason. It is committed
+          # rather than derived in the browser because the modifier it records is the
+          # one score() actually applied — recomputing it client-side from a live feed
+          # would produce a number that disagrees with the published board whenever
+          # funding moved during the day.
+          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json ledger/funding.json
           git add ledger/index.legacy.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes to commit"
