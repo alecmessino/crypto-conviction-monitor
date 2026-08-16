@@ -24,12 +24,70 @@ _spec.loader.exec_module(nightly)
 # ---------------------------------------------------------------------------
 # the property that matters most
 # ---------------------------------------------------------------------------
-def test_no_derivatives_column_reaches_the_specification():
+def test_positioning_and_the_regime_index_stay_out_of_the_specification():
+    """The boundary, restated after Module 3 moved part of it — deliberately.
+
+    This test used to assert that *no* derivatives reading reached a scoring function.
+    That was never quite true and the file said so in its own docstring: funding_rate
+    has reached score() through lavl_perp_mult since before any of these columns
+    existed. What was true, and remains true, is the part that matters — open interest,
+    positioning and the regime index are recorded and never scored.
+
+    Module 3 moved the funding half of the boundary on purpose. lavl_perp_mult now reads
+    the interval-normalised APR instead of a raw rate carrying an unstated 8-hour
+    assumption, and gates each adjustment on a confirming input. That widened the
+    specification to include the 24h price change and a 7-period RSI, and it moved the
+    hash from d600984ec00b to e65f7dc59d55. The modifier's own arithmetic lives in
+    funding.py and is captured too — see test_monitor.py, where the boundary between the
+    two files is asserted rather than assumed.
+
+    Restating the boundary rather than deleting the test is the point: the guarantee is
+    still worth having for everything on the left of it, and an assertion that quietly
+    became false is worse than no assertion.
+    """
     captured = nightly.spec()["functions"]
     for fn in captured.values():
         for field in ("oi_usd", "oi_chg_24h_pct", "oi_to_mcap", "long_short_ratio",
-                      "oi_price_divergence", "funding_ann_pct", "chop"):
+                      "oi_price_divergence", "chop",
+                      # Module 3 provenance: which venue, how many, how far apart. The
+                      # modifier reads the consolidated APR and must never read the
+                      # spread — a basis between two exchanges is a trade, not a signal
+                      # about the asset's own leverage.
+                      "funding_venue", "funding_venues_n", "funding_apr_spread"):
             assert field not in fn, f"{field} reached a scoring function"
+
+
+def test_exactly_three_inputs_reach_the_funding_modifier():
+    """A whitelist, so widening the specification stays a deliberate act.
+
+    The negative test above cannot catch a *new* field being read — it only knows the
+    names it was told about. This one asserts the positive side: the funding modifier
+    reads the annualised carry and the two confirmations, and adding a fourth input
+    fails here rather than being noticed a month later in a drifting track record.
+    """
+    src = nightly.spec()["functions"]["lavl_perp_mult"]
+    for field in ("funding_apr", "price_chg_24h", "rsi7"):
+        assert field in src, f"{field} is no longer read by the modifier"
+    # The raw rate survives only as the fallback path for a caller passing the old map
+    # shape, and the interval it is annualised at must be explicit in the source.
+    assert "interval_hours" in src
+
+
+def test_the_recorded_modifier_is_the_one_that_was_applied():
+    """perp_mult and the reason string must describe the same decision.
+
+    They are computed by two separate calls in main() — score() multiplies by
+    lavl_perp_mult, and funding_context recomputes for the audit trail. If those ever
+    disagree, the ledger records a multiplier next to an explanation of a different
+    one, and the audit trail is worse than useless because it is confidently wrong.
+    """
+    cons = {"AAA": {"funding_apr": -32.0}, "BBB": {"funding_apr": 90.0},
+            "CCC": {"funding_apr": 5.0}}
+    for sym, chg, rsi_ in (("AAA", -2.0, 61.0), ("BBB", 14.0, 70.0), ("CCC", 1.0, 50.0)):
+        pm = nightly.lavl_perp_mult(sym, {sym: {"funding_apr": cons[sym]["funding_apr"],
+                                                "price_chg_24h": chg, "rsi7": rsi_}})
+        fc = nightly.funding.funding_context(sym, cons, chg, rsi_)
+        assert pm == fc["score_modifier"], f"{sym}: scored {pm}, recorded {fc['score_modifier']}"
 
 
 def test_the_daily_bar_was_already_a_model_input_before_it_was_a_column():
@@ -54,7 +112,11 @@ def test_the_new_columns_are_appended_never_inserted():
     cannot widen the file in place and the validator cannot tell schema growth from the
     positional-misalignment bug it exists to catch."""
     new = ["funding_rate", "funding_ann_pct", "oi_usd", "oi_chg_24h_pct", "oi_to_mcap",
-           "long_short_ratio", "oi_price_divergence", "high_24h", "low_24h"]
+           "long_short_ratio", "oi_price_divergence", "high_24h", "low_24h",
+           # Module 3, appended behind Modules 1 and 2 on the same terms.
+           "funding_apr", "funding_interval_h", "funding_venue", "funding_venues_n",
+           "funding_apr_spread", "funding_regime", "rsi7",
+           "funding_apr_trail", "funding_trail_n", "funding_pos_share"]
     assert nightly.FIELDS[-len(new):] == new
     old = nightly.FIELDS[:-len(new)]
     assert nightly.FIELDS[:len(old)] == old
@@ -261,4 +323,16 @@ def test_the_column_order_is_pinned_exhaustively():
         "funding_rate", "funding_ann_pct", "oi_usd", "oi_chg_24h_pct",
         "oi_to_mcap", "long_short_ratio", "oi_price_divergence",
         "high_24h", "low_24h",
+        # Module 3. funding_ann_pct above is NOT replaced by funding_apr: the old column
+        # is the primary venue's rate annualised at a fixed three settlements a day, and
+        # every row already on disk was written under that assumption. The new column is
+        # the interval-correct figure. They agree wherever the venue settles on an
+        # 8-hour clock and diverge where it does not, which is exactly the information
+        # that would be destroyed by overwriting one with the other.
+        "funding_apr", "funding_interval_h", "funding_venue", "funding_venues_n",
+        "funding_apr_spread", "funding_regime", "rsi7",
+        # Trailing carry over the recorded nights. Observational: the modifier reads
+        # tonight's print, and substituting a trailing figure would make the score lag a
+        # real regime change. Recorded so that trade-off can be settled with evidence.
+        "funding_apr_trail", "funding_trail_n", "funding_pos_share",
     ]

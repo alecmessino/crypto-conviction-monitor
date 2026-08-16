@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 
 HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
 _spec = importlib.util.spec_from_file_location("monitor_mod", HERE.parent / "nightly.py")
 nightly = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(nightly)
@@ -63,10 +64,66 @@ def test_the_hash_is_stable_across_calls():
 
 def test_the_hash_covers_every_named_scoring_function():
     captured = nightly.spec()["functions"]
-    assert set(captured) == set(nightly.SPEC_FUNCTIONS)
+    expected = set(nightly.SPEC_FUNCTIONS) | {
+        "funding." + n for n in nightly.SPEC_FUNDING_FUNCTIONS}
+    assert set(captured) == expected
     # The thresholds themselves must be in the captured text, or the hash is decorative.
     # ast.unparse normalises numeric literals, so 0.30 round-trips as 0.3.
     assert "0.3" in captured["score"]
+
+
+def test_the_specification_does_not_stop_at_the_module_boundary():
+    """lavl_perp_mult is a two-line delegation. Capturing only this file would capture
+    the call and none of the arithmetic — every regime boundary, the severity curve, the
+    confirmation weights and the envelope live in funding.py, and each of them changes
+    published scores. This hole was real for one commit: replacing the step modifier with
+    a continuous surface left the hash identical on both sides of the rewrite."""
+    sp = nightly.spec()
+    assert "funding.regime_modifier" in sp["functions"]
+    assert "funding.funding_severity" in sp["functions"]
+    for name in ("MOD_MAX_PENALTY", "MOD_MAX_BOOST", "MOD_HOT_SCALE", "MOD_COLD_SCALE",
+                 "REGIME_OVERHEATED", "REGIME_SQUEEZE", "MOD_UNCONFIRMED_WEIGHT"):
+        assert "funding." + name in sp["constants"], name
+
+
+def test_a_renamed_funding_constant_is_a_hard_failure(monkeypatch):
+    monkeypatch.setattr(nightly, "SPEC_FUNDING_CONSTANTS", ("MOD_MAX_PENALTY", "NOPE"))
+    with pytest.raises(RuntimeError, match="cannot find funding constant"):
+        nightly.spec()
+
+
+def test_a_renamed_funding_function_is_a_hard_failure(monkeypatch):
+    monkeypatch.setattr(nightly, "SPEC_FUNDING_FUNCTIONS", ("regime_modifier", "nope"))
+    with pytest.raises(RuntimeError, match="cannot find scoring function"):
+        nightly.spec()
+
+
+def test_the_module_that_ran_is_the_module_that_was_hashed():
+    """The invariant behind compiling funding.py in process rather than importing it.
+
+    spec() parses that file from disk and reads its constants off the loaded module
+    object. CPython will reuse a cached .pyc whenever source size and mtime match, and
+    mtime has one-second granularity — so two same-length edits inside one second, or a
+    CI checkout that stamps files identically, load stale bytecode while the parse sees
+    the new text. Observed here before the fix: three different threshold edits produced
+    one identical hash, and restoring the original still reported the edited value.
+    """
+    import ast
+    tree = ast.parse((ROOT / "funding.py").read_text(encoding="utf-8"))
+    on_disk = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name) and isinstance(node.value, ast.Constant):
+                on_disk[target.id] = node.value.value
+    checked = 0
+    for name in nightly.SPEC_FUNDING_CONSTANTS:
+        if name in on_disk:
+            assert getattr(nightly.funding, name) == on_disk[name], (
+                f"{name} is {getattr(nightly.funding, name)} in the loaded module but "
+                f"{on_disk[name]} in funding.py — stale bytecode is being executed")
+            checked += 1
+    assert checked >= 8, "the comparison found too few literals to be meaningful"
 
 
 def test_a_renamed_scoring_function_is_a_hard_failure(monkeypatch):

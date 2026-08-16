@@ -127,6 +127,36 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 .badge.r{background:rgba(232,145,127,.20);color:var(--red)}
 .badge.a{background:rgba(224,179,114,.20);color:var(--amber)}
 .badge.n{background:rgba(148,163,184,.14);color:var(--sec)}
+/* Funding heatmap. The bands are a ranked scale, so the colours are one hue axis
+   (cold green -> grey -> hot red) rather than five unrelated accents: a reader scanning
+   the column has to be able to sort it by eye without consulting a key. The two
+   intermediate bands are deliberately quiet — ELEVATED and MILD_INVERSION are states to
+   notice, not states to act on, and giving them saturated colour would put five alarms
+   on a board where two are real. */
+.fh{display:inline-block;padding:2px 7px;border-radius:3px;font-size:9.5px;font-weight:700;
+  font-variant-numeric:tabular-nums;min-width:56px;text-align:right}
+.fh.hot{background:rgba(232,145,127,.32);color:#FFD9D1}          /* APR > +40 */
+.fh.warm{background:rgba(224,179,114,.16);color:var(--amber)}    /* +12 .. +40 */
+.fh.flat{background:rgba(148,163,184,.12);color:var(--sec)}      /*   0 .. +12 */
+.fh.cool{background:rgba(123,201,160,.13);color:#9FD8BC}         /* -15 ..   0 */
+.fh.cold{background:rgba(123,201,160,.34);color:#B9F5D8}         /* APR < -15 */
+.fh.none{background:transparent;color:var(--tert);font-weight:400}
+/* The score modifier. Shown only when it is not 1.0 — a column of "x1.00" trains the
+   eye to skip the column, and the two values that matter are then invisible inside it. */
+.modf{font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;margin-left:5px;
+  vertical-align:middle;cursor:help}
+.modf.dn{background:rgba(232,145,127,.22);color:var(--red)}
+.modf.up{background:rgba(123,201,160,.22);color:var(--green)}
+/* Position parser + carry screener inputs */
+.fin{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.fin label{display:flex;flex-direction:column;gap:2px;font-size:8px;color:var(--tert);
+  text-transform:uppercase;letter-spacing:.6px}
+.fin input,.fin select{background:#0c1320;color:var(--txt);border:1px solid var(--border);
+  border-radius:4px;font-family:inherit;font-size:10px;padding:4px 6px;width:100%}
+.fin input:focus,.fin select:focus{outline:none;border-color:var(--blue)}
+.fin .wide{grid-column:1/-1}
+.pp-out{margin-top:8px;border-top:1px solid var(--grid);padding-top:7px}
+.pp-hero{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
 .bar{height:6px;background:#0c1320;border-radius:3px;position:relative;overflow:hidden;min-width:70px;display:inline-block;vertical-align:middle;width:100%}
 .bar>i{position:absolute;left:0;top:0;bottom:0;background:rgba(59,130,246,0.45);border-radius:3px}
 .dbar{display:inline-block;height:4px;border-radius:2px;margin-left:5px;vertical-align:middle;opacity:.85}
@@ -229,6 +259,29 @@ canvas{display:block;width:100%}
         <div id="sz-out"></div>
       </div>
     </div>
+    <!-- Recovers a comparable rate from the dollar figure an exchange UI shows. Coinbase
+         Advanced reports accumulated funding as a running dollar total against an open
+         position and never as a rate, and that number is not comparable to anything:
+         it scales with position size and with how long the position has been open, so
+         $40 on one screen and $12 on another say nothing about which market pays more. -->
+    <div class="glass">
+      <div class="card-h">POSITION FUNDING PARSER <span class="muted">$ accrual → APR</span></div>
+      <div class="card-b">
+        <div class="fin">
+          <label>Contracts
+            <input id="pp-contracts" type="number" min="0" step="any" value="10"></label>
+          <label>Mark price $
+            <input id="pp-price" type="number" min="0" step="any" value="3000"></label>
+          <label title="Copy the accumulated funding figure straight from the exchange. Sign matters: a negative value on a LONG means the position received funding.">Accrued $
+            <input id="pp-accrued" type="number" step="any" value="-40"></label>
+          <label>Over (hours)
+            <input id="pp-hours" type="number" min="0" step="any" value="24"></label>
+          <label class="wide">Side
+            <select id="pp-side"><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select></label>
+        </div>
+        <div class="pp-out" id="pp-out"></div>
+      </div>
+    </div>
     <div class="glass">
       <div class="card-h">PORTFOLIO OVERLAY</div>
       <div class="card-b">
@@ -268,7 +321,7 @@ canvas{display:block;width:100%}
         <table id="tbl-conv"><thead><tr>
           <th>#</th><th>Ticker</th><th>Price</th><th id="th-delta">24H Δ</th><th>Spark</th>
           <th>Turnover</th><th>Liquidity</th><th>Z(ATH)</th>
-          <th title="Annualised funding carry from the recorded perp feed. Observational — it does not feed conviction.">Funding</th>
+          <th title="Annualised funding carry from the recorded perp feed. This one DOES reach conviction: the regime it falls in sets a multiplier on the score, gated on a confirming price or RSI leg. See Module E.">Funding</th>
           <th title="Choppiness index over accumulated daily bars. Observational — it does not feed conviction.">Regime</th>
           <th>Conv</th><th>Signal</th><th>⧉</th>
         </tr></thead><tbody></tbody></table>
@@ -293,12 +346,63 @@ canvas{display:block;width:100%}
     <div class="glass">
       <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
       <div class="card-b" style="padding:0">
-        <div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko; RiskMult<sub>perp</sub> = 1.0 (neutral) until a derivatives feed (funding/OI) is connected.</div>
+        <div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko. RiskMult<sub>perp</sub> is the funding modifier from Module E — it is <b>not</b> neutral: it reads the cross-venue annualised carry and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do, continuously and with no step at any threshold. Assets inside the inert funding band, and assets with no perpetual market at all, sit at exactly 1.0 — a real reading, not a placeholder.</div>
         <div class="scroll-pane">
           <table id="tbl-lavl"><thead><tr>
             <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>RiskMult</th><th>LAVL</th><th>Regime</th>
           </tr></thead><tbody></tbody></table>
         </div>
+      </div>
+    </div>
+
+    <!-- MODULE E — the funding heatmap. Unlike Modules 1 and 2, this one is NOT
+         observational: the regime sets a multiplier on the conviction score, and the
+         panel says so in its own header rather than leaving the reader to infer it from
+         a matching number elsewhere on the board. -->
+    <div class="glass">
+      <div class="card-h">MODULE E — DERIVATIVES &amp; FUNDING
+        <span class="muted" id="fh-note">cross-venue · scored</span></div>
+      <div class="card-b" style="padding:0">
+        <div class="muted" style="padding:8px 12px 0" id="fh-sub">Funding feed pending — <code>ledger/funding.json</code> was not produced.</div>
+        <div class="scroll-pane">
+          <table id="tbl-fund"><thead><tr>
+            <th>Ticker</th><th>Spot</th>
+            <th title="The per-interval rate rebased to an 8-hour equivalent. Venues settle on different clocks — Hyperliquid hourly, Binance and Bybit every eight hours, some symbols every four — so the raw rates are not comparable to each other until they are put on one clock.">8H Equiv</th>
+            <th title="Annualised carry: rate x (24 / interval hours) x 365 x 100. This is the figure the regime and the score modifier are computed from.">APR</th>
+            <th title="Difference between the highest and lowest annualised rate across the venues listing this asset. A wide spread is a basis trade, not a data error. Blank when only one venue lists it.">Spread</th>
+            <th title="Which venue the headline rate came from, and how many listed the asset. The deepest book wins rather than an average — an average is a rate no one can actually receive.">Venue</th>
+            <th title="7-period RSI over recorded daily closes. Gates the short-squeeze boost: deeply negative funding on a chart in freefall is not squeeze asymmetry.">RSI</th>
+            <th>Regime</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <div class="glass">
+      <div class="card-h">CASH-AND-CARRY SCREENER
+        <span class="muted" id="cc-note">net of execution drag</span></div>
+      <div class="card-b" style="padding:0">
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <label style="font-size:8px;color:var(--tert);text-transform:uppercase;letter-spacing:.6px;display:flex;align-items:center;gap:5px">
+            Hold (days)
+            <input id="cc-hold" type="number" min="1" max="365" step="1" value="30"
+                   style="width:56px;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:3px 5px">
+          </label>
+          <span class="muted" id="cc-basis" style="flex:1"></span>
+        </div>
+        <div class="scroll-pane">
+          <table id="tbl-carry"><thead><tr>
+            <th>Ticker</th>
+            <th title="Annualised funding the delta-neutral position collects: long spot, short perp.">Gross APR</th>
+            <th title="Round-trip execution amortised over the holding period. Four fills — buy spot, short perp, then unwind both — so the cost is charged once and spread across however long the position is held.">Drag</th>
+            <th title="Gross carry minus execution drag. This is the number the trade actually earns.">Net APR</th>
+            <th title="Mean funding APR over the nights recorded so far, and how many of those nights it was positive. A carry is held for weeks; one settlement print is a noisy estimate of what it pays. A high gross next to a thin persistence is one hot night, not a regime.">Trailing</th>
+            <th title="How long the position must be held for the funding to pay for the fills. Below this the trade loses money however good the headline rate looks.">B/E days</th>
+            <th title="Open interest on the venue reporting it. Assets below the depth floor are excluded; assets with no reading are kept and marked, because an absent number is not evidence of a thin book.">Open Int.</th>
+            <th>Regime</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+        <div class="note" id="cc-foot"></div>
       </div>
     </div>
     <div class="glass">
@@ -395,6 +499,15 @@ let PARITY = null; // parity.json: the real result of the gate that admitted the
 let LATENCY = null;// measured round-trip to the price feed, in ms
 let BREADTH = null; // market_breadth.json: conviction time-series, breadth, dispersion, persistence
 let MONITOR = null; // monitor.json: pipeline health, stability, field presence, spec continuity
+let FUNDING = null; // funding.json: cross-venue funding, regimes, modifiers, carry screen
+let FUND = {};      // the same, keyed by symbol
+// Fallbacks only. The live values are overwritten from funding.json on load, so these
+// are what the page shows when the artifact is missing — at which point Module E
+// renders its "pending" state and none of them are actually used to colour anything.
+let FTH = {overheated_apr:40, elevated_apr:12, neutral_floor_apr:0, squeeze_apr:-15,
+           overheated_price_chg:10, squeeze_rsi:45, squeeze_rsi_full:60,
+           max_penalty:0.85, max_boost:1.15, unconfirmed_weight:0.5,
+           squeeze_saturation_apr:-40};
 async function loadLedger(){
   try{
     const r=await fetch("ledger/signals.json",{cache:"no-store"});
@@ -435,6 +548,17 @@ async function loadLedger(){
     const rp=await fetch("ledger/parity.json",{cache:"no-store"});
     if(rp.ok) PARITY = await rp.json();
   }catch(e){ /* parity artifact absent — the bar reports unknown, never PASS */ }
+  try{
+    const rf=await fetch("ledger/funding.json",{cache:"no-store"});
+    if(rf.ok){
+      FUNDING = await rf.json();
+      (FUNDING.assets||[]).forEach(a=>{ if(a.symbol) FUND[a.symbol.toUpperCase()]=a; });
+      // Bands and modifier constants come from the engine that computed them. A second
+      // copy of "+40" and "0.85" in JavaScript is a second set of thresholds, and the
+      // moment someone tunes one the board colours a regime the score did not apply.
+      if(FUNDING.thresholds) FTH = Object.assign({}, FTH, FUNDING.thresholds);
+    }
+  }catch(e){ /* funding artifact absent — Module E says so rather than rendering zeros */ }
   buildMarginal();
 }
 
@@ -771,14 +895,31 @@ function perpBlock(t){
   const has = p && (p.fundingAnn!=null||p.oi!=null||p.ls!=null);
   if(!has && !(c&&c.chop!=null))
     return `<div class="note" style="margin-top:12px">No perpetual market recorded for
-      ${t.sym}, and no regime reading yet. Both are observational; conviction is unaffected.</div>`;
+      ${t.sym}, and no regime reading yet. With no funding to classify there is no
+      modifier to apply, so this asset's conviction is genuinely unadjusted — a neutral
+      ×1.0, not a missing reading.</div>`;
   const usd=v=>v==null?'<span class="muted">—</span>':fmtUsd(v);
   const pct=(v,d)=>v==null?'<span class="muted">—</span>':
     `<span class="${v>0?'pos':v<0?'neg':'neu'}">${v>0?'+':''}${v.toFixed(d==null?1:d)}%</span>`;
   const dv=p&&p.divergence?DIV_LABEL[p.divergence]:null;
+  const f=FUND[t.sym];
   return `<div class="card-h" style="margin-top:14px">PERPETUAL MARKET STRUCTURE
-      <span class="muted">recorded, not scored</span></div>
-    <div class="kv"><span>Funding (ann.)</span><b>${p&&p.fundingAnn!=null?pct(p.fundingAnn):'<span class="muted">—</span>'}</b></div>
+      <span class="muted">funding is scored · positioning is not</span></div>
+    <div class="kv"><span>Funding (ann.)</span><b>${
+      f&&f.funding_apr!=null ? aprCell(f.funding_apr)+modBadge(f)
+      : p&&p.fundingAnn!=null ? pct(p.fundingAnn)
+      : '<span class="muted">—</span>'}</b></div>
+    ${f&&f.funding_apr!=null?`
+    <div class="kv"><span>Settlement</span><b class="num">${f.interval_hours}h${
+      f.venue?` <span class="muted">${esc0(f.venue)}${f.venues_n>1?` +${f.venues_n-1}`:""}</span>`:""}</b></div>
+    <div class="kv"><span>Funding regime</span><b>${regimeBadge(f.regime)}</b></div>
+    ${f.apr_trail!=null?`<div class="kv"><span>Trailing carry</span><b class="num">${
+      f.apr_trail>0?"+":""}${f.apr_trail.toFixed(1)}% <span class="muted" style="font-size:9px">over ${
+      f.trail_n} night${f.trail_n===1?"":"s"}${f.pos_share!=null?`, positive on ${
+      Math.round(f.pos_share*f.trail_n)}`:""}</span></b></div>`:""}
+    <div class="kv"><span>Score modifier</span><b class="num">×${(f.score_modifier??1).toFixed(3)}</b></div>
+    ${f.severity!=null&&f.severity!==0?`<div class="kv"><span>Severity</span><b class="num" title="How far past the inert funding band this carry sits, 0 to 1. Published beside the multiplier because two assets can reach the same 0.93 from different places — extreme carry barely confirmed, or moderate carry fully confirmed.">${Math.abs(f.severity).toFixed(2)}</b></div>`:""}
+    <div class="note" style="padding:6px 0 2px">${esc0(f.modifier_reason)}.</div>`:""}
     <div class="kv"><span>Open interest</span><b class="num">${usd(p&&p.oi)}</b></div>
     <div class="kv"><span>24h OI Δ</span><b>${p?pct(p.oiChg):'<span class="muted">—</span>'}</b></div>
     <div class="kv"><span>OI / market cap</span><b class="num">${p&&p.oiToMcap!=null?(p.oiToMcap*100).toFixed(2)+'%':'<span class="muted">—</span>'}</b></div>
@@ -1584,6 +1725,239 @@ function renderEdge(){
 }
 function esc0(s){ return s==null?"":String(s); }
 
+/* ------------------------------------------------------------------------
+   MODULE E — funding heatmap, carry screener, position parser.
+
+   Read from ledger/funding.json, which the nightly writes whatever the venues did.
+   The distinction that governs every message here: a null funding reading means the
+   asset has no perpetual market, which is true of most of the board and is not a
+   fault. An absent *artifact* means the step did not run. Those two render
+   differently, because a reader who cannot tell them apart will read a healthy
+   spot-only long tail as a broken feed.
+   ------------------------------------------------------------------------ */
+const REGIME_LABEL = {
+  OVERHEATED_LONG:["OVERHEATED","r","longs paying heavily; liquidation-cascade risk if price is already extended"],
+  ELEVATED:["ELEVATED","a","hot carry, short of the cascade band"],
+  NEUTRAL:["NEUTRAL","n","longs paying a normal premium for leverage"],
+  MILD_INVERSION:["INVERTED","n","shorts are paying, but not enough to be an edge"],
+  SHORT_SQUEEZE_RISK:["SQUEEZE","g","shorts paying longs; squeeze asymmetry"],
+};
+function fundClass(apr){
+  if(apr==null) return "none";
+  if(apr>FTH.overheated_apr) return "hot";
+  if(apr>FTH.elevated_apr) return "warm";
+  if(apr>=FTH.neutral_floor_apr) return "flat";
+  if(apr>=FTH.squeeze_apr) return "cool";
+  return "cold";
+}
+function aprCell(apr){
+  if(apr==null) return `<span class="fh none">—</span>`;
+  return `<span class="fh ${fundClass(apr)}">${apr>0?"+":""}${apr.toFixed(1)}%</span>`;
+}
+function regimeBadge(reg){
+  const m=REGIME_LABEL[reg];
+  if(!m) return `<span class="muted">no perp market</span>`;
+  return `<span class="badge ${m[1]}" title="${m[2]}">${m[0]}</span>`;
+}
+/* The modifier, shown only when it is not 1.0. A column of "x1.00" trains the eye to
+   skip it, and the two rows that matter then hide inside it. The reason string comes
+   from the engine so the tooltip explains the exact decision that was applied — a bare
+   0.85 cannot distinguish "penalised for crowding" from "the feed was absent". */
+function modBadge(a){
+  if(!a || a.score_modifier==null || a.score_modifier===1) return "";
+  const up=a.score_modifier>1;
+  return `<span class="modf ${up?"up":"dn"}" title="${esc0(a.modifier_reason)}">×${a.score_modifier.toFixed(2)}</span>`;
+}
+
+function renderFunding(){
+  const tb=$("#tbl-fund tbody"), sub=$("#fh-sub"), note=$("#fh-note");
+  if(!tb) return;
+  if(!FUNDING){
+    tb.innerHTML=`<tr><td colspan="8" class="muted" style="padding:10px 12px">Funding feed
+      pending — <code>ledger/funding.json</code> was not produced, so no regime is shown.
+      Scores on this board carry whatever modifier the last completed run applied.</td></tr>`;
+    return;
+  }
+  const vs=FUNDING.venues||{};
+  const live=Object.entries(vs).filter(([,v])=>v.status==="live");
+  const down=Object.entries(vs).filter(([,v])=>v.status!=="live");
+  sub.innerHTML =
+    `Funding normalised to an annual rate at each venue's own settlement interval, then
+     consolidated to the deepest book that lists the asset. The carry sets a multiplier on
+     conviction, continuous in <b>[${FTH.max_penalty}, ${FTH.max_boost}]</b> — nothing here
+     steps, so two assets either side of a round number are not scored 15% apart, and
+     ${FTH.overheated_apr}% and 400% APR are no longer treated as the same market.
+     <br>The multiplier is <b>severity × confirmation</b>. Severity is how far past the
+     inert band (${FTH.neutral_floor_apr}% to +${FTH.elevated_apr}% APR, and down to
+     ${FTH.squeeze_apr}%) the carry sits. Confirmation differs by side because the evidence
+     does: on the hot side price extension is <i>additive</i>, so funding alone still earns
+     ${(FTH.unconfirmed_weight*100).toFixed(0)}% of the markdown and full extension
+     (+${FTH.overheated_price_chg}% on the day) earns all of it. On the cold side 7d RSI is
+     <i>discriminating</i> — it is what separates trapped shorts from shorts who are simply
+     right — so below ${FTH.squeeze_rsi} there is no boost at all and none is given when RSI
+     is unavailable.`
+    + (live.length?`<br><span style="color:var(--sec)">Venues live: ${live.map(([n,v])=>`${n} (${v.markets})`).join(", ")}.</span>`:"")
+    + (down.length?` <span style="color:var(--amber)">Down or unusable: ${down.map(([n,v])=>`${n} — ${esc0(v.detail)}`).join("; ")}.</span>`:"");
+  const n=Object.keys(FUNDING.modifiers_applied||{}).length;
+  note.textContent = `${FUNDING.consolidated_markets||0} markets · ${n} scored modifier${n===1?"":"s"}`;
+
+  // Assets with a funding market first, sorted hottest to coldest so both tails — the
+  // crowded longs and the squeeze candidates — sit at the ends where they are found by
+  // scrolling to an edge rather than by reading every row.
+  const rows=(FUNDING.assets||[]).slice().sort((a,b)=>{
+    if((a.funding_apr==null)!==(b.funding_apr==null)) return a.funding_apr==null?1:-1;
+    return (b.funding_apr??0)-(a.funding_apr??0);
+  });
+  if(!rows.length){
+    tb.innerHTML=`<tr><td colspan="8" class="muted" style="padding:10px 12px">No assets recorded.</td></tr>`;
+    return;
+  }
+  tb.innerHTML=rows.map(a=>{
+    const spread = a.apr_spread==null
+      ? `<span class="muted" title="Only one venue lists this asset, so there is no dispersion to report. Zero would claim the venues agree.">—</span>`
+      : `<span class="num" title="Widest gap between venue APRs. A basis, not an error.">${a.apr_spread.toFixed(1)}%</span>`;
+    // The native settlement interval belongs with the venue, not with the 8h-equivalent
+    // rate. Putting it there read as "0.0851% per 8h" on a Bybit asset and would have
+    // read "/1h" beside an eight-hour-normalised number on a Hyperliquid one — the
+    // exact unit confusion the column exists to remove.
+    const venue = a.venue
+      ? `<span class="muted" title="Headline rate from ${esc0(a.venue)}, which settles every ${a.interval_hours}h.${a.venues_n>1?` ${a.venues_n} venues list this asset.`:""}">${esc0(a.venue)}<span style="font-size:8px"> ${a.interval_hours}h</span>${a.venues_n>1?` +${a.venues_n-1}`:""}</span>`
+      : `<span class="muted">—</span>`;
+    return `<tr class="row" onclick="openDrawer('${esc0(a.symbol)}')">
+      <td><span class="tick">${esc0(a.symbol)}</span></td>
+      <td class="num">${fmtPrice(a.price)}</td>
+      <td class="num">${a.funding_rate_8h==null?'<span class="muted">—</span>'
+          :(a.funding_rate_8h*100).toFixed(4)+"%"}</td>
+      <td>${aprCell(a.funding_apr)}${modBadge(a)}</td>
+      <td>${spread}</td>
+      <td>${venue}</td>
+      <td class="num">${a.rsi7==null?'<span class="muted" title="Fewer than eight recorded closes for this symbol, so a 7-period RSI would not be one. The short-squeeze boost cannot fire without it.">—</span>':a.rsi7.toFixed(0)}</td>
+      <td>${regimeBadge(a.regime)}</td>
+    </tr>`;
+  }).join("");
+}
+
+/* Trailing carry and how consistently it was paid. The share matters more than the mean
+   and is shown next to it for that reason: a 30% average built from one +200% night and
+   six flat ones is not a 30% carry, and the mean alone cannot tell those apart. A single
+   recorded night is reported as such rather than as a trailing figure — one observation
+   is not a trail. */
+function trailCell(r){
+  if(r.apr_trail==null || !r.trail_n)
+    return `<span class="muted" title="No funding recorded for this asset on any earlier night.">—</span>`;
+  const share = r.pos_share==null ? null : Math.round(r.pos_share*r.trail_n);
+  const weak = r.trail_n<3;
+  const thin = r.pos_share!=null && r.pos_share<0.6;
+  return `<span class="num ${r.apr_trail>0?"pos":"neg"}" title="Mean funding APR over the ${
+      r.trail_n} recorded night${r.trail_n===1?"":"s"}${share!=null?`, positive on ${share} of them`:""}.${
+      weak?" Too few nights to call this a trend.":""}${
+      thin?" Funding has not been reliably positive — the headline rate is not the regime.":""}"
+    >${r.apr_trail>0?"+":""}${r.apr_trail.toFixed(1)}%</span>${
+    share!=null?` <span class="muted" style="font-size:8.5px${thin?";color:var(--amber)":""}">${share}/${r.trail_n}</span>`:""}`;
+}
+
+function renderCarry(){
+  const tb=$("#tbl-carry tbody"), foot=$("#cc-foot"), basis=$("#cc-basis");
+  if(!tb) return;
+  if(!FUNDING){
+    tb.innerHTML=`<tr><td colspan="8" class="muted" style="padding:10px 12px">Screener pending —
+      <code>ledger/funding.json</code> was not produced.</td></tr>`;
+    return;
+  }
+  const c=FUNDING.carry||{taker_fee_pct:0.045,slippage_pct:0.02,fills:4,hold_days:30};
+  const hold=Math.max(1, parseFloat($("#cc-hold")?.value) || c.hold_days || 30);
+  const roundtrip=c.fills*(c.taker_fee_pct+c.slippage_pct);
+  basis.innerHTML=`${c.fills} fills × (${c.taker_fee_pct}% taker + ${c.slippage_pct}% slippage)
+    = <b>${roundtrip.toFixed(3)}%</b> of notional, round trip.`;
+
+  // Recomputed here rather than read from the published screen, because the holding
+  // period is an input the reader changes and the nightly can only publish one. The
+  // arithmetic is the same identity the engine uses: drag = roundtrip × 365 / hold.
+  const rows=(FUNDING.assets||[])
+    .filter(a=>a.funding_apr!=null)
+    .map(a=>{
+      const drag=roundtrip*(365/hold);
+      return {...a, drag, net:a.funding_apr-drag,
+              be: a.funding_apr ? roundtrip*365/Math.abs(a.funding_apr) : null};
+    })
+    .sort((x,y)=>y.net-x.net)
+    .slice(0,25);
+  if(!rows.length){
+    tb.innerHTML=`<tr><td colspan="8" class="muted" style="padding:10px 12px">No asset on the
+      board has a funding market tonight, so there is no carry to screen.</td></tr>`;
+    foot.innerHTML=""; return;
+  }
+  tb.innerHTML=rows.map(r=>`<tr class="row" onclick="openDrawer('${esc0(r.symbol)}')">
+      <td><span class="tick">${esc0(r.symbol)}</span></td>
+      <td class="num ${r.funding_apr>0?"pos":"neg"}">${r.funding_apr>0?"+":""}${r.funding_apr.toFixed(1)}%</td>
+      <td class="num neg">−${r.drag.toFixed(2)}%</td>
+      <td class="num ${r.net>0?"pos":"neg"}"><b>${r.net>0?"+":""}${r.net.toFixed(1)}%</b></td>
+      <td>${trailCell(r)}</td>
+      <td class="num ${r.be!=null&&r.be>hold?"neg":""}">${r.be==null?"—":r.be.toFixed(1)}</td>
+      <td class="num">${r.oi_usd==null?'<span class="muted" title="No venue on this asset reported open interest. Kept rather than dropped — an absent reading is not evidence of a thin book.">unknown</span>':fmtUsd(r.oi_usd)}</td>
+      <td>${regimeBadge(r.regime)}</td>
+    </tr>`).join("");
+  const under=rows.filter(r=>r.be!=null&&r.be>hold).length;
+  foot.innerHTML=`Long spot, short perp: the position collects funding and is flat on
+    direction, so the gross yield is the funding rate and the only certain cost is the
+    round trip. Amortising it is what decides the trade — the same ${roundtrip.toFixed(3)}%
+    is charged whether the position is held a day or a quarter, so a ${hold}-day hold
+    carries <b>${(roundtrip*365/hold).toFixed(2)}%</b> of annualised drag.
+    ${under?`<b>${under}</b> of the rows below break even later than ${hold} days and lose
+    money at this holding period, however good the headline rate looks. `:""}
+    Not shown, because there is no free source and an estimate would be
+    indistinguishable from a measurement: borrow cost on the spot leg, exchange margin
+    requirements, and the risk that funding flips before the position is unwound.`;
+}
+
+/* The position parser. Mirrors funding.position_apr — see that docstring for the sign
+   convention, which is the part that is easy to get wrong: the exchange reports the
+   cash flow, not the market's rate, so a negative accrual on a LONG means the position
+   was paid and the market rate is negative. */
+function renderParser(){
+  const host=$("#pp-out"); if(!host) return;
+  const num=id=>{ const v=parseFloat($(id)?.value); return isNaN(v)?null:v; };
+  const contracts=num("#pp-contracts"), price=num("#pp-price"),
+        accrued=num("#pp-accrued"), hours=num("#pp-hours");
+  const side=($("#pp-side")?.value)||"LONG";
+  if(contracts==null||price==null||accrued==null||hours==null){
+    host.innerHTML=`<div class="muted">Enter the four figures from the exchange.</div>`; return; }
+  const notional=contracts*price;
+  if(notional<=0||hours<=0){
+    host.innerHTML=`<div class="muted">A position with no size or no elapsed time has no
+      rate to recover — dividing anyway produces an infinity that renders as a very
+      confident number.</div>`; return; }
+  const holderHourly = -(accrued/hours)/notional;      // fraction of notional, per hour
+  const holderApr = holderHourly*8760*100;             // the desk's own yield
+  const dir = side==="LONG" ? 1 : -1;
+  const marketApr = -holderApr*dir;                    // comparable to the board
+  const reg=classifyRegimeJs(marketApr), m=REGIME_LABEL[reg];
+  const paid = holderApr>=0;
+  host.innerHTML=`
+    <div class="pp-hero ${paid?"pos":"neg"}">${paid?"+":""}${holderApr.toFixed(2)}%
+      <span class="muted" style="font-size:9px">your APR</span></div>
+    <div class="muted" style="margin:2px 0 7px">${paid?"received":"paid"}
+      $${Math.abs(accrued).toFixed(2)} over ${hours}h on $${notional.toLocaleString(undefined,{maximumFractionDigits:0})} of notional</div>
+    <div class="kv"><span>Market rate</span><b>${aprCell(Math.round(marketApr*1e4)/1e4)}</b></div>
+    <div class="kv"><span>8h equivalent</span><b class="num">${(marketApr/(3*365)).toFixed(4)}%</b></div>
+    <div class="kv"><span>Hourly</span><b class="num">${(marketApr/8760).toFixed(6)}%</b></div>
+    <div class="kv"><span>Regime</span><b>${m?`<span class="badge ${m[1]}">${m[0]}</span>`:'<span class="muted">—</span>'}</b></div>
+    <div class="kv"><span>Position P&amp;L</span><b class="num ${paid?"pos":"neg"}">${paid?"+":"−"}$${Math.abs(accrued).toFixed(2)}</b></div>
+    <div class="muted" style="margin-top:7px;line-height:1.5">Your APR is the cash flow to
+      this position. The market rate is the same trade seen from the board and carries the
+      opposite sign on a ${side.toLowerCase()} — a ${side==="LONG"?"long":"short"} that
+      ${paid?"receives":"pays"} funding implies a ${marketApr<0?"negative":"positive"} rate.
+      Only the market rate is comparable to the APR column in Module E.</div>`;
+}
+function classifyRegimeJs(apr){
+  if(apr==null||isNaN(apr)) return null;
+  if(apr>FTH.overheated_apr) return "OVERHEATED_LONG";
+  if(apr>FTH.elevated_apr) return "ELEVATED";
+  if(apr>=FTH.neutral_floor_apr) return "NEUTRAL";
+  if(apr>=FTH.squeeze_apr) return "MILD_INVERSION";
+  return "SHORT_SQUEEZE_RISK";
+}
+
 // Conviction Change Feed + Breadth/Dispersion/Persistence from market_breadth.json.
 function renderBreadth(){
   const feed=$("#chg-feed"), br=$("#breadth");
@@ -1639,6 +2013,18 @@ document.getElementById("pf-btn").onclick=applyHoldings;
 try{ ["#sz-notional","#sz-participation"].forEach(sel=>{ const v=localStorage.getItem("sz"+sel);
   const el=$(sel); if(v!=null && el) el.value=v; }); }catch(e){}
 
+// The parser recomputes on every keystroke: it exists to be typed into while reading
+// numbers off an exchange tab, and a submit button would put a click between the figure
+// and the answer. Nothing here is persisted — the inputs describe one open position and
+// restoring last week's would be a stale claim about a position that may be closed.
+["#pp-contracts","#pp-price","#pp-accrued","#pp-hours"].forEach(sel=>{
+  const el=$(sel); if(el) el.oninput=renderParser; });
+const ppSide=$("#pp-side"); if(ppSide) ppSide.onchange=renderParser;
+renderParser();
+// The carry screen's holding period is the reader's input, and the drag is recomputed
+// from it — the nightly can only publish one horizon.
+const ccHold=$("#cc-hold"); if(ccHold) ccHold.oninput=renderCarry;
+
 
 // ---- load ----
 async function load(){
@@ -1648,7 +2034,7 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderHealth(); renderDiag(); renderSizing(); });
+  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderHealth(); renderDiag(); renderSizing(); renderFunding(); renderCarry(); });
   try{
     const t0=performance.now();
     const r=await fetch(API,{headers:{Accept:"application/json"}});

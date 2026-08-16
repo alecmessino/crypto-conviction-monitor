@@ -52,7 +52,34 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           # computed from accumulated history; CoinGecko has no daily-granularity OHLC
           # endpoint, but high_24h/low_24h are already in the markets response that
           # every run makes, so this costs nothing and back-fills nothing.
-          "high_24h", "low_24h"]
+          "high_24h", "low_24h",
+          # Module 3 — cross-venue funding. Appended for the reason stated above.
+          #
+          # `funding_ann_pct` above is kept exactly as it was, and so is the feed behind
+          # it: the Bybit rate annualised at three settlements a day. `funding_apr` is
+          # the cross-venue reading, annualised at whatever interval its venue actually
+          # settles on. The two are not redundant and neither is a restatement of the
+          # other — where both exist they agree, and that agreement is a cross-check
+          # between two independently fetched pipelines.
+          #
+          # `funding_interval_h` is the field that makes the rate a measurement rather
+          # than a number: 0.0001 at Bybit's 8h and 0.0001 at Hyperliquid's 1h are
+          # 10.95% and 87.6% a year, and without the interval the column holds two
+          # units. `rsi7` and `funding_regime` are recorded because they are inputs to
+          # the modifier and a score whose inputs are not recorded cannot be audited
+          # after the fact.
+          "funding_apr", "funding_interval_h", "funding_venue", "funding_venues_n",
+          "funding_apr_spread", "funding_regime", "rsi7",
+          # Trailing funding, over the nights actually recorded. One settlement print is
+          # a noisy estimate of what a position would earn holding the asset: funding
+          # mean-reverts, and a single hot night is not a carry regime. These columns say
+          # whether it has been paying, and how consistently.
+          #
+          # Observational for now, deliberately. Substituting a trailing figure into the
+          # modifier would make the score lag a genuine regime change, and choosing
+          # between those is a decision that should be made against recorded evidence
+          # rather than asserted — which is what recording these makes possible.
+          "funding_apr_trail", "funding_trail_n", "funding_pos_share"]
 
 # Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
@@ -66,6 +93,41 @@ STABLES = {"USDT", "USDC", "DAI", "BUSD", "TUSD", "USDD", "FDUSD", "USDE",
            "XAUT", "PAXG"}
 
 
+def _load_funding():
+    """Load funding.py by path rather than by name.
+
+    This module is executed three different ways — as a script, by importlib under a
+    made-up module name from the test suite, and by the validator from another
+    directory — and only one of those puts the repository root on ``sys.path``. A plain
+    ``import funding`` works when run as a script and raises ImportError under pytest,
+    which is a failure mode that shows up as "the tests are broken" rather than as what
+    it is. Loading relative to ``__file__`` works in all three.
+
+    The source is compiled in process rather than executed through the normal loader,
+    which is not fastidiousness. ``spec()`` parses funding.py *from disk* to capture the
+    scoring functions, and reads the modifier constants off this module *object*. Those
+    two have to come from the same bytes or the specification hash describes code that
+    did not run.
+
+    They can diverge, and it is not exotic. CPython reuses a cached ``.pyc`` whenever the
+    source's size and mtime match the cache header, and mtime there has one-second
+    granularity — so two edits of equal length within the same second, or a fresh CI
+    checkout that stamps files identically, load the old bytecode while ``read_text``
+    returns the new source. That was observed here: after editing MOD_MAX_PENALTY and
+    restoring it, the loaded module still reported the edited value, and three different
+    threshold edits all produced one identical hash. A hash mechanism that reports the
+    file it did not execute is worse than no hash mechanism.
+    """
+    path = Path(__file__).resolve().parent / "funding.py"
+    src = path.read_text(encoding="utf-8")
+    import importlib.util
+    spec_ = importlib.util.spec_from_file_location("cm_funding", path)
+    mod = importlib.util.module_from_spec(spec_)
+    exec(compile(src, str(path), "exec"), mod.__dict__)  # noqa: S102 - see above
+    return mod
+
+
+funding = _load_funding()
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +137,28 @@ STABLES = {"USDT", "USDC", "DAI", "BUSD", "TUSD", "USDD", "FDUSD", "USDE",
 # inferred, so adding a scoring function is a deliberate act that shows up in review.
 SPEC_FUNCTIONS = ("score", "_lavl_regime", "lavl_perp_mult", "_tier_for")
 SPEC_CONSTANTS = ("TIER_CUTS", "STABLES")
+
+# The same, for funding.py. lavl_perp_mult is a two-line delegation, so without this the
+# specification would capture the *call* and none of the arithmetic behind it: the
+# regime boundaries, the severity curve, the confirmation weights and the envelope all
+# live in the other file, and every one of them changes published scores.
+#
+# This was a live hole for exactly one commit. Moving the modifier into funding.py left
+# the hash reading 872935361713 both before and after the step function was replaced by
+# a continuous surface — a rewrite of the entire scoring curve that the mechanism built
+# to notice scoring rewrites reported as no change at all. A specification that stops at
+# a module boundary is not a specification, it is a description of one file.
+SPEC_FUNDING_FUNCTIONS = ("annualize", "classify_regime", "funding_severity",
+                          "regime_modifier", "rsi", "_ramp", "_atanh_scale",
+                          "_num_or_none")
+SPEC_FUNDING_CONSTANTS = (
+    "REGIME_OVERHEATED", "REGIME_ELEVATED", "REGIME_NEUTRAL_FLOOR", "REGIME_SQUEEZE",
+    "MOD_MAX_PENALTY", "MOD_MAX_BOOST", "MOD_HOT_ANCHOR", "MOD_COLD_ANCHOR",
+    "MOD_SQUEEZE_SATURATION", "MOD_OVERHEATED_PRICE_CHG", "MOD_UNCONFIRMED_WEIGHT",
+    "MOD_SQUEEZE_RSI", "MOD_SQUEEZE_RSI_FULL",
+    # Derived from the anchors above. Captured anyway rather than trusted to follow,
+    # so a change to the derivation is caught even if every anchor stays put.
+    "MOD_HOT_SCALE", "MOD_COLD_SCALE")
 
 
 def spec() -> dict:
@@ -93,15 +177,23 @@ def spec() -> dict:
     """
     import ast
 
-    # Read this file directly rather than via sys.modules: the validator and the tests
-    # load this module through importlib under names that are never registered there,
-    # and a specification that only computes when imported normally is not a
-    # specification.
-    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
-    wanted = set(SPEC_FUNCTIONS)
-    parts = {}
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
+    here = Path(__file__).resolve().parent
+
+    def capture(path: Path, wanted: set, prefix: str = "") -> dict:
+        """Canonical source for each named function in one file.
+
+        Read from disk rather than via sys.modules: the validator and the tests load
+        these modules through importlib under names that are never registered there,
+        and a specification that only computes when imported normally is not a
+        specification.
+        """
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        found = {}
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name not in wanted:
+                continue
             body = node.body
             # Drop the docstring so prose edits do not falsely segment the series.
             if (body and isinstance(body[0], ast.Expr)
@@ -113,17 +205,25 @@ def spec() -> dict:
                 decorator_list=[], returns=None, type_comment=None,
                 type_params=getattr(node, "type_params", []))
             ast.fix_missing_locations(stripped)
-            parts[node.name] = ast.unparse(stripped)
+            found[prefix + node.name] = ast.unparse(stripped)
+        missing = {prefix + n for n in wanted} - set(found)
+        if missing:
+            # A renamed scoring function must not silently drop out of the specification.
+            raise RuntimeError(
+                f"spec() cannot find scoring function(s) in {path.name}: {sorted(missing)}")
+        return found
 
-    missing = wanted - set(parts)
-    if missing:
-        # A renamed scoring function must not silently drop out of the specification.
-        raise RuntimeError(f"spec() cannot find scoring function(s): {sorted(missing)}")
+    parts = capture(Path(__file__), set(SPEC_FUNCTIONS))
+    parts.update(capture(here / "funding.py", set(SPEC_FUNDING_FUNCTIONS), "funding."))
 
     consts = {}
     for name in SPEC_CONSTANTS:
         value = globals().get(name)
         consts[name] = sorted(value) if isinstance(value, set) else value
+    for name in SPEC_FUNDING_CONSTANTS:
+        if not hasattr(funding, name):
+            raise RuntimeError(f"spec() cannot find funding constant: {name}")
+        consts["funding." + name] = getattr(funding, name)
     return {"functions": parts, "constants": consts}
 
 
@@ -541,21 +641,54 @@ def fetch_long_short(perps_map: dict, symbols: set[str] | None = None,
 def lavl_perp_mult(ticker: str, perps_map: dict) -> float:
     """LAVL leverage-micro-regime multiplier (RiskMult_perp).
 
-    - funding > +0.05% per interval => overheated longs, liquidation flush risk => penalize (0.85)
-    - funding < 0 (shorts paying) => capitulation / squeeze asymmetry => reward (1.15)
-    - otherwise neutral 1.0; spot-only microcaps (no perp) default safely to 1.0.
+    Delegates to :func:`funding.regime_modifier`, which classifies the annualised carry
+    and requires a confirming input before it adjusts anything. See that function for
+    the thresholds and for why each adjustment is conditional.
+
+    **This function's text is hashed into the specification.** The version it replaces
+    read the raw per-interval rate directly:
+
+        funding > +0.0005 per interval  ->  0.85     (54.75% APR at an 8h clock)
+        funding < 0                     ->  1.15     (any inversion at all)
+
+    Three things were wrong with that, and all three are why this edit is worth a
+    specification boundary rather than being deferred:
+
+    1. It compared a *rate* against a threshold without knowing the *interval*. The
+       constant 0.0005 encodes an 8-hour settlement clock that was never stated. Point
+       the same code at Hyperliquid, which settles hourly, and the penalty triggers at
+       roughly 8% APR instead of 55% — the threshold silently means something different
+       per venue.
+    2. Both adjustments fired on funding alone. Positive carry says longs are paying for
+       leverage; it does not say the move is extended, and an orderly funded market was
+       being charged a crowding penalty. Symmetrically, any negative print at all earned
+       a 15% boost, including assets where shorts are paying because they are right.
+    3. The boost was a step. Funding at -0.1% and at -8% earned the identical 1.15.
+
+    The replacement keeps the same shape — a multiplier on the risk term, base maths
+    untouched — and gates each adjustment on the confirmation the original assumed.
+
+    Reads ``funding_apr``, ``price_chg_24h`` and ``rsi7`` from the perps map. When only
+    a raw rate is present the APR is derived at the venue's interval, defaulting to the
+    8-hour clock the previous version assumed, so a caller passing the old shape gets a
+    defined reading rather than a crash.
     """
     info = perps_map.get(ticker)
     if not info:
         return 1.0
-    fr = info.get("funding_rate") or 0.0
-    if fr > 0.0005:
-        return 0.85
-    if fr < 0.0:
-        return 1.15
-    return 1.0
+    apr = info.get("funding_apr")
+    if apr is None:
+        apr = funding.annualize(info.get("funding_rate"),
+                                info.get("interval_hours") or 8.0)
+    mult, _reason = funding.regime_modifier(apr, info.get("price_chg_24h"),
+                                            info.get("rsi7"))
+    return mult
 
-# Funding is quoted per 8-hour interval, so three settlements a day.
+# The legacy annualisation constant, for the Bybit feed only: that venue quotes per
+# 8-hour interval, so three settlements a day. It is NOT a general constant — Hyperliquid
+# settles hourly and some Binance symbols every four hours, and applying this to either
+# understates the carry. Cross-venue rates go through funding.annualize, which takes the
+# interval as an argument because the interval is part of the unit.
 FUNDING_INTERVALS_PER_YEAR = 3 * 365
 # Beyond these the carry is doing something a spot-only reader cannot see.
 FUNDING_HOT_APR = 30.0
@@ -629,6 +762,88 @@ def _prev_oi_by_symbol() -> dict:
         v = _num(r.get("oi_usd"))
         if v:
             out[(r.get("symbol") or "").upper()] = v
+    return out
+
+
+def _rsi_by_symbol(live_prices: dict | None = None, period: int = 7) -> dict:
+    """7-period RSI per symbol, from recorded closes plus tonight's live price.
+
+    There is no free daily-close series for this universe, so the ledger is the series —
+    one close per symbol per night, accumulated since the first run. Tonight's price is
+    appended before computing because the reading that gates the squeeze boost has to
+    include today; an RSI as of yesterday would let an asset that reversed hard this
+    afternoon still collect the boost.
+
+    Symbols with fewer than ``period + 1`` recorded closes get None, not a partial
+    figure. That is a real constraint with a real consequence and it is worth stating
+    plainly: the short-squeeze boost cannot fire for a symbol until it has eight nights
+    of history, and a symbol that drops off the board and returns has a gap that this
+    function does not interpolate across — the closes are taken in date order and a
+    missing night simply is not there. Both cases fail closed, to the neutral 1.0.
+    """
+    rows = _read_signals_rows()
+    if not rows:
+        return {}
+    series: dict = {}
+    for r in sorted(rows, key=lambda x: (x.get("date") or "")):
+        sym = (r.get("symbol") or "").upper()
+        px = _num(r.get("price"))
+        if sym and px:
+            series.setdefault(sym, []).append(px)
+    out = {}
+    for sym, closes in series.items():
+        live = (live_prices or {}).get(sym)
+        full = closes + [live] if live else closes
+        out[sym] = funding.rsi(full, period)
+    return out
+
+
+FUNDING_TRAIL_NIGHTS = 7
+
+
+def _funding_trail_by_symbol(nights: int = FUNDING_TRAIL_NIGHTS) -> dict:
+    """Trailing funding per symbol: mean APR, nights covered, share of them positive.
+
+    Reads ``funding_apr`` where present and falls back to ``funding_ann_pct``. That is a
+    join across two columns, which normally deserves suspicion — here it is correct and
+    lossless. Both are annualised percentages of the same quantity, and every row written
+    before Module 3 came from Bybit's 8-hour clock, which is exactly the basis
+    ``funding_ann_pct`` assumes. So the fallback is not an approximation of the newer
+    column; over that history it is arithmetically the same number. Without it this
+    reading would report one night tonight and discard fifteen that are already on disk.
+
+    ``pos_share`` is the reading that matters for a carry: a 30% mean built from one
+    +200% night and six flat ones is not a 30% carry, and the mean alone cannot tell
+    those apart.
+
+    Returns per symbol ``{"mean": float|None, "n": int, "pos_share": float|None}``.
+    None rather than 0.0 for an unrecorded mean — a symbol with no funding history has
+    no trailing carry, and 0.0 would claim it was measured and found flat.
+    """
+    rows = _read_signals_rows()
+    if not rows:
+        return {}
+    dates = sorted({r.get("date") for r in rows if r.get("date")})[-nights:]
+    keep = set(dates)
+    series: dict = {}
+    for r in rows:
+        if r.get("date") not in keep:
+            continue
+        sym = (r.get("symbol") or "").upper()
+        if not sym:
+            continue
+        v = _num(r.get("funding_apr"))
+        if v is None:
+            v = _num(r.get("funding_ann_pct"))
+        if v is not None:
+            series.setdefault(sym, []).append(v)
+    out = {}
+    for sym, vals in series.items():
+        out[sym] = {
+            "mean": round(sum(vals) / len(vals), 4),
+            "n": len(vals),
+            "pos_share": round(sum(1 for v in vals if v > 0) / len(vals), 3),
+        }
     return out
 
 
@@ -1224,10 +1439,34 @@ MON_TRACKED_FIELDS = ("price", "market_cap", "turnover_pct", "conviction",
 # permanent amber and hide a real dropout in price or rs200 behind it.
 MON_CONTEXT_FIELDS = ("era", "unlocks_usd", "supply_increase_pct", "addr_growth_pct",
                       # Derivatives and the daily bar. Observational on the same terms:
-                      # score() reads none of them. funding_rate is the one exception
-                      # worth naming — it has always reached score() via lavl_perp_mult,
-                      # but through perps_map at run time, never through this column.
-                      "funding_rate", "oi_usd", "long_short_ratio")
+                      # score() reads none of them. `funding_rate` used to be the
+                      # exception worth naming — lavl_perp_mult read the raw rate — but
+                      # since Module 3 the modifier reads the annualised, interval-aware
+                      # `funding_apr` instead, and this column is now purely the record
+                      # of what the legacy Bybit feed returned.
+                      "funding_rate", "oi_usd", "long_short_ratio",
+                      # Module 3. `funding_apr` and `rsi7` are genuine model inputs —
+                      # lavl_perp_mult reads both — and the first draft of this change
+                      # filed them as tracked for exactly that reason. That was wrong,
+                      # and the dry run showed why within one board: funding_apr is null
+                      # for every spot-only asset, which is most of the long tail, and
+                      # rsi7 is null until a symbol has eight recorded closes. Grading
+                      # them pinned field presence to a permanent amber at 60% coverage
+                      # — which is the failure `unlocks_usd` is already filed here to
+                      # avoid, and a permanent amber is what a real dropout in price or
+                      # rs200 would then hide behind.
+                      #
+                      # Structural nullity is the test, not model relevance. The dropout
+                      # that actually matters for these — every venue going dark at
+                      # once, which silently collapses every modifier to 1.0 — is not
+                      # visible in a per-column coverage ratio anyway, and is checked
+                      # directly by "Funding feed" in _compute_monitor instead.
+                      "funding_apr", "rsi7",
+                      # Provenance: which book the rate came from, how many listed the
+                      # asset, how far apart they were. The modifier reads the
+                      # consolidated APR and never the spread.
+                      "funding_venue", "funding_venues_n", "funding_apr_spread",
+                      "funding_regime")
 MON_FIELD_PRESENCE_WARN = 0.90
 
 
@@ -1535,6 +1774,50 @@ def _compute_monitor(dune_report: dict | None = None) -> dict:
         checks.append(_mon_check(
             "Undeclared specification change", "pass",
             "no night where the median score moved without the median price", 0))
+
+    # --- the funding feed, checked as a feed rather than as a column ---------
+    # `funding_apr` is null for every spot-only asset, so its coverage ratio says more
+    # about how many of the board have perpetual markets than about whether the feed
+    # works — which is why it is filed as context above. The dropout that actually
+    # matters is different in kind: if every venue goes dark at once, lavl_perp_mult
+    # falls to a neutral 1.0 for every asset, every score shifts, and nothing anywhere
+    # throws. That is a scoring event disguised as a quiet night, and it is what this
+    # check is for.
+    #
+    # The comparison is against the recorded past rather than an absolute floor. How
+    # much of this universe has a perp market is a fact about the universe and drifts
+    # slowly; a collapse against that baseline is a fact about the pipeline.
+    perp_cover = []
+    for d in dates:
+        day = by_date[d]
+        n_f = sum(1 for r in day.values() if _mon_float(r, "funding_apr") is not None)
+        perp_cover.append((d, n_f / len(day) if day else 0.0))
+    today_cover = perp_cover[-1][1]
+    prior = [c for _, c in perp_cover[:-1] if c > 0]
+    baseline = (sum(prior) / len(prior)) if prior else None
+    if not prior:
+        checks.append(_mon_check(
+            "Funding feed", "pending",
+            "no prior night has a funding column to compare against — the baseline "
+            "starts accumulating tonight", round(today_cover, 3)))
+    elif today_cover == 0:
+        checks.append(_mon_check(
+            "Funding feed", "fail",
+            "no asset carries a funding rate tonight against a %.0f%% baseline — every "
+            "score modifier fell to a neutral 1.0, which moves the board without "
+            "raising anything" % (baseline * 100), 0.0))
+    elif today_cover < baseline * 0.5:
+        checks.append(_mon_check(
+            "Funding feed", "warn",
+            "funding present for %.0f%% of the board against a %.0f%% baseline — at "
+            "least one venue is down and the modifiers it would have set are neutral"
+            % (today_cover * 100, baseline * 100), round(today_cover, 3)))
+    else:
+        checks.append(_mon_check(
+            "Funding feed", "pass",
+            "funding present for %.0f%% of the board, in line with the %.0f%% baseline "
+            "— the rest are spot-only, which is not a dropout"
+            % (today_cover * 100, baseline * 100), round(today_cover, 3)))
 
     dupes = len(rows) - len({(r.get("date"), r.get("symbol")) for r in rows})
     checks.append(_mon_check(
@@ -2120,6 +2403,12 @@ def _persist_index_row(row: dict, path=None) -> list[dict]:
 INDEX_JSON = LEDGER_DIR / "index.json"
 MARKET_BREADTH_JSON = LEDGER_DIR / "market_breadth.json"
 MONITOR_JSON = LEDGER_DIR / "monitor.json"
+# Cross-venue funding, in its own artifact rather than folded into signals.json. The
+# per-venue detail is a nested object per symbol and the carry screen is a ranked list;
+# neither fits the flat one-row-per-(date, symbol) shape the ledger holds, and widening
+# the CSV to carry them would put JSON inside a CSV cell. The flat, per-asset fields
+# that *do* fit are in FIELDS as columns; this file is the structured view beside them.
+FUNDING_JSON = LEDGER_DIR / "funding.json"
 REBALANCE_DAYS = 7
 # Rebalance hysteresis (A): don't eject a holding just because it slipped one
 # rank. Keep it unless it drops to rank >= EJECT_RANK or its score falls more
@@ -2503,6 +2792,79 @@ def main() -> int:
     print(f"[perp] prior-night open interest for {len(prev_oi)} symbols"
           + ("" if prev_oi else " — the 24h OI delta is null tonight, not zero"),
           file=__import__("sys").stderr)
+
+    # Module 3 — cross-venue funding. Fetched independently of fetch_perps_map above:
+    # that call stays as the open-interest and long/short source and as the fallback if
+    # every funding venue is down, and unpicking the two would put this change on the
+    # critical path of a feed that is currently working.
+    venue_reports = funding.fetch_all_venues(scored_syms)
+    for line in venue_reports["reports"]:
+        print(f"[funding] {line}", file=__import__("sys").stderr)
+    consolidated = funding.consolidate(venue_reports)
+    if not consolidated:
+        # Not fatal and not silent. Every modifier falls to the neutral 1.0, which is
+        # the correct reading for "no funding was observed" and the wrong thing to
+        # discover from a flat column three weeks later.
+        print("[funding] no venue returned a usable market — every score modifier is "
+              "neutral 1.0 tonight, and the regime column is null rather than NEUTRAL",
+              file=__import__("sys").stderr)
+    else:
+        intervals = {}
+        for rec in consolidated.values():
+            h = rec.get("interval_hours")
+            intervals[h] = intervals.get(h, 0) + 1
+        print("[funding] " + f"{len(consolidated)} consolidated market(s); intervals: "
+              + ", ".join(f"{k:g}h x{v}" for k, v in sorted(intervals.items(),
+                                                            key=lambda kv: kv[0] or 0)),
+              file=__import__("sys").stderr)
+
+    # RSI needs tonight's close, which is the live price — the ledger row for today has
+    # not been written yet at this point.
+    live_px = {(t.get("symbol") or "").upper(): t.get("current_price")
+               for t in markets if t.get("current_price")}
+    live_chg = {(t.get("symbol") or "").upper():
+                t.get("price_change_percentage_24h") for t in markets}
+    rsi_map = _rsi_by_symbol(live_px)
+    # Trailing funding, from the nights already on disk. Read before tonight's row is
+    # written, so it describes the history a decision would have been made against.
+    trail_map = _funding_trail_by_symbol()
+    n_trail = sum(1 for v in trail_map.values() if v["n"] >= 3)
+    print(f"[funding] trailing carry over <= {FUNDING_TRAIL_NIGHTS} nights for "
+          f"{len(trail_map)} symbols, {n_trail} of them with 3+ nights",
+          file=__import__("sys").stderr)
+    n_rsi = sum(1 for v in rsi_map.values() if v is not None)
+    print(f"[funding] 7d RSI for {n_rsi}/{len(rsi_map)} symbols"
+          + ("" if n_rsi else " — no symbol has 8 recorded closes yet, so the "
+                             "short-squeeze boost cannot fire tonight"),
+          file=__import__("sys").stderr)
+
+    # Merge the consolidated funding and its two confirming inputs into perps_map, which
+    # is what score() reads. This is the only place the derivatives feed reaches the
+    # score, and it does so through lavl_perp_mult — a captured SPEC_FUNCTION — so the
+    # decision is recorded in the specification hash on every row written tonight.
+    for sym, rec in consolidated.items():
+        slot = perps_map.setdefault(sym, {})
+        slot["funding_apr"] = rec.get("funding_apr")
+        slot["interval_hours"] = rec.get("interval_hours")
+        # `funding_rate` is deliberately NOT overwritten with the consolidated venue's
+        # rate. It belongs to the legacy Bybit feed, and `perp_context` annualises it at
+        # a fixed three settlements a day to produce `funding_ann_pct` — the column
+        # fifteen nights of history were written into. Writing an hourly Hyperliquid
+        # rate into it would send that rate through the 8-hour constant and understate
+        # its carry by a factor of eight, which is precisely the defect this module was
+        # written to remove, reintroduced one column to the left.
+        #
+        # So the two pipelines stay separate and stay honest: funding_rate /
+        # funding_ann_pct are the Bybit feed on its own terms, funding_apr /
+        # funding_interval_h / funding_venue are the cross-venue reading, and where both
+        # exist they agree. That agreement is a free cross-check rather than redundancy.
+        if rec.get("oi_usd") and not slot.get("oi_usd"):
+            slot["oi_usd"] = rec["oi_usd"]
+    for t in markets:
+        sym = (t.get("symbol") or "").upper()
+        if sym in perps_map:
+            perps_map[sym]["price_chg_24h"] = t.get("price_change_percentage_24h")
+            perps_map[sym]["rsi7"] = rsi_map.get(sym)
     # BTC = market-neutral reference for multi-timeframe relative strength.
     btc = next((m for m in markets if (m.get("symbol") or "").upper() == "BTC"), None)
     basket = build_basket(markets, today, btc)
@@ -2515,6 +2877,13 @@ def main() -> int:
         seen.add(sym)
         era, conv, sig, comp = score(t, perps_map, btc)
         pm = lavl_perp_mult(sym, perps_map)
+        # The same modifier score() applied, with the sentence explaining why. The
+        # multiplier is recorded as perp_mult; the reason goes to funding.json, because
+        # a 0.85 on screen cannot distinguish "penalised for crowding" from "the feed
+        # was absent" and those are opposite facts about an asset.
+        fc = funding.funding_context(sym, consolidated,
+                                     t.get("price_change_percentage_24h"),
+                                     rsi_map.get(sym))
         b = dune_b.get(sym)  # real Dune fields if present, else None -> null
         rows.append({
             "date": today, "symbol": sym, "name": t.get("name", ""),
@@ -2538,6 +2907,17 @@ def main() -> int:
             # The daily bar, for ATR and choppiness once enough of them exist.
             "high_24h": t.get("high_24h"),
             "low_24h": t.get("low_24h"),
+            # Module 3. Only the flat columns: the per-venue breakdown is a nested
+            # object and lives in funding.json. `score_modifier` is deliberately NOT a
+            # column of its own — it is already recorded as `perp_mult`, which is what
+            # score() actually multiplied by, and two columns holding the same number
+            # is two columns that can disagree.
+            **{k: fc[k] for k in ("funding_apr", "funding_interval_h", "funding_venue",
+                                  "funding_venues_n", "funding_apr_spread",
+                                  "funding_regime", "rsi7")},
+            "funding_apr_trail": (trail_map.get(sym) or {}).get("mean"),
+            "funding_trail_n": (trail_map.get(sym) or {}).get("n"),
+            "funding_pos_share": (trail_map.get(sym) or {}).get("pos_share"),
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
 
@@ -2609,6 +2989,90 @@ def main() -> int:
     }
     with LEDGER_JSON.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
+
+    # Module 3 artifact. Written whatever the venues did — a file that only appears on
+    # good nights makes "no funding tonight" indistinguishable from "the step did not
+    # run", and the terminal has to be able to say which.
+    fund_assets = []
+    for r in fresh:
+        sym = r["symbol"]
+        rec = consolidated.get(sym) or {}
+        apr = r.get("funding_apr")
+        mult, reason = funding.regime_modifier(
+            apr, live_chg.get(sym), rsi_map.get(sym))
+        fund_assets.append({
+            "symbol": sym,
+            "price": r.get("price"),
+            # The rate rebased to an 8-hour equivalent, which is the only form in which
+            # venues on different clocks can be put in one column. The raw per-interval
+            # rate is beside it, with the interval that gives it meaning.
+            "funding_rate_8h": (round(apr / (3 * 365 * 100.0), 8)
+                                if apr is not None else None),
+            "funding_rate_raw": r.get("funding_rate"),
+            "interval_hours": r.get("funding_interval_h"),
+            "funding_apr": apr,
+            "regime": r.get("funding_regime"),
+            "score_modifier": mult,
+            "modifier_reason": reason,
+            "rsi7": r.get("rsi7"),
+            "price_chg_24h": live_chg.get(sym),
+            "venue": r.get("funding_venue"),
+            "venues_n": r.get("funding_venues_n"),
+            "apr_spread": r.get("funding_apr_spread"),
+            "oi_usd": r.get("oi_usd"),
+            # Severity and confirmation, published rather than left to be inferred from
+            # the multiplier. Two assets can land on the same 0.93 from very different
+            # places — extreme carry barely confirmed, or moderate carry fully confirmed
+            # — and the modifier alone cannot distinguish them.
+            "severity": round(funding.funding_severity(apr), 4),
+            "apr_trail": r.get("funding_apr_trail"),
+            "trail_n": r.get("funding_trail_n"),
+            "pos_share": r.get("funding_pos_share"),
+            "by_venue": rec.get("by_venue") or {},
+        })
+    applied = {}
+    for a in fund_assets:
+        if a["score_modifier"] != 1.0:
+            applied[a["symbol"]] = a["score_modifier"]
+    funding_payload = {
+        "date": today,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "spec_hash": SPEC_HASH,
+        "venues": {n: {"status": rep["status"], "detail": rep["detail"],
+                       "markets": len(rep["data"])}
+                   for n, rep in venue_reports["venues"].items()},
+        "consolidated_markets": len(consolidated),
+        # Published so the dashboard reads its colour bands and its badge cut-offs from
+        # the engine rather than from a second copy of the numbers in JavaScript. A
+        # threshold duplicated in two languages is a threshold that will disagree with
+        # itself, which is the exact failure the parity gate exists for on the score.
+        "thresholds": {
+            "overheated_apr": funding.REGIME_OVERHEATED,
+            "elevated_apr": funding.REGIME_ELEVATED,
+            "neutral_floor_apr": funding.REGIME_NEUTRAL_FLOOR,
+            "squeeze_apr": funding.REGIME_SQUEEZE,
+            "overheated_price_chg": funding.MOD_OVERHEATED_PRICE_CHG,
+            "squeeze_rsi": funding.MOD_SQUEEZE_RSI,
+            "squeeze_rsi_full": funding.MOD_SQUEEZE_RSI_FULL,
+            "max_penalty": funding.MOD_MAX_PENALTY,
+            "max_boost": funding.MOD_MAX_BOOST,
+            "unconfirmed_weight": funding.MOD_UNCONFIRMED_WEIGHT,
+            "squeeze_saturation_apr": funding.MOD_SQUEEZE_SATURATION,
+        },
+        "carry": {
+            "taker_fee_pct": funding.CARRY_TAKER_FEE_PCT,
+            "slippage_pct": funding.CARRY_SLIPPAGE_PCT,
+            "fills": funding.CARRY_FILLS,
+            "hold_days": funding.CARRY_DEFAULT_HOLD_DAYS,
+        },
+        "modifiers_applied": applied,
+        "assets": fund_assets,
+        "carry_screen": funding.carry_screen(consolidated),
+    }
+    FUNDING_JSON.write_text(json.dumps(funding_payload, indent=2))
+    print(f"[funding] {len(applied)} asset(s) carried a non-neutral score modifier"
+          + (": " + ", ".join(f"{k} x{v}" for k, v in sorted(applied.items()))
+             if applied else " — every asset scored at 1.0"))
 
     # Conviction time-series + breadth/dispersion/persistence (reviewer #3 + the
     # three differentiated signals). Derived purely from the signals ledger.

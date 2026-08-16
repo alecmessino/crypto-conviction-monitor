@@ -149,6 +149,8 @@ def test_the_live_ledger_produces_a_usable_ribbon():
 
 
 def test_the_ribbon_does_not_touch_the_specification():
-    assert nightly.SPEC_HASH == "d600984ec00b"
+    # d600984ec00b -> e65f7dc59d55: the funding regime rewrite of lavl_perp_mult, which
+    # is a scoring change and correctly broke this pin. See tests/test_perps.py.
+    assert nightly.SPEC_HASH == "e65f7dc59d55"
     for fn in nightly.spec()["functions"].values():
         assert "_model_health" not in fn
