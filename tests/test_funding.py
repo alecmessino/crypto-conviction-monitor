@@ -210,13 +210,17 @@ def test_the_two_gaps_in_the_specification_got_their_own_names():
     """+12 to +40 and -15 to 0 were unnamed in the original matrix.
 
     Folding them into NEUTRAL would have labelled a 35% APR carry "healthy trend
-    growth" — a reading a desk acts on, and wrong. They are their own bands, and
-    neither carries a modifier.
+    growth" — a reading a desk acts on, and wrong.
     """
     assert funding.classify_regime(35.0) == "ELEVATED"
     assert funding.classify_regime(-8.0) == "MILD_INVERSION"
-    assert funding.regime_modifier(35.0, price_chg_24h=25.0, rsi7=80.0)[0] == 1.0
+
+
+def test_mild_inversion_earns_nothing_at_all():
+    """The lower gap is genuinely inert: shorts paying 8% a year is not an edge, and
+    the original rule handed it the same +15% boost it gave a real squeeze."""
     assert funding.regime_modifier(-8.0, price_chg_24h=-25.0, rsi7=80.0)[0] == 1.0
+    assert funding.funding_severity(-8.0) == 0.0
 
 
 def test_an_asset_with_no_funding_has_no_regime():
@@ -229,31 +233,65 @@ def test_an_asset_with_no_funding_has_no_regime():
 # ---------------------------------------------------------------------------
 # D. the score modifier — the part that reaches conviction
 # ---------------------------------------------------------------------------
-def test_the_overcrowding_penalty_needs_both_legs():
-    """Funding says longs are paying. It does not say the move is extended.
+def test_the_modifier_is_continuous_across_every_named_threshold():
+    """The defect a step function cannot avoid, whatever threshold is chosen.
 
-    Charging a crowding penalty on carry alone — which the previous lavl_perp_mult did —
-    penalises an orderly, well-funded market for being well funded.
+    An asset at 39.9% APR and one at 40.1% are materially identical, and the first
+    version scored them 15% apart. This is the same failure score() was rewritten to
+    remove — "the additive model saturated momentum at a hard clamp, PUMP and HYPE
+    collided at c_momentum=20" — so it gets the same fix.
     """
-    hot_and_extended = funding.regime_modifier(90.0, price_chg_24h=12.0)
-    hot_only = funding.regime_modifier(90.0, price_chg_24h=3.0)
-    assert hot_and_extended[0] == 0.85
-    assert hot_only[0] == 1.0
-    assert "not extended" in hot_only[1]
+    for centre, chg, rsi_ in ((40.0, 25.0, None), (12.0, 25.0, None),
+                              (-15.0, None, 70.0), (-40.0, None, 70.0)):
+        below = funding.regime_modifier(centre - 0.05, chg, rsi_)[0]
+        at = funding.regime_modifier(centre, chg, rsi_)[0]
+        above = funding.regime_modifier(centre + 0.05, chg, rsi_)[0]
+        assert abs(below - at) < 0.002 and abs(at - above) < 0.002, (
+            f"a cliff survives at {centre}% APR: {below} / {at} / {above}")
 
 
-def test_the_penalty_boundary_is_strict_at_ten_percent():
-    assert funding.regime_modifier(90.0, price_chg_24h=10.01)[0] == 0.85
-    assert funding.regime_modifier(90.0, price_chg_24h=10.0)[0] == 1.0
+def test_the_modifier_is_monotone_in_the_carry():
+    """More extreme funding must never earn a smaller adjustment. A non-monotone curve
+    would rank two assets in an order no one could defend."""
+    hot = [funding.regime_modifier(a, 25.0)[0] for a in (13, 20, 40, 80, 160, 400)]
+    assert hot == sorted(hot, reverse=True), hot
+    cold = [funding.regime_modifier(a, None, 70.0)[0] for a in (-16, -25, -40, -90, -400)]
+    assert cold == sorted(cold), cold
 
 
-def test_an_unconfirmable_penalty_is_withheld_and_says_so():
-    """No 24h reading means the confirming condition was not observed, not that it
-    failed. Either way the adjustment is not made — but the reason has to distinguish
-    them, because one is a market state and the other is a dead feed."""
+def test_extreme_carry_is_no_longer_indistinguishable_from_merely_hot():
+    """40% APR and 400% APR were scored identically. They are not the same market, and
+    a modifier that cannot tell them apart cannot rank inside its own band."""
+    at_threshold = funding.regime_modifier(40.0, price_chg_24h=25.0)[0]
+    extreme = funding.regime_modifier(400.0, price_chg_24h=25.0)[0]
+    assert extreme < at_threshold - 0.05
+    assert extreme == pytest.approx(0.85, abs=1e-3)   # the floor, approached not jumped
+
+
+def test_price_extension_scales_the_penalty_rather_than_gating_it():
+    """Additive evidence, not a switch. Funding above the neutral band already
+    establishes that leverage is being paid for; extension establishes the crowd is also
+    sitting on a move with somewhere to fall."""
+    flat = funding.regime_modifier(90.0, price_chg_24h=0.0)[0]
+    half = funding.regime_modifier(90.0, price_chg_24h=5.0)[0]
+    full = funding.regime_modifier(90.0, price_chg_24h=12.0)[0]
+    assert full < half < flat < 1.0
+    # The confirmed penalty is exactly twice the unconfirmed one, by construction.
+    assert (1 - full) == pytest.approx((1 - flat) / funding.MOD_UNCONFIRMED_WEIGHT, rel=1e-6)
+
+
+def test_uncorroborated_overheating_is_marked_down_not_ignored():
+    """The case the first version got wrong: 90% APR on flat price scored exactly the
+    same as an asset with no perpetual market at all. That discards an observation which
+    was actually made — the funding print is not in doubt, only the second leg."""
     mult, reason = funding.regime_modifier(90.0, price_chg_24h=None)
-    assert mult == 1.0
-    assert "no 24h price change" in reason
+    assert 0.85 < mult < 1.0
+    assert "reduced weight" in reason
+    # Identical to an observed-but-flat reading: neither adds extension evidence.
+    assert mult == pytest.approx(funding.regime_modifier(90.0, price_chg_24h=0.0)[0])
+    # And to a falling one — this file does not claim to know what hot funding on a
+    # falling price means, so it does not price it.
+    assert mult == pytest.approx(funding.regime_modifier(90.0, price_chg_24h=-8.0)[0])
 
 
 def test_the_squeeze_boost_needs_rsi_above_forty_five():
@@ -276,19 +314,40 @@ def test_the_boost_is_withheld_when_rsi_cannot_be_computed():
 def test_the_boost_ramps_with_the_depth_of_the_inversion():
     """The specification said "+10% to +15%" without saying what selects within it.
 
-    A range is not implementable: the choice is a step at one end, which puts a cliff at
-    an arbitrary APR, or an interpolation. Interpolating on how deep shorts are
-    underwater is the reading that matches what the boost is for.
+    A range is not implementable. Interpolating on how deep shorts are underwater is the
+    reading that matches what the boost is for, and starting from zero at the boundary
+    rather than from +10% removes the cliff the original range implied.
     """
-    at_boundary = funding.regime_modifier(-15.01, rsi7=60.0)[0]
-    midway = funding.regime_modifier(-27.5, rsi7=60.0)[0]
-    saturated = funding.regime_modifier(-40.0, rsi7=60.0)[0]
-    beyond = funding.regime_modifier(-400.0, rsi7=60.0)[0]
-    assert at_boundary == pytest.approx(1.10, abs=1e-3)
-    assert midway == pytest.approx(1.125, abs=1e-3)
-    assert saturated == pytest.approx(1.15)
+    at_boundary = funding.regime_modifier(-15.01, rsi7=70.0)[0]
+    midway = funding.regime_modifier(-27.5, rsi7=70.0)[0]
+    anchor = funding.regime_modifier(-40.0, rsi7=70.0)[0]
+    beyond = funding.regime_modifier(-400.0, rsi7=70.0)[0]
+    assert at_boundary == pytest.approx(1.0, abs=1e-3)     # continuous, not a jump to 1.10
+    assert at_boundary < midway < anchor < beyond
+    # MOD_COLD_ANCHOR: 85% of the available boost by the original matrix's cap point.
+    assert anchor == pytest.approx(1.0 + 0.15 * funding.MOD_COLD_ANCHOR, abs=1e-3)
     assert beyond == 1.15, "the boost must cap rather than run away on an outlier print"
-    assert at_boundary < midway < saturated
+
+
+def test_the_severity_anchors_land_where_the_constants_say_they_do():
+    """The tanh scales are derived from the anchors at import rather than tuned, so
+    moving a threshold moves the curve coherently. Pinned so a hand-edited scale that
+    contradicts its own anchor fails here."""
+    assert funding.funding_severity(funding.REGIME_OVERHEATED) == pytest.approx(
+        -funding.MOD_HOT_ANCHOR, abs=1e-9)
+    assert funding.funding_severity(funding.MOD_SQUEEZE_SATURATION) == pytest.approx(
+        funding.MOD_COLD_ANCHOR, abs=1e-9)
+    # Zero, exactly, across the whole inert band — not merely small.
+    for apr in (0.0, 5.0, 12.0, -1.0, -15.0):
+        assert funding.funding_severity(apr) == 0.0
+
+
+def test_the_two_sides_are_asymmetric_and_that_is_the_point():
+    """Positive funding is the normal state of a perpetual market — longs pay shorts
+    most of the time, which is why cash-and-carry is a standard trade. So +40% APR is
+    elevated but unremarkable while -40% is rare and far more informative, and equal
+    magnitudes must not earn equal severity."""
+    assert abs(funding.funding_severity(-40.0)) > abs(funding.funding_severity(40.0))
 
 
 def test_the_modifier_stays_inside_the_specified_band():
@@ -309,8 +368,11 @@ def test_no_funding_feed_is_neutral_not_null():
     assert reason == "no funding feed"
 
 
-def test_an_unreadable_confirmation_does_not_crash_the_score():
-    assert funding.regime_modifier(90.0, price_chg_24h="n/a")[0] == 1.0
+def test_an_unreadable_confirmation_is_treated_as_an_absent_one():
+    """Neither is an observation, so both fall to the same handling — reduced weight on
+    the hot side, withheld on the cold side."""
+    assert funding.regime_modifier(90.0, price_chg_24h="n/a")[0] == pytest.approx(
+        funding.regime_modifier(90.0, price_chg_24h=None)[0])
     assert funding.regime_modifier(-30.0, rsi7="n/a")[0] == 1.0
 
 

@@ -143,12 +143,12 @@ def test_the_edge_panel_does_not_touch_the_specification():
     it is derived from the scoring source itself, so it catches anything a name-based
     check would miss.
 
-    Moved d600984ec00b -> 872935361713 when lavl_perp_mult was rewritten to read the
+    Moved d600984ec00b -> e65f7dc59d55 when lavl_perp_mult was rewritten to read the
     interval-normalised funding APR and require a confirming input before adjusting.
     That is a scoring change and it is supposed to break this line; see
     tests/test_perps.py for the boundary it moved and what stays observational.
     """
-    assert nightly.SPEC_HASH == "872935361713"
+    assert nightly.SPEC_HASH == "e65f7dc59d55"
     captured = nightly.spec()["functions"]
     for fn in captured.values():
         for name in ("_edge_legs", "_compute_edge", "_active_contributions"):

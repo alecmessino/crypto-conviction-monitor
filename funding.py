@@ -39,6 +39,7 @@ Standard library only, matching nightly.py: this runs in CI with no install step
 from __future__ import annotations
 
 import json
+import math
 import sys
 import urllib.request
 
@@ -56,13 +57,76 @@ REGIME_NEUTRAL_FLOOR = 0.0    # 0..12: longs paying a normal premium for leverag
 REGIME_SQUEEZE = -15.0        # below: shorts paying longs, squeeze asymmetry
 # -15..0 is MILD_INVERSION: shorts are paying, but not enough to be an edge.
 
-# Score modifier parameters. These are the numbers that move the specification hash.
-MOD_OVERHEATED = 0.85         # crowded longs AND price already extended
-MOD_OVERHEATED_PRICE_CHG = 10.0   # 24h percent that confirms the crowding
-MOD_SQUEEZE_MIN = 1.10        # at the -15% APR boundary
-MOD_SQUEEZE_MAX = 1.15        # at or below MOD_SQUEEZE_SATURATION
-MOD_SQUEEZE_SATURATION = -40.0    # APR at which the boost reaches its cap
-MOD_SQUEEZE_RSI = 45.0        # 7-period RSI that confirms the asset is not in freefall
+# --- score modifier -------------------------------------------------------
+# These are the numbers that move the specification hash.
+#
+# The envelope, unchanged from the original matrix: the modifier never leaves
+# [0.85, 1.15] whatever the inputs do.
+MOD_MAX_PENALTY = 0.85
+MOD_MAX_BOOST = 1.15
+
+# Everything inside that envelope is continuous. The first version of this was a step
+# function — exactly 0.85 above +40% APR, exactly 1.0 below — which has two defects that
+# no choice of threshold fixes. An asset at 39.9% and one at 40.1% are materially
+# identical and were scored 15% apart; an asset at 40.1% and one at 400% are not remotely
+# identical and were scored the same. This is the failure score() itself was rewritten to
+# remove ("the additive model saturated momentum at a hard clamp — PUMP and HYPE collided
+# at c_momentum=20"), and the fix here is the one that worked there: a soft curve with no
+# clamp, so the board stays rankable inside the band.
+#
+# Severity is tanh over the distance past the neutral band, scaled so that a named
+# threshold lands on a named severity. The scales are derived from those anchors at import
+# rather than tuned by hand, so moving a threshold moves the curve coherently instead of
+# requiring a second constant to be re-fitted.
+MOD_SQUEEZE_SATURATION = -40.0    # the APR the original matrix called the boost cap
+MOD_HOT_ANCHOR = 0.50   # severity at REGIME_OVERHEATED (+40% APR)
+MOD_COLD_ANCHOR = 0.85  # severity at MOD_SQUEEZE_SATURATION (-40% APR)
+#
+# The two sides are deliberately not symmetric, and the asymmetry is the empirical claim
+# this file makes most confidently: positive funding is the *normal* state of a perpetual
+# market. Longs pay shorts most of the time on every major venue — that structural bias is
+# the entire reason cash-and-carry is a standard trade. So +40% APR is elevated but
+# unremarkable, while -40% APR is rare and much more informative. The hot side therefore
+# reaches half severity at its anchor and approaches the floor only for genuinely extreme
+# carry (~100%+ APR); the cold side is most of the way there by -40%.
+
+# Confirmation. The two legs are not the same kind of evidence, and treating them
+# identically was the mistake in the first version.
+#
+# Price extension is ADDITIVE evidence on the hot side. Funding above the neutral band
+# already establishes that leverage is being paid for; price extension establishes that
+# the position is also crowded into a move that has somewhere to fall. Absent the second
+# leg the first still stands, so the penalty is applied at reduced weight rather than
+# withheld — withholding it entirely, as the first version did, threw away an observation
+# that was actually made.
+MOD_OVERHEATED_PRICE_CHG = 10.0   # 24h percent at which price confirmation is full
+MOD_UNCONFIRMED_WEIGHT = 0.50     # weight on funding evidence standing alone
+#
+# RSI is DISCRIMINATING evidence on the cold side, which is a different thing. Deeply
+# negative funding has two opposite readings — shorts trapped under a floor, or shorts
+# correctly positioned in a market that is still falling — and RSI is what separates them.
+# Without it the *sign* of the correct adjustment is unknown, not merely its size, so
+# there is no reduced-weight version to fall back on and the boost is withheld outright.
+# Half a boost on a falling knife is worse than none.
+MOD_SQUEEZE_RSI = 45.0        # below this: no boost at all
+MOD_SQUEEZE_RSI_FULL = 60.0   # at or above this: full boost
+
+
+def _atanh_scale(span: float, anchor_severity: float) -> float:
+    """The tanh scale that puts ``anchor_severity`` exactly at ``span`` from the origin."""
+    return abs(span) / math.atanh(anchor_severity)
+
+
+MOD_HOT_SCALE = _atanh_scale(REGIME_OVERHEATED - REGIME_ELEVATED, MOD_HOT_ANCHOR)
+MOD_COLD_SCALE = _atanh_scale(REGIME_SQUEEZE - MOD_SQUEEZE_SATURATION, MOD_COLD_ANCHOR)
+
+
+def _ramp(value, lo: float, hi: float) -> float:
+    """Linear 0->1 between two bounds, clamped. Kept linear rather than smoothed: the
+    numbers on this board are meant to be checkable by hand."""
+    if hi == lo:
+        return 1.0 if value >= hi else 0.0
+    return max(0.0, min(1.0, (float(value) - lo) / (hi - lo)))
 
 REGIMES = ("OVERHEATED_LONG", "ELEVATED", "NEUTRAL", "MILD_INVERSION",
            "SHORT_SQUEEZE_RISK")
@@ -174,70 +238,113 @@ def classify_regime(funding_apr) -> str | None:
     return "SHORT_SQUEEZE_RISK"
 
 
+def funding_severity(funding_apr) -> float:
+    """How far past the neutral band the carry sits, as a signed 0..1 magnitude.
+
+    Negative for hot funding (a penalty direction), positive for inverted funding (a
+    boost direction), and exactly 0.0 anywhere inside NEUTRAL or MILD_INVERSION. Smooth
+    everywhere, including across the band boundaries, so no asset is scored differently
+    from a materially identical one because it fell on the other side of a round number.
+
+    Unbounded input, bounded output: 400% APR and 40% APR produce different severities
+    that both stay inside the envelope, which a clamp cannot do.
+    """
+    if funding_apr is None:
+        return 0.0
+    try:
+        apr = float(funding_apr)
+    except (TypeError, ValueError):
+        return 0.0
+    if apr > REGIME_ELEVATED:
+        return -math.tanh((apr - REGIME_ELEVATED) / MOD_HOT_SCALE)
+    if apr < REGIME_SQUEEZE:
+        return math.tanh((REGIME_SQUEEZE - apr) / MOD_COLD_SCALE)
+    return 0.0
+
+
 def regime_modifier(funding_apr, price_chg_24h=None, rsi7=None) -> tuple[float, str]:
     """The conviction multiplier, and the reason it is what it is.
 
     Returns ``(multiplier, reason)``. The reason travels with the number because a bare
-    0.85 on a dashboard is unreadable — it does not say whether the asset was penalised
-    for crowding or whether the feed was simply absent, and those are opposite facts.
+    0.87 on a dashboard is unreadable — it does not say whether the asset was marked
+    down for crowding or whether the feed was simply absent, and those are opposite
+    facts about an asset.
 
-    Both adjustments require a confirming input, and neither is applied without it:
+    The shape is ``1 + available_adjustment x severity x confirmation``:
 
-      penalty  OVERHEATED_LONG *and* 24h price change above +10%. Funding alone says
-               longs are paying; it does not say the move is extended. Charging a
-               crowding penalty to an asset with high carry and flat price would
-               penalise a funded, orderly market.
+      severity      how far past the neutral band the carry sits, 0..1, smooth. See
+                    :func:`funding_severity`.
+      confirmation  how much of the second leg was actually observed, 0..1.
 
-      boost    SHORT_SQUEEZE_RISK *and* 7-period RSI above 45. Deeply negative funding
-               on a chart in freefall is not squeeze asymmetry, it is a market where
-               shorts are paying because they are right. The RSI floor is what separates
-               the two, and without an RSI reading the distinction cannot be made — so
-               the boost is withheld rather than granted on hope.
+    Both terms are continuous, so the modifier is continuous in every input. Nothing
+    here steps, and nothing clamps until the envelope itself.
 
-    The boost ramps rather than steps: 1.10 at the -15% boundary rising to 1.15 at -40%
-    and beyond. The specification gave a range ("+10% to +15%") without saying what
-    selects within it, and a range is not implementable — the choice is either a step at
-    one end, which puts a cliff at an arbitrary APR, or an interpolation. Interpolating
-    on the depth of the inversion is the reading that matches what the boost is for: the
-    further shorts are underwater, the more asymmetric the setup.
+    The two sides confirm differently because the evidence is of different kinds:
+
+      hot   price extension is additive. Funding above the neutral band already
+            establishes that leverage is being paid for. Extension establishes that the
+            crowd is also sitting on a move with somewhere to fall. Without it the first
+            observation still stands, so the penalty applies at MOD_UNCONFIRMED_WEIGHT
+            rather than being withheld. The previous version withheld it entirely, which
+            threw away an observation that had actually been made: 90% APR on flat price
+            scored exactly the same as no perpetual market at all.
+
+      cold  RSI is discriminating. Deeply negative funding reads two opposite ways —
+            shorts trapped, or shorts correct in a market still falling — and RSI is
+            what separates them. Absent it, the *sign* of the right adjustment is
+            unknown rather than its size, so there is no reduced-weight fallback and the
+            boost is withheld. On the 2026-08-15 board this is not hypothetical: INJ
+            printed -51% APR at RSI 2, and the rule this replaced paid it a 15% boost
+            for being in freefall.
     """
     regime = classify_regime(funding_apr)
     if regime is None:
         return 1.0, "no funding feed"
+    apr = float(funding_apr)
+    sev = funding_severity(apr)
+    if sev == 0.0:
+        return 1.0, (f"{regime.lower().replace('_', ' ')} carry at {apr_str(apr)} — "
+                     f"inside the band that earns no adjustment")
 
-    if regime == "OVERHEATED_LONG":
-        if price_chg_24h is None:
-            return 1.0, "overheated funding, but no 24h price change to confirm crowding"
-        try:
-            chg = float(price_chg_24h)
-        except (TypeError, ValueError):
-            return 1.0, "overheated funding, but the 24h price change was unreadable"
-        if chg > MOD_OVERHEATED_PRICE_CHG:
-            return MOD_OVERHEATED, (
-                f"crowded longs: {float(funding_apr):.0f}% APR carry on a "
-                f"{chg:+.1f}% 24h move")
-        return 1.0, (f"funding is hot ({float(funding_apr):.0f}% APR) but price is not "
-                     f"extended ({chg:+.1f}% 24h)")
+    if sev < 0:
+        chg = _num_or_none(price_chg_24h)
+        if chg is None:
+            conf, why = MOD_UNCONFIRMED_WEIGHT, (
+                "no 24h price change to confirm the crowding, so the funding evidence "
+                "is applied at reduced weight")
+        else:
+            conf = MOD_UNCONFIRMED_WEIGHT + (1.0 - MOD_UNCONFIRMED_WEIGHT) * _ramp(
+                chg, 0.0, MOD_OVERHEATED_PRICE_CHG)
+            why = (f"on a {chg:+.1f}% 24h move"
+                   if chg > 0 else f"price not extended ({chg:+.1f}% 24h)")
+        mult = 1.0 - (1.0 - MOD_MAX_PENALTY) * (-sev) * conf
+        return round(mult, 4), (
+            f"longs paying {apr_str(apr)}, {why} — severity {-sev:.2f}, "
+            f"confirmation {conf:.2f}")
 
-    if regime == "SHORT_SQUEEZE_RISK":
-        if rsi7 is None:
-            return 1.0, "negative funding, but no 7d RSI to separate squeeze from freefall"
-        try:
-            r = float(rsi7)
-        except (TypeError, ValueError):
-            return 1.0, "negative funding, but the RSI reading was unusable"
-        if r > MOD_SQUEEZE_RSI:
-            apr = float(funding_apr)
-            # Linear ramp between the boundary and the saturation point.
-            span = REGIME_SQUEEZE - MOD_SQUEEZE_SATURATION          # 25.0
-            depth = min(1.0, max(0.0, (REGIME_SQUEEZE - apr) / span))
-            mult = MOD_SQUEEZE_MIN + depth * (MOD_SQUEEZE_MAX - MOD_SQUEEZE_MIN)
-            return round(mult, 4), (
-                f"shorts paying {abs(apr):.0f}% APR with RSI {r:.0f} — squeeze asymmetry")
-        return 1.0, (f"shorts are paying ({apr_str(funding_apr)}) but RSI {r:.0f} is "
-                     f"below {MOD_SQUEEZE_RSI:.0f} — downtrend, not squeeze")
+    r = _num_or_none(rsi7)
+    if r is None:
+        return 1.0, (f"shorts paying {apr_str(apr)}, but no 7d RSI to separate a squeeze "
+                     f"from a downtrend — the boost is withheld, not reduced")
+    conf = _ramp(r, MOD_SQUEEZE_RSI, MOD_SQUEEZE_RSI_FULL)
+    if conf == 0.0:
+        return 1.0, (f"shorts paying {apr_str(apr)} but RSI {r:.0f} is at or below "
+                     f"{MOD_SQUEEZE_RSI:.0f} — downtrend, not squeeze")
+    mult = 1.0 + (MOD_MAX_BOOST - 1.0) * sev * conf
+    return round(mult, 4), (
+        f"shorts paying {apr_str(apr)} with RSI {r:.0f} — squeeze asymmetry, "
+        f"severity {sev:.2f}, confirmation {conf:.2f}")
 
-    return 1.0, f"{regime.lower().replace('_', ' ')} carry"
+
+def _num_or_none(v):
+    """A float, or None for anything that is not one. Unreadable and absent are the same
+    thing to a confirmation term: neither is an observation."""
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def apr_str(apr) -> str:

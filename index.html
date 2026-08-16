@@ -346,7 +346,7 @@ canvas{display:block;width:100%}
     <div class="glass">
       <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
       <div class="card-b" style="padding:0">
-        <div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko. RiskMult<sub>perp</sub> is the funding regime modifier from Module E — it is <b>not</b> neutral: it reads the cross-venue annualised carry and applies ×0.85 to crowded longs and up to ×1.15 to squeeze candidates, each only when its confirming leg is present. Assets with no perpetual market sit at 1.0, which is a real reading and not a placeholder.</div>
+        <div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko. RiskMult<sub>perp</sub> is the funding modifier from Module E — it is <b>not</b> neutral: it reads the cross-venue annualised carry and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do, continuously and with no step at any threshold. Assets inside the inert funding band, and assets with no perpetual market at all, sit at exactly 1.0 — a real reading, not a placeholder.</div>
         <div class="scroll-pane">
           <table id="tbl-lavl"><thead><tr>
             <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>RiskMult</th><th>LAVL</th><th>Regime</th>
@@ -396,6 +396,7 @@ canvas{display:block;width:100%}
             <th title="Annualised funding the delta-neutral position collects: long spot, short perp.">Gross APR</th>
             <th title="Round-trip execution amortised over the holding period. Four fills — buy spot, short perp, then unwind both — so the cost is charged once and spread across however long the position is held.">Drag</th>
             <th title="Gross carry minus execution drag. This is the number the trade actually earns.">Net APR</th>
+            <th title="Mean funding APR over the nights recorded so far, and how many of those nights it was positive. A carry is held for weeks; one settlement print is a noisy estimate of what it pays. A high gross next to a thin persistence is one hot night, not a regime.">Trailing</th>
             <th title="How long the position must be held for the funding to pay for the fills. Below this the trade loses money however good the headline rate looks.">B/E days</th>
             <th title="Open interest on the venue reporting it. Assets below the depth floor are excluded; assets with no reading are kept and marked, because an absent number is not evidence of a thin book.">Open Int.</th>
             <th>Regime</th>
@@ -504,8 +505,9 @@ let FUND = {};      // the same, keyed by symbol
 // are what the page shows when the artifact is missing — at which point Module E
 // renders its "pending" state and none of them are actually used to colour anything.
 let FTH = {overheated_apr:40, elevated_apr:12, neutral_floor_apr:0, squeeze_apr:-15,
-           overheated_price_chg:10, squeeze_rsi:45,
-           mod_overheated:0.85, mod_squeeze_min:1.10, mod_squeeze_max:1.15};
+           overheated_price_chg:10, squeeze_rsi:45, squeeze_rsi_full:60,
+           max_penalty:0.85, max_boost:1.15, unconfirmed_weight:0.5,
+           squeeze_saturation_apr:-40};
 async function loadLedger(){
   try{
     const r=await fetch("ledger/signals.json",{cache:"no-store"});
@@ -911,7 +913,12 @@ function perpBlock(t){
     <div class="kv"><span>Settlement</span><b class="num">${f.interval_hours}h${
       f.venue?` <span class="muted">${esc0(f.venue)}${f.venues_n>1?` +${f.venues_n-1}`:""}</span>`:""}</b></div>
     <div class="kv"><span>Funding regime</span><b>${regimeBadge(f.regime)}</b></div>
+    ${f.apr_trail!=null?`<div class="kv"><span>Trailing carry</span><b class="num">${
+      f.apr_trail>0?"+":""}${f.apr_trail.toFixed(1)}% <span class="muted" style="font-size:9px">over ${
+      f.trail_n} night${f.trail_n===1?"":"s"}${f.pos_share!=null?`, positive on ${
+      Math.round(f.pos_share*f.trail_n)}`:""}</span></b></div>`:""}
     <div class="kv"><span>Score modifier</span><b class="num">×${(f.score_modifier??1).toFixed(3)}</b></div>
+    ${f.severity!=null&&f.severity!==0?`<div class="kv"><span>Severity</span><b class="num" title="How far past the inert funding band this carry sits, 0 to 1. Published beside the multiplier because two assets can reach the same 0.93 from different places — extreme carry barely confirmed, or moderate carry fully confirmed.">${Math.abs(f.severity).toFixed(2)}</b></div>`:""}
     <div class="note" style="padding:6px 0 2px">${esc0(f.modifier_reason)}.</div>`:""}
     <div class="kv"><span>Open interest</span><b class="num">${usd(p&&p.oi)}</b></div>
     <div class="kv"><span>24h OI Δ</span><b>${p?pct(p.oiChg):'<span class="muted">—</span>'}</b></div>
@@ -1776,12 +1783,19 @@ function renderFunding(){
   const down=Object.entries(vs).filter(([,v])=>v.status!=="live");
   sub.innerHTML =
     `Funding normalised to an annual rate at each venue's own settlement interval, then
-     consolidated to the deepest book that lists the asset. The regime sets a multiplier
-     on conviction: <b>×${FTH.mod_overheated}</b> when funding is above
-     +${FTH.overheated_apr}% APR <i>and</i> price is up more than
-     ${FTH.overheated_price_chg}% on the day, <b>×${FTH.mod_squeeze_min}–${FTH.mod_squeeze_max}</b>
-     when funding is below ${FTH.squeeze_apr}% APR <i>and</i> 7d RSI is above
-     ${FTH.squeeze_rsi}. Both need the confirming leg; neither fires on funding alone.`
+     consolidated to the deepest book that lists the asset. The carry sets a multiplier on
+     conviction, continuous in <b>[${FTH.max_penalty}, ${FTH.max_boost}]</b> — nothing here
+     steps, so two assets either side of a round number are not scored 15% apart, and
+     ${FTH.overheated_apr}% and 400% APR are no longer treated as the same market.
+     <br>The multiplier is <b>severity × confirmation</b>. Severity is how far past the
+     inert band (${FTH.neutral_floor_apr}% to +${FTH.elevated_apr}% APR, and down to
+     ${FTH.squeeze_apr}%) the carry sits. Confirmation differs by side because the evidence
+     does: on the hot side price extension is <i>additive</i>, so funding alone still earns
+     ${(FTH.unconfirmed_weight*100).toFixed(0)}% of the markdown and full extension
+     (+${FTH.overheated_price_chg}% on the day) earns all of it. On the cold side 7d RSI is
+     <i>discriminating</i> — it is what separates trapped shorts from shorts who are simply
+     right — so below ${FTH.squeeze_rsi} there is no boost at all and none is given when RSI
+     is unavailable.`
     + (live.length?`<br><span style="color:var(--sec)">Venues live: ${live.map(([n,v])=>`${n} (${v.markets})`).join(", ")}.</span>`:"")
     + (down.length?` <span style="color:var(--amber)">Down or unusable: ${down.map(([n,v])=>`${n} — ${esc0(v.detail)}`).join("; ")}.</span>`:"");
   const n=Object.keys(FUNDING.modifiers_applied||{}).length;
@@ -1823,11 +1837,30 @@ function renderFunding(){
   }).join("");
 }
 
+/* Trailing carry and how consistently it was paid. The share matters more than the mean
+   and is shown next to it for that reason: a 30% average built from one +200% night and
+   six flat ones is not a 30% carry, and the mean alone cannot tell those apart. A single
+   recorded night is reported as such rather than as a trailing figure — one observation
+   is not a trail. */
+function trailCell(r){
+  if(r.apr_trail==null || !r.trail_n)
+    return `<span class="muted" title="No funding recorded for this asset on any earlier night.">—</span>`;
+  const share = r.pos_share==null ? null : Math.round(r.pos_share*r.trail_n);
+  const weak = r.trail_n<3;
+  const thin = r.pos_share!=null && r.pos_share<0.6;
+  return `<span class="num ${r.apr_trail>0?"pos":"neg"}" title="Mean funding APR over the ${
+      r.trail_n} recorded night${r.trail_n===1?"":"s"}${share!=null?`, positive on ${share} of them`:""}.${
+      weak?" Too few nights to call this a trend.":""}${
+      thin?" Funding has not been reliably positive — the headline rate is not the regime.":""}"
+    >${r.apr_trail>0?"+":""}${r.apr_trail.toFixed(1)}%</span>${
+    share!=null?` <span class="muted" style="font-size:8.5px${thin?";color:var(--amber)":""}">${share}/${r.trail_n}</span>`:""}`;
+}
+
 function renderCarry(){
   const tb=$("#tbl-carry tbody"), foot=$("#cc-foot"), basis=$("#cc-basis");
   if(!tb) return;
   if(!FUNDING){
-    tb.innerHTML=`<tr><td colspan="7" class="muted" style="padding:10px 12px">Screener pending —
+    tb.innerHTML=`<tr><td colspan="8" class="muted" style="padding:10px 12px">Screener pending —
       <code>ledger/funding.json</code> was not produced.</td></tr>`;
     return;
   }
@@ -1850,7 +1883,7 @@ function renderCarry(){
     .sort((x,y)=>y.net-x.net)
     .slice(0,25);
   if(!rows.length){
-    tb.innerHTML=`<tr><td colspan="7" class="muted" style="padding:10px 12px">No asset on the
+    tb.innerHTML=`<tr><td colspan="8" class="muted" style="padding:10px 12px">No asset on the
       board has a funding market tonight, so there is no carry to screen.</td></tr>`;
     foot.innerHTML=""; return;
   }
@@ -1859,6 +1892,7 @@ function renderCarry(){
       <td class="num ${r.funding_apr>0?"pos":"neg"}">${r.funding_apr>0?"+":""}${r.funding_apr.toFixed(1)}%</td>
       <td class="num neg">−${r.drag.toFixed(2)}%</td>
       <td class="num ${r.net>0?"pos":"neg"}"><b>${r.net>0?"+":""}${r.net.toFixed(1)}%</b></td>
+      <td>${trailCell(r)}</td>
       <td class="num ${r.be!=null&&r.be>hold?"neg":""}">${r.be==null?"—":r.be.toFixed(1)}</td>
       <td class="num">${r.oi_usd==null?'<span class="muted" title="No venue on this asset reported open interest. Kept rather than dropped — an absent reading is not evidence of a thin book.">unknown</span>':fmtUsd(r.oi_usd)}</td>
       <td>${regimeBadge(r.regime)}</td>

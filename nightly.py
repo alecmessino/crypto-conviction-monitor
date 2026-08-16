@@ -69,7 +69,17 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           # the modifier and a score whose inputs are not recorded cannot be audited
           # after the fact.
           "funding_apr", "funding_interval_h", "funding_venue", "funding_venues_n",
-          "funding_apr_spread", "funding_regime", "rsi7"]
+          "funding_apr_spread", "funding_regime", "rsi7",
+          # Trailing funding, over the nights actually recorded. One settlement print is
+          # a noisy estimate of what a position would earn holding the asset: funding
+          # mean-reverts, and a single hot night is not a carry regime. These columns say
+          # whether it has been paying, and how consistently.
+          #
+          # Observational for now, deliberately. Substituting a trailing figure into the
+          # modifier would make the score lag a genuine regime change, and choosing
+          # between those is a decision that should be made against recorded evidence
+          # rather than asserted — which is what recording these makes possible.
+          "funding_apr_trail", "funding_trail_n", "funding_pos_share"]
 
 # Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
@@ -92,12 +102,28 @@ def _load_funding():
     ``import funding`` works when run as a script and raises ImportError under pytest,
     which is a failure mode that shows up as "the tests are broken" rather than as what
     it is. Loading relative to ``__file__`` works in all three.
+
+    The source is compiled in process rather than executed through the normal loader,
+    which is not fastidiousness. ``spec()`` parses funding.py *from disk* to capture the
+    scoring functions, and reads the modifier constants off this module *object*. Those
+    two have to come from the same bytes or the specification hash describes code that
+    did not run.
+
+    They can diverge, and it is not exotic. CPython reuses a cached ``.pyc`` whenever the
+    source's size and mtime match the cache header, and mtime there has one-second
+    granularity — so two edits of equal length within the same second, or a fresh CI
+    checkout that stamps files identically, load the old bytecode while ``read_text``
+    returns the new source. That was observed here: after editing MOD_MAX_PENALTY and
+    restoring it, the loaded module still reported the edited value, and three different
+    threshold edits all produced one identical hash. A hash mechanism that reports the
+    file it did not execute is worse than no hash mechanism.
     """
-    import importlib.util
     path = Path(__file__).resolve().parent / "funding.py"
+    src = path.read_text(encoding="utf-8")
+    import importlib.util
     spec_ = importlib.util.spec_from_file_location("cm_funding", path)
     mod = importlib.util.module_from_spec(spec_)
-    spec_.loader.exec_module(mod)
+    exec(compile(src, str(path), "exec"), mod.__dict__)  # noqa: S102 - see above
     return mod
 
 
@@ -111,6 +137,28 @@ funding = _load_funding()
 # inferred, so adding a scoring function is a deliberate act that shows up in review.
 SPEC_FUNCTIONS = ("score", "_lavl_regime", "lavl_perp_mult", "_tier_for")
 SPEC_CONSTANTS = ("TIER_CUTS", "STABLES")
+
+# The same, for funding.py. lavl_perp_mult is a two-line delegation, so without this the
+# specification would capture the *call* and none of the arithmetic behind it: the
+# regime boundaries, the severity curve, the confirmation weights and the envelope all
+# live in the other file, and every one of them changes published scores.
+#
+# This was a live hole for exactly one commit. Moving the modifier into funding.py left
+# the hash reading 872935361713 both before and after the step function was replaced by
+# a continuous surface — a rewrite of the entire scoring curve that the mechanism built
+# to notice scoring rewrites reported as no change at all. A specification that stops at
+# a module boundary is not a specification, it is a description of one file.
+SPEC_FUNDING_FUNCTIONS = ("annualize", "classify_regime", "funding_severity",
+                          "regime_modifier", "rsi", "_ramp", "_atanh_scale",
+                          "_num_or_none")
+SPEC_FUNDING_CONSTANTS = (
+    "REGIME_OVERHEATED", "REGIME_ELEVATED", "REGIME_NEUTRAL_FLOOR", "REGIME_SQUEEZE",
+    "MOD_MAX_PENALTY", "MOD_MAX_BOOST", "MOD_HOT_ANCHOR", "MOD_COLD_ANCHOR",
+    "MOD_SQUEEZE_SATURATION", "MOD_OVERHEATED_PRICE_CHG", "MOD_UNCONFIRMED_WEIGHT",
+    "MOD_SQUEEZE_RSI", "MOD_SQUEEZE_RSI_FULL",
+    # Derived from the anchors above. Captured anyway rather than trusted to follow,
+    # so a change to the derivation is caught even if every anchor stays put.
+    "MOD_HOT_SCALE", "MOD_COLD_SCALE")
 
 
 def spec() -> dict:
@@ -129,15 +177,23 @@ def spec() -> dict:
     """
     import ast
 
-    # Read this file directly rather than via sys.modules: the validator and the tests
-    # load this module through importlib under names that are never registered there,
-    # and a specification that only computes when imported normally is not a
-    # specification.
-    tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
-    wanted = set(SPEC_FUNCTIONS)
-    parts = {}
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in wanted:
+    here = Path(__file__).resolve().parent
+
+    def capture(path: Path, wanted: set, prefix: str = "") -> dict:
+        """Canonical source for each named function in one file.
+
+        Read from disk rather than via sys.modules: the validator and the tests load
+        these modules through importlib under names that are never registered there,
+        and a specification that only computes when imported normally is not a
+        specification.
+        """
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        found = {}
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name not in wanted:
+                continue
             body = node.body
             # Drop the docstring so prose edits do not falsely segment the series.
             if (body and isinstance(body[0], ast.Expr)
@@ -149,17 +205,25 @@ def spec() -> dict:
                 decorator_list=[], returns=None, type_comment=None,
                 type_params=getattr(node, "type_params", []))
             ast.fix_missing_locations(stripped)
-            parts[node.name] = ast.unparse(stripped)
+            found[prefix + node.name] = ast.unparse(stripped)
+        missing = {prefix + n for n in wanted} - set(found)
+        if missing:
+            # A renamed scoring function must not silently drop out of the specification.
+            raise RuntimeError(
+                f"spec() cannot find scoring function(s) in {path.name}: {sorted(missing)}")
+        return found
 
-    missing = wanted - set(parts)
-    if missing:
-        # A renamed scoring function must not silently drop out of the specification.
-        raise RuntimeError(f"spec() cannot find scoring function(s): {sorted(missing)}")
+    parts = capture(Path(__file__), set(SPEC_FUNCTIONS))
+    parts.update(capture(here / "funding.py", set(SPEC_FUNDING_FUNCTIONS), "funding."))
 
     consts = {}
     for name in SPEC_CONSTANTS:
         value = globals().get(name)
         consts[name] = sorted(value) if isinstance(value, set) else value
+    for name in SPEC_FUNDING_CONSTANTS:
+        if not hasattr(funding, name):
+            raise RuntimeError(f"spec() cannot find funding constant: {name}")
+        consts["funding." + name] = getattr(funding, name)
     return {"functions": parts, "constants": consts}
 
 
@@ -731,6 +795,55 @@ def _rsi_by_symbol(live_prices: dict | None = None, period: int = 7) -> dict:
         live = (live_prices or {}).get(sym)
         full = closes + [live] if live else closes
         out[sym] = funding.rsi(full, period)
+    return out
+
+
+FUNDING_TRAIL_NIGHTS = 7
+
+
+def _funding_trail_by_symbol(nights: int = FUNDING_TRAIL_NIGHTS) -> dict:
+    """Trailing funding per symbol: mean APR, nights covered, share of them positive.
+
+    Reads ``funding_apr`` where present and falls back to ``funding_ann_pct``. That is a
+    join across two columns, which normally deserves suspicion — here it is correct and
+    lossless. Both are annualised percentages of the same quantity, and every row written
+    before Module 3 came from Bybit's 8-hour clock, which is exactly the basis
+    ``funding_ann_pct`` assumes. So the fallback is not an approximation of the newer
+    column; over that history it is arithmetically the same number. Without it this
+    reading would report one night tonight and discard fifteen that are already on disk.
+
+    ``pos_share`` is the reading that matters for a carry: a 30% mean built from one
+    +200% night and six flat ones is not a 30% carry, and the mean alone cannot tell
+    those apart.
+
+    Returns per symbol ``{"mean": float|None, "n": int, "pos_share": float|None}``.
+    None rather than 0.0 for an unrecorded mean — a symbol with no funding history has
+    no trailing carry, and 0.0 would claim it was measured and found flat.
+    """
+    rows = _read_signals_rows()
+    if not rows:
+        return {}
+    dates = sorted({r.get("date") for r in rows if r.get("date")})[-nights:]
+    keep = set(dates)
+    series: dict = {}
+    for r in rows:
+        if r.get("date") not in keep:
+            continue
+        sym = (r.get("symbol") or "").upper()
+        if not sym:
+            continue
+        v = _num(r.get("funding_apr"))
+        if v is None:
+            v = _num(r.get("funding_ann_pct"))
+        if v is not None:
+            series.setdefault(sym, []).append(v)
+    out = {}
+    for sym, vals in series.items():
+        out[sym] = {
+            "mean": round(sum(vals) / len(vals), 4),
+            "n": len(vals),
+            "pos_share": round(sum(1 for v in vals if v > 0) / len(vals), 3),
+        }
     return out
 
 
@@ -2712,6 +2825,13 @@ def main() -> int:
     live_chg = {(t.get("symbol") or "").upper():
                 t.get("price_change_percentage_24h") for t in markets}
     rsi_map = _rsi_by_symbol(live_px)
+    # Trailing funding, from the nights already on disk. Read before tonight's row is
+    # written, so it describes the history a decision would have been made against.
+    trail_map = _funding_trail_by_symbol()
+    n_trail = sum(1 for v in trail_map.values() if v["n"] >= 3)
+    print(f"[funding] trailing carry over <= {FUNDING_TRAIL_NIGHTS} nights for "
+          f"{len(trail_map)} symbols, {n_trail} of them with 3+ nights",
+          file=__import__("sys").stderr)
     n_rsi = sum(1 for v in rsi_map.values() if v is not None)
     print(f"[funding] 7d RSI for {n_rsi}/{len(rsi_map)} symbols"
           + ("" if n_rsi else " — no symbol has 8 recorded closes yet, so the "
@@ -2795,6 +2915,9 @@ def main() -> int:
             **{k: fc[k] for k in ("funding_apr", "funding_interval_h", "funding_venue",
                                   "funding_venues_n", "funding_apr_spread",
                                   "funding_regime", "rsi7")},
+            "funding_apr_trail": (trail_map.get(sym) or {}).get("mean"),
+            "funding_trail_n": (trail_map.get(sym) or {}).get("n"),
+            "funding_pos_share": (trail_map.get(sym) or {}).get("pos_share"),
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
 
@@ -2897,6 +3020,14 @@ def main() -> int:
             "venues_n": r.get("funding_venues_n"),
             "apr_spread": r.get("funding_apr_spread"),
             "oi_usd": r.get("oi_usd"),
+            # Severity and confirmation, published rather than left to be inferred from
+            # the multiplier. Two assets can land on the same 0.93 from very different
+            # places — extreme carry barely confirmed, or moderate carry fully confirmed
+            # — and the modifier alone cannot distinguish them.
+            "severity": round(funding.funding_severity(apr), 4),
+            "apr_trail": r.get("funding_apr_trail"),
+            "trail_n": r.get("funding_trail_n"),
+            "pos_share": r.get("funding_pos_share"),
             "by_venue": rec.get("by_venue") or {},
         })
     applied = {}
@@ -2922,9 +3053,11 @@ def main() -> int:
             "squeeze_apr": funding.REGIME_SQUEEZE,
             "overheated_price_chg": funding.MOD_OVERHEATED_PRICE_CHG,
             "squeeze_rsi": funding.MOD_SQUEEZE_RSI,
-            "mod_overheated": funding.MOD_OVERHEATED,
-            "mod_squeeze_min": funding.MOD_SQUEEZE_MIN,
-            "mod_squeeze_max": funding.MOD_SQUEEZE_MAX,
+            "squeeze_rsi_full": funding.MOD_SQUEEZE_RSI_FULL,
+            "max_penalty": funding.MOD_MAX_PENALTY,
+            "max_boost": funding.MOD_MAX_BOOST,
+            "unconfirmed_weight": funding.MOD_UNCONFIRMED_WEIGHT,
+            "squeeze_saturation_apr": funding.MOD_SQUEEZE_SATURATION,
         },
         "carry": {
             "taker_fee_pct": funding.CARRY_TAKER_FEE_PCT,
