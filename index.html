@@ -775,7 +775,7 @@ function rowConv(t,i,gated){
     <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
     <td><span class="bar"><i style="width:${Math.min(100,t.mc/2e10*100)}%"></i></span></td>
     <td class="num ${zc}" title="Distance from all-time range (-1 floor .. +1 ATH)">${t.z>0?'+':''}${t.z.toFixed(2)}</td>
-    <td>${fundingCell(PERPS[t.sym])}${divBadge(PERPS[t.sym])}</td>
+    <td>${fundingCell(t.sym)}${divBadge(PERPS[t.sym])}</td>
     <td>${regimeCell(t.sym)}</td>
     <td class="num ${t.conv>=70?'pos':t.conv>=55?'neu':'neg'}">${t.conv}</td>
     <td>${sigBadge(t)}</td>
@@ -853,16 +853,17 @@ const DIV_LABEL = {ACCUMULATION:["ACCUM","g","price up on rising open interest �
                    SHORT_BUILD:["SHORT","r","price down on rising open interest — new money positioned against it"],
                    LONG_FLUSH:["FLUSH","a","price down on falling open interest — leverage unwinding rather than distribution"],
                    FLAT:["FLAT","n","neither leg moved enough to have a direction"]};
-// Matches nightly.FUNDING_HOT_APR / FUNDING_COLD_APR.
-const FUNDING_HOT=30, FUNDING_COLD=-20;
-function fundingCell(p){
-  if(!p || p.fundingAnn==null) return '<span class="muted">—</span>';
-  const f=p.fundingAnn;
-  const cls = f>FUNDING_HOT?"neg":f<FUNDING_COLD?"pos":"neu";
-  const flag = (f>FUNDING_HOT||f<FUNDING_COLD)?"*":"";
-  return `<span class="num ${cls}" title="Annualised funding carry: ${f.toFixed(1)}% APR${
-    f>FUNDING_HOT?" — longs paying heavily, crowded"
-    :f<FUNDING_COLD?" — shorts paying, squeeze asymmetry":""}">${f.toFixed(0)}%${flag}</span>`;
+/* One funding cell for the whole page. This used to be a second implementation with its
+   own thresholds (+30 / -20) reading funding_ann_pct, while Module E coloured the same
+   quantity off the regime bands (+40 / +12 / 0 / -15) reading funding_apr. An asset at
+   35% APR rendered red in one table and amber in the other, on one screen. Colour is a
+   claim about which band a reading falls in, and two colour schemes for one quantity is
+   two claims. */
+function fundingCell(sym){
+  const f=FUND[sym];
+  if(f && f.funding_apr!=null) return aprCell(f.funding_apr)+modBadge(f);
+  const p=PERPS[sym];
+  return p&&p.fundingAnn!=null ? aprCell(p.fundingAnn) : '<span class="muted">—</span>';
 }
 function divBadge(p){
   if(!p || !p.divergence) return "";
@@ -905,10 +906,7 @@ function perpBlock(t){
   const f=FUND[t.sym];
   return `<div class="card-h" style="margin-top:14px">PERPETUAL MARKET STRUCTURE
       <span class="muted">funding is scored · positioning is not</span></div>
-    <div class="kv"><span>Funding (ann.)</span><b>${
-      f&&f.funding_apr!=null ? aprCell(f.funding_apr)+modBadge(f)
-      : p&&p.fundingAnn!=null ? pct(p.fundingAnn)
-      : '<span class="muted">—</span>'}</b></div>
+    <div class="kv"><span>Funding (ann.)</span><b>${fundingCell(t.sym)}</b></div>
     ${f&&f.funding_apr!=null?`
     <div class="kv"><span>Settlement</span><b class="num">${f.interval_hours}h${
       f.venue?` <span class="muted">${esc0(f.venue)}${f.venues_n>1?` +${f.venues_n-1}`:""}</span>`:""}</b></div>

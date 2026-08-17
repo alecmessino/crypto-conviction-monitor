@@ -1,0 +1,49 @@
+name: Tests
+
+# The suite ran nowhere. The nightly workflow gates on tests/test_parity.py and
+# scripts/validate_ledger.py, both written to run standalone so a missing package can
+# never break the ledger commit — a deliberate choice, and the reason the other 300-odd
+# tests had no runner at all. They were executed by whoever remembered to.
+#
+# This is a separate workflow on purpose. It installs pytest, which the nightly must
+# never depend on: an install failure here fails a pull request, which is what it is for,
+# and cannot fail the job that writes the ledger.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      # node is required by the parity gate, which executes the terminal's own scoring
+      # block rather than a transcription of it. Without node that gate reports a skip
+      # under pytest — so it is installed here, and the standalone run below treats a
+      # missing node as a failure rather than a pass.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install pytest
+        run: python -m pip install --quiet pytest
+
+      - name: Run the suite
+        run: python -m pytest tests/ -q
+
+      - name: Parity gate, standalone
+        # Also run the way the nightly runs it, because that path has its own
+        # entrypoint and its own failure semantics, and a green pytest run does not
+        # prove the standalone one still works.
+        run: python tests/test_parity.py
