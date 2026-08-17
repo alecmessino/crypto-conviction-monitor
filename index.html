@@ -157,6 +157,19 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 .fin .wide{grid-column:1/-1}
 .pp-out{margin-top:8px;border-top:1px solid var(--grid);padding-top:7px}
 .pp-hero{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+/* Panel prose, collapsed by default. The explanation of how a modifier is composed is
+   worth having and is not worth eight lines above the data every time the page loads —
+   that is the text-heaviness this board is already prone to, and a panel that explains
+   itself at length is still a panel you scroll past. Open state persists per panel. */
+details.why{margin:6px 12px 0}
+details.why>summary{list-style:none;cursor:pointer;font-size:9px;letter-spacing:.6px;
+  color:var(--tert);text-transform:uppercase;display:inline-flex;align-items:center;gap:5px;
+  padding:1px 0;user-select:none}
+details.why>summary::-webkit-details-marker{display:none}
+details.why>summary::before{content:"▸";font-size:8px;transition:transform .12s}
+details.why[open]>summary::before{transform:rotate(90deg)}
+details.why>summary:hover{color:var(--sec)}
+details.why .body{color:var(--tert);font-size:10px;line-height:1.55;padding:6px 0 2px;max-width:78ch}
 /* Feed status. Graded by what the reader would do about it, not by outage count. */
 .feed-dot{display:inline-flex;align-items:center;gap:6px;font-size:9px;letter-spacing:.6px;
   padding:2px 8px;border-radius:10px;border:1px solid var(--grid);cursor:help;margin-top:4px}
@@ -367,7 +380,9 @@ canvas{display:block;width:100%}
     <div class="glass">
       <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
       <div class="card-b" style="padding:0">
-        <div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko. RiskMult<sub>perp</sub> is the funding modifier from Module E — it is <b>not</b> neutral: it reads the cross-venue annualised carry and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do, continuously and with no step at any threshold. Assets inside the inert funding band, and assets with no perpetual market at all, sit at exactly 1.0 — a real reading, not a placeholder.</div>
+        <div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko; RiskMult<sub>perp</sub> from Module E.
+        <details class="why" style="margin-left:0"><summary>what RiskMult is doing</summary>
+          <div class="body">It is <b>not</b> neutral, despite the older note here that said so. It reads the cross-venue annualised carry and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do — continuously, with no step at any threshold. Assets inside the inert funding band, and assets with no perpetual market at all, sit at exactly 1.0: a real reading, not a placeholder.</div></details></div>
         <div class="scroll-pane">
           <table id="tbl-lavl"><thead><tr>
             <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>RiskMult</th><th>LAVL</th><th>Regime</th>
@@ -1848,21 +1863,24 @@ function renderFunding(){
   const live=Object.entries(vs).filter(([,v])=>v.status==="live");
   const down=Object.entries(vs).filter(([,v])=>v.status!=="live");
   sub.innerHTML =
-    `Funding normalised to an annual rate at each venue's own settlement interval, then
-     consolidated to the deepest book that lists the asset. The carry sets a multiplier on
-     conviction, continuous in <b>[${FTH.max_penalty}, ${FTH.max_boost}]</b> — nothing here
-     steps, so two assets either side of a round number are not scored 15% apart, and
-     ${FTH.overheated_apr}% and 400% APR are no longer treated as the same market.
-     <br>The multiplier is <b>severity × confirmation</b>. Severity is how far past the
-     inert band (${FTH.neutral_floor_apr}% to +${FTH.elevated_apr}% APR, and down to
-     ${FTH.squeeze_apr}%) the carry sits. Confirmation differs by side because the evidence
-     does: on the hot side price extension is <i>additive</i>, so funding alone still earns
-     ${(FTH.unconfirmed_weight*100).toFixed(0)}% of the markdown and full extension
-     (+${FTH.overheated_price_chg}% on the day) earns all of it. On the cold side 7d RSI is
-     <i>discriminating</i> — it is what separates trapped shorts from shorts who are simply
-     right — so below ${FTH.squeeze_rsi} there is no boost at all and none is given when RSI
-     is unavailable.`
-    + `<br>${venueDot(live, down)}`;
+    `Annualised at each venue's own settlement interval, consolidated to the deepest book.
+     The carry moves conviction continuously within
+     <b>[${FTH.max_penalty}, ${FTH.max_boost}]</b>.
+     <details class="why"><summary>how the multiplier is composed</summary>
+       <div class="body">It is <b>severity × confirmation</b>. Severity is how far past the
+       inert band (${FTH.neutral_floor_apr}% to +${FTH.elevated_apr}% APR, and down to
+       ${FTH.squeeze_apr}%) the carry sits — a smooth curve, so two assets either side of a
+       round number are not scored 15% apart, and ${FTH.overheated_apr}% and 400% APR are no
+       longer treated as the same market.<br><br>
+       Confirmation differs by side because the evidence does. On the hot side price
+       extension is <i>additive</i>: funding alone already establishes leverage is being
+       paid for, so it earns ${(FTH.unconfirmed_weight*100).toFixed(0)}% of the markdown and
+       full extension (+${FTH.overheated_price_chg}% on the day) earns all of it. On the cold
+       side 7d RSI is <i>discriminating</i> — it separates trapped shorts from shorts who are
+       simply right — so below ${FTH.squeeze_rsi} there is no boost at all, and none is given
+       when RSI is unavailable, because then the <i>sign</i> of the right adjustment is
+       unknown rather than its size.</div></details>
+     ${venueDot(live, down)}`;
   const n=Object.keys(FUNDING.modifiers_applied||{}).length;
   note.textContent = `${FUNDING.consolidated_markets||0} markets · ${n} scored modifier${n===1?"":"s"}`;
 
