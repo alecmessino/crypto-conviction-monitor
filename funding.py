@@ -406,6 +406,18 @@ def rsi(closes: list, period: int = 7) -> float | None:
 # its own interval for a symbol — Binance and Bybit both do, per instrument, and the
 # reported value always wins. Hyperliquid is hourly for every market and does not
 # publish a per-symbol interval, so the constant is the fact rather than a fallback.
+# How the settlement interval was arrived at, per venue. This is the field that decides
+# whether a venue may set a headline APR, so it is a first-class datum rather than a note.
+#
+#   reported   the venue publishes the interval per market and we parsed it. Gate.io
+#              alone shows why that matters: 573 of its markets settle at 8h, 342 at 4h
+#              and 3 at 1h, and venues move individual markets between clocks under
+#              sustained funding pressure.
+#   protocol   fixed by the venue's design, documented, and not carried in the response.
+#              dYdX, Kraken, Hyperliquid and Coinbase all fund hourly by construction.
+#   assumed    we guessed. Only Xoomar, and it is why Xoomar can never set a headline.
+INTERVAL_BASIS_REAL = ("reported", "protocol")
+
 VENUE_DEFAULT_INTERVAL = {
     "binance": 8.0,
     "bybit": 8.0,
@@ -414,6 +426,10 @@ VENUE_DEFAULT_INTERVAL = {
     "dydx": 1.0,       # protocol property, not reported in the response
     "kraken": 1.0,     # perps fund hourly; not reported in the response
     "gateio": 8.0,     # fallback only — Gate reports the interval per market
+    # Xoomar publishes no interval at all. 8h is the standard clock for the three venues
+    # it aggregates, and "standard for most markets" is not the same as "this market's",
+    # which is the entire distinction this module exists to enforce.
+    "xoomar": 8.0,
 }
 
 # Ranked by depth of the USDT-margined perp book. The consolidated reading prefers the
@@ -425,8 +441,11 @@ VENUE_DEFAULT_INTERVAL = {
 # The venues behind them are ordered to keep the surviving set diverse rather than
 # merely long: dydx is an independent DEX, kraken a US-regulated CEX, gateio the widest
 # coverage and the only venue that publishes its own settlement interval per market.
+# xoomar is last deliberately and the ordering alone is not what protects the headline —
+# consolidate() enforces the real-interval preference regardless of position, because a
+# priority list is a default and this is a rule.
 VENUE_PRIORITY = ("binance", "bybit", "gateio", "kraken", "dydx",
-                  "hyperliquid", "coinbase")
+                  "hyperliquid", "coinbase", "xoomar")
 
 _UA = {"User-Agent": "conviction-monitor/1.0"}
 
@@ -528,6 +547,7 @@ def fetch_binance_funding(symbols: set | None = None) -> dict:
             "venue": "binance", "funding_rate": rate, "interval_hours": hours,
             "funding_apr": annualize(rate, hours),
             "mark_price": _f(it.get("markPrice")), "oi_usd": None,
+            "interval_basis": "reported" if sym in intervals else "protocol",
         }
     if not out:
         return _report("binance", out, "unusable",
@@ -579,6 +599,7 @@ def fetch_bybit_funding(symbols: set | None = None) -> dict:
             "funding_apr": annualize(rate, hours),
             "mark_price": _f(it.get("markPrice")),
             "oi_usd": _f(it.get("openInterestValue")),
+            "interval_basis": "reported" if sym in intervals else "protocol",
         }
     if not out:
         return _report("bybit", out, "unusable",
@@ -634,6 +655,7 @@ def fetch_hyperliquid_funding(symbols: set | None = None) -> dict:
             "funding_apr": annualize(rate, hours), "mark_price": mark,
             # Hyperliquid reports open interest in contracts (coins), not dollars.
             "oi_usd": round(oi_coins * mark, 2) if (oi_coins and mark) else None,
+            "interval_basis": "protocol",
         }
     if not out:
         return _report("hyperliquid", out, "unusable",
@@ -686,6 +708,7 @@ def fetch_coinbase_funding(symbols: set | None = None) -> dict:
             "venue": "coinbase", "funding_rate": rate, "interval_hours": hours,
             "funding_apr": annualize(rate, hours), "mark_price": mark,
             "oi_usd": _f(detail.get("open_interest")),
+            "interval_basis": "protocol",
         }
     if not out:
         return _report("coinbase", out, "unusable",
@@ -743,7 +766,7 @@ def fetch_dydx_funding(symbols: set | None = None) -> dict:
             # labelled as what it is rather than aliased into a field it is not.
             "mark_price": px,
             "oi_usd": round(oi_base * px, 2) if (oi_base and px) else None,
-            "rate_basis": "predicted",
+            "rate_basis": "predicted", "interval_basis": "protocol",
         }
     if not out:
         return _report("dydx", out, "unusable",
@@ -799,7 +822,7 @@ def fetch_gateio_funding(symbols: set | None = None) -> dict:
             "funding_apr": annualize(rate, hours), "mark_price": mark,
             "oi_usd": (round(abs(size) * mult * mark, 2)
                        if (size and mult and mark) else None),
-            "rate_basis": "current",
+            "rate_basis": "current", "interval_basis": "reported",
         }
     if not out:
         return _report("gateio", out, "unusable",
@@ -862,7 +885,7 @@ def fetch_kraken_funding(symbols: set | None = None) -> dict:
             "funding_apr": annualize(rate, hours), "mark_price": _f(rec.get("markPrice")),
             "oi_usd": (round(_f(rec.get("openInterest")) * index, 2)
                        if _f(rec.get("openInterest")) else None),
-            "rate_basis": "current",
+            "rate_basis": "current", "interval_basis": "protocol",
         }
     if not out:
         return _report("kraken", out, "unusable",
@@ -870,6 +893,96 @@ def fetch_kraken_funding(symbols: set | None = None) -> dict:
     return _report("kraken", out, "live",
                    f"{len(out)} perpetual(s) at {hours:g}h"
                    + (f"; {thin} sub-cent index price(s) excluded" if thin else ""))
+
+
+
+# Xoomar aggregates Binance, Bybit and OKX. The order below is the tie-break when the
+# same symbol appears more than once, which it usually does — deepest book first.
+XOOMAR_EXCHANGE_RANK = ("binance", "bybit", "okx")
+
+
+def fetch_xoomar_funding(symbols: set | None = None) -> dict:
+    """A third-party aggregate of Binance, Bybit and OKX — reachable, and interval-blind.
+
+    This exists for one reason: Binance answers HTTP 451 and Bybit 403 from this host, and
+    Xoomar serves both their rates from a US IP. It recovers visibility into the two
+    deepest perp books on the board.
+
+    It is a GAP-FILLER and nothing more, because of what it does not carry. There is no
+    settlement-interval field anywhere in the response — only ``nextFundingTime``, and a
+    single snapshot of a next-settlement timestamp cannot yield an interval. The live
+    payload already contains two different clocks (79 rows landing at 00:00Z and 3 at
+    20:00Z), so assuming one figure for all of them is exactly the error this module was
+    written to remove: BTC annualises to +3.19% at 8h and +25.54% at 1h, and nothing in
+    the response says which is right.
+
+    So every record here is stamped ``interval_basis="assumed"``, and ``consolidate``
+    refuses to let an assumed-basis venue set a headline APR for any asset a real-interval
+    venue also lists. The rate is recorded; it does not get to be the number.
+
+    ``nextFundingTime`` is kept anyway. Sampled across enough nights the gaps between
+    consecutive settlements would give the real interval per symbol, at which point this
+    venue could be promoted on evidence rather than assumption. Recording it now is what
+    makes that possible later.
+    """
+    try:
+        payload = _get_json("https://xoomar.com/api/markets/funding-rates")
+    except Exception as e:  # noqa: BLE001
+        return _report("xoomar", {}, "unreachable", f"funding-rates failed ({e})",
+                       http_status(e))
+    rows = (payload or {}).get("data")
+    if not isinstance(rows, list):
+        return _report("xoomar", {}, "unusable",
+                       f"no data array (keys: {sorted((payload or {}).keys())})")
+
+    hours = VENUE_DEFAULT_INTERVAL["xoomar"]
+    best: dict = {}
+    for rec in rows:
+        base = str((rec or {}).get("baseAsset") or "").upper()
+        if not base or (symbols and base not in symbols):
+            continue
+        rate = _f(rec.get("fundingRate"))
+        if rate is None:
+            continue
+        ex = str(rec.get("exchange") or "").lower()
+        rank = (XOOMAR_EXCHANGE_RANK.index(ex)
+                if ex in XOOMAR_EXCHANGE_RANK else len(XOOMAR_EXCHANGE_RANK))
+        # A shallower row may still carry the mark price or open interest the deeper one
+        # omitted — 25 of 82 live rows have a null markPrice and 28 a null
+        # openInterestValue, almost all of them OKX. So the fields are scavenged in BOTH
+        # directions: the deeper book's rate always wins, but whichever row arrives
+        # second must not discard a non-null field the first one had. Rows come back in
+        # no guaranteed exchange order, so handling only one direction loses data
+        # depending on how the response happened to be sorted.
+        prior = best.get(base)
+        if prior is not None and prior["_rank"] <= rank:
+            prior["mark_price"] = prior["mark_price"] or _f(rec.get("markPrice"))
+            prior["oi_usd"] = prior["oi_usd"] or _f(rec.get("openInterestValue"))
+            continue
+        carried_mark = prior["mark_price"] if prior else None
+        carried_oi = prior["oi_usd"] if prior else None
+        best[base] = {
+            "_rank": rank, "venue": "xoomar", "funding_rate": rate,
+            "interval_hours": hours, "funding_apr": annualize(rate, hours),
+            # Nulls stay null. A missing mark price is not a zero and must not reach a
+            # derived figure — oi_to_mcap, the carry screen's depth floor and the
+            # notional conversions all read these, and a fabricated zero would pass
+            # through every one of them looking like a measurement.
+            "mark_price": _f(rec.get("markPrice")) or carried_mark,
+            "oi_usd": _f(rec.get("openInterestValue")) or carried_oi,
+            "rate_basis": "current", "interval_basis": "assumed",
+            "source_exchange": ex or None,
+            "next_funding_time": rec.get("nextFundingTime"),
+        }
+    for rec in best.values():
+        rec.pop("_rank", None)
+    if not best:
+        return _report("xoomar", best, "unusable",
+                       f"{len(rows)} row(s) returned, none matched the filter")
+    venues = sorted({r["source_exchange"] for r in best.values() if r["source_exchange"]})
+    return _report("xoomar", best, "live",
+                   f"{len(best)} symbol(s) via {', '.join(venues)}; "
+                   f"interval ASSUMED {hours:g}h — gap-fill only, never a headline")
 
 
 VENUE_FETCHERS = {
@@ -880,6 +993,7 @@ VENUE_FETCHERS = {
     "dydx": fetch_dydx_funding,
     "gateio": fetch_gateio_funding,
     "kraken": fetch_kraken_funding,
+    "xoomar": fetch_xoomar_funding,
 }
 
 
@@ -926,16 +1040,32 @@ def consolidate(venue_reports: dict, priority: tuple = VENUE_PRIORITY) -> dict:
     out = {}
     for base, slot in merged.items():
         by_venue = slot["by_venue"]
-        aprs = {v: r["funding_apr"] for v, r in by_venue.items()
-                if r.get("funding_apr") is not None}
-        primary = next((v for v in priority if v in by_venue), None)
+        # The headline must come from a venue whose settlement interval is known, not
+        # guessed. Priority order alone cannot guarantee that — it is a default, and this
+        # is a rule: an assumed-basis venue may fill a gap and may never occupy a slot a
+        # real-interval venue could hold. Annualising at an assumed clock is the exact
+        # defect this module exists to remove, and a rate that reached the headline that
+        # way would be indistinguishable on screen from one that did not.
+        real = [v for v in priority
+                if v in by_venue
+                and by_venue[v].get("interval_basis", "assumed") in INTERVAL_BASIS_REAL]
+        primary = (real[0] if real
+                   else next((v for v in priority if v in by_venue), None))
         if primary is None:
             continue
         prec = by_venue[primary]
+        # Dispersion across venues on differing assumptions is not dispersion in the
+        # market — it is dispersion in our own guesswork. The spread is computed over
+        # real-interval venues only.
+        aprs = {v: r["funding_apr"] for v, r in by_venue.items()
+                if r.get("funding_apr") is not None
+                and r.get("interval_basis", "assumed") in INTERVAL_BASIS_REAL}
         apr = prec.get("funding_apr")
         # Open interest from whichever venue reports it — Binance's premiumIndex does
         # not, and dropping OI because the deepest book omits the field would lose a
-        # reading that is present.
+        # reading that is present. Open interest is a dollar figure and carries no
+        # interval, so an assumed-basis venue is a perfectly good source for it; the
+        # nulls are what must be skipped, not the venue.
         oi = next((by_venue[v].get("oi_usd") for v in priority
                    if v in by_venue and by_venue[v].get("oi_usd")), None)
         out[base] = {
@@ -951,9 +1081,14 @@ def consolidate(venue_reports: dict, priority: tuple = VENUE_PRIORITY) -> dict:
             "mark_price": prec.get("mark_price"),
             "oi_usd": oi,
             "regime": classify_regime(apr),
+            # Travels with the reading so the terminal and the ledger can both say
+            # whether this APR rests on a published clock or a guessed one.
+            "interval_basis": prec.get("interval_basis", "assumed"),
+            "gap_filled": not real,
             "by_venue": {v: {"funding_apr": r.get("funding_apr"),
                              "interval_hours": r.get("interval_hours"),
-                             "funding_rate": r.get("funding_rate")}
+                             "funding_rate": r.get("funding_rate"),
+                             "interval_basis": r.get("interval_basis", "assumed")}
                          for v, r in by_venue.items()},
         }
     return out

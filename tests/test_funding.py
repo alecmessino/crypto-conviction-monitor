@@ -536,8 +536,18 @@ def test_one_dead_venue_does_not_cost_the_others(monkeypatch):
 # G. consolidation
 # ---------------------------------------------------------------------------
 def _venues(**by_venue):
-    return {"venues": {name: funding._report(name, data, "live", "")
-                       for name, data in by_venue.items()}}
+    """Fixture venues carry a real interval basis unless a test says otherwise.
+
+    Records without one default to "assumed", and consolidate() deliberately refuses to
+    let an assumed-basis venue set a headline or contribute to the spread — so a fixture
+    that omits it is not testing what it looks like it is testing.
+    """
+    out = {}
+    for name, data in by_venue.items():
+        for rec in data.values():
+            rec.setdefault("interval_basis", "reported")
+        out[name] = funding._report(name, data, "live", "")
+    return {"venues": out}
 
 
 def test_the_headline_rate_comes_from_the_deepest_book_not_an_average():
@@ -975,3 +985,122 @@ def test_the_venue_set_survives_losing_both_geo_blocked_exchanges():
     assert {"dydx", "gateio", "kraken"} <= set(funding.VENUE_FETCHERS)
     survivors = [v for v in funding.VENUE_PRIORITY if v not in ("binance", "bybit")]
     assert len(survivors) >= 5, survivors
+
+
+# ---------------------------------------------------------------------------
+# M. Xoomar — a gap-filler, held there by a rule rather than by list position
+# ---------------------------------------------------------------------------
+def _basis_venues(**by_venue):
+    """Fixtures with explicit interval_basis, since that is what is under test."""
+    return {"venues": {n: funding._report(n, d, "live", "") for n, d in by_venue.items()}}
+
+
+def _rec(apr, basis, **kw):
+    return {"funding_apr": apr, "funding_rate": apr / (3 * 365 * 100),
+            "interval_hours": 8.0, "mark_price": kw.get("mark", 1.0),
+            "oi_usd": kw.get("oi"), "interval_basis": basis}
+
+
+def test_an_assumed_interval_never_sets_the_headline_apr():
+    """The rule Xoomar exists under.
+
+    It carries no settlement-interval field — only nextFundingTime, and one snapshot of a
+    next-settlement timestamp cannot yield an interval. The live payload already contains
+    two clocks, and BTC annualises to +3.16% at 8h or +25.3% at 1h with nothing in the
+    response to say which. So its rate is recorded and is not allowed to be the number
+    whenever a venue with a known clock lists the same asset.
+    """
+    c = funding.consolidate(_basis_venues(
+        gateio={"BTC": _rec(4.05, "reported")},
+        xoomar={"BTC": _rec(25.5, "assumed")}))
+    assert c["BTC"]["venue"] == "gateio"
+    assert c["BTC"]["funding_apr"] == 4.05
+    assert c["BTC"]["interval_basis"] == "reported"
+    assert c["BTC"]["gap_filled"] is False
+
+
+def test_priority_position_is_not_what_enforces_it():
+    """A priority list is a default; this is a rule. Even with the assumed-basis venue
+    placed FIRST, the real-interval venue keeps the headline."""
+    c = funding.consolidate(
+        _basis_venues(xoomar={"BTC": _rec(25.5, "assumed")},
+                      kraken={"BTC": _rec(-7.12, "protocol")}),
+        priority=("xoomar", "kraken"))
+    assert c["BTC"]["venue"] == "kraken"
+    assert c["BTC"]["interval_basis"] == "protocol"
+
+
+def test_it_does_fill_a_symbol_no_real_interval_venue_carries():
+    """The reason it is wired at all: Binance answers 451 and Bybit 403 from this host,
+    and Xoomar serves both their books. A gap filled is better than a gap."""
+    c = funding.consolidate(_basis_venues(
+        gateio={"BTC": _rec(4.05, "reported")},
+        xoomar={"BTC": _rec(25.5, "assumed"), "ONLYHERE": _rec(12.0, "assumed")}))
+    assert c["ONLYHERE"]["venue"] == "xoomar"
+    assert c["ONLYHERE"]["gap_filled"] is True
+    assert c["ONLYHERE"]["interval_basis"] == "assumed"
+
+
+def test_the_spread_ignores_assumed_venues_because_it_would_measure_our_own_guess():
+    """Two APRs computed on different assumptions differ by the assumption. That is
+    dispersion in our arithmetic, not in the market, and a basis trade is what this
+    column is supposed to mean."""
+    c = funding.consolidate(_basis_venues(
+        gateio={"BTC": _rec(4.05, "reported")},
+        xoomar={"BTC": _rec(25.5, "assumed")}))
+    assert c["BTC"]["apr_spread"] is None
+    both_real = funding.consolidate(_basis_venues(
+        gateio={"BTC": _rec(4.05, "reported")},
+        kraken={"BTC": _rec(-7.12, "protocol")}))
+    assert both_real["BTC"]["apr_spread"] == pytest.approx(11.17)
+
+
+def test_null_mark_and_open_interest_stay_null_rather_than_becoming_zero():
+    """25 of 82 live rows have a null markPrice and 28 a null openInterest, almost all
+    OKX. A fabricated zero would pass through oi_to_mcap, the carry screen's depth floor
+    and every notional conversion looking exactly like a measurement."""
+    c = funding.consolidate(_basis_venues(
+        xoomar={"NEW": {"funding_apr": 9.0, "funding_rate": 0.0001,
+                        "interval_hours": 8.0, "mark_price": None, "oi_usd": None,
+                        "interval_basis": "assumed"}}))
+    assert c["NEW"]["mark_price"] is None and c["NEW"]["oi_usd"] is None
+    assert funding.carry_screen(c, oi_floor_usd=5e6)[0]["oi_known"] is False
+
+
+def test_open_interest_may_come_from_the_assumed_venue():
+    """Open interest is a dollar figure and carries no interval, so the assumption that
+    disqualifies the rate does not touch it. Dropping a real OI reading because its
+    venue's clock is unknown would lose data for no reason."""
+    c = funding.consolidate(_basis_venues(
+        gateio={"BTC": _rec(4.05, "reported", oi=None)},
+        xoomar={"BTC": _rec(25.5, "assumed", oi=6.8e9)}))
+    assert c["BTC"]["venue"] == "gateio" and c["BTC"]["oi_usd"] == 6.8e9
+
+
+def test_xoomar_prefers_the_deeper_book_but_scavenges_nulls_from_the_others():
+    """It returns one row per exchange per symbol. The rate comes from the deepest book;
+    a shallower row may still carry the mark price the deeper one omitted."""
+    m = _load("xo_mod", "funding.py")
+    m._get_json = lambda *a, **k: {"data": [
+        {"baseAsset": "BTC", "exchange": "okx", "fundingRate": "-0.0000049",
+         "markPrice": None, "openInterestValue": "999", "nextFundingTime": "T"},
+        {"baseAsset": "BTC", "exchange": "binance", "fundingRate": "0.00002915",
+         "markPrice": "64386", "openInterestValue": None, "nextFundingTime": "T"}]}
+    rep = m.fetch_xoomar_funding()
+    rec = rep["data"]["BTC"]
+    assert rec["source_exchange"] == "binance"
+    assert rec["funding_rate"] == pytest.approx(0.00002915)
+    assert rec["mark_price"] == pytest.approx(64386.0)
+    assert rec["oi_usd"] == pytest.approx(999.0)      # scavenged from the okx row
+    assert rec["interval_basis"] == "assumed"
+    assert "never a headline" in rep["detail"]
+
+
+def test_every_venue_declares_how_it_knows_its_interval():
+    """The field that decides whether a venue may set a headline. A venue that forgets to
+    declare it defaults to 'assumed' and is silently demoted — which is safe, but is the
+    kind of silence that hides a wiring mistake for months."""
+    src = (ROOT / "funding.py").read_text(encoding="utf-8")
+    assert src.count('"interval_basis"') >= len(funding.VENUE_FETCHERS)
+    assert set(funding.INTERVAL_BASIS_REAL) == {"reported", "protocol"}
+    assert funding.VENUE_PRIORITY[-1] == "xoomar"

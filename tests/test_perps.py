@@ -118,7 +118,8 @@ def test_the_new_columns_are_appended_never_inserted():
            "funding_apr_spread", "funding_regime", "rsi7",
            "funding_apr_trail", "funding_trail_n", "funding_pos_share",
            "perp_mult_trail",
-           "liq_longs_usd", "liq_shorts_usd", "liq_imbalance"]
+           "liq_longs_usd", "liq_shorts_usd", "liq_imbalance",
+           "funding_interval_basis"]
     assert nightly.FIELDS[-len(new):] == new
     old = nightly.FIELDS[:-len(new)]
     assert nightly.FIELDS[:len(old)] == old
@@ -343,4 +344,6 @@ def test_the_column_order_is_pinned_exhaustively():
         "perp_mult_trail",
         # Module 4 — forced selling, from Cryptometer. Observational.
         "liq_longs_usd", "liq_shorts_usd", "liq_imbalance",
+        # Provenance of the interval behind funding_apr: reported / protocol / assumed.
+        "funding_interval_basis",
     ]

@@ -27,6 +27,13 @@ def _load(name="cm_mod"):
 cm = _load()
 
 
+def paid(mod):
+    """Liquidations are behind a paid-endpoint opt-in now. These tests exercise the
+    parsing, so they enable it explicitly rather than depending on the environment."""
+    mod.paid_enabled = lambda: True
+    return mod
+
+
 def ok(rows):
     """A success envelope, with the string booleans the API actually sends."""
     return {"success": "true", "error": "false", "data": rows}
@@ -111,7 +118,7 @@ def test_a_missing_key_is_unconfigured_rather_than_unreachable():
 def test_the_exchange_map_is_iterated_rather_than_indexed():
     """The docs show three exchanges; a live account may return others. Hardcoding the
     set would silently drop whatever it did not know about."""
-    m = _load("cm_liq")
+    m = paid(_load("cm_liq"))
     m._get_json = lambda url: ok([{
         "binance_futures": {"longs": 6556449.8, "shorts": 8546450.39},
         "bitfinex": {"longs": 177375.14, "shorts": 50304.36},
@@ -126,7 +133,7 @@ def test_the_exchange_map_is_iterated_rather_than_indexed():
 def test_the_imbalance_is_normalised_because_dollars_are_not_comparable():
     """Raw totals scale with the size of the market and rank the large caps every time.
     +1 is longs only, -1 shorts only."""
-    m = _load("cm_imb")
+    m = paid(_load("cm_imb"))
     m._get_json = lambda url: ok([{"a": {"longs": 300.0, "shorts": 100.0}}])
     rec = m.fetch_liquidations("k", {"BTC"})["data"]["BTC"]
     assert rec["imbalance"] == pytest.approx(0.5)
@@ -135,7 +142,7 @@ def test_the_imbalance_is_normalised_because_dollars_are_not_comparable():
 def test_a_quiet_tape_has_no_imbalance_rather_than_a_balanced_one():
     """Zero imbalance claims both sides were liquidated equally. No liquidations at all
     is not that claim."""
-    m = _load("cm_quiet")
+    m = paid(_load("cm_quiet"))
     m._get_json = lambda url: ok([{"a": {"longs": 0.0, "shorts": 0.0}}])
     rec = m.fetch_liquidations("k", {"BTC"})["data"]["BTC"]
     assert rec["total_usd"] == 0.0
@@ -144,7 +151,7 @@ def test_a_quiet_tape_has_no_imbalance_rather_than_a_balanced_one():
 
 def test_a_partial_sweep_reports_which_symbols_failed():
     """Silent truncation reads as 'covered everything' when it did not."""
-    m = _load("cm_partial")
+    m = paid(_load("cm_partial"))
     calls = {"n": 0}
     def flaky(url):
         calls["n"] += 1
@@ -162,7 +169,7 @@ def test_the_symbol_fan_out_is_bounded():
     """Every endpoint is per-symbol — no bulk variant, no pagination — so a 50-name board
     is 50 requests at 3/s. The cap is the difference between a nightly job and a rate
     limit."""
-    m = _load("cm_bound")
+    m = paid(_load("cm_bound"))
     seen = []
     m._get_json = lambda url: (seen.append(url), ok([{"a": {"longs": 1, "shorts": 1}}]))[1]
     m.fetch_liquidations("k", {f"S{i:02d}" for i in range(40)}, limit=5)
