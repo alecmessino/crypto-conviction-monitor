@@ -874,3 +874,104 @@ def test_the_counterfactual_uses_the_same_confirmations_as_the_live_modifier():
     assert live != shadow, "the fixture must actually distinguish the two inputs"
     # Only the carry differs — same function, same legs.
     assert shadow == funding.regime_modifier(trail, chg, rsi_)[0]
+
+
+# ---------------------------------------------------------------------------
+# L. the venues added because Binance and Bybit are geo-blocked from the runner
+# ---------------------------------------------------------------------------
+def test_kraken_converts_an_absolute_rate_before_annualising():
+    """The worst unit trap in the venue set, and the reason this test exists.
+
+    Kraken quotes funding in quote currency per contract per hour, not as a decimal.
+    Its docs define absolute = relative x spot, so the conversion is a division by the
+    index price. The verified live case: PF_XBTUSD at -0.5228 against an index of 64,308
+    is -7.12% a year. Annualising the raw figure gives -457,972%, which would sail
+    through every schema check — nothing about the field name says it is denominated in
+    dollars.
+    """
+    def fake(url, headers=None, data=None):
+        return {"result": "success", "tickers": [
+            {"symbol": "PF_XBTUSD", "tag": "perpetual", "pair": "XBT:USD",
+             "fundingRate": -0.5228, "indexPrice": 64308.0, "markPrice": 64310.0,
+             "openInterest": 2000.0, "suspended": False}]}
+    import types
+    funding_local = _load("kraken_mod", "funding.py")
+    funding_local._get_json = fake
+    rep = funding_local.fetch_kraken_funding()
+    assert rep["status"] == "live"
+    apr = rep["data"]["BTC"]["funding_apr"]
+    assert apr == pytest.approx(-7.12, abs=0.05), apr
+    # The raw-rate mistake, stated numerically so the test explains itself.
+    assert funding_local.annualize(-0.5228, 1.0) == pytest.approx(-457972.8, rel=1e-3)
+    assert rep["data"]["BTC"]["funding_rate"] == pytest.approx(-0.5228 / 64308.0)
+
+
+def test_kraken_excludes_index_prices_too_small_to_divide_by():
+    """Below a cent the division amplifies quantisation error enough that the output is
+    not a reading — a sub-cent alt computed to -255% APR in testing, which may be real
+    and may be an artefact, and a column cannot say which."""
+    funding_local = _load("kraken_thin", "funding.py")
+    funding_local._get_json = lambda *a, **k: {"result": "success", "tickers": [
+        {"symbol": "PF_XBTUSD", "tag": "perpetual", "pair": "XBT:USD",
+         "fundingRate": -0.5228, "indexPrice": 64308.0, "openInterest": 1.0,
+         "suspended": False},
+        {"symbol": "PF_MEWUSD", "tag": "perpetual", "pair": "MEW:USD",
+         "fundingRate": -0.0000001, "indexPrice": 0.0003, "openInterest": 1.0,
+         "suspended": False}]}
+    rep = funding_local.fetch_kraken_funding()
+    assert set(rep["data"]) == {"BTC"}
+    assert "sub-cent" in rep["detail"]
+
+
+def test_gateio_reads_the_interval_per_market_rather_than_assuming_one():
+    """Gate publishes funding_interval in seconds and it genuinely varies — a snapshot
+    across its 918 markets found 573 at 8h, 342 at 4h and 3 at 1h. Annualising that book
+    at a fixed three settlements a day would have been silently wrong for 345 markets,
+    most of them by a factor of two. This is the whole module's thesis arriving in a
+    single response."""
+    funding_local = _load("gate_mod", "funding.py")
+    funding_local._get_json = lambda *a, **k: [
+        {"name": "BTC_USDT", "funding_rate": "0.0001", "funding_interval": 28800,
+         "mark_price": "60000", "position_size": 1000, "quanto_multiplier": "0.0001",
+         "in_delisting": False},
+        {"name": "FOUR_USDT", "funding_rate": "0.0001", "funding_interval": 14400,
+         "mark_price": "1", "position_size": 10, "quanto_multiplier": "1",
+         "in_delisting": False},
+        {"name": "DEAD_USDT", "funding_rate": "0.0001", "funding_interval": 28800,
+         "mark_price": "1", "position_size": 1, "quanto_multiplier": "1",
+         "in_delisting": True}]
+    rep = funding_local.fetch_kraken_funding.__globals__["fetch_gateio_funding"]()
+    assert set(rep["data"]) == {"BTC", "FOUR"}, "a delisting contract was not excluded"
+    assert rep["data"]["BTC"]["interval_hours"] == 8.0
+    assert rep["data"]["BTC"]["funding_apr"] == pytest.approx(10.95)
+    assert rep["data"]["FOUR"]["interval_hours"] == 4.0
+    assert rep["data"]["FOUR"]["funding_apr"] == pytest.approx(21.9)
+    # Same quoted rate, different clock, double the carry. Exactly the defect.
+    assert rep["data"]["FOUR"]["funding_apr"] == 2 * rep["data"]["BTC"]["funding_apr"]
+
+
+def test_dydx_excludes_markets_being_wound_down():
+    """FINAL_SETTLEMENT markets still carry a funding field. It is not a live reading,
+    and putting it in a column that says it is current would be a stale rate wearing a
+    fresh label."""
+    funding_local = _load("dydx_mod", "funding.py")
+    funding_local._get_json = lambda *a, **k: {"markets": {
+        "BTC-USD": {"ticker": "BTC-USD", "status": "ACTIVE",
+                    "nextFundingRate": "0.00000818", "oraclePrice": "64000",
+                    "openInterest": "275.55"},
+        "OLD-USD": {"ticker": "OLD-USD", "status": "FINAL_SETTLEMENT",
+                    "nextFundingRate": "0.5", "oraclePrice": "1", "openInterest": "1"}}}
+    rep = funding_local.fetch_kraken_funding.__globals__["fetch_dydx_funding"]()
+    assert set(rep["data"]) == {"BTC"}
+    assert rep["data"]["BTC"]["interval_hours"] == 1.0
+    assert rep["data"]["BTC"]["rate_basis"] == "predicted"
+    # Open interest arrives in base units and must be valued to be comparable.
+    assert rep["data"]["BTC"]["oi_usd"] == pytest.approx(275.55 * 64000, rel=1e-6)
+
+
+def test_the_venue_set_survives_losing_both_geo_blocked_exchanges():
+    """The production failure this addition exists for. On 2026-08-17 Binance answered
+    451 and Bybit 403 from the runner, and the whole feed rested on two venues."""
+    assert {"dydx", "gateio", "kraken"} <= set(funding.VENUE_FETCHERS)
+    survivors = [v for v in funding.VENUE_PRIORITY if v not in ("binance", "bybit")]
+    assert len(survivors) >= 5, survivors

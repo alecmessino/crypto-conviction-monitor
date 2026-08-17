@@ -411,12 +411,22 @@ VENUE_DEFAULT_INTERVAL = {
     "bybit": 8.0,
     "hyperliquid": 1.0,
     "coinbase": 1.0,
+    "dydx": 1.0,       # protocol property, not reported in the response
+    "kraken": 1.0,     # perps fund hourly; not reported in the response
+    "gateio": 8.0,     # fallback only — Gate reports the interval per market
 }
 
 # Ranked by depth of the USDT-margined perp book. The consolidated reading prefers the
 # first venue that has a market, so the headline APR comes from the deepest book rather
 # than from whichever request happened to return first.
-VENUE_PRIORITY = ("binance", "bybit", "hyperliquid", "coinbase")
+# Ranked by depth of the USDT-margined perp book, with one deliberate exception:
+# binance and bybit stay at the top because they are the deepest books when reachable,
+# and drop out cleanly when they are not — which on a US-hosted runner is every night.
+# The venues behind them are ordered to keep the surviving set diverse rather than
+# merely long: dydx is an independent DEX, kraken a US-regulated CEX, gateio the widest
+# coverage and the only venue that publishes its own settlement interval per market.
+VENUE_PRIORITY = ("binance", "bybit", "gateio", "kraken", "dydx",
+                  "hyperliquid", "coinbase")
 
 _UA = {"User-Agent": "conviction-monitor/1.0"}
 
@@ -657,11 +667,192 @@ def fetch_coinbase_funding(symbols: set | None = None) -> dict:
     return _report("coinbase", out, "live", f"{len(out)} perpetual market(s)")
 
 
+def fetch_dydx_funding(symbols: set | None = None) -> dict:
+    """dYdX v4 indexer. One keyless call, every market, and no unit traps.
+
+    Reachable from US datacenter IPs, which is the point: Binance answers 451 and Bybit
+    403 from the runners this job executes on, and a feed that depends on two venues that
+    geo-block its host is a feed with a single point of failure wearing a disguise.
+
+    ``markets`` is an OBJECT keyed by ticker, not an array. Funding is hourly and the
+    interval is NOT a field in the response — it is a property of the protocol, so it is
+    a constant here rather than a parse. ``defaultFundingRate1H`` is a rate despite the
+    name and must not be mistaken for one.
+
+    FINAL_SETTLEMENT markets are excluded: they are being wound down, their funding is
+    not a live reading, and including them would put a stale rate in a column that says
+    it is current.
+    """
+    try:
+        payload = _get_json("https://indexer.dydx.trade/v4/perpetualMarkets")
+    except Exception as e:  # noqa: BLE001
+        return _report("dydx", {}, "unreachable", f"perpetualMarkets failed ({e})")
+    markets = (payload or {}).get("markets")
+    if not isinstance(markets, dict):
+        return _report("dydx", {}, "unusable",
+                       f"expected a markets object; got {type(markets).__name__}")
+
+    hours = VENUE_DEFAULT_INTERVAL["dydx"]
+    out, skipped = {}, 0
+    for rec in markets.values():
+        if (rec or {}).get("status") != "ACTIVE":
+            skipped += 1
+            continue
+        ticker = str(rec.get("ticker") or "")
+        if not ticker.endswith("-USD"):
+            continue
+        base = ticker[:-4].upper()
+        if symbols and base not in symbols:
+            continue
+        rate = _f(rec.get("nextFundingRate"))
+        if rate is None:
+            continue
+        px = _f(rec.get("oraclePrice"))
+        oi_base = _f(rec.get("openInterest"))
+        out[base] = {
+            "venue": "dydx", "funding_rate": rate, "interval_hours": hours,
+            "funding_apr": annualize(rate, hours),
+            # dYdX has no mark price. The oracle price is the closest thing and is
+            # labelled as what it is rather than aliased into a field it is not.
+            "mark_price": px,
+            "oi_usd": round(oi_base * px, 2) if (oi_base and px) else None,
+            "rate_basis": "predicted",
+        }
+    if not out:
+        return _report("dydx", out, "unusable",
+                       f"{len(markets)} market(s) returned, none matched the filter")
+    return _report("dydx", out, "live",
+                   f"{len(out)} market(s) at {hours:g}h; {skipped} non-active skipped")
+
+
+def fetch_gateio_funding(symbols: set | None = None) -> dict:
+    """Gate.io USDT perpetuals — the venue that publishes its own settlement interval.
+
+    ``/contracts`` rather than ``/tickers``: the tickers endpoint carries a funding rate
+    and omits the interval, which is precisely the shape that caused the original defect
+    in this repo. Here the interval arrives per market, in seconds, and it genuinely
+    varies — a snapshot on 2026-08-17 found 573 markets at 8h, 342 at 4h and 3 at 1h.
+
+    That distribution is the empirical case for this whole module in one response: had
+    these rates been annualised at a fixed three settlements a day, 345 of 918 markets
+    would have been silently wrong, most of them by a factor of two.
+
+    Read every run rather than cached — venues move individual markets between 8h, 4h and
+    1h in response to sustained funding pressure, which is exactly why the field exists.
+    """
+    try:
+        rows = _get_json("https://api.gateio.ws/api/v4/futures/usdt/contracts")
+    except Exception as e:  # noqa: BLE001
+        return _report("gateio", {}, "unreachable", f"contracts failed ({e})")
+    if not isinstance(rows, list):
+        return _report("gateio", {}, "unusable", "contracts did not return a list")
+
+    out, intervals = {}, {}
+    for rec in rows:
+        if (rec or {}).get("in_delisting"):
+            continue
+        name = str(rec.get("name") or "")
+        if not name.endswith("_USDT"):
+            continue
+        base = name[:-5].upper()
+        if symbols and base not in symbols:
+            continue
+        rate = _f(rec.get("funding_rate"))
+        secs = _f(rec.get("funding_interval"))
+        if rate is None or not secs:
+            continue
+        hours = secs / 3600.0
+        intervals[hours] = intervals.get(hours, 0) + 1
+        mark = _f(rec.get("mark_price"))
+        # position_size is in CONTRACTS; quanto_multiplier converts to base units.
+        size = _f(rec.get("position_size"))
+        mult = _f(rec.get("quanto_multiplier"))
+        out[base] = {
+            "venue": "gateio", "funding_rate": rate, "interval_hours": hours,
+            "funding_apr": annualize(rate, hours), "mark_price": mark,
+            "oi_usd": (round(abs(size) * mult * mark, 2)
+                       if (size and mult and mark) else None),
+            "rate_basis": "current",
+        }
+    if not out:
+        return _report("gateio", out, "unusable",
+                       f"{len(rows)} contract(s) returned, none matched the filter")
+    mix = ", ".join(f"{k:g}h x{v}" for k, v in sorted(intervals.items()))
+    return _report("gateio", out, "live", f"{len(out)} market(s); intervals {mix}")
+
+
+# Kraken quotes funding in quote currency per contract per hour, not as a decimal rate.
+# Dividing by the index price recovers the rate. Below this index price the division
+# amplifies quantisation error badly enough that the result is not a reading — a
+# sub-cent alt computed to -255% APR in testing, which may be real and may be an
+# artefact, and a column cannot say which.
+KRAKEN_MIN_INDEX_PRICE = 0.01
+
+
+def fetch_kraken_funding(symbols: set | None = None) -> dict:
+    """Kraken Futures. Carries the worst unit trap of any venue here.
+
+    ``fundingRate`` is the ABSOLUTE rate — quote currency per contract per hour — not a
+    decimal. Kraken's own documentation defines absolute = relative x spot price, so the
+    conversion is a division by the index price. Getting this wrong is not subtle:
+    PF_XBTUSD at -0.5228 with an index of 64,308 is -7.12% a year, and annualising the
+    raw figure yields -457,972%.
+
+    It is the same class of defect as the fixed 8-hour constant this module was written
+    to remove — a number that means something other than what the column says — and it is
+    worth naming because it would have passed every schema check. Nothing about
+    ``fundingRate`` says it is denominated in dollars.
+    """
+    try:
+        payload = _get_json("https://futures.kraken.com/derivatives/api/v3/tickers")
+    except Exception as e:  # noqa: BLE001
+        return _report("kraken", {}, "unreachable", f"tickers failed ({e})")
+    tickers = (payload or {}).get("tickers")
+    if not isinstance(tickers, list):
+        return _report("kraken", {}, "unusable", "tickers did not return a list")
+
+    hours = VENUE_DEFAULT_INTERVAL["kraken"]
+    out, thin = {}, 0
+    for rec in tickers:
+        if (rec or {}).get("tag") != "perpetual" or rec.get("suspended"):
+            continue
+        pair = str(rec.get("pair") or "")          # 'XBT:USD'
+        base = pair.split(":")[0].upper()
+        if base == "XBT":
+            base = "BTC"                            # Kraken's name for bitcoin
+        if not base or (symbols and base not in symbols):
+            continue
+        absolute = _f(rec.get("fundingRate"))
+        index = _f(rec.get("indexPrice"))
+        if absolute is None or not index:
+            continue
+        if index < KRAKEN_MIN_INDEX_PRICE:
+            thin += 1
+            continue
+        rate = absolute / index
+        out[base] = {
+            "venue": "kraken", "funding_rate": rate, "interval_hours": hours,
+            "funding_apr": annualize(rate, hours), "mark_price": _f(rec.get("markPrice")),
+            "oi_usd": (round(_f(rec.get("openInterest")) * index, 2)
+                       if _f(rec.get("openInterest")) else None),
+            "rate_basis": "current",
+        }
+    if not out:
+        return _report("kraken", out, "unusable",
+                       f"{len(tickers)} ticker(s) returned, none matched the filter")
+    return _report("kraken", out, "live",
+                   f"{len(out)} perpetual(s) at {hours:g}h"
+                   + (f"; {thin} sub-cent index price(s) excluded" if thin else ""))
+
+
 VENUE_FETCHERS = {
     "binance": fetch_binance_funding,
     "bybit": fetch_bybit_funding,
     "hyperliquid": fetch_hyperliquid_funding,
     "coinbase": fetch_coinbase_funding,
+    "dydx": fetch_dydx_funding,
+    "gateio": fetch_gateio_funding,
+    "kraken": fetch_kraken_funding,
 }
 
 
