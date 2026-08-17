@@ -81,7 +81,22 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           # modifier would make the score lag a genuine regime change, and choosing
           # between those is a decision that should be made against recorded evidence
           # rather than asserted — which is what recording these makes possible.
-          "funding_apr_trail", "funding_trail_n", "funding_pos_share"]
+          "funding_apr_trail", "funding_trail_n", "funding_pos_share",
+          # The counterfactual: what the modifier WOULD have been had it read the
+          # trailing carry instead of tonight's print. Recorded, never applied — so the
+          # comparison that decides whether to adopt it is a query over this column in a
+          # month's time rather than a re-run, and the decision is made against evidence
+          # rather than asserted now on two nights of data.
+          #
+          # Adopting it is deliberately a one-line edit inside lavl_perp_mult — a
+          # captured SPEC_FUNCTION — so the switch moves the specification hash and
+          # draws its own boundary, which is the whole point of having one.
+          "perp_mult_trail",
+          # Module 4 — Cryptometer. Forced selling, which nothing else in this pipeline
+          # can see: a conviction score cannot tell an orderly decline from a cascade,
+          # and that distinction is what decides whether to wait for a better fill.
+          # Observational, like every other derivatives column except funding.
+          "liq_longs_usd", "liq_shorts_usd", "liq_imbalance"]
 
 # Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
@@ -93,6 +108,22 @@ CG_BASE = "https://api.coingecko.com/api/v3"
 STABLES = {"USDT", "USDC", "DAI", "BUSD", "TUSD", "USDD", "FDUSD", "USDE",
            "USD1", "USDS", "PYUSD", "GUSD", "USDG", "FRAX", "USDD", "TUSD",
            "XAUT", "PAXG"}
+
+
+def _load_sibling(filename: str, modname: str):
+    """Load a sibling module by path, compiling its source in process.
+
+    Same reasoning as _load_funding below, which this generalises: by-name imports fail
+    under pytest, and going through the normal loader can execute a stale .pyc whose
+    constants disagree with the source spec() parses.
+    """
+    import importlib.util
+    path = Path(__file__).resolve().parent / filename
+    src = path.read_text(encoding="utf-8")
+    spec_ = importlib.util.spec_from_file_location(modname, path)
+    mod = importlib.util.module_from_spec(spec_)
+    exec(compile(src, str(path), "exec"), mod.__dict__)  # noqa: S102
+    return mod
 
 
 def _load_funding():
@@ -130,6 +161,7 @@ def _load_funding():
 
 
 funding = _load_funding()
+cryptometer = _load_sibling("cryptometer.py", "cm_client")
 
 
 # ---------------------------------------------------------------------------
@@ -1426,7 +1458,12 @@ MON_CONTEXT_FIELDS = ("era", "unlocks_usd", "supply_increase_pct", "addr_growth_
                       # asset, how far apart they were. The modifier reads the
                       # consolidated APR and never the spread.
                       "funding_venue", "funding_venues_n", "funding_apr_spread",
-                      "funding_regime")
+                      "funding_regime",
+                      # Module 4. Null for any symbol Cryptometer has no book for, and
+                      # null for every symbol when the key is unconfigured, so grading
+                      # them would pin this panel amber for a feed that is optional by
+                      # design.
+                      "liq_longs_usd", "liq_shorts_usd", "liq_imbalance")
 MON_FIELD_PRESENCE_WARN = 0.90
 
 
@@ -2763,6 +2800,15 @@ def main() -> int:
               "neutral 1.0 tonight, and the regime column is null rather than NEUTRAL",
               file=__import__("sys").stderr)
 
+    # Module 4. The key is a repository secret and absent locally, so this degrades to
+    # "unconfigured" on a developer machine and only ever runs live in CI.
+    cm_key = cryptometer.api_key_from_env()
+    board_syms = sorted(scored_syms)[:cryptometer.DEFAULT_SYMBOL_LIMIT]
+    liq_report = cryptometer.fetch_liquidations(cm_key, board_syms)
+    print(f"[cryptometer] liquidations {liq_report['status']}: {liq_report['detail']}",
+          file=__import__("sys").stderr)
+    liq_map = liq_report["data"] or {}
+
     # Long/short is Binance-only and one request per symbol. Skipped outright when the
     # Binance venue fetch already failed: on a US-hosted runner that endpoint answers
     # HTTP 451, and firing sixty requests to collect sixty identical refusals is a
@@ -2772,8 +2818,16 @@ def main() -> int:
         print(f"[funding] long/short ratio for {n_ls}/{len(scored_syms)} symbols.",
               file=__import__("sys").stderr)
     else:
-        print("[funding] long/short skipped — Binance is unreachable from this host, "
-              "so the ratio is null tonight rather than fabricated",
+        # Binance is the only exchange that publishes this ratio publicly and it answers
+        # 451 here, which is why the column has been null on every row since the runner
+        # moved. Cryptometer is not geo-blocked, so this restores a reading rather than
+        # inventing one — same quantity, different host.
+        ls_report = cryptometer.fetch_long_short_ratio(cm_key, board_syms)
+        for sym, rec in (ls_report["data"] or {}).items():
+            perps_map.setdefault(sym, {})["long_short_ratio"] = rec["ratio"]
+        print(f"[cryptometer] long/short {ls_report['status']}: {ls_report['detail']}"
+              + " — Binance is geo-blocked from this host, so this is the substitute "
+                "source rather than an additional one",
               file=__import__("sys").stderr)
     prev_oi = _prev_oi_by_symbol()
     print(f"[perp] prior-night open interest for {len(prev_oi)} symbols"
@@ -2828,6 +2882,11 @@ def main() -> int:
         fc = funding.funding_context(sym, consolidated,
                                      t.get("price_change_percentage_24h"),
                                      rsi_map.get(sym))
+        # Same function, same confirmations, trailing carry instead of tonight's print.
+        # Nothing downstream reads this.
+        trail_apr = (trail_map.get(sym) or {}).get("mean")
+        pm_trail, _ = funding.regime_modifier(
+            trail_apr, t.get("price_change_percentage_24h"), rsi_map.get(sym))
         b = dune_b.get(sym)  # real Dune fields if present, else None -> null
         rows.append({
             "date": today, "symbol": sym, "name": t.get("name", ""),
@@ -2859,9 +2918,13 @@ def main() -> int:
             **{k: fc[k] for k in ("funding_apr", "funding_interval_h", "funding_venue",
                                   "funding_venues_n", "funding_apr_spread",
                                   "funding_regime", "rsi7")},
-            "funding_apr_trail": (trail_map.get(sym) or {}).get("mean"),
+            "funding_apr_trail": trail_apr,
             "funding_trail_n": (trail_map.get(sym) or {}).get("n"),
             "funding_pos_share": (trail_map.get(sym) or {}).get("pos_share"),
+            "perp_mult_trail": round(pm_trail, 3),
+            "liq_longs_usd": (liq_map.get(sym) or {}).get("longs_usd"),
+            "liq_shorts_usd": (liq_map.get(sym) or {}).get("shorts_usd"),
+            "liq_imbalance": (liq_map.get(sym) or {}).get("imbalance"),
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
 
@@ -2970,6 +3033,7 @@ def main() -> int:
             # — and the modifier alone cannot distinguish them.
             "severity": round(funding.funding_severity(apr), 4),
             "apr_trail": r.get("funding_apr_trail"),
+            "score_modifier_trail": r.get("perp_mult_trail"),
             "trail_n": r.get("funding_trail_n"),
             "pos_share": r.get("funding_pos_share"),
             "by_venue": rec.get("by_venue") or {},
