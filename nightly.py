@@ -55,12 +55,14 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           "high_24h", "low_24h",
           # Module 3 — cross-venue funding. Appended for the reason stated above.
           #
-          # `funding_ann_pct` above is kept exactly as it was, and so is the feed behind
-          # it: the Bybit rate annualised at three settlements a day. `funding_apr` is
-          # the cross-venue reading, annualised at whatever interval its venue actually
-          # settles on. The two are not redundant and neither is a restatement of the
-          # other — where both exist they agree, and that agreement is a cross-check
-          # between two independently fetched pipelines.
+          # `funding_ann_pct` above is RETIRED — historical values stand, nothing new is
+          # written into it. It annualised at a fixed three settlements a day, which was
+          # correct for the single Bybit feed that produced it and wrong for any venue on
+          # another clock. That is not hypothetical: on 2026-08-17 every rate in
+          # production came from an hourly venue, and that column would have understated
+          # all 26 of them eightfold. `funding_apr` beside `funding_interval_h` says the
+          # same thing without the ambiguity, so keeping both would be keeping one that
+          # can only ever be right by coincidence.
           #
           # `funding_interval_h` is the field that makes the rate a measurement rather
           # than a number: 0.0001 at Bybit's 8h and 0.0001 at Hyperliquid's 1h are
@@ -566,49 +568,6 @@ def _conjunctive_gate(t: dict, conv: int) -> bool:
     return bool(gate_a and gate_b and gate_c)
 
 
-def fetch_perps_map(symbols: set[str] | None = None) -> dict:
-    """Live perpetual funding rates -> {BASE: {funding_rate, oi_usd}}.
-
-    Primary: Bybit V5 linear tickers (one call, full map, has funding + OI).
-    Fallback: OKX public funding-rate, fetched per-instrument but ONLY for the
-    symbols we actually score (bounded ~10-50 calls) when `symbols` is given;
-    if omitted, OKX is skipped to avoid 400+ requests.
-    Both key-less. Returns {} on total failure -> callers use neutral 1.0.
-    No fabrication: missing perps simply fall back to neutral per-asset.
-    """
-    # Primary: Bybit linear perps
-    try:
-        data = _get_json("https://api.bybit.com/v5/market/tickers?category=linear")
-        items = (data.get("result") or {}).get("list") or []
-        m = {}
-        for it in items:
-            sym = (it.get("symbol") or "")
-            if sym.endswith("USDT"):
-                base = sym[:-4].upper()
-                m[base] = {
-                    "funding_rate": float(it.get("fundingRate") or 0.0),
-                    "oi_usd": float(it.get("openInterestValue") or 0.0),
-                }
-        if m:
-            return m
-    except Exception as e:  # noqa: BLE001
-        print(f"[perp] Bybit unavailable ({e}); trying OKX.", file=__import__("sys").stderr)
-    # Fallback: OKX funding-rate, per requested symbol (bounded)
-    if not symbols:
-        print("[perp] OKX fallback skipped (no symbol filter); neutral.", file=__import__("sys").stderr)
-        return {}
-    m = {}
-    for base in symbols:
-        inst = f"{base}-USDT-SWAP"
-        try:
-            data = _get_json(f"https://www.okx.com/api/v5/public/funding-rate?instId={inst}")
-            row = (data.get("data") or [{}])[0]
-            m[base.upper()] = {"funding_rate": float(row.get("fundingRate") or 0.0), "oi_usd": None}
-        except Exception:  # noqa: BLE001
-            continue  # per-asset neutral fallback
-    return m
-
-
 def fetch_long_short(perps_map: dict, symbols: set[str] | None = None,
                      limit: int = 60) -> int:
     """Binance's global long/short account ratio, merged into `perps_map` in place.
@@ -690,9 +649,6 @@ def lavl_perp_mult(ticker: str, perps_map: dict) -> float:
 # understates the carry. Cross-venue rates go through funding.annualize, which takes the
 # interval as an argument because the interval is part of the unit.
 FUNDING_INTERVALS_PER_YEAR = 3 * 365
-# Beyond these the carry is doing something a spot-only reader cannot see.
-FUNDING_HOT_APR = 30.0
-FUNDING_COLD_APR = -20.0
 # Below this a "divergence" is rounding, on either axis.
 DIVERGENCE_EPS_PRICE = 0.5      # percent
 DIVERGENCE_EPS_OI = 1.0         # percent
@@ -804,13 +760,11 @@ FUNDING_TRAIL_NIGHTS = 7
 def _funding_trail_by_symbol(nights: int = FUNDING_TRAIL_NIGHTS) -> dict:
     """Trailing funding per symbol: mean APR, nights covered, share of them positive.
 
-    Reads ``funding_apr`` where present and falls back to ``funding_ann_pct``. That is a
-    join across two columns, which normally deserves suspicion — here it is correct and
-    lossless. Both are annualised percentages of the same quantity, and every row written
-    before Module 3 came from Bybit's 8-hour clock, which is exactly the basis
-    ``funding_ann_pct`` assumes. So the fallback is not an approximation of the newer
-    column; over that history it is arithmetically the same number. Without it this
-    reading would report one night tonight and discard fifteen that are already on disk.
+    Reads ``funding_apr``, falling back to the retired ``funding_ann_pct`` for rows
+    written before it existed. That fallback is correct rather than approximate: every
+    such row came from Bybit's 8-hour clock, which is exactly the basis the old column
+    assumed, so over that history the two are arithmetically the same number. Without it
+    this reading would start from one night and discard the seventeen already on disk.
 
     ``pos_share`` is the reading that matters for a carry: a 30% mean built from one
     +200% night and six flat ones is not a 30% carry, and the mean alone cannot tell
@@ -857,7 +811,13 @@ def perp_context(ticker: str, perps_map: dict, market_cap, price_chg_pct,
     oi_chg = round(100.0 * (oi / p0 - 1.0), 4) if (oi and p0) else None
     return {
         "funding_rate": fr,
-        "funding_ann_pct": funding_ann_pct(fr),
+        # Retired, not removed: FIELDS is append-only, so the column stays for the
+        # rows already written under it. Nothing new is written into it. It annualised
+        # at a fixed three settlements a day, which was right for the single Bybit feed
+        # that produced it and is wrong for every hourly venue — and on 2026-08-17 every
+        # rate in production came from an hourly venue. `funding_apr` beside
+        # `funding_interval_h` supersedes it and cannot carry the same ambiguity.
+        "funding_ann_pct": None,
         "oi_usd": oi,
         "oi_chg_24h_pct": oi_chg,
         # Leverage relative to the size of the asset. A $1bn book is enormous on a
@@ -2777,46 +2737,57 @@ def main() -> int:
     markets = fetch_markets()
     scored_syms = {(t.get("symbol") or "").upper() for t in markets
                    if (t.get("symbol") or "").upper() and (t.get("symbol") or "").upper() not in STABLES}
-    perps_map = fetch_perps_map(scored_syms)  # live perp funding (Bybit->OKX fallback); {} => neutral
-    if perps_map:
-        print(f"[perp] {len(perps_map)} perps live; LAVL leverage regime active.",
-              file=__import__("sys").stderr)
-    else:
-        print("[perp] no perp feed; RiskMult_perp neutral (1.0) for all.", file=__import__("sys").stderr)
-    # Long/short is a separate, per-symbol endpoint, so it is fetched only for the
-    # names being scored and its coverage is reported rather than assumed.
-    n_ls = fetch_long_short(perps_map, scored_syms)
-    print(f"[perp] long/short ratio for {n_ls}/{len(scored_syms)} symbols.",
-          file=__import__("sys").stderr)
-    prev_oi = _prev_oi_by_symbol()
-    print(f"[perp] prior-night open interest for {len(prev_oi)} symbols"
-          + ("" if prev_oi else " — the 24h OI delta is null tonight, not zero"),
-          file=__import__("sys").stderr)
-
-    # Module 3 — cross-venue funding. Fetched independently of fetch_perps_map above:
-    # that call stays as the open-interest and long/short source and as the fallback if
-    # every funding venue is down, and unpicking the two would put this change on the
-    # critical path of a feed that is currently working.
+    # One funding fetch, across four venues. There used to be two: fetch_perps_map hit
+    # Bybit's tickers endpoint for open interest, and the venue layer hit the same
+    # endpoint again for funding. On 2026-08-17 that cost the feed — the first call
+    # returned 49 symbols and the second got HTTP 403, so Bybit funding was recorded as
+    # unreachable on a night it was reachable. Calling an endpoint twice a night to
+    # populate two columns is how you get rate-limited out of one of them.
     venue_reports = funding.fetch_all_venues(scored_syms)
     for line in venue_reports["reports"]:
         print(f"[funding] {line}", file=__import__("sys").stderr)
     consolidated = funding.consolidate(venue_reports)
-    if not consolidated:
+    perps_map = {
+        sym: {"funding_rate": rec.get("funding_rate"),
+              "interval_hours": rec.get("interval_hours"),
+              "funding_apr": rec.get("funding_apr"),
+              "oi_usd": rec.get("oi_usd")}
+        for sym, rec in consolidated.items()}
+    live_venues = [n for n, r in venue_reports["venues"].items() if r["status"] == "live"]
+    if consolidated:
+        intervals = {}
+        for rec in consolidated.values():
+            h = rec.get("interval_hours")
+            intervals[h] = intervals.get(h, 0) + 1
+        print(f"[funding] {len(consolidated)} consolidated market(s) from "
+              + ", ".join(live_venues) + "; intervals: "
+              + ", ".join(f"{k:g}h x{v}" for k, v in sorted(intervals.items(),
+                                                            key=lambda kv: kv[0] or 0)),
+              file=__import__("sys").stderr)
+    else:
         # Not fatal and not silent. Every modifier falls to the neutral 1.0, which is
         # the correct reading for "no funding was observed" and the wrong thing to
         # discover from a flat column three weeks later.
         print("[funding] no venue returned a usable market — every score modifier is "
               "neutral 1.0 tonight, and the regime column is null rather than NEUTRAL",
               file=__import__("sys").stderr)
-    else:
-        intervals = {}
-        for rec in consolidated.values():
-            h = rec.get("interval_hours")
-            intervals[h] = intervals.get(h, 0) + 1
-        print("[funding] " + f"{len(consolidated)} consolidated market(s); intervals: "
-              + ", ".join(f"{k:g}h x{v}" for k, v in sorted(intervals.items(),
-                                                            key=lambda kv: kv[0] or 0)),
+
+    # Long/short is Binance-only and one request per symbol. Skipped outright when the
+    # Binance venue fetch already failed: on a US-hosted runner that endpoint answers
+    # HTTP 451, and firing sixty requests to collect sixty identical refusals is a
+    # minute of runner time spent proving something already known.
+    if "binance" in live_venues:
+        n_ls = fetch_long_short(perps_map, scored_syms)
+        print(f"[funding] long/short ratio for {n_ls}/{len(scored_syms)} symbols.",
               file=__import__("sys").stderr)
+    else:
+        print("[funding] long/short skipped — Binance is unreachable from this host, "
+              "so the ratio is null tonight rather than fabricated",
+              file=__import__("sys").stderr)
+    prev_oi = _prev_oi_by_symbol()
+    print(f"[perp] prior-night open interest for {len(prev_oi)} symbols"
+          + ("" if prev_oi else " — the 24h OI delta is null tonight, not zero"),
+          file=__import__("sys").stderr)
 
     # RSI needs tonight's close, which is the live price — the ledger row for today has
     # not been written yet at this point.
@@ -2842,24 +2813,6 @@ def main() -> int:
     # is what score() reads. This is the only place the derivatives feed reaches the
     # score, and it does so through lavl_perp_mult — a captured SPEC_FUNCTION — so the
     # decision is recorded in the specification hash on every row written tonight.
-    for sym, rec in consolidated.items():
-        slot = perps_map.setdefault(sym, {})
-        slot["funding_apr"] = rec.get("funding_apr")
-        slot["interval_hours"] = rec.get("interval_hours")
-        # `funding_rate` is deliberately NOT overwritten with the consolidated venue's
-        # rate. It belongs to the legacy Bybit feed, and `perp_context` annualises it at
-        # a fixed three settlements a day to produce `funding_ann_pct` — the column
-        # fifteen nights of history were written into. Writing an hourly Hyperliquid
-        # rate into it would send that rate through the 8-hour constant and understate
-        # its carry by a factor of eight, which is precisely the defect this module was
-        # written to remove, reintroduced one column to the left.
-        #
-        # So the two pipelines stay separate and stay honest: funding_rate /
-        # funding_ann_pct are the Bybit feed on its own terms, funding_apr /
-        # funding_interval_h / funding_venue are the cross-venue reading, and where both
-        # exist they agree. That agreement is a free cross-check rather than redundancy.
-        if rec.get("oi_usd") and not slot.get("oi_usd"):
-            slot["oi_usd"] = rec["oi_usd"]
     for t in markets:
         sym = (t.get("symbol") or "").upper()
         if sym in perps_map:

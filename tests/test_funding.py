@@ -682,31 +682,34 @@ def test_the_modifier_reaching_the_score_is_the_one_this_module_computed():
             funding.regime_modifier(apr, chg, r)[0]
 
 
-def test_an_hourly_rate_never_reaches_the_eight_hour_column():
-    """The regression guard for the defect this module removes, reintroduced by wiring.
+def test_the_eight_hour_column_is_retired_rather_than_fed_a_foreign_clock():
+    """The defect this module removes, and the shape it would have taken on the way back in.
 
-    `perp_context` annualises `funding_rate` at a fixed three settlements a day to
-    produce `funding_ann_pct`. If the consolidation ever writes an hourly Hyperliquid
-    rate into that key, the 8-hour constant understates its carry eightfold — the exact
-    original bug, one column to the left, in a field that has fifteen nights of history
-    written under the old contract. The two pipelines must stay separate.
+    `funding_ann_pct` annualised at a fixed three settlements a day. Feeding it an hourly
+    Hyperliquid rate understates the carry eightfold — and on 2026-08-17 every rate in
+    production came from an hourly venue, so that would have been all of them. Rather
+    than conditionally populating a column that can only be right by coincidence, it is
+    retired: historical values stand, nothing new is written.
+    """
+    out = nightly.perp_context("X", {"X": {"funding_rate": 0.0001, "interval_hours": 1.0}},
+                               1e9, 1.0, {})
+    assert out["funding_ann_pct"] is None
+    src = (ROOT / "nightly.py").read_text(encoding="utf-8")
+    assert '"funding_ann_pct": None' in src, "the retired column is being written again"
+
+
+def test_there_is_exactly_one_funding_fetch_path():
+    """Two calls to one endpoint is how you get rate-limited out of it.
+
+    fetch_perps_map hit Bybit's tickers endpoint for open interest and the venue layer
+    hit the same endpoint for funding. On 2026-08-17 the first returned 49 symbols and
+    the second got HTTP 403, so Bybit was recorded unreachable on a night it was
+    reachable — and the board lost a venue to a duplication that bought nothing.
     """
     src = (ROOT / "nightly.py").read_text(encoding="utf-8")
-    main_body = src[src.index("def main()"):]
-    merge = main_body[main_body.index("for sym, rec in consolidated.items():"):]
-    merge = merge[:merge.index("for t in markets:")]
-    assert 'slot["funding_rate"]' not in merge, (
-        "the consolidated rate is being written into the legacy 8h-annualised column")
-    assert 'slot["funding_apr"]' in merge and 'slot["interval_hours"]' in merge
-
-
-def test_the_two_pipelines_agree_where_both_have_an_eight_hour_reading():
-    """Not redundancy — a cross-check. The legacy Bybit column and the consolidated
-    reading are fetched independently, so when both describe an 8-hour venue they must
-    land on the same annualised figure."""
-    for rate in (0.0005, -0.0002, 0.0001, 0.0):
-        assert nightly.funding_ann_pct(rate) == pytest.approx(
-            funding.annualize(rate, 8.0))
+    assert "def fetch_perps_map" not in src
+    assert "okx.com" not in src, "the per-symbol OKX fallback is back"
+    assert src.count("api.bybit.com") == 0, "nightly.py fetches Bybit directly again"
 
 
 def test_a_caller_passing_the_old_map_shape_still_gets_a_defined_reading():

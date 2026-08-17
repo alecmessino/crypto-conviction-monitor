@@ -76,7 +76,14 @@ def test_the_derivatives_renderers_exist(fn):
 def test_absent_derivatives_render_as_a_dash_rather_than_a_zero():
     """No perp market and flat funding are opposite readings. Rendering both as 0%
     would put a confident carry figure on assets that have no perpetual at all."""
-    assert 'if(!p || p.fundingAnn==null) return \'<span class="muted">—</span>\'' in SCRIPT
+    # Asserted against the one funding cell the page now has. There used to be two
+    # implementations with different thresholds — the matrix coloured off +30/-20 and
+    # Module E off the regime bands — so a 35% APR asset rendered red in one table and
+    # amber in the other, on one screen.
+    assert "function fundingCell(sym)" in SCRIPT
+    assert '\'<span class="muted">—</span>\'' in SCRIPT
+    assert 'if(apr==null) return `<span class="fh none">—</span>`' in SCRIPT
+    assert "const FUNDING_HOT" not in SCRIPT, "a second funding threshold set is back"
 
 
 def test_the_regime_cell_reports_progress_instead_of_an_empty_cell():
