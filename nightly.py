@@ -2772,8 +2772,13 @@ def main() -> int:
     # unreachable on a night it was reachable. Calling an endpoint twice a night to
     # populate two columns is how you get rate-limited out of one of them.
     venue_reports = funding.fetch_all_venues(scored_syms)
-    for line in venue_reports["reports"]:
-        print(f"[funding] {line}", file=__import__("sys").stderr)
+    for name, rep in venue_reports["venues"].items():
+        code = rep.get("http_status")
+        tag = (f" [HTTP {code}"
+               + (" — POLICY BLOCK, this host will not be served" if rep.get("policy_blocked") else "")
+               + "]") if code else ""
+        print(f"[funding] {name}: {rep['status']} — {rep['detail']}{tag}",
+              file=__import__("sys").stderr)
     consolidated = funding.consolidate(venue_reports)
     perps_map = {
         sym: {"funding_rate": rec.get("funding_rate"),
@@ -2822,7 +2827,7 @@ def main() -> int:
         # 451 here, which is why the column has been null on every row since the runner
         # moved. Cryptometer is not geo-blocked, so this restores a reading rather than
         # inventing one — same quantity, different host.
-        ls_report = cryptometer.fetch_long_short_ratio(cm_key, board_syms)
+        ls_report = cryptometer.fetch_positioning(cm_key, board_syms)
         for sym, rec in (ls_report["data"] or {}).items():
             perps_map.setdefault(sym, {})["long_short_ratio"] = rec["ratio"]
         print(f"[cryptometer] long/short {ls_report['status']}: {ls_report['detail']}"
@@ -3046,8 +3051,13 @@ def main() -> int:
         "date": today,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "spec_hash": SPEC_HASH,
+        # http_status and policy_blocked are recorded per night so "is Binance
+        # permanently blocked from this runner or was that one bad evening" becomes a
+        # question the ledger answers rather than one someone remembers.
         "venues": {n: {"status": rep["status"], "detail": rep["detail"],
-                       "markets": len(rep["data"])}
+                       "markets": len(rep["data"]),
+                       "http_status": rep.get("http_status"),
+                       "policy_blocked": rep.get("policy_blocked", False)}
                    for n, rep in venue_reports["venues"].items()},
         "consolidated_markets": len(consolidated),
         # Published so the dashboard reads its colour bands and its badge cut-offs from

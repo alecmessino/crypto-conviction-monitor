@@ -101,7 +101,7 @@ def test_a_missing_key_is_unconfigured_rather_than_unreachable():
     """Four situations end in an empty table and one 'no data' cannot say which. An
     absent secret is not a network failure and must not read as one."""
     assert cm.fetch_liquidations("", {"BTC"})["status"] == "unconfigured"
-    assert cm.fetch_long_short_ratio("", {"BTC"})["status"] == "unconfigured"
+    assert cm.fetch_positioning("", {"BTC"})["status"] == "unconfigured"
     assert cm.check_quota("")["status"] == "unconfigured"
 
 
@@ -172,7 +172,7 @@ def test_the_symbol_fan_out_is_bounded():
 # ---------------------------------------------------------------------------
 # long/short — a column being restored, not added
 # ---------------------------------------------------------------------------
-def test_the_ratio_is_coerced_because_the_api_mixes_strings_and_numbers():
+def _retired_ls_ratio_test():
     """/ls-ratio/ returns ratio, buy and sell as STRINGS while close and delta are
     numbers. Trusting the type is how a ratio becomes a string in a numeric column."""
     m = _load("cm_ls")
@@ -183,7 +183,7 @@ def test_the_ratio_is_coerced_because_the_api_mixes_strings_and_numbers():
     assert isinstance(rec["ratio"], float) and isinstance(rec["buy_pct"], float)
 
 
-def test_ls_ratio_uses_the_pair_parameter_not_symbol():
+def _retired_pair_param_test():
     """The three endpoints used here take `symbol`, `pair` and `market_pair`
     respectively and they are not interchangeable — the wrong one returns the same
     generic 403 as a nonexistent path, which looks like a missing endpoint."""
@@ -212,10 +212,53 @@ def test_this_module_does_not_claim_to_source_funding():
     src = (ROOT / "cryptometer.py").read_text(encoding="utf-8")
     for banned in ("funding-rate", "funding-rates-v2", "funding_apr", "annualize"):
         assert f'call("{banned}' not in src
-    assert "no funding-rate endpoint" in src.lower() or "does not have funding" in src.lower()
-    for fn in ("fetch_liquidations", "fetch_long_short_ratio", "check_quota"):
+    assert "does not have funding" in src.lower()
+    for fn in ("fetch_liquidations", "fetch_positioning", "check_quota"):
         assert hasattr(cm, fn)
     assert not any(f.startswith("fetch_funding") for f in dir(cm))
+
+
+def test_the_free_positioning_endpoint_is_the_one_that_is_wired():
+    """28 of 38 endpoints are paid, and the first pass here wired two of them without
+    knowing. `ls-ratio` and `liquidation-data-v2` are both paid; `long-shorts-data` is
+    the only FREE positioning source and measures the same thing.
+
+    This matters because a paid endpoint on a free key returns the same opaque 403 that a
+    misnamed parameter does — so the failure would have been indistinguishable from a bug
+    in this file.
+    """
+    src = (ROOT / "cryptometer.py").read_text(encoding="utf-8")
+    assert 'call("long-shorts-data"' in src
+    assert 'call("ls-ratio"' not in src, "the paid positioning endpoint is wired again"
+    assert "long-shorts-data" in cm.FREE_ENDPOINTS
+    assert "ls-ratio" not in cm.FREE_ENDPOINTS
+    assert "liquidation-data-v2" not in cm.FREE_ENDPOINTS
+
+
+def test_positioning_derives_the_ratio_and_refuses_to_divide_by_an_empty_book():
+    """long-shorts-data returns absolute sizes, not a ratio. None rather than 1.0 on an
+    empty short book: "half the accounts are long" is a real reading and must not be
+    manufactured by an absent one."""
+    m = _load("cm_pos")
+    m._get_json = lambda url: ok([{"longs": 423000, "shorts": 4767000,
+                                    "timestamp": "2026-08-17T04:00:00.000Z"}])
+    rec = m.fetch_positioning("k", {"BTC"})["data"]["BTC"]
+    assert rec["ratio"] == pytest.approx(423000 / 4767000, abs=1e-4)  # stored at 4dp
+    assert rec["long_pct"] == pytest.approx(8.15, abs=0.02)
+    m2 = _load("cm_pos0")
+    m2._get_json = lambda url: ok([{"longs": 0, "shorts": 0}])
+    assert m2.fetch_positioning("k", {"BTC"})["data"]["BTC"]["ratio"] is None
+
+
+def test_positioning_uses_symbol_not_pair():
+    """long-shorts-data takes `symbol`; ls-ratio takes `pair`. Not interchangeable, and
+    the wrong one returns the generic 403 that looks like a missing endpoint."""
+    seen = {}
+    m = _load("cm_symparam")
+    m._get_json = lambda url: (seen.setdefault("url", url),
+                               ok([{"longs": 1, "shorts": 1}]))[1]
+    m.fetch_positioning("k", {"BTC"})
+    assert "symbol=btc" in seen["url"] and "pair=" not in seen["url"]
 
 
 def test_nothing_here_reaches_the_score():
