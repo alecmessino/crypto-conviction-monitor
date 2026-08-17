@@ -96,7 +96,12 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           # can see: a conviction score cannot tell an orderly decline from a cascade,
           # and that distinction is what decides whether to wait for a better fill.
           # Observational, like every other derivatives column except funding.
-          "liq_longs_usd", "liq_shorts_usd", "liq_imbalance"]
+          "liq_longs_usd", "liq_shorts_usd", "liq_imbalance",
+          # How the interval behind funding_apr was arrived at: reported by the venue,
+          # fixed by its protocol, or assumed. Recorded because it is the difference
+          # between a measured carry and a plausible one, and only the first belongs in
+          # a study.
+          "funding_interval_basis"]
 
 # Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
@@ -1463,7 +1468,8 @@ MON_CONTEXT_FIELDS = ("era", "unlocks_usd", "supply_increase_pct", "addr_growth_
                       # null for every symbol when the key is unconfigured, so grading
                       # them would pin this panel amber for a feed that is optional by
                       # design.
-                      "liq_longs_usd", "liq_shorts_usd", "liq_imbalance")
+                      "liq_longs_usd", "liq_shorts_usd", "liq_imbalance",
+                      "funding_interval_basis")
 MON_FIELD_PRESENCE_WARN = 0.90
 
 
@@ -2920,6 +2926,7 @@ def main() -> int:
             # column of its own — it is already recorded as `perp_mult`, which is what
             # score() actually multiplied by, and two columns holding the same number
             # is two columns that can disagree.
+            "funding_interval_basis": (consolidated.get(sym) or {}).get("interval_basis"),
             **{k: fc[k] for k in ("funding_apr", "funding_interval_h", "funding_venue",
                                   "funding_venues_n", "funding_apr_spread",
                                   "funding_regime", "rsi7")},
@@ -3031,6 +3038,8 @@ def main() -> int:
             "venue": r.get("funding_venue"),
             "venues_n": r.get("funding_venues_n"),
             "apr_spread": r.get("funding_apr_spread"),
+            "interval_basis": r.get("funding_interval_basis"),
+            "gap_filled": (consolidated.get(sym) or {}).get("gap_filled", False),
             "oi_usd": r.get("oi_usd"),
             # Severity and confirmation, published rather than left to be inferred from
             # the multiplier. Two assets can land on the same 0.93 from very different

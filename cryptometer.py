@@ -188,6 +188,18 @@ def check_quota(api_key: str) -> dict:
     return _report("live", (rows or [{}])[0], "account reachable")
 
 
+def paid_enabled() -> bool:
+    """Paid endpoints are opt-in and off by default.
+
+    ``liquidation-data-v2`` is the only source here for forced-selling volume and there
+    is no free equivalent, so the code stays. It is not called unless someone sets
+    CRYPTOMETER_ALLOW_PAID, because a paid call on a free plan returns the same opaque
+    403 as a misnamed parameter — spending the quota to find out is a decision, not a
+    default.
+    """
+    return os.environ.get("CRYPTOMETER_ALLOW_PAID", "").strip().lower() in ("1", "true", "yes")
+
+
 def fetch_liquidations(api_key: str, symbols, limit: int = DEFAULT_SYMBOL_LIMIT) -> dict:
     """Long and short liquidation volume per exchange, per symbol.
 
@@ -207,6 +219,11 @@ def fetch_liquidations(api_key: str, symbols, limit: int = DEFAULT_SYMBOL_LIMIT)
     """
     if not api_key:
         return _report("unconfigured", {}, "no CRYPTOMETER_API_KEY in the environment")
+    if not paid_enabled():
+        return _report("unconfigured", {},
+                       "liquidation-data-v2 is a paid endpoint and CRYPTOMETER_ALLOW_PAID "
+                       "is not set — the liquidation columns stay null rather than "
+                       "spending quota to discover the plan tier")
     out, errors = {}, []
     for base in sorted(symbols)[:limit]:
         rows, err = call("liquidation-data-v2", api_key, symbol=base.lower())

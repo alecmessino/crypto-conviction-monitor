@@ -180,6 +180,9 @@ details.why .body{color:var(--tert);font-size:10px;line-height:1.55;padding:6px 
 .feed-dot.red{border-color:rgba(232,145,127,.45)} .feed-dot.red i{background:var(--red)} .feed-dot.red b{color:var(--red)}
 /* Execution deep-link. Underline only on hover: every ticker on the board is one, so a
    permanent underline would be 50 lines of decoration rather than an affordance. */
+/* A rate resting on a guessed settlement clock. Dotted, not coloured: it qualifies the
+   provenance of a number, it is not a market state competing with the regime badge. */
+.iv-assumed{border-bottom:1px dotted var(--amber);cursor:help}
 a.exec{color:inherit;text-decoration:none;border-bottom:1px dotted transparent}
 a.exec:hover{border-bottom-color:var(--blue);color:var(--blue)}
 .bar{height:6px;background:#0c1320;border-radius:3px;position:relative;overflow:hidden;min-width:70px;display:inline-block;vertical-align:middle;width:100%}
@@ -1903,8 +1906,18 @@ function renderFunding(){
     // rate. Putting it there read as "0.0851% per 8h" on a Bybit asset and would have
     // read "/1h" beside an eight-hour-normalised number on a Hyperliquid one — the
     // exact unit confusion the column exists to remove.
+    // An assumed interval is marked on the row, not just recorded in the ledger. The
+    // consolidation already refuses to let a guessed clock set a headline whenever a
+    // real one exists — but when nothing else lists the asset the guess IS the headline,
+    // and a reader comparing it against a measured APR beside it deserves to know which
+    // is which. "8h?" rather than a footnote: the question mark is the whole claim.
+    const assumed = a.interval_basis === "assumed";
     const venue = a.venue
-      ? `<span class="muted" title="Headline rate from ${esc0(a.venue)}, which settles every ${a.interval_hours}h.${a.venues_n>1?` ${a.venues_n} venues list this asset.`:""}">${esc0(a.venue)}<span style="font-size:8px"> ${a.interval_hours}h</span>${a.venues_n>1?` +${a.venues_n-1}`:""}</span>`
+      ? `<span class="muted${assumed?" iv-assumed":""}" title="Headline rate from ${esc0(a.venue)}${
+          assumed
+            ? `. This venue publishes NO settlement interval — ${a.interval_hours}h is assumed, so the APR could be wrong by an integer factor. It was used only because no venue with a known clock lists this asset.`
+            : `, which settles every ${a.interval_hours}h (${a.interval_basis === "reported" ? "reported per market by the venue" : "fixed by the venue's protocol"}).`}${
+          a.venues_n>1?` ${a.venues_n} venues list this asset.`:""}">${esc0(a.venue)}<span style="font-size:8px"> ${a.interval_hours}h${assumed?"?":""}</span>${a.venues_n>1?` +${a.venues_n-1}`:""}</span>`
       : `<span class="muted">—</span>`;
     return `<tr class="row" onclick="openDrawer('${esc0(a.symbol)}')">
       <td><span class="tick">${execLink(a.symbol)}</span></td>
