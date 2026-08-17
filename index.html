@@ -175,6 +175,14 @@ a.exec:hover{border-bottom-color:var(--blue);color:var(--blue)}
 .copy{margin-left:6px;color:var(--sec);cursor:pointer;font-size:11px}
 .copy:hover{color:var(--blue)}
 tr.div{background:rgba(224,179,114,0.06)}
+/* Funding extremes, tinted rather than tabulated. The board is fifty rows of near
+   identical text and the two states worth interrupting a scan for — leverage crowded
+   into one side — were readable only by finding the right column and reading a number.
+   Same idiom the divergence row already uses, and the same opacity discipline: this
+   marks a row, it does not compete with the signal badge for attention.
+   Left border rather than a full wash so the tint survives the row-hover highlight. */
+tr.f-hot{background:rgba(232,145,127,0.055);box-shadow:inset 2px 0 0 rgba(232,145,127,.55)}
+tr.f-cold{background:rgba(123,201,160,0.055);box-shadow:inset 2px 0 0 rgba(123,201,160,.55)}
 tr.div:hover{background:rgba(224,179,114,0.12)}
 tr.held{background:rgba(59,130,246,0.14);box-shadow:inset 3px 0 0 var(--blue)}
 tr.gated{box-shadow:inset 3px 0 0 #00FF66;background:rgba(0,255,102,0.05)}
@@ -774,7 +782,13 @@ function flash(msg){ const s=$("#status"); const old=s.textContent; s.textConten
   clearTimeout(flashT); flashT=setTimeout(()=>{s.textContent=old; s.className="";},1400); }
 
 function rowConv(t,i,gated){
-  const tr=document.createElement("tr"); tr.className="row"+(t.divergence?" div":"")+(gated?" gated":""); tr.dataset.sym=t.sym;
+  const tr=document.createElement("tr");
+  // Funding extremes tint the row. Only the two outer bands — ELEVATED and
+  // MILD_INVERSION are states to notice, not states to interrupt a scan for, and
+  // tinting five bands would tint most of the board and mark nothing.
+  const fr=FUND[t.sym]?.regime;
+  const ftint = fr==="OVERHEATED_LONG" ? " f-hot" : fr==="SHORT_SQUEEZE_RISK" ? " f-cold" : "";
+  tr.className="row"+(t.divergence?" div":"")+(gated?" gated":"")+ftint; tr.dataset.sym=t.sym;
   const zc=t.z>0.5?"neg":t.z<-0.5?"pos":"neu"; // far above ATH = overbought(red), far below ATL = oversold(green)
   const div=t.divergence?'<span class="badge a" title="Price soft / liquidity rising — accumulation">ACCUM</span>':'';
   tr.innerHTML=`<td class="muted num">${i+1}</td>
