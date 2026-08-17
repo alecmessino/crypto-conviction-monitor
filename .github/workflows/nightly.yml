@@ -25,6 +25,9 @@ jobs:
         env:
           DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
           DUNE_UNLOCK_QUERY_ID: ${{ secrets.DUNE_UNLOCK_QUERY_ID }}
+          # Module 4. Optional by design: absent, the liquidation columns are null and
+          # the long/short column stays dark, which is exactly what they are today.
+          CRYPTOMETER_API_KEY: ${{ secrets.CRYPTOMETER_API_KEY }}
         run: python nightly.py
 
       - name: Parity gate (frontend <-> backend must agree)
