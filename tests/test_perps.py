@@ -116,7 +116,8 @@ def test_the_new_columns_are_appended_never_inserted():
            # Module 3, appended behind Modules 1 and 2 on the same terms.
            "funding_apr", "funding_interval_h", "funding_venue", "funding_venues_n",
            "funding_apr_spread", "funding_regime", "rsi7",
-           "funding_apr_trail", "funding_trail_n", "funding_pos_share"]
+           "funding_apr_trail", "funding_trail_n", "funding_pos_share",
+           "perp_mult_trail"]
     assert nightly.FIELDS[-len(new):] == new
     old = nightly.FIELDS[:-len(new)]
     assert nightly.FIELDS[:len(old)] == old
@@ -335,4 +336,8 @@ def test_the_column_order_is_pinned_exhaustively():
         # tonight's print, and substituting a trailing figure would make the score lag a
         # real regime change. Recorded so that trade-off can be settled with evidence.
         "funding_apr_trail", "funding_trail_n", "funding_pos_share",
+        # The counterfactual modifier: what would have been applied had lavl_perp_mult
+        # read the trailing carry. Recorded, never applied — so adopting it later is a
+        # measurement rather than an assertion.
+        "perp_mult_trail",
     ]

@@ -157,6 +157,18 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 .fin .wide{grid-column:1/-1}
 .pp-out{margin-top:8px;border-top:1px solid var(--grid);padding-top:7px}
 .pp-hero{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+/* Feed status. Graded by what the reader would do about it, not by outage count. */
+.feed-dot{display:inline-flex;align-items:center;gap:6px;font-size:9px;letter-spacing:.6px;
+  padding:2px 8px;border-radius:10px;border:1px solid var(--grid);cursor:help;margin-top:4px}
+.feed-dot i{width:6px;height:6px;border-radius:50%;flex:none}
+.feed-dot b{font-weight:700}
+.feed-dot.green{border-color:rgba(123,201,160,.35)} .feed-dot.green i{background:var(--green)} .feed-dot.green b{color:var(--green)}
+.feed-dot.amber{border-color:rgba(224,179,114,.35)} .feed-dot.amber i{background:var(--amber)} .feed-dot.amber b{color:var(--amber)}
+.feed-dot.red{border-color:rgba(232,145,127,.45)} .feed-dot.red i{background:var(--red)} .feed-dot.red b{color:var(--red)}
+/* Execution deep-link. Underline only on hover: every ticker on the board is one, so a
+   permanent underline would be 50 lines of decoration rather than an affordance. */
+a.exec{color:inherit;text-decoration:none;border-bottom:1px dotted transparent}
+a.exec:hover{border-bottom-color:var(--blue);color:var(--blue)}
 .bar{height:6px;background:#0c1320;border-radius:3px;position:relative;overflow:hidden;min-width:70px;display:inline-block;vertical-align:middle;width:100%}
 .bar>i{position:absolute;left:0;top:0;bottom:0;background:rgba(59,130,246,0.45);border-radius:3px}
 .dbar{display:inline-block;height:4px;border-radius:2px;margin-left:5px;vertical-align:middle;opacity:.85}
@@ -218,6 +230,7 @@ canvas{display:block;width:100%}
     <div class="stat"><b id="rb-conv" class="num">—</b><span>Avg Conviction</span></div>
     <div class="stat"><b id="rb-str" class="num">—</b><span>BUY+ (≥70)</span></div>
     <div class="stat"><b id="rb-upd" class="num">—</b><span>Last Update</span></div>
+    <div class="stat"><b id="rb-lev" class="num">—</b><span>Board Leverage</span></div>
     <div class="stat"><b id="status">INIT…</b><span>Feed</span></div>
   </div>
 
@@ -765,7 +778,7 @@ function rowConv(t,i,gated){
   const zc=t.z>0.5?"neg":t.z<-0.5?"pos":"neu"; // far above ATH = overbought(red), far below ATL = oversold(green)
   const div=t.divergence?'<span class="badge a" title="Price soft / liquidity rising — accumulation">ACCUM</span>':'';
   tr.innerHTML=`<td class="muted num">${i+1}</td>
-    <td class="tick">${t.sym}<span class="tier ${t.tier}" data-filter title="Filter the board to ${t.tier}">${t.tier}</span></td>
+    <td class="tick">${execLink(t.sym)}<span class="tier ${t.tier}" data-filter title="Filter the board to ${t.tier}">${t.tier}</span></td>
     <td class="num">${fmtPrice(t.price)}</td>
     ${(()=>{ const d=tfDelta(t);
        return d==null
@@ -965,7 +978,7 @@ function renderTables(){
     const raw=liquidityFit(t.turn/100);
     const fit=Math.max(6,raw); // trailing residual floor — never hard-flats to 0
     const st=t.turn>=30&&t.turn<=60?["SWEET","g"]:t.turn>90?["WASH","r"]:t.turn<15?["THIN","a"]:["OK","n"];
-    la.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}<span class="tier ${t.tier}">${t.tier}</span></td>
+    la.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${execLink(t.sym)}<span class="tier ${t.tier}">${t.tier}</span></td>
       <td class="num">${fmtUsd(t.mc)}</td><td class="num">${fmtUsd(t.vol)}</td>
       <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
       <td class="num ${fit>=70?'pos':fit>=40?'neu':'neg'}">${Math.round(fit)}</td>
@@ -977,7 +990,7 @@ function renderTables(){
   (hide?gated:STATE).slice(0,hide?gated.length:10).forEach(t=>{
     const mo=momentum(t.chg); const read=t.chg==null?"—":t.chg<-15?"CRASH":t.chg<0?"SOFT":t.chg<=8?"HEALTHY":t.chg<=20?"STRONG":"OVEREXT";
     const rc=t.chg==null?"neu":t.chg<-15?"neg":t.chg<0?"a":t.chg<=20?"pos":"a";
-    mc.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}</td>
+    mc.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${execLink(t.sym)}</td>
       <td class="num">${fmtPrice(t.price)}</td><td class="num ${cls(t.chg)}">${sgn(t.chg)}</td>
       <td class="num ${mo>=70?'pos':mo>=40?'neu':'neg'}">${Math.round(mo)}</td>
       <td class="badge ${rc}">${read}</td></tr>`);
@@ -988,7 +1001,7 @@ function renderTables(){
   const ld=$("#tbl-lavl tbody"); ld.innerHTML="";
   vc.forEach(t=>{
     const L=computeLAVL(t);
-    ld.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${t.sym}</td>
+    ld.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${execLink(t.sym)}</td>
       <td class="num ${L.velo>=1?'pos':L.velo<=-1?'neg':'neu'}">${L.velo>0?'+':''}${L.velo.toFixed(2)}</td>
       <td class="num ${L.diverge>=1?'pos':L.diverge<=-1?'neg':'neu'}">${L.diverge.toFixed(2)}</td>
       <td class="num muted">${L.riskMult.toFixed(2)}</td>
@@ -1767,6 +1780,47 @@ function modBadge(a){
   return `<span class="modf ${up?"up":"dn"}" title="${esc0(a.modifier_reason)}">×${a.score_modifier.toFixed(2)}</span>`;
 }
 
+/* Feed status as a dot, not a stack trace.
+
+   This panel used to print the venue layer's raw detail strings inline — "binance —
+   premiumIndex failed (HTTP Error 451: ); bybit — tickers failed (HTTP Error 403:
+   Forbidden)". Two problems with that. It reads as a broken page rather than a working
+   one running on three of five feeds, and it spends the most valuable line on the panel
+   restating an error whose only actionable content is "not this venue, tonight".
+
+   The states are graded by what the reader would do about them, not by how many venues
+   are down: green when the consolidated feed is whole, amber when it is standing on
+   fewer legs but still answering, red only when there is no funding at all — which is
+   the one case where every score modifier silently falls to 1.0. The detail is not
+   deleted, it moves into the tooltip, where it is available to whoever is debugging and
+   invisible to whoever is trading. */
+/* Ticker -> execution venue. The board is for deciding; the order happens somewhere
+   else, and retyping a symbol into another tab is pure friction.
+
+   Coinbase Advanced Trade because that is where this book executes. Deliberately NOT
+   asserting the pair exists: most of a 50-name board is not listed there, and a link
+   that 404s silently is worse than one that says it might. The title says so, and the
+   link opens in a new tab so a misfire never costs the board's state. */
+const EXEC_BASE = "https://www.coinbase.com/advanced-trade/spot/";
+function execLink(sym){
+  return `<a class="exec" href="${EXEC_BASE}${encodeURIComponent(sym)}-USD"
+    target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()"
+    title="Open ${esc0(sym)}-USD on Coinbase Advanced Trade. Not every name on this board is listed there — the link is a shortcut, not a claim that the pair exists.">${esc0(sym)}</a>`;
+}
+
+function venueDot(live, down){
+  const state = !live.length ? ["red","NO FUNDING FEED",
+      "No venue returned a usable market. Every score modifier is a neutral 1.0 tonight and the regime column is null — the board is unadjusted, not adjusted-to-zero."]
+    : down.length ? ["amber",`${live.length} OF ${live.length+down.length} VENUES`,
+      "The consolidated feed is standing on fewer venues than it has. Rates are real; cross-venue spread is thinner or absent."]
+    : ["green","ALL VENUES NOMINAL","Every configured venue answered."];
+  const detail = down.length
+    ? "\n\nNot answering:\n" + down.map(([n,v])=>`  ${n} — ${v.detail}`).join("\n") : "";
+  const names = live.length ? live.map(([n,v])=>`${n} ${v.markets}`).join(" · ") : "none";
+  return `<span class="feed-dot ${state[0]}" title="${esc0(state[2]+detail)}">
+      <i></i><b>${state[1]}</b> <span class="muted">${names}</span></span>`;
+}
+
 function renderFunding(){
   const tb=$("#tbl-fund tbody"), sub=$("#fh-sub"), note=$("#fh-note");
   if(!tb) return;
@@ -1794,8 +1848,7 @@ function renderFunding(){
      <i>discriminating</i> — it is what separates trapped shorts from shorts who are simply
      right — so below ${FTH.squeeze_rsi} there is no boost at all and none is given when RSI
      is unavailable.`
-    + (live.length?`<br><span style="color:var(--sec)">Venues live: ${live.map(([n,v])=>`${n} (${v.markets})`).join(", ")}.</span>`:"")
-    + (down.length?` <span style="color:var(--amber)">Down or unusable: ${down.map(([n,v])=>`${n} — ${esc0(v.detail)}`).join("; ")}.</span>`:"");
+    + `<br>${venueDot(live, down)}`;
   const n=Object.keys(FUNDING.modifiers_applied||{}).length;
   note.textContent = `${FUNDING.consolidated_markets||0} markets · ${n} scored modifier${n===1?"":"s"}`;
 
@@ -1822,7 +1875,7 @@ function renderFunding(){
       ? `<span class="muted" title="Headline rate from ${esc0(a.venue)}, which settles every ${a.interval_hours}h.${a.venues_n>1?` ${a.venues_n} venues list this asset.`:""}">${esc0(a.venue)}<span style="font-size:8px"> ${a.interval_hours}h</span>${a.venues_n>1?` +${a.venues_n-1}`:""}</span>`
       : `<span class="muted">—</span>`;
     return `<tr class="row" onclick="openDrawer('${esc0(a.symbol)}')">
-      <td><span class="tick">${esc0(a.symbol)}</span></td>
+      <td><span class="tick">${execLink(a.symbol)}</span></td>
       <td class="num">${fmtPrice(a.price)}</td>
       <td class="num">${a.funding_rate_8h==null?'<span class="muted">—</span>'
           :(a.funding_rate_8h*100).toFixed(4)+"%"}</td>
@@ -1852,6 +1905,34 @@ function trailCell(r){
       thin?" Funding has not been reliably positive — the headline rate is not the regime.":""}"
     >${r.apr_trail>0?"+":""}${r.apr_trail.toFixed(1)}%</span>${
     share!=null?` <span class="muted" style="font-size:8.5px${thin?";color:var(--amber)":""}">${share}/${r.trail_n}</span>`:""}`;
+}
+
+/* The one-line answer to "what is leverage doing right now", in the ribbon.
+
+   Deliberately the MEDIAN funding APR across assets that have a perpetual market, not a
+   count of assets per regime. A count needs a rule for which tail wins when both are
+   populated, and any such rule is a threshold invented for a header. The median is a
+   reading, and it is classified by the same bands every other funding figure on the page
+   uses — so the ribbon cannot disagree with Module E about what "elevated" means.
+
+   Median rather than mean because one 400% APR microcap should not set the colour of the
+   whole board. */
+function renderBoardLeverage(){
+  const el=$("#rb-lev"); if(!el) return;
+  const aprs=(FUNDING?.assets||[]).map(a=>a.funding_apr).filter(v=>v!=null).sort((a,b)=>a-b);
+  if(!aprs.length){
+    el.innerHTML='<span class="muted" title="No asset on the board has a perpetual market recorded tonight.">—</span>';
+    return;
+  }
+  const mid=aprs.length%2 ? aprs[(aprs.length-1)/2]
+                          : (aprs[aprs.length/2-1]+aprs[aprs.length/2])/2;
+  const reg=classifyRegimeJs(mid), m=REGIME_LABEL[reg]||["—","n",""];
+  const hot=aprs.filter(v=>v>FTH.overheated_apr).length;
+  const cold=aprs.filter(v=>v<FTH.squeeze_apr).length;
+  el.innerHTML=`<span class="fh ${fundClass(mid)}" style="min-width:0" title="Median annualised funding across the ${
+    aprs.length} board assets with a perpetual market. ${hot} above +${FTH.overheated_apr}% APR, ${
+    cold} below ${FTH.squeeze_apr}%. Classified by the same bands Module E uses.">${
+    mid>0?"+":""}${mid.toFixed(0)}%</span> <span class="muted" style="font-size:8px">${m[0]}</span>`;
 }
 
 function renderCarry(){
@@ -1886,7 +1967,7 @@ function renderCarry(){
     foot.innerHTML=""; return;
   }
   tb.innerHTML=rows.map(r=>`<tr class="row" onclick="openDrawer('${esc0(r.symbol)}')">
-      <td><span class="tick">${esc0(r.symbol)}</span></td>
+      <td><span class="tick">${execLink(r.symbol)}</span></td>
       <td class="num ${r.funding_apr>0?"pos":"neg"}">${r.funding_apr>0?"+":""}${r.funding_apr.toFixed(1)}%</td>
       <td class="num neg">−${r.drag.toFixed(2)}%</td>
       <td class="num ${r.net>0?"pos":"neg"}"><b>${r.net>0?"+":""}${r.net.toFixed(1)}%</b></td>
@@ -2036,7 +2117,7 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderHealth(); renderDiag(); renderSizing(); renderFunding(); renderCarry(); });
+  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderHealth(); renderDiag(); renderSizing(); renderFunding(); renderCarry(); renderBoardLeverage(); });
   try{
     const t0=performance.now();
     const r=await fetch(API,{headers:{Accept:"application/json"}});

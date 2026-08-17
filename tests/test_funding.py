@@ -842,3 +842,35 @@ def test_the_engine_is_pure_stdlib():
     src = (ROOT / "funding.py").read_text(encoding="utf-8")
     for banned in ("import requests", "import numpy", "import pandas", "import aiohttp"):
         assert banned not in src, f"{banned} would need an install step"
+
+
+# ---------------------------------------------------------------------------
+# K. the counterfactual modifier
+# ---------------------------------------------------------------------------
+def test_the_trailing_modifier_is_recorded_but_never_applied():
+    """`perp_mult` is what score() multiplied by. `perp_mult_trail` is what it would
+    have been reading the trailing carry instead of tonight's print.
+
+    Recording the counterfactual is what turns "should the modifier read a trend or a
+    print" from an argument into a query. Two nights of funding_apr exist; adopting the
+    trailing input now would be asserting the answer, and would move the specification
+    hash a third time in two days on no evidence at all.
+    """
+    src = (ROOT / "nightly.py").read_text(encoding="utf-8")
+    assert "perp_mult_trail" in nightly.FIELDS
+    # It must not reach the score. lavl_perp_mult is the only channel, and it reads the
+    # live map — never a trailing column.
+    for fn in nightly.spec()["functions"].values():
+        assert "perp_mult_trail" not in fn
+        assert "funding_apr_trail" not in fn
+    assert 'pm_trail, _ = funding.regime_modifier(' in src
+
+
+def test_the_counterfactual_uses_the_same_confirmations_as_the_live_modifier():
+    """Otherwise the comparison measures two changes at once and settles nothing."""
+    spot, trail, chg, rsi_ = 80.0, 12.0, 14.0, 70.0
+    live = funding.regime_modifier(spot, chg, rsi_)[0]
+    shadow = funding.regime_modifier(trail, chg, rsi_)[0]
+    assert live != shadow, "the fixture must actually distinguish the two inputs"
+    # Only the carry differs — same function, same legs.
+    assert shadow == funding.regime_modifier(trail, chg, rsi_)[0]

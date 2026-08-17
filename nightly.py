@@ -81,7 +81,17 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           # modifier would make the score lag a genuine regime change, and choosing
           # between those is a decision that should be made against recorded evidence
           # rather than asserted — which is what recording these makes possible.
-          "funding_apr_trail", "funding_trail_n", "funding_pos_share"]
+          "funding_apr_trail", "funding_trail_n", "funding_pos_share",
+          # The counterfactual: what the modifier WOULD have been had it read the
+          # trailing carry instead of tonight's print. Recorded, never applied — so the
+          # comparison that decides whether to adopt it is a query over this column in a
+          # month's time rather than a re-run, and the decision is made against evidence
+          # rather than asserted now on two nights of data.
+          #
+          # Adopting it is deliberately a one-line edit inside lavl_perp_mult — a
+          # captured SPEC_FUNCTION — so the switch moves the specification hash and
+          # draws its own boundary, which is the whole point of having one.
+          "perp_mult_trail"]
 
 # Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
@@ -2828,6 +2838,11 @@ def main() -> int:
         fc = funding.funding_context(sym, consolidated,
                                      t.get("price_change_percentage_24h"),
                                      rsi_map.get(sym))
+        # Same function, same confirmations, trailing carry instead of tonight's print.
+        # Nothing downstream reads this.
+        trail_apr = (trail_map.get(sym) or {}).get("mean")
+        pm_trail, _ = funding.regime_modifier(
+            trail_apr, t.get("price_change_percentage_24h"), rsi_map.get(sym))
         b = dune_b.get(sym)  # real Dune fields if present, else None -> null
         rows.append({
             "date": today, "symbol": sym, "name": t.get("name", ""),
@@ -2859,9 +2874,10 @@ def main() -> int:
             **{k: fc[k] for k in ("funding_apr", "funding_interval_h", "funding_venue",
                                   "funding_venues_n", "funding_apr_spread",
                                   "funding_regime", "rsi7")},
-            "funding_apr_trail": (trail_map.get(sym) or {}).get("mean"),
+            "funding_apr_trail": trail_apr,
             "funding_trail_n": (trail_map.get(sym) or {}).get("n"),
             "funding_pos_share": (trail_map.get(sym) or {}).get("pos_share"),
+            "perp_mult_trail": round(pm_trail, 3),
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
 
@@ -2970,6 +2986,7 @@ def main() -> int:
             # — and the modifier alone cannot distinguish them.
             "severity": round(funding.funding_severity(apr), 4),
             "apr_trail": r.get("funding_apr_trail"),
+            "score_modifier_trail": r.get("perp_mult_trail"),
             "trail_n": r.get("funding_trail_n"),
             "pos_share": r.get("funding_pos_share"),
             "by_venue": rec.get("by_venue") or {},
