@@ -1455,11 +1455,11 @@ document.addEventListener("click",e=>{
 });
 
 /* ---------- conviction persistence ----------
-   Which names hold the score across nights and which clear the bar once. The existing
-   persistent_30d / persistent_90d fields answer a version of this, but they require 30
-   and 90 *consecutive* nights and the ledger has eleven, so both have been empty lists
-   since the day they were written — the same starvation that made the change feed look
-   broken. This measures over the history that exists and says what the window is.
+   Which names hold the score across nights and which clear the bar once. This replaced
+   persistent_30d / persistent_90d, which required 30 and 90 *consecutive* nights and so
+   were empty lists on every board ever recorded — the same starvation that made the
+   change feed look broken. This measures over the history that exists and says what the
+   window is.
 
    A cell is a night. Absent is hatched, not dark: an asset that left the universe is a
    different fact from one that scored badly, and colouring both the same would invent
@@ -1609,13 +1609,17 @@ function renderBreadth(){
     (cf.gains.length?cf.gains.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="pos">+${val(g)}</span></div>`).join(""):empty)+
     `</div><div class="cf-col"><div class="cf-h neg">▼ LARGEST COLLAPSES</div>`+
     (cf.losses.length?cf.losses.map(g=>`<div class="cf-row"><b>${g.symbol}</b><span class="neg">${val(g)}</span></div>`).join(""):empty)+`</div>`;
-  const p30=(BREADTH.persistent_30d||[]).length, p90=(BREADTH.persistent_90d||[]).length;
+  // Persistent 30d / 90d used to sit here. Both were structurally zero — they needed 30
+  // and 90 consecutive boards and the ledger has 13 — so the panel printed "0" as a
+  // reading when the honest statement was that the window does not exist yet. Replaced
+  // by the persistence measured over the boards on file, which carries its own window.
+  const ps=BREADTH.persistence||{};
   br.innerHTML =
     `<div class="kv"><span>Above 70</span><b>${BREADTH.breadth_above70}/${BREADTH.n_assets} (${BREADTH.breadth_pct_above70}%)</b></div>`+
     `<div class="kv"><span>Above 80</span><b>${BREADTH.breadth_above80}</b></div>`+
     `<div class="kv"><span>Dispersion σ</span><b>${BREADTH.dispersion}</b></div>`+
-    `<div class="kv"><span>Persistent 30d</span><b>${p30}</b></div>`+
-    `<div class="kv"><span>Persistent 90d</span><b>${p90}</b></div>`+
+    `<div class="kv"><span>Backed ≥1 night</span><b>${ps.n_backed??"—"}${ps.window?` <span class="muted">of ${ps.window}n</span>`:""}</b></div>`+
+    `<div class="kv"><span>One-night spikes</span><b>${ps.n_spikes??"—"}</b></div>`+
     `<div class="kv" style="grid-column:1/-1"><span class="muted">Dispersion = how spread conviction is across the universe. Low σ → no edge; high σ → concentrated opportunity.</span></div>`;
 }
 

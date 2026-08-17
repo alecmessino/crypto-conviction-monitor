@@ -1,12 +1,13 @@
 """Which names hold conviction across nights, and which clear the bar once.
 
-The existing persistent_30d / persistent_90d fields answer a version of this, but they
+This replaced persistent_30d / persistent_90d, which answered a version of this, but they
 require 30 and 90 *consecutive* nights above the level and the ledger has eleven — so
 both have been empty lists since the day they were written. That is the same starvation
 that made the change feed look broken: a feature that reports nothing until an arbitrary
 threshold is crossed is indistinguishable from a feature that does not work.
 """
 import importlib.util
+import re
 from pathlib import Path
 
 import pytest
@@ -115,8 +116,8 @@ def test_the_window_travels_with_the_result():
 
 
 def test_a_short_history_still_reports_rather_than_returning_nothing():
-    """The failure being fixed: persistent_30d needs thirty consecutive nights and has
-    been an empty list for the whole life of the ledger."""
+    """The failure being fixed: persistent_30d needed thirty consecutive nights and was
+    an empty list for the whole life of the ledger."""
     out = nightly._persistence(series(A=[75, 75]), DATES[:2])
     assert out["rows"] and out["rows"][0]["nights_above"] == 2
 
@@ -137,3 +138,16 @@ def test_persistence_does_not_touch_the_specification():
     assert nightly.SPEC_HASH == "d600984ec00b"
     for fn in nightly.spec()["functions"].values():
         assert "_persistence" not in fn
+
+
+def test_the_structurally_empty_fields_are_gone():
+    """persistent_30d / persistent_90d needed 30 and 90 *consecutive* boards and the
+    ledger has 13, so both were empty lists on every night they ever ran. The terminal
+    rendered their lengths, which printed "Persistent 30d: 0" — a zero reading rather
+    than the honest statement that the window does not exist. Deleted rather than left
+    in place: a field nothing can populate is a claim, not a null."""
+    breadth = nightly._compute_market_breadth()
+    assert "persistent_30d" not in breadth and "persistent_90d" not in breadth
+    html = (HERE.parent / "index.html").read_text()
+    code = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", html, flags=re.S))
+    assert "persistent_30d" not in code and "persistent_90d" not in code

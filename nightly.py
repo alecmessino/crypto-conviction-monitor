@@ -1670,11 +1670,11 @@ PERSIST_SHRINK = 2.0
 def _persistence(series: dict, dates: list) -> dict:
     """Which names hold conviction across nights, and which spike for one.
 
-    The existing persistence fields required 30 and 90 *consecutive* nights above the
-    level. The ledger has eleven, so both have been empty lists since the day they were
-    written — the same starvation that made the change feed look broken. This measures
-    over the history that exists and states the window, rather than reporting nothing
-    until an arbitrary threshold is crossed.
+    This replaced persistent_30d / persistent_90d, which required 30 and 90 *consecutive*
+    nights above the level. The ledger has 13, so both were empty lists on every board
+    ever recorded — the same starvation that made the change feed look broken. This
+    measures over the history that exists and states the window, rather than reporting
+    nothing until an arbitrary threshold is crossed.
 
     Streaks are counted on consecutive *recorded* boards, not calendar days. A night the
     pipeline did not run is a gap in observation, and treating it as a break would
@@ -1933,20 +1933,13 @@ def _compute_market_breadth() -> dict:
     above80 = sum(1 for c in latest_conv if c >= 80)
     dispersion = (sum((c - (sum(latest_conv) / n)) ** 2 for c in latest_conv) / n) ** 0.5 if n > 1 else 0.0
 
-    # Persistence: assets >=70 for the last 30 / 90 consecutive daily snapshots.
-    # Kept because a caller may still want the strict definition, but note that both
-    # have been empty for the whole life of the ledger — they need 30 and 90 recorded
-    # nights and there are eleven. `persistence` below measures the same idea over the
-    # history that actually exists.
-    persistent30, persistent90 = [], []
-    for sym, seq in series.items():
-        seq.sort(key=lambda x: x[0])
-        cons30 = all(c >= 70 for _, c in seq[-30:]) if len(seq) >= 30 else False
-        cons90 = all(c >= 70 for _, c in seq[-90:]) if len(seq) >= 90 else False
-        if cons30:
-            persistent30.append(sym)
-        if cons90:
-            persistent90.append(sym)
+    # persistent_30d / persistent_90d used to be computed here: assets at or above 70 on
+    # the last 30 and 90 *consecutive* boards. Both were empty lists on every night the
+    # ledger has ever recorded, because they need 30 and 90 nights and there are 13. A
+    # field that is structurally empty is not a null reading — it is a zero the terminal
+    # rendered as a fact ("Persistent 30d: 0"), which is a stronger and wronger claim
+    # than saying nothing. `persistence` below measures the same idea over the history
+    # that exists and ships its window with it.
 
     change_feed = _change_feed(trend, len(set(all_dates)))
 
@@ -1957,8 +1950,6 @@ def _compute_market_breadth() -> dict:
         "breadth_above80": above80,
         "breadth_pct_above70": round(100 * above70 / n, 1),
         "dispersion": round(dispersion, 2),
-        "persistent_30d": persistent30,
-        "persistent_90d": persistent90,
         "conviction_change_feed": change_feed,
         # Regime per asset, plus the bar count so the terminal can say what it is still
         # waiting for rather than rendering an empty cell.
