@@ -30,6 +30,21 @@ jobs:
           CRYPTOMETER_API_KEY: ${{ secrets.CRYPTOMETER_API_KEY }}
         run: python nightly.py
 
+      - name: Cryptometer smoke test
+        # Every response shape in cryptometer.py came from documentation, not from a live
+        # authenticated call — the research that specified the client had no key. This is
+        # what turns those shapes into facts, and it runs BEFORE the gates so a shape
+        # mismatch is visible in the log even on a night the ledger commits fine.
+        #
+        # continue-on-error because this feed is optional by design: an unset secret, an
+        # expired plan or a paid endpoint on a free tier must never fail the job that
+        # writes the ledger. The script exits non-zero only when a FREE endpoint fails,
+        # which is the case actually worth reading.
+        continue-on-error: true
+        env:
+          CRYPTOMETER_API_KEY: ${{ secrets.CRYPTOMETER_API_KEY }}
+        run: python cryptometer.py
+
       - name: Parity gate (frontend <-> backend must agree)
         # A divergence between launch_skew.html math and nightly.score() would
         # silently corrupt historical trust. Fail the build if parity breaks.

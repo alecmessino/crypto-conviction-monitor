@@ -438,6 +438,26 @@ def _get_json(url: str, headers: dict | None = None, data: bytes | None = None):
         return json.loads(resp.read().decode())
 
 
+def http_status(exc) -> int | None:
+    """The status code off an exception, as a number rather than a phrase.
+
+    "premiumIndex failed (HTTP Error 451: )" carries the code, but only as a substring of
+    prose that nothing downstream can act on. 451 and 403 are policy — a jurisdiction
+    block and a CDN country rule — and they mean "this venue will never answer from this
+    host", which is a different fact from a timeout or a 500 and warrants a different
+    decision. Recording the number is what lets that decision be made from evidence after
+    a few nights rather than from one night's guess.
+    """
+    code = getattr(exc, "code", None)
+    return int(code) if isinstance(code, int) else None
+
+
+# Statuses that mean the venue is refusing this host rather than failing. Both were
+# observed in production on 2026-08-17: Binance answers 451 (Unavailable For Legal
+# Reasons) and Bybit 403 (CloudFront country block) from the runner.
+POLICY_BLOCK_STATUSES = (403, 451)
+
+
 def _f(v):
     try:
         return float(v) if v not in (None, "") else None
@@ -445,7 +465,8 @@ def _f(v):
         return None
 
 
-def _report(venue: str, data: dict, status: str, detail: str) -> dict:
+def _report(venue: str, data: dict, status: str, detail: str,
+            http: int | None = None) -> dict:
     """Every fetch returns the same envelope.
 
     Four different situations all end in an empty table — not configured, unreachable,
@@ -454,7 +475,13 @@ def _report(venue: str, data: dict, status: str, detail: str) -> dict:
     envelope ``nightly.fetch_dune_report`` settled on after exactly that confusion cost
     a day of debugging a feed that was working.
     """
-    return {"venue": venue, "data": data, "status": status, "detail": detail}
+    out = {"venue": venue, "data": data, "status": status, "detail": detail}
+    if http is not None:
+        out["http_status"] = http
+        # Named here rather than inferred at each call site: a policy block is a standing
+        # fact about this host, not tonight's weather.
+        out["policy_blocked"] = http in POLICY_BLOCK_STATUSES
+    return out
 
 
 def fetch_binance_funding(symbols: set | None = None) -> dict:
@@ -468,7 +495,7 @@ def fetch_binance_funding(symbols: set | None = None) -> dict:
     try:
         rows = _get_json("https://fapi.binance.com/fapi/v1/premiumIndex")
     except Exception as e:  # noqa: BLE001
-        return _report("binance", {}, "unreachable", f"premiumIndex failed ({e})")
+        return _report("binance", {}, "unreachable", f"premiumIndex failed ({e})", http_status(e))
     if not isinstance(rows, list):
         return _report("binance", {}, "unusable",
                        "premiumIndex did not return a list of symbols")
@@ -521,7 +548,7 @@ def fetch_bybit_funding(symbols: set | None = None) -> dict:
         data = _get_json("https://api.bybit.com/v5/market/tickers?category=linear")
         items = (data.get("result") or {}).get("list") or []
     except Exception as e:  # noqa: BLE001
-        return _report("bybit", {}, "unreachable", f"tickers failed ({e})")
+        return _report("bybit", {}, "unreachable", f"tickers failed ({e})", http_status(e))
 
     intervals = {}
     try:
@@ -579,7 +606,7 @@ def fetch_hyperliquid_funding(symbols: set | None = None) -> dict:
                             headers={"Content-Type": "application/json"},
                             data=json.dumps({"type": "metaAndAssetCtxs"}).encode())
     except Exception as e:  # noqa: BLE001
-        return _report("hyperliquid", {}, "unreachable", f"info call failed ({e})")
+        return _report("hyperliquid", {}, "unreachable", f"info call failed ({e})", http_status(e))
 
     if not (isinstance(payload, list) and len(payload) == 2):
         return _report("hyperliquid", {}, "unusable",
@@ -634,7 +661,7 @@ def fetch_coinbase_funding(symbols: set | None = None) -> dict:
     except Exception as e:  # noqa: BLE001
         return _report("coinbase", {}, "unreachable",
                        f"brokerage market products failed ({e}) — use the position "
-                       f"parser instead")
+                       f"parser instead", http_status(e))
     products = (payload or {}).get("products")
     if not isinstance(products, list):
         return _report("coinbase", {}, "unusable",
@@ -686,7 +713,7 @@ def fetch_dydx_funding(symbols: set | None = None) -> dict:
     try:
         payload = _get_json("https://indexer.dydx.trade/v4/perpetualMarkets")
     except Exception as e:  # noqa: BLE001
-        return _report("dydx", {}, "unreachable", f"perpetualMarkets failed ({e})")
+        return _report("dydx", {}, "unreachable", f"perpetualMarkets failed ({e})", http_status(e))
     markets = (payload or {}).get("markets")
     if not isinstance(markets, dict):
         return _report("dydx", {}, "unusable",
@@ -743,7 +770,7 @@ def fetch_gateio_funding(symbols: set | None = None) -> dict:
     try:
         rows = _get_json("https://api.gateio.ws/api/v4/futures/usdt/contracts")
     except Exception as e:  # noqa: BLE001
-        return _report("gateio", {}, "unreachable", f"contracts failed ({e})")
+        return _report("gateio", {}, "unreachable", f"contracts failed ({e})", http_status(e))
     if not isinstance(rows, list):
         return _report("gateio", {}, "unusable", "contracts did not return a list")
 
@@ -806,7 +833,7 @@ def fetch_kraken_funding(symbols: set | None = None) -> dict:
     try:
         payload = _get_json("https://futures.kraken.com/derivatives/api/v3/tickers")
     except Exception as e:  # noqa: BLE001
-        return _report("kraken", {}, "unreachable", f"tickers failed ({e})")
+        return _report("kraken", {}, "unreachable", f"tickers failed ({e})", http_status(e))
     tickers = (payload or {}).get("tickers")
     if not isinstance(tickers, list):
         return _report("kraken", {}, "unusable", "tickers did not return a list")

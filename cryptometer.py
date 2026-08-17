@@ -88,6 +88,16 @@ DEFAULT_SYMBOL_LIMIT = 25
 # documented; discovered at runtime via /coinlist/ if this ever needs widening.
 DERIV_EXCHANGES = ("binance_futures", "bybit", "bitmex", "deribit")
 
+# 28 of the 38 documented endpoints carry a "Paid" badge; only these ten are free, and
+# the distinction was missed on the first pass here. It matters more than it looks:
+# `ls-ratio` and `liquidation-data-v2` are BOTH paid, and both were wired as though they
+# were not. `long-shorts-data` is the only free positioning source, which inverts which
+# endpoint should be primary — a free endpoint that answers beats a paid one that may
+# not, when they measure the same thing.
+FREE_ENDPOINTS = frozenset({
+    "open-interest", "long-shorts-data", "24h-trade-volume-v2", "merged-orderbook",
+    "trend-indicator-v3", "rapid-movements", "ticker", "tickerlist", "coinlist", "info"})
+
 _UA = {"User-Agent": "conviction-monitor/1.0"}
 _last_call = [0.0]
 
@@ -181,6 +191,9 @@ def check_quota(api_key: str) -> dict:
 def fetch_liquidations(api_key: str, symbols, limit: int = DEFAULT_SYMBOL_LIMIT) -> dict:
     """Long and short liquidation volume per exchange, per symbol.
 
+    PAID endpoint. A free key returns the same opaque 403 that a misnamed parameter
+    produces, so the smoke test below is the only way to learn which of the two happened.
+
     ``/liquidation-data-v2/`` takes ``symbol`` (lowercase base, e.g. ``btc``) and returns
     ``data[0]`` as a MAP of exchange name to ``{longs, shorts}``. The exchange key set is
     dynamic — the documentation shows three, a live account may return more — so it is
@@ -235,42 +248,52 @@ def fetch_liquidations(api_key: str, symbols, limit: int = DEFAULT_SYMBOL_LIMIT)
     return _report("partial" if errors else "live", out, detail)
 
 
-def fetch_long_short_ratio(api_key: str, symbols, exchange: str = "binance_futures",
-                           limit: int = DEFAULT_SYMBOL_LIMIT) -> dict:
-    """The positioning ratio, restoring a column that has been dark.
+def fetch_positioning(api_key: str, symbols, exchange: str = "binance_futures",
+                      limit: int = DEFAULT_SYMBOL_LIMIT) -> dict:
+    """Long vs short position sizes, restoring a column that has been dark.
 
     ``long_short_ratio`` has been in the schema since Module 1 and null on every row since
-    the runner began getting HTTP 451 from Binance, which was its only source. This is not
-    a new reading — it is the same one, sourced from a host that answers.
+    the runner began getting HTTP 451 from Binance, its only source. This is the same
+    reading from a host that answers, not a new one.
 
-    ``/ls-ratio/`` takes ``pair`` (note: not ``symbol``, and not ``market_pair`` — the
-    three are not interchangeable and the wrong one yields an indistinguishable 403).
-    ``ratio``, ``buy`` and ``sell`` come back as strings while ``close`` and ``delta`` are
-    numbers, so every numeric is coerced explicitly rather than trusted.
+    Uses ``/long-shorts-data/`` rather than ``/ls-ratio/``, and the difference is not
+    cosmetic: ls-ratio is a PAID endpoint and long-shorts-data is FREE, while both
+    measure the same thing. The first version of this module wired the paid one without
+    knowing, which would have failed on a free key with the same opaque 403 that a
+    misnamed parameter produces — indistinguishable from a bug.
+
+    Takes ``symbol`` (not ``pair``, which is what ls-ratio takes; the two are not
+    interchangeable and the wrong one yields that same 403). Returns absolute longs and
+    shorts, so the ratio is derived here rather than read.
     """
     if not api_key:
         return _report("unconfigured", {}, "no CRYPTOMETER_API_KEY in the environment")
     out, errors = {}, []
     for base in sorted(symbols)[:limit]:
-        rows, err = call("ls-ratio", api_key, e=exchange,
-                         pair=f"{base.upper()}-USDT", timeframe="15m")
+        rows, err = call("long-shorts-data", api_key, e=exchange,
+                         symbol=base.lower(), timeframe="1h")
         if err:
             errors.append(f"{base}: {err}")
             continue
         rec = (rows or [{}])[0]
         if not isinstance(rec, dict):
             continue
-        ratio = _num(rec.get("ratio"))
-        if ratio is None:
+        longs, shorts = _num(rec.get("longs")), _num(rec.get("shorts"))
+        if longs is None or shorts is None:
             continue
+        total = longs + shorts
         out[base.upper()] = {
-            "ratio": round(ratio, 4),
-            "buy_pct": _num(rec.get("buy")), "sell_pct": _num(rec.get("sell")),
+            "longs": longs, "shorts": shorts,
+            # None rather than a division by zero, and None rather than 1.0 on an empty
+            # book: "half the accounts are long" is a real reading and must not be
+            # manufactured by an absent one.
+            "ratio": round(longs / shorts, 4) if shorts else None,
+            "long_pct": round(100.0 * longs / total, 2) if total else None,
         }
     if not out:
         return _report("unreachable" if errors else "unusable", {},
-                       "; ".join(errors[:3]) or "no pair returned a ratio")
-    detail = f"{len(out)} pair(s) on {exchange}"
+                       "; ".join(errors[:3]) or "no symbol returned position sizes")
+    detail = f"{len(out)} symbol(s) on {exchange}"
     if errors:
         detail += f"; {len(errors)} failed ({errors[0]})"
     return _report("partial" if errors else "live", out, detail)
@@ -292,7 +315,22 @@ if __name__ == "__main__":
         print("CRYPTOMETER_API_KEY is not set", file=sys.stderr)
         raise SystemExit(2)
     print("[quota]", json.dumps(check_quota(key), indent=1)[:800])
-    for name, rep in (("liquidations", fetch_liquidations(key, {"BTC", "ETH"}, limit=2)),
-                      ("ls-ratio", fetch_long_short_ratio(key, {"BTC", "ETH"}, limit=2))):
+    checks = [
+        ("positioning (FREE long-shorts-data)", fetch_positioning(key, {"BTC", "ETH"}, limit=2)),
+        ("liquidations (PAID liquidation-data-v2)", fetch_liquidations(key, {"BTC", "ETH"}, limit=2)),
+    ]
+    failed = []
+    for name, rep in checks:
         print(f"[{name}] {rep['status']}: {rep['detail']}")
         print(json.dumps(rep["data"], indent=1)[:600])
+        if rep["status"] not in ("live", "partial"):
+            failed.append(name)
+    # The free endpoint failing is a real problem. The paid one failing on a free plan is
+    # expected, and the exit code says which so a workflow log can be read at a glance.
+    if any("FREE" in f for f in failed):
+        print("\nFAIL: a free endpoint did not answer", file=sys.stderr)
+        raise SystemExit(1)
+    if failed:
+        print(f"\nNOTE: {len(failed)} paid endpoint(s) unavailable on this plan — "
+              f"expected on the free tier, and the liquidation columns stay null.")
+    raise SystemExit(0)
