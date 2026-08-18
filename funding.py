@@ -318,9 +318,10 @@ def regime_modifier(funding_apr, price_chg_24h=None, rsi7=None) -> tuple[float, 
             why = (f"on a {chg:+.1f}% 24h move"
                    if chg > 0 else f"price not extended ({chg:+.1f}% 24h)")
         mult = 1.0 - (1.0 - MOD_MAX_PENALTY) * (-sev) * conf
+        shown = "<0.01" if 0.0 < conf < 0.005 else f"{conf:.2f}"
         return round(mult, 4), (
             f"longs paying {apr_str(apr)}, {why} — severity {-sev:.2f}, "
-            f"confirmation {conf:.2f}")
+            f"confirmation {shown}")
 
     r = _num_or_none(rsi7)
     if r is None:
@@ -328,12 +329,13 @@ def regime_modifier(funding_apr, price_chg_24h=None, rsi7=None) -> tuple[float, 
                      f"from a downtrend — the boost is withheld, not reduced")
     conf = _ramp(r, MOD_SQUEEZE_RSI, MOD_SQUEEZE_RSI_FULL)
     if conf == 0.0:
-        return 1.0, (f"shorts paying {apr_str(apr)} but RSI {r:.0f} is at or below "
+        return 1.0, (f"shorts paying {apr_str(apr)} but RSI {r:.1f} is at or below "
                      f"{MOD_SQUEEZE_RSI:.0f} — downtrend, not squeeze")
     mult = 1.0 + (MOD_MAX_BOOST - 1.0) * sev * conf
+    shown = "<0.01" if 0.0 < conf < 0.005 else f"{conf:.2f}"
     return round(mult, 4), (
-        f"shorts paying {apr_str(apr)} with RSI {r:.0f} — squeeze asymmetry, "
-        f"severity {sev:.2f}, confirmation {conf:.2f}")
+        f"shorts paying {apr_str(apr)} with RSI {r:.1f} — squeeze asymmetry, "
+        f"severity {sev:.2f}, confirmation {shown}")
 
 
 def _num_or_none(v):
