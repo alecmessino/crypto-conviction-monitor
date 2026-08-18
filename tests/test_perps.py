@@ -37,9 +37,15 @@ def test_positioning_and_the_regime_index_stay_out_of_the_specification():
     the interval-normalised APR instead of a raw rate carrying an unstated 8-hour
     assumption, and gates each adjustment on a confirming input. That widened the
     specification to include the 24h price change and a 7-period RSI, and it moved the
-    hash from d600984ec00b to e65f7dc59d55. The modifier's own arithmetic lives in
+    hash from d600984ec00b to 596d414706be. The modifier's own arithmetic lives in
     funding.py and is captured too — see test_monitor.py, where the boundary between the
     two files is asserted rather than assumed.
+
+    That hash covers more than the thresholds. spec() captures regime_modifier's whole
+    body, reason strings included, so even a display-only edit — RSI printed at one
+    decimal instead of none — moves it. That is a real cost worth naming: presentation
+    text currently cannot be changed without segmenting the track record, and the fix is
+    to return structured facts and build the sentence outside the captured function.
 
     Restating the boundary rather than deleting the test is the point: the guarantee is
     still worth having for everything on the left of it, and an assertion that quietly

@@ -2814,7 +2814,27 @@ def main() -> int:
     # Module 4. The key is a repository secret and absent locally, so this degrades to
     # "unconfigured" on a developer machine and only ever runs live in CI.
     cm_key = cryptometer.api_key_from_env()
-    board_syms = sorted(scored_syms)[:cryptometer.DEFAULT_SYMBOL_LIMIT]
+    # Ranked by market cap, not alphabetically. The first version took
+    # sorted(scored_syms)[:25], and scored_syms is the FULL ~250-market universe rather
+    # than the board — so the sweep started at "A7A5" and never reached BTC or ETH. On
+    # 2026-08-18 that spent 25 calls, succeeded on 17, and landed 3 on the board: AAVE,
+    # ADA and AKE. Fourteen successful lookups were fetched and discarded, and the names
+    # anyone would actually want a positioning read on were never queried.
+    #
+    # Market cap rather than conviction because conviction does not exist yet here —
+    # score() runs further down — and because it is the better key anyway. Positioning
+    # is a liquidity-dependent reading: Cryptometer's binance_futures book covers majors
+    # and thins out fast, which is where the 8 failures came from. Market cap also
+    # churns far less than conviction does night to night, and a column that changes
+    # which symbols it covers every evening is a poor time series.
+    _by_cap = sorted(
+        ((t.get("market_cap") or 0, (t.get("symbol") or "").upper()) for t in markets),
+        reverse=True)
+    board_syms = [sym for _, sym in _by_cap if sym in scored_syms
+                  ][:cryptometer.DEFAULT_SYMBOL_LIMIT]
+    print(f"[cryptometer] querying the top {len(board_syms)} by market cap: "
+          + ", ".join(board_syms[:8]) + ("..." if len(board_syms) > 8 else ""),
+          file=__import__("sys").stderr)
     liq_report = cryptometer.fetch_liquidations(cm_key, board_syms)
     print(f"[cryptometer] liquidations {liq_report['status']}: {liq_report['detail']}",
           file=__import__("sys").stderr)

@@ -188,6 +188,24 @@ def check_quota(api_key: str) -> dict:
     return _report("live", (rows or [{}])[0], "account reachable")
 
 
+def _ranked(symbols, limit: int) -> list:
+    """Caller order preserved, deduped, then capped.
+
+    These functions used to do ``sorted(symbols)[:limit]``, which throws away the one
+    piece of information the caller had: which symbols matter most. With a per-symbol
+    endpoint, no bulk variant and a hard cap, the ORDER is the priority — re-sorting it
+    alphabetically means the cap falls on whatever the alphabet chose. That is exactly
+    how a 25-call sweep ended up starting at "A7A5" and never reaching BTC.
+    """
+    seen, out = set(), []
+    for s in symbols:
+        u = str(s).upper()
+        if u and u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out[:limit]
+
+
 def paid_enabled() -> bool:
     """Paid endpoints are opt-in and off by default.
 
@@ -225,7 +243,7 @@ def fetch_liquidations(api_key: str, symbols, limit: int = DEFAULT_SYMBOL_LIMIT)
                        "is not set — the liquidation columns stay null rather than "
                        "spending quota to discover the plan tier")
     out, errors = {}, []
-    for base in sorted(symbols)[:limit]:
+    for base in _ranked(symbols, limit):
         rows, err = call("liquidation-data-v2", api_key, symbol=base.lower())
         if err:
             errors.append(f"{base}: {err}")
@@ -286,7 +304,7 @@ def fetch_positioning(api_key: str, symbols, exchange: str = "binance_futures",
     if not api_key:
         return _report("unconfigured", {}, "no CRYPTOMETER_API_KEY in the environment")
     out, errors = {}, []
-    for base in sorted(symbols)[:limit]:
+    for base in _ranked(symbols, limit):
         rows, err = call("long-shorts-data", api_key, e=exchange,
                          symbol=base.lower(), timeframe="1h")
         if err:

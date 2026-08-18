@@ -277,3 +277,55 @@ def test_nothing_here_reaches_the_score():
     for fn in nightly.spec()["functions"].values():
         for field in ("liquidation", "imbalance", "cryptometer", "longs_usd"):
             assert field not in fn
+
+
+# ---------------------------------------------------------------------------
+# symbol selection — the cap must fall on the names that matter
+# ---------------------------------------------------------------------------
+def test_caller_order_is_preserved_because_it_encodes_priority():
+    """These sweeps used to do sorted(symbols)[:limit], which discards the one thing the
+    caller knew: which symbols matter. With a per-symbol endpoint, no bulk variant and a
+    hard cap, ORDER is the priority — re-sorting alphabetically means the cap falls
+    wherever the alphabet chose.
+
+    On 2026-08-18 that cost a real sweep: 25 calls starting at "A7A5", 17 successes, and
+    only 3 landing on the board. BTC and ETH were never queried.
+    """
+    m = _load("cm_order")
+    seen = []
+    m._get_json = lambda url: (seen.append(url), ok([{"longs": 1, "shorts": 1}]))[1]
+    m.fetch_positioning("k", ["BTC", "ETH", "ZZZ", "AAA"], limit=2)
+    assert len(seen) == 2
+    assert "symbol=btc" in seen[0] and "symbol=eth" in seen[1]
+    assert not any("aaa" in u for u in seen), "alphabetical order crept back in"
+
+
+def test_the_ranker_dedupes_and_caps_without_reordering():
+    assert cm._ranked(["btc", "ETH", "BTC", "sol"], 10) == ["BTC", "ETH", "SOL"]
+    assert cm._ranked(["A", "B", "C"], 2) == ["A", "B"]
+    assert cm._ranked([], 5) == []
+
+
+def test_the_nightly_selects_by_market_cap_not_alphabetically():
+    """The fix, asserted against the source. scored_syms is the full ~250-market
+    universe, so an alphabetical slice never reaches the majors — and positioning is a
+    liquidity-dependent reading that is worth almost nothing on a microcap."""
+    src = (ROOT / "nightly.py").read_text(encoding="utf-8")
+    assert "sorted(scored_syms)[:cryptometer.DEFAULT_SYMBOL_LIMIT]" not in src, \
+        "the alphabetical slice is back"
+    assert "_by_cap = sorted(" in src
+    assert 'board_syms = [sym for _, sym in _by_cap if sym in scored_syms' in src
+
+
+def test_the_market_cap_ranking_puts_the_majors_first():
+    """Exercised directly rather than trusted: the ordering is the whole fix."""
+    markets = [{"symbol": "aaa", "market_cap": 1e6},
+               {"symbol": "btc", "market_cap": 1.3e12},
+               {"symbol": "zzz", "market_cap": 5e6},
+               {"symbol": "eth", "market_cap": 4e11}]
+    scored = {"AAA", "BTC", "ZZZ", "ETH"}
+    by_cap = sorted(((t.get("market_cap") or 0, (t.get("symbol") or "").upper())
+                     for t in markets), reverse=True)
+    sel = [s for _, s in by_cap if s in scored][:3]
+    assert sel[:2] == ["BTC", "ETH"]
+    assert "AAA" not in sel
