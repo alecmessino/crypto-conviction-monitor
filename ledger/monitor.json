@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-08-17T07:18:44.210973+00:00",
+  "generated_at": "2026-08-18T07:06:05.170750+00:00",
   "spec_hash": "e65f7dc59d55",
-  "observations": 17,
+  "observations": 18,
   "from": "2026-08-01",
-  "to": "2026-08-17",
+  "to": "2026-08-18",
   "health": [
     {
       "name": "Data freshness",
       "status": "pass",
-      "detail": "latest board 2026-08-17 (7h old)",
-      "value": 7.3
+      "detail": "latest board 2026-08-18 (7h old)",
+      "value": 7.1
     },
     {
       "name": "Universe size",
       "status": "pass",
-      "detail": "50 assets scored on 2026-08-17",
+      "detail": "50 assets scored on 2026-08-18",
       "value": 50
     },
     {
@@ -26,8 +26,8 @@
     {
       "name": "Score dispersion",
       "status": "pass",
-      "detail": "sigma = 19.36 across 50 assets",
-      "value": 19.36
+      "detail": "sigma = 18.78 across 50 assets",
+      "value": 18.78
     },
     {
       "name": "Field presence",
@@ -38,14 +38,14 @@
     {
       "name": "Contextual feeds",
       "status": "info",
-      "detail": "7 of 13 recorded-not-scored fields carry values (addr_growth_pct, funding_rate, oi_usd, funding_apr, rsi7, funding_venues_n, funding_apr_spread) \u2014 observational only, nothing here reaches score()",
-      "value": 0.5385
+      "detail": "8 of 17 recorded-not-scored fields carry values (addr_growth_pct, funding_rate, oi_usd, long_short_ratio, funding_apr, rsi7, funding_venues_n, funding_apr_spread) \u2014 observational only, nothing here reaches score()",
+      "value": 0.4706
     },
     {
       "name": "Ranking stability",
       "status": "pass",
-      "detail": "rank correlation 0.9763 across 45 names held in common",
-      "value": 0.9763
+      "detail": "rank correlation 0.9381 across 45 names held in common",
+      "value": 0.9381
     },
     {
       "name": "Universe churn",
@@ -56,7 +56,7 @@
     {
       "name": "Specification history",
       "status": "warn",
-      "detail": "2 specification(s) across 9 recorded day(s); 8 earlier day(s) unhashed  \u2014 a series spanning two hashes is two datasets",
+      "detail": "2 specification(s) across 10 recorded day(s); 8 earlier day(s) unhashed  \u2014 a series spanning two hashes is two datasets",
       "value": 2
     },
     {
@@ -68,8 +68,8 @@
     {
       "name": "Funding feed",
       "status": "pass",
-      "detail": "funding present for 52% of the board, in line with the 44% baseline \u2014 the rest are spot-only, which is not a dropout",
-      "value": 0.52
+      "detail": "funding present for 76% of the board, in line with the 48% baseline \u2014 the rest are spot-only, which is not a dropout",
+      "value": 0.76
     },
     {
       "name": "Ledger integrity",
@@ -79,32 +79,32 @@
     }
   ],
   "stability": {
-    "from": "2026-08-16",
-    "to": "2026-08-17",
+    "from": "2026-08-17",
+    "to": "2026-08-18",
     "shared": 45,
-    "rank_correlation": 0.9763,
-    "mean_abs_move": 1.6,
-    "max_abs_move": 10.0,
+    "rank_correlation": 0.9381,
+    "mean_abs_move": 2.51,
+    "max_abs_move": 11.0,
     "entered": [
-      "CRV",
-      "GRX",
-      "ICP",
-      "NEAR",
-      "TAO"
+      "AAVE",
+      "ANSEM",
+      "COMP",
+      "MON",
+      "XPL"
     ],
     "left": [
-      "ANSEM",
-      "BC",
-      "DRV",
-      "USDF",
-      "USDGO"
+      "BFUSD",
+      "GRX",
+      "HTX",
+      "ICP",
+      "TAO"
     ],
     "churn": 0.1,
     "universe_prev": 50,
     "universe_curr": 50
   },
   "dispersion": {
-    "latest": 19.36,
+    "latest": 18.78,
     "series": [
       {
         "date": "2026-08-01",
@@ -190,6 +190,11 @@
         "date": "2026-08-17",
         "dispersion": 19.36,
         "median": 30.0
+      },
+      {
+        "date": "2026-08-18",
+        "dispersion": 18.78,
+        "median": 29.0
       }
     ],
     "warn_below": 8.0
@@ -463,6 +468,21 @@
         "perp_mult": 1.0,
         "high_24h": 1.0,
         "low_24h": 1.0
+      },
+      {
+        "date": "2026-08-18",
+        "n": 50,
+        "price": 1.0,
+        "market_cap": 1.0,
+        "turnover_pct": 1.0,
+        "conviction": 1.0,
+        "rs7": 1.0,
+        "rs14": 1.0,
+        "rs30": 1.0,
+        "rs200": 1.0,
+        "perp_mult": 1.0,
+        "high_24h": 1.0,
+        "low_24h": 1.0
       }
     ],
     "warn_below": 0.9,
@@ -473,15 +493,19 @@
         "unlocks_usd": 0.0,
         "supply_increase_pct": 0.0,
         "addr_growth_pct": 0.02,
-        "funding_rate": 0.98,
-        "oi_usd": 0.52,
-        "long_short_ratio": 0.0,
-        "funding_apr": 0.52,
-        "rsi7": 0.8,
+        "funding_rate": 0.76,
+        "oi_usd": 0.76,
+        "long_short_ratio": 0.06,
+        "funding_apr": 0.76,
+        "rsi7": 0.78,
         "funding_venue": 0.0,
-        "funding_venues_n": 0.52,
-        "funding_apr_spread": 0.46,
-        "funding_regime": 0.0
+        "funding_venues_n": 0.76,
+        "funding_apr_spread": 0.54,
+        "funding_regime": 0.0,
+        "liq_longs_usd": 0.0,
+        "liq_shorts_usd": 0.0,
+        "liq_imbalance": 0.0,
+        "funding_interval_basis": 0.0
       },
       "series": [
         {
@@ -498,7 +522,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-02",
@@ -514,7 +542,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-03",
@@ -530,7 +562,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-04",
@@ -546,7 +582,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-05",
@@ -562,7 +602,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-06",
@@ -578,7 +622,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-07",
@@ -594,7 +642,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-08",
@@ -610,7 +662,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-09",
@@ -626,7 +682,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-10",
@@ -642,7 +702,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-11",
@@ -658,7 +722,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-12",
@@ -674,7 +742,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-13",
@@ -690,7 +762,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-14",
@@ -706,7 +782,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-15",
@@ -722,7 +802,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.0,
           "funding_apr_spread": 0.0,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-16",
@@ -738,7 +822,11 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.44,
           "funding_apr_spread": 0.38,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         },
         {
           "date": "2026-08-17",
@@ -754,7 +842,31 @@
           "funding_venue": 0.0,
           "funding_venues_n": 0.52,
           "funding_apr_spread": 0.46,
-          "funding_regime": 0.0
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
+        },
+        {
+          "date": "2026-08-18",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.02,
+          "funding_rate": 0.76,
+          "oi_usd": 0.76,
+          "long_short_ratio": 0.06,
+          "funding_apr": 0.76,
+          "rsi7": 0.78,
+          "funding_venue": 0.0,
+          "funding_venues_n": 0.76,
+          "funding_apr_spread": 0.54,
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         }
       ],
       "feed": {
@@ -787,8 +899,8 @@
       {
         "spec_hash": "e65f7dc59d55",
         "from": "2026-08-16",
-        "to": "2026-08-17",
-        "days": 2
+        "to": "2026-08-18",
+        "days": 3
       }
     ],
     "unknown_days": 8,
