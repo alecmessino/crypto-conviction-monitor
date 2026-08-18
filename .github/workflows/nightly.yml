@@ -45,6 +45,13 @@ jobs:
           CRYPTOMETER_API_KEY: ${{ secrets.CRYPTOMETER_API_KEY }}
         run: python cryptometer.py
 
+      - name: Record the observations under watch
+        # Both open questions on this repo are "has X held for N nights". Answering them
+        # by scheduling a session to look fails in the obvious way — the schedule lives
+        # in the session and the session ends — so the job records them itself. Runs
+        # after the snapshot and before the gates; appends one row per venue per night.
+        run: python scripts/observe.py
+
       - name: Parity gate (frontend <-> backend must agree)
         # A divergence between launch_skew.html math and nightly.score() would
         # silently corrupt historical trust. Fail the build if parity breaks.
@@ -81,7 +88,7 @@ jobs:
           # one score() actually applied — recomputing it client-side from a live feed
           # would produce a number that disagrees with the published board whenever
           # funding moved during the day.
-          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json ledger/funding.json
+          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json ledger/funding.json ledger/venue_health.csv
           git add ledger/index.legacy.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes to commit"
