@@ -338,9 +338,22 @@ TMD_QUIET_GAP = 20        # conviction far above trending: structure without att
 def trending_divergence(trending: dict, conviction_by_symbol: dict) -> dict:
     """Rank the board by conviction, compare against the search ranking, name the gap.
 
-    Both sides are converted to *percentile* ranks before being compared, because the
-    trending list is 15 long and the board is 50: subtracting a rank of 3 from a rank of
-    31 compares two numbers that do not share a scale. Percentiles do.
+    The comparison is made *within the overlap* — the names that are both trending and
+    scored — and this is the whole correctness of the thing.
+
+    The obvious version, taking each side's percentile against its own population, is
+    wrong and looks right. The trending list is a top-15 SLICE, so its percentiles span
+    6.7% to 100% densely; the conviction ranking spans the whole 50-name board. A
+    trending coin at position 14 scores a 93rd trending percentile against a conviction
+    percentile that can be anything, and the arithmetic tips almost every name into one
+    label. Run against a live 234-name board that produced eleven QUIET_ACCUMULATIONs
+    out of fifteen — a classifier that puts three quarters of its input in one bucket is
+    not classifying.
+
+    Ranking both sides *among the overlapping names only* puts them on one scale by
+    construction. ``conviction_pct`` is still reported against the whole board, because
+    "this is the 4th most searched coin and the model ranks it 88th of 234" is worth
+    seeing — it is just not what the label is computed from.
 
     ``FOMO_CROWDED`` is a warning and ``QUIET_ACCUMULATION`` is a candidate; neither is
     an instruction. A crowded name is not automatically a short and a quiet one is not
@@ -356,6 +369,17 @@ def trending_divergence(trending: dict, conviction_by_symbol: dict) -> dict:
     ranked = sorted(conv.items(), key=lambda kv: -kv[1])
     conv_pct = {s: 100.0 * (i + 1) / len(ranked) for i, (s, _) in enumerate(ranked)}
     n_tr = len(coins)
+
+    # The overlap, ranked twice: once the way the crowd ordered it, once the way the
+    # model does. Both percentiles are then over the same n, so their difference is a
+    # disagreement about ordering rather than an artefact of two population sizes.
+    overlap = [s for s in coins if s in conv]
+    n_ov = len(overlap)
+    by_trend = sorted(overlap, key=lambda s: coins[s]["rank"])
+    by_conv = sorted(overlap, key=lambda s: -conv[s])
+    ov_trend_pct = {s: 100.0 * (i + 1) / n_ov for i, s in enumerate(by_trend)} if n_ov else {}
+    ov_conv_pct = {s: 100.0 * (i + 1) / n_ov for i, s in enumerate(by_conv)} if n_ov else {}
+
     out = []
     for sym, rec in coins.items():
         tr_pct = 100.0 * rec["rank"] / n_tr
@@ -368,17 +392,29 @@ def trending_divergence(trending: dict, conviction_by_symbol: dict) -> dict:
             out.append({"symbol": sym, "name": rec.get("name"),
                         "trending_rank": rec["rank"], "trending_pct": round(tr_pct, 1),
                         "conviction": None, "conviction_pct": None,
+                        # Carried as None rather than omitted, so every row in this list
+                        # has the same shape and a consumer never has to test for the
+                        # presence of a key to decide what a row means.
+                        "overlap_trend_pct": None, "overlap_conv_pct": None,
                         "divergence": None, "label": "UNRANKED",
                         "mcap": rec.get("mcap"), "chg24h": rec.get("chg24h")})
             continue
-        # Positive = the crowd ranks it higher than the model does.
-        div = round(c_pct - tr_pct, 1)
-        label = ("FOMO_CROWDED" if div >= TMD_CROWDED_GAP
+        # Positive = the crowd ranks it higher than the model does, among the names
+        # both of them rank. A single-name overlap has no ordering to disagree about,
+        # so the divergence is None rather than 0.0 — which would read as "the two
+        # rankings agree" on evidence that cannot support either answer.
+        div = (round(ov_conv_pct[sym] - ov_trend_pct[sym], 1) if n_ov >= 2 else None)
+        label = ("ALIGNED" if div is None
+                 else "FOMO_CROWDED" if div >= TMD_CROWDED_GAP
                  else "QUIET_ACCUMULATION" if div <= -TMD_QUIET_GAP
                  else "ALIGNED")
         out.append({"symbol": sym, "name": rec.get("name"),
                     "trending_rank": rec["rank"], "trending_pct": round(tr_pct, 1),
                     "conviction": conv.get(sym), "conviction_pct": round(c_pct, 1),
+                    # The two percentiles the label was actually computed from, published
+                    # so the number on screen can be checked rather than trusted.
+                    "overlap_trend_pct": (round(ov_trend_pct[sym], 1) if n_ov >= 2 else None),
+                    "overlap_conv_pct": (round(ov_conv_pct[sym], 1) if n_ov >= 2 else None),
                     "divergence": div, "label": label,
                     "mcap": rec.get("mcap"), "chg24h": rec.get("chg24h")})
     out.sort(key=lambda r: (r["divergence"] is None, -(r["divergence"] or 0)))
@@ -389,9 +425,12 @@ def trending_divergence(trending: dict, conviction_by_symbol: dict) -> dict:
               "conviction_pct": round(conv_pct[s], 1)}
              for s, _ in ranked[:10] if s not in coins]
     return {"assets": out, "n_trending": n_tr, "n_scored": len(conv),
+            "n_overlap": n_ov,
             "crowded_gap": TMD_CROWDED_GAP, "quiet_gap": TMD_QUIET_GAP,
             "backed_but_unsearched": quiet,
-            "detail": f"{len(coins)} trending against {len(conv)} scored"}
+            "basis": ("ranks compared within the overlapping names only, so both "
+                      "percentiles are over the same population"),
+            "detail": (f"{len(coins)} trending, {len(conv)} scored, {n_ov} in both")}
 
 
 # ---------------------------------------------------------------------------

@@ -184,7 +184,7 @@ def open_session(key: str | None = None, probe: bool = True) -> dict:
 
 
 def get(session: dict, path: str, params: dict | None = None,
-        retries: int = 3, backoff: float = 4.0, sleep=time.sleep) -> dict:
+        retries: int = 3, backoff: float = 4.0, sleep=None) -> dict:
     """One credentialed GET, with the 429 backoff the free tier makes mandatory.
 
     Returns a report rather than a value. A 429 that exhausts its retries is
@@ -192,6 +192,10 @@ def get(session: dict, path: str, params: dict | None = None,
     fixes and the second is an outage, and a column that cannot tell them apart cannot
     be used to decide whether the key is working.
     """
+    # Same late-binding rule as fetch_dex_networks: resolved at call time so a caller
+    # or a test can substitute it, and so a default cannot capture a function object
+    # that a later patch never reaches.
+    sleep = sleep or time.sleep
     qs = ("?" + urllib.parse.urlencode(params)) if params else ""
     url = f"{session['host']}{path}{qs}"
     wait = backoff
@@ -473,7 +477,7 @@ GT_NETWORKS = ("eth", "solana", "base", "arbitrum", "bsc", "polygon_pos", "avax"
                "optimism")
 
 
-def fetch_dex_networks(networks=GT_NETWORKS, raw_get=_raw_get, sleep=time.sleep,
+def fetch_dex_networks(networks=GT_NETWORKS, raw_get=None, sleep=None,
                        pause: float = 2.5) -> dict:
     """Aggregate pool depth and 24h pool volume for the top pools on each network.
 
@@ -499,6 +503,13 @@ def fetch_dex_networks(networks=GT_NETWORKS, raw_get=_raw_get, sleep=time.sleep,
     Every numeric field on this API arrives as a *string* — ``"5583322.509"``, not
     ``5583322.509``. Parsed through ``_num`` accordingly.
     """
+    # Resolved at CALL time, not bound as a default. A default argument is evaluated
+    # once when the module is defined, so `raw_get=_raw_get` captures the original
+    # function object and a later substitution of the module attribute never reaches
+    # here — which made this the one feed a test could not stand in for, and the one
+    # that quietly made eight real network calls inside a unit test.
+    raw_get = raw_get or _raw_get
+    sleep = sleep or time.sleep
     out, failures = {}, []
     for i, net in enumerate(networks):
         code, body = raw_get(f"{GT_BASE}/networks/{net}/pools?page=1", GT_HEADERS)

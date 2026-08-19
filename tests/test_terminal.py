@@ -80,7 +80,12 @@ def test_absent_derivatives_render_as_a_dash_rather_than_a_zero():
     # implementations with different thresholds — the matrix coloured off +30/-20 and
     # Module E off the regime bands — so a 35% APR asset rendered red in one table and
     # amber in the other, on one screen.
-    assert "function fundingCell(sym)" in SCRIPT
+    # Signature widened to fundingCell(sym, row) when the rewind scrubber landed: a
+    # recorded row must read the carry ITS OWN night recorded rather than joining
+    # tonight's funding.json onto a three-week-old board. Still exactly one
+    # implementation, which is what this line is really pinning.
+    assert SCRIPT.count("function fundingCell(") == 1
+    assert "function fundingCell(sym,row)" in SCRIPT
     assert '\'<span class="muted">—</span>\'' in SCRIPT
     assert 'if(apr==null) return `<span class="fh none">—</span>`' in SCRIPT
     assert "const FUNDING_HOT" not in SCRIPT, "a second funding threshold set is back"
@@ -111,9 +116,17 @@ def test_the_board_is_not_virtualized():
 
 
 def test_the_filter_searches_the_whole_universe_not_the_visible_rows():
-    """A filter that only searches what is already on screen is a highlighter."""
-    assert "const base = hide ? gated : STATE;" in SCRIPT
+    """A filter that only searches what is already on screen is a highlighter.
+
+    Reads BOARD rather than STATE since the rewind scrubber landed: BOARD is the live
+    board in live mode and the recorded one when scrubbed back, so the filter searches
+    whichever universe is actually on screen. The property is unchanged — it is the
+    whole set, not the visible ten.
+    """
+    assert "const BOARD = boardRows();" in SCRIPT
+    assert "const base = hide ? gated : BOARD;" in SCRIPT
     assert "base.filter(matchesFilter)" in SCRIPT
+    assert "function boardRows(){ return RENDER_ROWS || STATE; }" in SCRIPT
 
 
 def test_one_predicate_serves_the_text_box_and_the_chips():
@@ -238,3 +251,122 @@ def test_freshness_is_an_age_not_a_manufactured_percentage():
     is not."""
     assert "Age of the most recent recorded board" in SCRIPT
     assert "99.2" not in CODE
+
+
+# ---------------------------------------------------------------------------
+# Modules F-J: the context panels, the supply column, and the rewind scrubber
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("fn", ["renderMacro", "renderSectors", "renderTMD",
+                                "renderFallen", "renderCorr", "factorQuad",
+                                "renderRewind", "supplyCell"])
+def test_the_new_renderers_exist(fn):
+    assert f"function {fn}(" in SCRIPT
+
+
+@pytest.mark.parametrize("host", ["#macro", "#sectors", "#tmd", "#fallen", "#corr",
+                                  "#rewind"])
+def test_every_new_panel_has_markup_to_render_into(host):
+    assert f'id="{host[1:]}"' in HTML
+
+
+def test_every_context_panel_renders_a_pending_state():
+    """A sector matrix with no rows and a market where nothing moved look identical, and
+    only one of them is a reason to go and look at the pipeline. Each panel must name
+    the artifact it is waiting on rather than sitting silently empty."""
+    for panel in ("Sector feed", "Trending feed", "Screen pending", "Correlation pending"):
+        assert panel in HTML, f"no pending state for {panel!r}"
+    assert HTML.count("ledger/market_intel.json") >= 4
+
+
+def test_the_supply_column_distinguishes_unknown_from_neutral():
+    """The distinction Module F is built on. A dash means no FDV was published and NO
+    multiplier was applied; x1.000 means the token is fully circulating and the
+    multiplier was exactly neutral. Collapsing them would tell a reader that an
+    undisclosed emission schedule had been checked and cleared."""
+    assert "function supplyCell(" in SCRIPT
+    assert "d==null" in SCRIPT
+    assert "least transparent tokens" in SCRIPT
+
+
+def test_the_emission_curve_lives_inside_the_parity_markers():
+    """Module F multiplies the published score, so both sides must be executed by the
+    gate. A copy outside the markers is a copy the gate cannot see."""
+    port = SCRIPT[SCRIPT.find("MODEL PORT"):SCRIPT.find("END MODEL PORT")]
+    for fn in ("function emissionDrag(", "function emissionMult("):
+        assert fn in port, f"{fn} is outside the MODEL PORT markers"
+    assert SCRIPT.count("function emissionMult(") == 1
+
+
+def test_the_terminal_reads_its_thresholds_from_the_engine():
+    """A threshold duplicated in two languages is a threshold that will disagree with
+    itself. The funding bands already went through this; the Module F-J bands are
+    published on the artifact and read from it."""
+    assert "INTEL_TH = INTEL.thresholds || {}" in SCRIPT
+    assert "INTEL_TH.liq_shock_z" in SCRIPT
+
+
+def test_a_rewound_row_does_not_borrow_tonights_readings():
+    """The failure this guards: joining tonight's funding.json and tonight's choppiness
+    onto a three-week-old board, so a historical row asserts a carry that did not exist
+    on the date it claims to show."""
+    assert "row._rewound" in SCRIPT
+    assert "_fundApr" in SCRIPT and "_strategy" in SCRIPT
+    assert "fundingCell(t.sym,t)" in SCRIPT and "regimeCell(t.sym,t)" in SCRIPT
+
+
+def test_a_rewound_row_reports_no_range_position_rather_than_zero():
+    """The ledger records no ATH or ATL, so a recorded row has no range Z. Rendering
+    0.00 would read as "exactly mid-range", which is a claim the row cannot support."""
+    assert "ath:0, atl:0, z:null" in SCRIPT
+    assert "t.z==null" in SCRIPT
+
+
+def test_the_rewound_state_is_impossible_to_miss():
+    """A nineteen-day-old board read as this morning's is the worst failure this control
+    can cause, so the whole page is marked rather than one corner of it."""
+    assert "body.rewound" in HTML
+    assert 'classList.toggle("rewound"' in SCRIPT
+
+
+def test_the_scrubber_has_a_live_position_past_the_last_recorded_night():
+    """Live is a position on the control, not a separate mode you have to know about."""
+    assert "sl.max=REWIND_DATES.length" in SCRIPT
+    assert "i>=REWIND_DATES.length ? null" in SCRIPT
+
+
+def test_the_rewind_reads_the_unfiltered_row_set():
+    """LEDGER is filtered to rows carrying a Dune era, which is most of them absent.
+    Rewinding over that subset would show a board that was never published."""
+    assert "ALL_ROWS.forEach(r=>{ const d=r.date;" in SCRIPT
+    assert "LEDGER = ALL_ROWS.filter(" in SCRIPT
+
+
+def test_the_factor_quadrant_names_its_quadrants():
+    """A quadrant chart whose quadrants are unnamed is a scatter plot."""
+    for label in ("CONVICTION", "QUALITY, UNCONFIRMED", "MOMENTUM, THIN", "DE-ALLOCATE"):
+        assert label in SCRIPT
+
+
+def test_the_quadrant_axis_is_robust_to_an_outlier():
+    """Relative strength has a long right tail. One name up 400% against BTC stretched a
+    min/max axis until the other fifty-nine sat in a single column against the left
+    edge, which is what this chart did on its first render."""
+    assert "pct(ms,0.05)" in SCRIPT and "pct(ms,0.95)" in SCRIPT
+    assert "clamped to the edge" in SCRIPT
+
+
+def test_the_sizer_caps_a_correlated_book_and_prices_the_entry():
+    """Conviction sets the shape; the caps set the ceiling. A book of fifteen names that
+    move together is not fifteen positions."""
+    assert "function execDrag(" in SCRIPT
+    assert "Math.sqrt(part)" in SCRIPT, "impact must grow with the root of participation"
+    assert "correlated with" in SCRIPT
+    assert "dragMissing" in SCRIPT, "unestimatable lines must be counted, not averaged in as free"
+
+
+def test_the_new_columns_did_not_break_the_error_row_span():
+    """The failure row spans the table. A stale colspan leaves a ragged cell that reads
+    as a rendering bug at exactly the moment the page is already reporting a problem."""
+    headers = re.search(r'<table id="tbl-conv"><thead><tr>(.*?)</tr>', HTML, re.S).group(1)
+    assert headers.count("<th") == 14
+    assert 'colspan="14"' in HTML
