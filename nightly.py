@@ -101,7 +101,33 @@ FIELDS = ["date", "symbol", "name", "price", "market_cap", "turnover_pct",
           # fixed by its protocol, or assumed. Recorded because it is the difference
           # between a measured carry and a plausible one, and only the first belongs in
           # a study.
-          "funding_interval_basis"]
+          "funding_interval_basis",
+          # Module F — supply overhang. The FIRST of these is scoring: `emission_mult`
+          # is what score() multiplied the risk term by tonight, and `emission_drag` is
+          # the severity it came from. Both are recorded because a multiplier whose
+          # input is not on the row cannot be audited after the fact, and because
+          # `emission_drag` empty means the FDV was not published while 0.0 means the
+          # token is fully circulating — two different facts that a single column would
+          # collapse.
+          "emission_drag", "emission_mult", "fdv_usd",
+          # Module G — trend structure, from bars this pipeline recorded itself. A
+          # 14-period ADX needs 29 nights (Wilder consumes the period twice); until then
+          # every one of these is empty and `adx_bars` says how far off it is. Purely
+          # observational: score() reads none of it, and the strategy label is a
+          # statement about which book an asset suits, not about its rank.
+          "adx", "plus_di", "minus_di", "adx_regime", "adx_bars", "atr14", "strategy",
+          # Module H — systemic risk. Correlation and beta against BTC over the trailing
+          # window, computed from recorded closes. The sizer reads these to cap a book
+          # that is fifteen names and one bet; nothing else does.
+          "corr_btc", "beta_btc", "corr_obs",
+          # Module I — the asset against its own liquidity history rather than against
+          # the universe. A cross-sectional screen flags the same illiquid names every
+          # night; this flags the night a normally-liquid name stops trading.
+          "turnover_z", "liq_shock",
+          # Module J — search attention against model conviction. `tmd_divergence` is
+          # positive when the crowd ranks a name higher than this model does. Empty for
+          # anything not on tonight's trending list, which is most of the board.
+          "trending_rank", "tmd_divergence", "tmd_label"]
 
 # Dune Analytics (Module B: vesting / emission-vs-adoption ERA).
 # Key is read ONLY from env DUNE_API_KEY (supplied by the CI secret). Never hardcoded.
@@ -167,6 +193,13 @@ def _load_funding():
 
 funding = _load_funding()
 cryptometer = _load_sibling("cryptometer.py", "cm_client")
+# Neither of these reaches score(), so neither is captured in the specification hash.
+# coingecko.py supplies market context (trending, sectors, macro anchors, on-chain
+# depth); quant.py derives readings from bars this pipeline already recorded. Loaded the
+# same way as the other two so a fresh CI checkout cannot serve a stale .pyc for them
+# either — the reasoning in _load_funding applies to any sibling, not just the scored one.
+coingecko = _load_sibling("coingecko.py", "cm_coingecko")
+quant = _load_sibling("quant.py", "cm_quant")
 
 
 # ---------------------------------------------------------------------------
@@ -174,8 +207,15 @@ cryptometer = _load_sibling("cryptometer.py", "cm_client")
 # ---------------------------------------------------------------------------
 # Every function whose text can change a published score. Named here rather than
 # inferred, so adding a scoring function is a deliberate act that shows up in review.
-SPEC_FUNCTIONS = ("score", "_lavl_regime", "lavl_perp_mult", "_tier_for")
-SPEC_CONSTANTS = ("TIER_CUTS", "STABLES")
+SPEC_FUNCTIONS = ("score", "_lavl_regime", "lavl_perp_mult", "_tier_for",
+                  # Module F. Captured for the same reason the funding curve is:
+                  # emission_mult multiplies the published score, so an edit to
+                  # either the severity curve or its envelope must re-segment the
+                  # track record rather than quietly reinterpret it.
+                  "emission_drag", "emission_mult")
+SPEC_CONSTANTS = ("TIER_CUTS", "STABLES",
+                  "EMISSION_FREE_RATIO", "EMISSION_ANCHOR_RATIO",
+                  "EMISSION_ANCHOR_SEVERITY", "EMISSION_MAX_PENALTY")
 
 # The same, for funding.py. lavl_perp_mult is a two-line delegation, so without this the
 # specification would capture the *call* and none of the arithmetic behind it: the
@@ -424,6 +464,20 @@ def dune_context(rec: dict | None, market_cap: float | None) -> dict:
     return out
 
 
+def _median(values):
+    """Median of the readable values, or None when none are. Not a mean, deliberately.
+
+    Used for the board's funding temperature, where the distribution has a fat right
+    tail: one asset printing a 900% annualised squeeze would drag a mean far enough to
+    describe a board that does not exist.
+    """
+    vals = sorted(v for v in (_num(x) for x in (values or [])) if v is not None)
+    if not vals:
+        return None
+    mid = len(vals) // 2
+    return round(vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2, 4)
+
+
 def _num(v):
     try:
         return float(v) if v not in (None, "") else None
@@ -431,24 +485,35 @@ def _num(v):
         return None
 
 
-def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5) -> list[dict]:
+def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5,
+                  session: dict | None = None) -> list[dict]:
     """Fetch the full universe in chunked pages with exponential backoff on 429.
 
     Splits `total` coins across multiple /coins/markets pages (CoinGecko caps
     per_page at 250 and rate-limits free keys), sleeping between calls so the
     job stays under the per-IP budget. On HTTP 429 it backs off and retries.
+
+    ``session`` is a resolved credential from ``coingecko.open_session``. Passing one
+    sends the key on every page, which is the entire point of configuring it: the
+    backoff loop below exists because the keyless tier answers 429, and a page that
+    exhausts its retries is silently dropped — the board is then scored over half a
+    universe and nothing in the artifact says so. Omitting the session keeps the old
+    keyless behaviour exactly, so this is additive and a missing secret degrades rather
+    than breaks.
     """
     import time
     out: list[dict] = []
+    host = (session or {}).get("host") or CG_BASE
+    headers = {"User-Agent": "conviction-monitor/1.0", **((session or {}).get("headers") or {})}
     pages = max(1, (total + per_page - 1) // per_page)
     for page in range(1, pages + 1):
-        url = (f"{CG_BASE}/coins/markets?vs_currency=usd"
+        url = (f"{host}/coins/markets?vs_currency=usd"
                f"&order=market_cap_desc&per_page={per_page}&page={page}"
                f"&price_change_percentage=24h,7d,14d,30d,200d")
         backoff = 5.0
         for attempt in range(4):
             try:
-                data = _get_json(url)
+                data = _get_json(url, headers)
                 if isinstance(data, list):
                     out.extend(data)
                 break
@@ -466,6 +531,73 @@ def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5) -> 
             print(f"[warn] page {page} gave up after retries", file=__import__("sys").stderr)
         time.sleep(delay)
     return out
+
+
+# ---------------------------------------------------------------------------
+# supply overhang (Module F) — the second thing that reaches the score
+# ---------------------------------------------------------------------------
+# Until now the only non-market input to conviction was the funding modifier. This is
+# the second, and it is here because the defect it removes is structural rather than
+# incidental: a low-float token and a fully-circulating one with the same market cap,
+# the same turnover and the same relative strength scored identically, and they are not
+# the same asset. One of them has its entire remaining supply still to issue.
+#
+# The gate already knew this. `_conjunctive_gate` refuses anything with FDV/MC above
+# 2.0, which is a cliff at exactly the wrong place: 1.99 was waved through unpenalised
+# and 2.01 was excluded outright, and nothing in between was expressed at all. A binary
+# admission test is not a way of pricing a continuous risk.
+#
+# What is being priced: FDV/MC is the multiple by which supply expands if every
+# scheduled token is issued. It is not a forecast of when. That distinction is why the
+# penalty is capped well below the funding modifier's — dilution is a headwind with an
+# unknown date, and an unknown date is not worth a large multiplier.
+EMISSION_FREE_RATIO = 1.10      # at or below: effectively fully circulating, no drag
+EMISSION_ANCHOR_RATIO = 3.0     # a 3x float expansion carries EMISSION_ANCHOR_SEVERITY
+EMISSION_ANCHOR_SEVERITY = 0.75
+EMISSION_MAX_PENALTY = 0.90     # the whole envelope: at most a 10% haircut, ever
+
+
+def emission_drag(fdv, market_cap) -> float | None:
+    """Supply overhang as a 0..1 severity, or None when it was not observed.
+
+    ``None`` and ``0.0`` are different readings and must not collapse. A token whose FDV
+    CoinGecko does not publish — which is every token with no fixed maximum supply, and
+    a good number with one — has an *unknown* overhang, and scoring it as though it were
+    fully circulating would hand the least transparent assets on the board the best
+    supply grade. Unknown returns None here and a neutral 1.0 downstream, which is the
+    only reading the data supports.
+
+    The curve is tanh over the log of the expansion multiple, scaled from the two
+    anchors above rather than fitted by hand, so moving an anchor moves the whole curve
+    coherently. Log because the difference between 1.2x and 2.4x float expansion is the
+    same *kind* of difference as between 4x and 8x, and a linear read makes a 40x
+    vesting cliff forty times worse than a 1x one instead of asymptotically worse.
+    """
+    fdv = _num(fdv)
+    mc = _num(market_cap)
+    if fdv is None or mc is None or fdv <= 0 or mc <= 0:
+        return None
+    ratio = fdv / mc
+    if ratio <= EMISSION_FREE_RATIO:
+        return 0.0
+    scale = (math.log(EMISSION_ANCHOR_RATIO / EMISSION_FREE_RATIO)
+             / math.atanh(EMISSION_ANCHOR_SEVERITY))
+    return round(math.tanh(math.log(ratio / EMISSION_FREE_RATIO) / scale), 6)
+
+
+def emission_mult(fdv, market_cap) -> float:
+    """The conviction multiplier the overhang earns. Neutral 1.0 when unobserved.
+
+    Deliberately a separate function from :func:`emission_drag` rather than one that
+    returns both, because this is the half that is captured in the specification hash
+    and the half whose edit re-segments the track record. Keeping the severity curve and
+    the envelope in one function would mean a change to either could not be told from a
+    change to the other by reading the diff.
+    """
+    d = emission_drag(fdv, market_cap)
+    if d is None:
+        return 1.0
+    return round(1.0 - (1.0 - EMISSION_MAX_PENALTY) * d, 4)
 
 
 def score(t: dict, perps_map: dict | None = None,
@@ -540,6 +672,12 @@ def score(t: dict, perps_map: dict | None = None,
             a_frac = max(2.0, 8 - (turnover - 1.20) * 4) / 30.0
         a_frac = max(0.4, a_frac)  # never zero out a name; cap the haircut at 60%
     risk = a_frac
+    # Module F. Applied unconditionally, unlike the perp overlay: supply overhang is a
+    # property of the token's own schedule and does not depend on a derivatives feed
+    # existing. Unobserved FDV returns exactly 1.0, so an asset is never marked down for
+    # a disclosure CoinGecko does not publish.
+    em = emission_mult(t.get("fully_diluted_valuation"), mc)
+    risk *= em
     if perps_map is not None:
         risk *= lavl_perp_mult((t.get("symbol") or "").upper(), perps_map)
 
@@ -554,6 +692,11 @@ def score(t: dict, perps_map: dict | None = None,
         "rs30": round(rs[30], 2), "rs200": round(rs[200], 2),
         "perp_mult": round(lavl_perp_mult((t.get("symbol") or "").upper(),
                                            perps_map or {}), 3),
+        # Published beside the multiplier it produced. A 0.94 on screen cannot
+        # distinguish "a 2.6x float expansion" from "the feed was absent", and those are
+        # opposite facts about a token's supply.
+        "emission_mult": em,
+        "emission_drag": emission_drag(t.get("fully_diluted_valuation"), mc),
     }
     return era, total, sig, comp
 
@@ -865,7 +1008,16 @@ def perp_context(ticker: str, perps_map: dict, market_cap, price_chg_pct,
     }
 
 
-def fetch_global_market_cap() -> float | None:
+# The credential main() resolved, for the two call sites buried inside build_basket and
+# _write_index_row. Threading a session argument down through both would change three
+# public signatures that the test suite and the validator already call positionally, to
+# carry one optional header — so it is a module global that main() sets once and that
+# stays None everywhere else. None means keyless, which is exactly what those functions
+# did before this existed.
+CG_SESSION: dict | None = None
+
+
+def fetch_global_market_cap(session: dict | None = None) -> float | None:
     """Total crypto market cap (USD) from CoinGecko's free /global endpoint.
 
     Used as the apples-to-apples macro benchmark: benchmark_total_return is
@@ -873,7 +1025,11 @@ def fetch_global_market_cap() -> float | None:
     Returns None on failure so the benchmark falls back to neutral (no fabrication).
     """
     try:
-        data = _get_json("https://api.coingecko.com/api/v3/global")
+        sess = session if session is not None else CG_SESSION
+        host = (sess or {}).get("host") or CG_BASE
+        data = _get_json(f"{host}/global",
+                         {"User-Agent": "conviction-monitor/1.0",
+                          **((sess or {}).get("headers") or {})})
         return float(data.get("data", {}).get("total_market_cap", {}).get("usd", 0) or 0) or None
     except Exception as e:  # noqa: BLE001
         print(f"[global] fetch failed: {e}", file=__import__("sys").stderr)
@@ -1937,6 +2093,258 @@ def _chop_by_symbol() -> dict:
     return out
 
 
+# ---------------------------------------------------------------------------
+# ledger -> series (the inputs every quant.py reading takes)
+# ---------------------------------------------------------------------------
+# One pass over signals.csv builds all of them. The first version of this read the file
+# once per indicator, which on a 940-row ledger is cheap and on a 90-night one is four
+# full scans a night for no reason; more to the point, four readers can disagree about
+# which rows are usable and produce indicators computed over different subsets of the
+# same history.
+def _series_from_ledger(rows: list[dict] | None = None) -> dict:
+    """Bars, closes, turnover, ranks and RSI per symbol, oldest first.
+
+    Returns ``{"bars":, "closes":, "turnover":, "quality":, "dates":}``.
+
+    ``bars`` requires high/low/close all present, which is a stricter test than the
+    others and deliberately so: a bar missing its range is not a bar, and admitting it
+    with the close substituted for both would feed ADX a zero true range and quietly
+    depress every reading downstream. That gap is real in this ledger — high_24h and
+    low_24h were appended as columns partway through, so the bar series is shorter than
+    the close series and the indicators that need bars say so.
+    """
+    rows = _read_signals_rows() if rows is None else rows
+    rows = sorted(rows, key=lambda r: (r.get("date") or "", r.get("symbol") or ""))
+    bars: dict[str, list] = {}
+    closes: dict[str, list] = {}
+    turnover: dict[str, list] = {}
+    quality: dict[str, list] = {}
+    by_date: dict[str, list] = {}
+    for r in rows:
+        d = r.get("date") or ""
+        if d:
+            by_date.setdefault(d, []).append(r)
+    # Market-cap rank is recomputed per night rather than read: the ledger stores caps,
+    # not ranks, and a rank taken from row order would be a conviction rank wearing a
+    # market-cap label — the rows are written sorted by conviction.
+    rank_of = {}
+    for d, day in by_date.items():
+        ordered = sorted(day, key=lambda r: -(_num(r.get("market_cap")) or 0))
+        for i, r in enumerate(ordered, start=1):
+            rank_of[(d, (r.get("symbol") or "").upper())] = i
+    for r in rows:
+        sym = (r.get("symbol") or "").upper()
+        if not sym:
+            continue
+        d = r.get("date") or ""
+        h, lo, c = _num(r.get("high_24h")), _num(r.get("low_24h")), _num(r.get("price"))
+        if None not in (h, lo, c):
+            bars.setdefault(sym, []).append({"high": h, "low": lo, "close": c, "date": d})
+        if c is not None and c > 0:
+            closes.setdefault(sym, []).append(c)
+            quality.setdefault(sym, []).append(
+                {"date": d, "close": c, "rank": rank_of.get((d, sym)),
+                 "rsi7": _num(r.get("rsi7"))})
+        t = _num(r.get("turnover_pct"))
+        if t is not None:
+            turnover.setdefault(sym, []).append(t)
+    return {"bars": bars, "closes": closes, "turnover": turnover,
+            "quality": quality, "dates": sorted(by_date)}
+
+
+def _trend_structure(series: dict) -> dict:
+    """ADX, ATR and the strategy label per symbol, joined to the choppiness reading.
+
+    ``{SYMBOL: {adx, plus_di, minus_di, regime, bars, needed, atr14, strategy, ...}}``.
+    Every entry is present even when nothing could be computed, because the terminal
+    needs to render "accumulating (9/29)" for those and cannot do that from an absent
+    key.
+    """
+    chop = _chop_by_symbol()
+    out = {}
+    for sym, seq in (series.get("bars") or {}).items():
+        a = quant.adx(seq)
+        st = quant.strategy_for((chop.get(sym) or {}).get("regime"), a)
+        out[sym] = {**a, "atr14": quant.atr(seq),
+                    "chop": (chop.get(sym) or {}).get("chop"),
+                    "chop_regime": (chop.get(sym) or {}).get("regime"),
+                    "strategy": st["strategy"], "strategy_basis": st["basis"],
+                    "strategy_confidence": st["confidence"]}
+    return out
+
+
+def _read_csv_rows(path: Path, fields: list) -> list[dict]:
+    """Rows of one of the append-only context ledgers, normalised onto its fields."""
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8") as f:
+        return [{k: r.get(k) for k in fields} for r in csv.DictReader(f)]
+
+
+def _append_context_rows(path: Path, fields: list, today: str, rows: list[dict]) -> int:
+    """Replace today's rows in an append-only context ledger and rewrite it.
+
+    Replace rather than append, for the reason main() already documents for
+    signals.csv: a second run on the same day otherwise records that day twice, and
+    anything reading the file as a daily series then computes a 7-day flow across a
+    window that contains one day nine times. Prior days are untouched.
+    """
+    kept = [r for r in _read_csv_rows(path, fields) if r.get("date") != today]
+    fresh = [{k: r.get(k) for k in fields} for r in rows]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(kept + fresh)
+    return len(fresh)
+
+
+# ---------------------------------------------------------------------------
+# market intelligence artifact
+# ---------------------------------------------------------------------------
+# How many names the correlation matrix covers. The matrix is O(n^2) to compute and to
+# render, and its purpose is to say whether the *book* is one bet — so it is taken over
+# the names the book could hold, not over the 250-name universe where most pairs are
+# between two things nobody would own together.
+CORR_BOARD_N = 20
+
+
+def _compute_market_intel(feeds: dict, series: dict, conviction_by_symbol: dict,
+                          today: str, board_syms: list | None = None) -> dict:
+    """Everything the terminal's context panels read, in one artifact.
+
+    Assembled here rather than in main() because every piece of it is a join between a
+    feed report and the recorded ledger, and those joins have rules — which symbols the
+    correlation matrix covers, what the sector flow's lookback actually spans, whether
+    the stablecoin regime has a prior night to compare against. Rules belong somewhere a
+    test can call them with fixtures.
+
+    Every section carries the status of the feed behind it. A panel whose feed failed
+    renders as unavailable and says which failure it was; it does not render as empty,
+    which is indistinguishable from a market where nothing is happening.
+    """
+    def rep(name):
+        return (feeds or {}).get(name) or {"status": "absent", "detail": "feed not run",
+                                           "data": {}}
+
+    trending_rep, cats_rep = rep("trending"), rep("categories")
+    global_rep, stable_rep, dex_rep = rep("global"), rep("stablecoins"), rep("dex")
+    gdata = global_rep.get("data") or {}
+    sdata = stable_rep.get("data") or {}
+
+    # --- sectors -----------------------------------------------------------
+    sector_hist = _read_csv_rows(SECTORS_CSV, SECTOR_FIELDS)
+    for r in sector_hist:
+        r["mcap"] = _num(r.get("mcap"))
+    rotation = quant.sector_rotation(cats_rep.get("data") or {}, sector_hist,
+                                     gdata.get("mcap_chg_24h"))
+
+    # --- macro: today against the recorded macro ledger ---------------------
+    macro_hist = _read_csv_rows(MACRO_CSV, MACRO_FIELDS)
+    prior = [r for r in macro_hist if (r.get("date") or "") != today]
+    prior.sort(key=lambda r: r.get("date") or "")
+    # Seven nights back where seven exist, otherwise the oldest recorded. The lookback
+    # actually used is reported, never assumed: "stable float +2% over 7d" and the same
+    # number over 2d are different claims and only one of them is the label.
+    lookback = prior[-7] if len(prior) >= 7 else (prior[0] if prior else None)
+    lookback_days = (len(prior) - prior.index(lookback)) if lookback else 0
+    stable_float_chg = None
+    if lookback and sdata.get("total_mcap"):
+        base = _num(lookback.get("stable_mcap"))
+        if base and base > 0:
+            stable_float_chg = round((sdata["total_mcap"] / base - 1.0) * 100, 3)
+    stable = quant.stablecoin_regime(sdata.get("velocity"), stable_float_chg,
+                                     lookback_days)
+
+    # --- correlation over the names the book could hold ---------------------
+    ranked = sorted(((v, k) for k, v in (conviction_by_symbol or {}).items()
+                     if v is not None), reverse=True)
+    universe = list(board_syms) if board_syms else [sym for _, sym in ranked[:CORR_BOARD_N]]
+    universe = [s for s in universe if s in (series.get("closes") or {})]
+    if "BTC" not in universe and "BTC" in (series.get("closes") or {}):
+        # The benchmark has to be in the matrix for a beta to exist at all. Added
+        # explicitly rather than assumed present: BTC is not always inside the top 20 by
+        # conviction, and on the nights it is not, every beta silently became None.
+        universe.append("BTC")
+    corr = quant.correlation_report({s: series["closes"][s] for s in universe})
+
+    # --- trending divergence ------------------------------------------------
+    tmd = quant.trending_divergence(trending_rep.get("data") or {}, conviction_by_symbol)
+
+    # --- fallen kings -------------------------------------------------------
+    kings = quant.fallen_kings(series.get("quality") or {})
+
+    # --- on-chain rotation --------------------------------------------------
+    dex_hist = _read_csv_rows(DEX_CSV, DEX_FIELDS)
+    dex_by_net: dict[str, list] = {}
+    for r in dex_hist:
+        if (r.get("date") or "") != today and r.get("network"):
+            dex_by_net.setdefault(r["network"], []).append(r)
+    dex_rows = []
+    for net, rec in (dex_rep.get("data") or {}).items():
+        hist = sorted(dex_by_net.get(net) or [], key=lambda r: r.get("date") or "")
+        window = hist[-7:]
+        base = next((_num(r.get("volume_24h")) for r in window
+                     if _num(r.get("volume_24h"))), None)
+        flow = (round((rec["volume_24h"] / base - 1.0) * 100, 2)
+                if (base and base > 0 and rec.get("volume_24h")) else None)
+        dex_rows.append({**rec, "volume_flow_pct": flow, "flow_days": len(window)})
+    dex_rows.sort(key=lambda r: -(r.get("volume_24h") or 0))
+
+    # --- liquidity shocks ---------------------------------------------------
+    shocks = {}
+    for sym, vals in (series.get("turnover") or {}).items():
+        rec = quant.liquidity_shock(vals)
+        if rec["z"] is not None:
+            shocks[sym] = rec
+
+    return {
+        "date": today,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "spec_hash": SPEC_HASH,
+        "session": (feeds or {}).get("_session") or {},
+        "feeds": {n: {"status": r["status"], "detail": r["detail"],
+                      "http_status": r.get("http_status")}
+                  for n, r in (("trending", trending_rep), ("categories", cats_rep),
+                               ("global", global_rep), ("stablecoins", stable_rep),
+                               ("dex", dex_rep))},
+        "macro": {
+            **{k: gdata.get(k) for k in
+               ("total_mcap", "total_mcap_ex_btc", "total_volume", "btc_dominance",
+                "eth_dominance", "eth_btc_dominance_ratio", "mcap_chg_24h")},
+            "stable_mcap": sdata.get("total_mcap"),
+            "stable_volume": sdata.get("total_volume"),
+            "stable_velocity": sdata.get("velocity"),
+            "stable_issuers": sdata.get("issuers") or [],
+            "stable_regime": stable,
+            "lookback_days": lookback_days,
+            "history_nights": len(prior) + 1,
+        },
+        "sectors": rotation,
+        "correlation": corr,
+        "trending": tmd,
+        "fallen_kings": kings,
+        "dex": {"networks": dex_rows, "status": dex_rep["status"],
+                "detail": dex_rep["detail"]},
+        "liquidity_shocks": shocks,
+        "thresholds": {
+            "adx_trending": quant.ADX_TRENDING, "adx_weak": quant.ADX_WEAK,
+            "adx_min_bars": quant.ADX_MIN_BARS,
+            "corr_cluster": quant.CORR_CLUSTER, "corr_min_obs": quant.CORR_MIN_OBS,
+            "tmd_crowded_gap": quant.TMD_CROWDED_GAP,
+            "tmd_quiet_gap": quant.TMD_QUIET_GAP,
+            "liq_shock_z": quant.LIQ_SHOCK_Z,
+            "fallen_min_dd": quant.FALLEN_MIN_DD, "fallen_max_dd": quant.FALLEN_MAX_DD,
+            "stable_velocity_hot": quant.STABLE_VELOCITY_HOT,
+            "emission_free_ratio": EMISSION_FREE_RATIO,
+            "emission_anchor_ratio": EMISSION_ANCHOR_RATIO,
+            "emission_max_penalty": EMISSION_MAX_PENALTY,
+            "impact_coeff": quant.IMPACT_COEFF,
+            "spread_bps": quant.DEFAULT_SPREAD_BPS,
+        },
+    }
+
+
 # Conviction at or above this counts as the model backing a name. Matches the BUY cut in
 # TIER_CUTS; kept as its own constant so a change here is a deliberate reporting choice
 # rather than something that follows silently from a scoring edit.
@@ -2403,6 +2811,28 @@ MONITOR_JSON = LEDGER_DIR / "monitor.json"
 # the CSV to carry them would put JSON inside a CSV cell. The flat, per-asset fields
 # that *do* fit are in FIELDS as columns; this file is the structured view beside them.
 FUNDING_JSON = LEDGER_DIR / "funding.json"
+# Market context, same reasoning as FUNDING_JSON above: the sector matrix is a ranked
+# list, the correlation matrix is a square of squares, and the trending panel is keyed
+# on symbols that are mostly NOT on the board. None of that is one row per (date,
+# symbol), and forcing it into the CSV would mean JSON inside CSV cells.
+MARKET_INTEL_JSON = LEDGER_DIR / "market_intel.json"
+# Three append-only ledgers, because three of the new readings are multi-day and their
+# sources publish no history at all. /coins/categories has a 24h column and nothing
+# else; /global is a snapshot; GeckoTerminal's pool volume is a rolling 24h window.
+# A "7d sector rotation" therefore cannot be fetched — it can only be accumulated, one
+# night at a time, exactly as the choppiness bars were. These files are that
+# accumulation, and until they are a week long every multi-day column reads as
+# accumulating rather than as a number.
+SECTORS_CSV = LEDGER_DIR / "sectors.csv"
+MACRO_CSV = LEDGER_DIR / "macro.csv"
+DEX_CSV = LEDGER_DIR / "dex.csv"
+SECTOR_FIELDS = ["date", "category_id", "name", "mcap", "volume_24h", "turnover",
+                 "chg24h", "rs24h", "coins_count"]
+MACRO_FIELDS = ["date", "total_mcap", "total_mcap_ex_btc", "total_volume",
+                "btc_dominance", "eth_dominance", "eth_btc_dominance_ratio",
+                "mcap_chg_24h", "stable_mcap", "stable_volume", "stable_velocity",
+                "stable_regime", "funding_heat_apr", "board_mean_conviction"]
+DEX_FIELDS = ["date", "network", "pools", "reserve_usd", "volume_24h", "vlr"]
 REBALANCE_DAYS = 7
 # Rebalance hysteresis (A): don't eject a holding just because it slipped one
 # rank. Keep it unless it drops to rank >= EJECT_RANK or its score falls more
@@ -2755,7 +3185,17 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
 
 
 def main() -> int:
+    global CG_SESSION
     today = date.today().isoformat()
+
+    # The credential first, because fetch_markets is the very next network call and it
+    # is the one that has actually been losing pages to HTTP 429. The plan is probed
+    # rather than assumed — see coingecko.open_session — and the result is printed, so a
+    # secret that is set but refused reads as "refused" in the log rather than as an
+    # unexplained rate limit three weeks later.
+    CG_SESSION = coingecko.open_session()
+    print(f"[cg] session: {CG_SESSION['plan']} / {CG_SESSION['status']} — "
+          f"{CG_SESSION['detail']}", file=__import__("sys").stderr)
 
     # Module B (Dune). The report, not just the data — a configured query pointing at
     # the wrong thing produces the same empty table as no configuration at all, and the
@@ -2768,7 +3208,7 @@ def main() -> int:
              if dune_report.get("columns") else ""),
           file=__import__("sys").stderr)
 
-    markets = fetch_markets()
+    markets = fetch_markets(session=CG_SESSION)
     scored_syms = {(t.get("symbol") or "").upper() for t in markets
                    if (t.get("symbol") or "").upper() and (t.get("symbol") or "").upper() not in STABLES}
     # One funding fetch, across four venues. There used to be two: fetch_perps_map hit
@@ -2894,6 +3334,64 @@ def main() -> int:
         if sym in perps_map:
             perps_map[sym]["price_chg_24h"] = t.get("price_change_percentage_24h")
             perps_map[sym]["rsi7"] = rsi_map.get(sym)
+    # --- market context ----------------------------------------------------
+    # Fetched before the row loop because two of its readings are per-row columns, and
+    # after the derivatives feed because it is the lower-priority of the two: if the
+    # rate limit is going to bite tonight, it should bite the context panels rather than
+    # the funding modifier that actually moves scores.
+    intel_feeds = coingecko.fetch_all(CG_SESSION)
+    for name, rep in intel_feeds["feeds"].items():
+        code = f" [HTTP {rep['http_status']}]" if rep.get("http_status") else ""
+        print(f"[cg] {name}: {rep['status']} — {rep['detail']}{code}",
+              file=__import__("sys").stderr)
+    trending_data = (intel_feeds["feeds"].get("trending") or {}).get("data") or {}
+    global_data = (intel_feeds["feeds"].get("global") or {}).get("data") or {}
+
+    # Everything quant.py reads, from one pass over the ledger. Read BEFORE tonight's
+    # row is written, so every trailing reading describes the history a decision would
+    # actually have been made against rather than one that already contains its own
+    # outcome.
+    series = _series_from_ledger()
+    trend = _trend_structure(series)
+    n_adx = sum(1 for v in trend.values() if v.get("adx") is not None)
+    print(f"[quant] trend structure for {len(trend)} symbol(s); {n_adx} have the "
+          f"{quant.ADX_MIN_BARS} bars a {quant.ADX_PERIOD}-period ADX needs",
+          file=__import__("sys").stderr)
+
+    # Correlation and beta against BTC across the WHOLE board rather than the top 20 the
+    # matrix covers, because these are per-row columns and a column that is populated
+    # for twenty rows and empty for thirty looks like a broken feed rather than a
+    # deliberate scope.
+    btc_rets = quant.log_returns(
+        (series["closes"].get("BTC") or [])[-(quant.CORR_WINDOW + 1):])
+    corr_btc, beta_btc, corr_obs = {}, {}, {}
+    for sym, closes in series["closes"].items():
+        r = quant.log_returns(closes[-(quant.CORR_WINDOW + 1):])
+        corr_obs[sym] = min(len(r), len(btc_rets))
+        if sym == "BTC":
+            corr_btc[sym], beta_btc[sym] = 1.0, 1.0
+            continue
+        corr_btc[sym] = quant.pearson(r, btc_rets)
+        beta_btc[sym] = quant.beta(r, btc_rets)
+    n_corr = sum(1 for v in corr_btc.values() if v is not None)
+    print(f"[quant] BTC correlation for {n_corr}/{len(corr_btc)} symbol(s) over "
+          f"<= {quant.CORR_WINDOW} nights ({len(btc_rets)} BTC returns available)",
+          file=__import__("sys").stderr)
+
+    # Liquidity shock takes tonight's turnover as the observation and the ledger as the
+    # baseline, so it is computed here where tonight's value exists rather than inside
+    # _series_from_ledger where it does not.
+    live_turnover = {
+        (t.get("symbol") or "").upper():
+            round((t.get("total_volume") or 0) / t["market_cap"] * 100, 2)
+        for t in markets if t.get("market_cap")}
+    shock = {sym: quant.liquidity_shock(vals, live_turnover.get(sym))
+             for sym, vals in series["turnover"].items()}
+    n_shock = sum(1 for v in shock.values() if v.get("shock"))
+    print(f"[quant] {n_shock} symbol(s) show a turnover collapse of "
+          f"{quant.LIQ_SHOCK_Z} sigma or worse against their own baseline",
+          file=__import__("sys").stderr)
+
     # BTC = market-neutral reference for multi-timeframe relative strength.
     btc = next((m for m in markets if (m.get("symbol") or "").upper() == "BTC"), None)
     basket = build_basket(markets, today, btc)
@@ -2957,8 +3455,50 @@ def main() -> int:
             "liq_longs_usd": (liq_map.get(sym) or {}).get("longs_usd"),
             "liq_shorts_usd": (liq_map.get(sym) or {}).get("shorts_usd"),
             "liq_imbalance": (liq_map.get(sym) or {}).get("imbalance"),
+            # Module F. emission_mult is the multiplier score() applied a few lines
+            # above; emission_drag is the severity behind it and fdv_usd is the input
+            # both came from. All three, because a modifier recorded without its input
+            # cannot be re-derived, and an empty drag has to be distinguishable from a
+            # zero one — see the FIELDS comment.
+            "emission_drag": comp["emission_drag"],
+            "emission_mult": comp["emission_mult"],
+            "fdv_usd": t.get("fully_diluted_valuation"),
+            # Module G — observational.
+            **{k: (trend.get(sym) or {}).get(v) for k, v in
+               (("adx", "adx"), ("plus_di", "plus_di"), ("minus_di", "minus_di"),
+                ("adx_regime", "regime"), ("adx_bars", "bars"), ("atr14", "atr14"),
+                ("strategy", "strategy"))},
+            # Module H — observational.
+            "corr_btc": corr_btc.get(sym),
+            "beta_btc": beta_btc.get(sym),
+            "corr_obs": corr_obs.get(sym),
+            # Module I — observational.
+            "turnover_z": (shock.get(sym) or {}).get("z"),
+            "liq_shock": (shock.get(sym) or {}).get("shock"),
+            # Module J. Filled after the loop, once the board has been ranked — the
+            # divergence is between two RANKINGS and neither exists per row.
+            "trending_rank": None, "tmd_divergence": None, "tmd_label": None,
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
+
+    # Module J, now that conviction exists for every row. The intel artifact is built
+    # from the same call so the per-row columns and the panel can never disagree about
+    # which ranking they compared against.
+    conv_map = {r["symbol"]: r["conviction"] for r in rows}
+    intel = _compute_market_intel(
+        {**intel_feeds["feeds"], "_session": intel_feeds["session"]},
+        series, conv_map, today, board_syms=[r["symbol"] for r in rows[:CORR_BOARD_N]])
+    tmd_by_sym = {a["symbol"]: a for a in (intel["trending"].get("assets") or [])}
+    for r in rows:
+        a = tmd_by_sym.get(r["symbol"])
+        if a:
+            r["trending_rank"] = a["trending_rank"]
+            r["tmd_divergence"] = a["divergence"]
+            r["tmd_label"] = a["label"]
+    n_tmd = sum(1 for r in rows if r["trending_rank"] is not None)
+    print(f"[quant] {n_tmd} board name(s) also appear on the trending list of "
+          f"{intel['trending'].get('n_trending', 0)}",
+          file=__import__("sys").stderr)
 
     LEDGER_DIR.mkdir(parents=True, exist_ok=True)
     # Replace today's rows rather than appending them. A blind append made a second run
@@ -3120,6 +3660,59 @@ def main() -> int:
     print(f"[funding] {len(applied)} asset(s) carried a non-neutral score modifier"
           + (": " + ", ".join(f"{k} x{v}" for k, v in sorted(applied.items()))
              if applied else " — every asset scored at 1.0"))
+
+    # --- market context artifacts ------------------------------------------
+    # The three append-only ledgers first, then the derived artifact. Order matters
+    # only in that the CSVs are what tomorrow's multi-day columns will read; tonight's
+    # `intel` was computed against the file as it stood BEFORE this write, which is
+    # correct — a 7d sector flow must not include tonight's row at both ends of its own
+    # window.
+    n_sec = _append_context_rows(SECTORS_CSV, SECTOR_FIELDS, today, [
+        {"date": today, "category_id": r["id"], "name": r["name"], "mcap": r["mcap"],
+         "volume_24h": r["volume_24h"], "turnover": r["turnover"],
+         "chg24h": r["chg24h"], "rs24h": r["rs24h"], "coins_count": r["coins_count"]}
+        for r in intel["sectors"]["sectors"]])
+    m = intel["macro"]
+    _append_context_rows(MACRO_CSV, MACRO_FIELDS, today, [{
+        "date": today,
+        **{k: m.get(k) for k in ("total_mcap", "total_mcap_ex_btc", "total_volume",
+                                 "btc_dominance", "eth_dominance",
+                                 "eth_btc_dominance_ratio", "mcap_chg_24h",
+                                 "stable_mcap", "stable_volume", "stable_velocity")},
+        "stable_regime": (m.get("stable_regime") or {}).get("regime"),
+        # The board's own funding temperature, recorded beside the macro anchors so the
+        # ribbon reads one file. Median rather than mean: funding APR has a fat right
+        # tail and one 900% squeeze print would otherwise define the whole board's heat.
+        "funding_heat_apr": _median([r.get("funding_apr") for r in fresh]),
+        "board_mean_conviction": (round(sum(r["conviction"] for r in rows) / len(rows), 2)
+                                  if rows else None),
+    }])
+    n_dex = _append_context_rows(DEX_CSV, DEX_FIELDS, today, [
+        {"date": today, "network": r["network"], "pools": r["pools"],
+         "reserve_usd": r["reserve_usd"], "volume_24h": r["volume_24h"],
+         "vlr": r["vlr"]}
+        for r in intel["dex"]["networks"]])
+    MARKET_INTEL_JSON.write_text(json.dumps(intel, indent=2))
+    sec = intel["sectors"]
+    lead = sec["leaders"][0] if sec["leaders"] else None
+    print(f"[intel] {n_sec} sector(s), {n_dex} network(s), "
+          f"{len(intel['fallen_kings'])} fallen king(s), "
+          f"{len(intel['liquidity_shocks'])} liquidity reading(s)"
+          + (f" | leading sector: {lead['name']} "
+             f"{lead['rs24h'] if lead['rs24h'] is not None else lead['chg24h']:+.2f}%"
+             if lead else ""),
+          file=__import__("sys").stderr)
+    c = intel["correlation"]
+    if c.get("effective_n") is not None:
+        print(f"[intel] the top {c['n']} names behave like {c['effective_n']} "
+              f"independent bet(s) (mean pairwise r {c['mean_correlation']})",
+              file=__import__("sys").stderr)
+    else:
+        print(f"[intel] correlation pending — {c['n']} name(s) have "
+              f"{quant.CORR_MIN_OBS}+ overlapping returns", file=__import__("sys").stderr)
+    sr = intel["macro"]["stable_regime"]
+    print(f"[intel] fiat bridge: {sr.get('regime')} — {sr.get('basis')}",
+          file=__import__("sys").stderr)
 
     # Conviction time-series + breadth/dispersion/persistence (reviewer #3 + the
     # three differentiated signals). Derived purely from the signals ledger.

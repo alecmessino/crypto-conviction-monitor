@@ -125,7 +125,17 @@ def test_the_new_columns_are_appended_never_inserted():
            "funding_apr_trail", "funding_trail_n", "funding_pos_share",
            "perp_mult_trail",
            "liq_longs_usd", "liq_shorts_usd", "liq_imbalance",
-           "funding_interval_basis"]
+           "funding_interval_basis",
+           # Modules F-J, appended behind Modules 1-4 on exactly the same terms. Only
+           # the first two of these are scoring: emission_mult is what score()
+           # multiplied the risk term by, emission_drag is the severity behind it. The
+           # rest are observational — trend structure, systemic risk, the asset against
+           # its own liquidity history, and search attention against model conviction.
+           "emission_drag", "emission_mult", "fdv_usd",
+           "adx", "plus_di", "minus_di", "adx_regime", "adx_bars", "atr14", "strategy",
+           "corr_btc", "beta_btc", "corr_obs",
+           "turnover_z", "liq_shock",
+           "trending_rank", "tmd_divergence", "tmd_label"]
     assert nightly.FIELDS[-len(new):] == new
     old = nightly.FIELDS[:-len(new)]
     assert nightly.FIELDS[:len(old)] == old
@@ -352,4 +362,26 @@ def test_the_column_order_is_pinned_exhaustively():
         "liq_longs_usd", "liq_shorts_usd", "liq_imbalance",
         # Provenance of the interval behind funding_apr: reported / protocol / assumed.
         "funding_interval_basis",
+        # Module F — supply overhang, and the SECOND thing in this repository that
+        # reaches the score. emission_mult is the multiplier score() applied; emission_
+        # drag is the 0..1 severity it came from; fdv_usd is the input both derive from.
+        # All three, because a modifier recorded without its input cannot be re-derived,
+        # and because an EMPTY drag (FDV not published) and a ZERO drag (fully
+        # circulating) are different facts that one column would collapse.
+        "emission_drag", "emission_mult", "fdv_usd",
+        # Module G — trend structure from bars this pipeline recorded itself. adx_bars
+        # travels with the reading so the terminal renders "accumulating (9/29)" rather
+        # than an empty cell, which reads as a broken column. Observational.
+        "adx", "plus_di", "minus_di", "adx_regime", "adx_bars", "atr14", "strategy",
+        # Module H — correlation and beta to BTC over the trailing window. Read by the
+        # position sizer to cap a book that is fifteen names and one bet. Observational.
+        "corr_btc", "beta_btc", "corr_obs",
+        # Module I — the asset against its OWN liquidity baseline rather than against
+        # the universe. A cross-sectional screen flags the same illiquid names nightly;
+        # this flags the night a normally-liquid name stops trading. Observational.
+        "turnover_z", "liq_shock",
+        # Module J — search attention against model conviction. Positive divergence
+        # means the crowd ranks it above this model. Empty for anything off tonight's
+        # trending list, which is most of the board. Observational.
+        "trending_rank", "tmd_divergence", "tmd_label",
     ]

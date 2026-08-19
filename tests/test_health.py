@@ -149,8 +149,12 @@ def test_the_live_ledger_produces_a_usable_ribbon():
 
 
 def test_the_ribbon_does_not_touch_the_specification():
-    # d600984ec00b -> 596d414706be: the funding regime rewrite of lavl_perp_mult, which
-    # is a scoring change and correctly broke this pin. See tests/test_perps.py.
-    assert nightly.SPEC_HASH == "596d414706be"
+    # d600984ec00b -> 596d414706be: the funding regime rewrite of lavl_perp_mult.
+    # 596d414706be -> 2da60f7efd7b: Module F. `emission_mult` was added to score()'s risk term
+    # and `emission_drag`/`emission_mult` were captured as SPEC_FUNCTIONS, so a supply
+    # overhang now multiplies the published score. That is a scoring change and it is
+    # supposed to break this pin. A token with no published FDV is unaffected — the
+    # neutral path is asserted in tests/test_parity.py.
+    assert nightly.SPEC_HASH == "2da60f7efd7b"
     for fn in nightly.spec()["functions"].values():
         assert "_model_health" not in fn

@@ -656,6 +656,28 @@ function liquidityFit(turn){ // turn = vol/mc as a FRACTION (0.05 = 5%). Mirrors
 function momentum(chg){ if(chg==null||isNaN(chg))return 50; if(chg<-15)return 4; if(chg<0)return 12-Math.abs(chg)*0.6;
   if(chg<=8)return 14+chg*1.0; if(chg<=20)return 20; return Math.max(8,20-(chg-20)*1.0);}
 function depthScore(mc){ if(!mc)return 0; return Math.max(0,Math.min(1,(Math.log10(mc)-6)/4.0));}
+// Module F — supply overhang. Mirrors nightly.emission_drag / emission_mult exactly,
+// including the null/zero distinction: a token whose FDV the feed does not publish has
+// an UNKNOWN overhang and returns null here, which becomes a neutral 1.0 multiplier.
+// Scoring an unpublished schedule as "fully circulating" would give the least
+// transparent tokens on the board the best supply grade.
+const EMISSION_FREE_RATIO=1.10, EMISSION_ANCHOR_RATIO=3.0,
+      EMISSION_ANCHOR_SEVERITY=0.75, EMISSION_MAX_PENALTY=0.90;
+function _atanh(x){ return 0.5*Math.log((1+x)/(1-x)); }   // ES has no Math.atanh pre-ES6 targets
+function emissionDrag(fdv, mc){
+  fdv = (fdv==null||fdv===""||isNaN(fdv))?null:Number(fdv);
+  mc  = (mc==null||mc===""||isNaN(mc))?null:Number(mc);
+  if(fdv==null||mc==null||fdv<=0||mc<=0) return null;
+  const ratio = fdv/mc;
+  if(ratio<=EMISSION_FREE_RATIO) return 0;
+  const scale = Math.log(EMISSION_ANCHOR_RATIO/EMISSION_FREE_RATIO)/_atanh(EMISSION_ANCHOR_SEVERITY);
+  return Math.round(Math.tanh(Math.log(ratio/EMISSION_FREE_RATIO)/scale)*1e6)/1e6;
+}
+function emissionMult(fdv, mc){
+  const d = emissionDrag(fdv, mc);
+  if(d==null) return 1;
+  return Math.round((1-(1-EMISSION_MAX_PENALTY)*d)*1e4)/1e4;
+}
 function conviction(t, perp, rsBlend){ perp = perp||1; rsBlend = rsBlend||0; // rsBlend = blended RS vs BTC (0 if unknown)
   // v2 MULTIPLICATIVE: Quality x Confirmation x RiskAdjustment (replaces additive).
   // Kills the hard-momentum clamp collision (PUMP/HYPE no longer tie at 20).
@@ -671,11 +693,15 @@ function conviction(t, perp, rsBlend){ perp = perp||1; rsBlend = rsBlend||0; // 
   let a_frac;
   if (depth >= 0.90) a_frac = 1.0;
   else { a_frac = liquidityFit(turn)/30; a_frac = Math.max(0.4, a_frac); }
-  const risk = a_frac * perp;
+  // Module F applies unconditionally — it is a property of the token's own schedule and
+  // does not wait on a derivatives feed the way `perp` does.
+  const em = emissionMult(t.fdv, t.mc);
+  const risk = a_frac * em * perp;
   const conv = Math.max(0, Math.min(100, Math.round(100*depth*cm*risk)));
   const comp = {liquidity:Math.round(a_frac*30*10)/10, era:Math.round(b*10)/10, depth:Math.round(depth*20*10)/10,
                 momentum:Math.round(cm*20*10)/10, risk_adjustment:Math.round(risk*1000)/1000,
-                rsBlend:Math.round(rsBlend*100)/100};
+                rsBlend:Math.round(rsBlend*100)/100,
+                emission_mult:em, emission_drag:emissionDrag(t.fdv, t.mc)};
   return {conv, comp};
 }
 function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
@@ -700,7 +726,7 @@ function build(raw){
     const pct = tf => (t["price_change_percentage_"+tf+"d_in_currency"]||0) - btcPct(tf);
     const rs7=pct(7), rs14=pct(14), rs30=pct(30), rs200=pct(200);
     const rsBlend = rsBlendOf(t, btc);   // inside MODEL PORT — see the gate
-    const {conv, comp} = conviction({vol,mc,chg}, PERP[(t.symbol||"").toUpperCase()]||1, rsBlend);
+    const {conv, comp} = conviction({vol,mc,chg,fdv:t.fully_diluted_valuation}, PERP[(t.symbol||"").toUpperCase()]||1, rsBlend);
     const sig=signal(conv);
     // Mean-reversion Z (relative to all-time range, since free API lacks 30d MA).
     const ath=t.ath||0, atl=t.atl||0;

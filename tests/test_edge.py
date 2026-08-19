@@ -152,10 +152,12 @@ def test_the_edge_panel_does_not_touch_the_specification():
 
     Moved d600984ec00b -> 596d414706be when lavl_perp_mult was rewritten to read the
     interval-normalised funding APR and require a confirming input before adjusting.
-    That is a scoring change and it is supposed to break this line; see
-    tests/test_perps.py for the boundary it moved and what stays observational.
+    Moved again 596d414706be -> 2da60f7efd7b when Module F put a supply-overhang
+    multiplier into score()'s risk term. Both are scoring changes and both are supposed
+    to break this line; see tests/test_perps.py for the boundary each moved and what
+    stays observational.
     """
-    assert nightly.SPEC_HASH == "596d414706be"
+    assert nightly.SPEC_HASH == "2da60f7efd7b"
     captured = nightly.spec()["functions"]
     for fn in captured.values():
         for name in ("_edge_legs", "_compute_edge", "_active_contributions"):
