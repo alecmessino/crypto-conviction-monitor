@@ -323,6 +323,88 @@ def spec_hash() -> str:
 # assignment for why — it is not a style preference, it was a hole in the specification.
 
 
+# ---------------------------------------------------------------------------
+# specification equivalence
+# ---------------------------------------------------------------------------
+# Exactly one entry, and it is a correction to the INSTRUMENTATION rather than to the
+# model. It exists so twenty nights of otherwise-comparable history are not split into
+# two track records by a bug in the thing that measures track records.
+#
+# What happened: SPEC_HASH used to be assigned near the top of this module, before
+# TIER_CUTS and the four emission anchors were executed. spec() reads constants with
+# globals().get(), which returns None for anything not yet defined, so those five were
+# hashed as null on every row this repository has ever written.
+#
+# What was audited before adding this entry — every commit touching nightly.py from
+# 2026-08-02 to 2026-08-20, values extracted by AST rather than by diffing text:
+#
+#   TIER_CUTS      introduced 2026-08-08 (1e7a24b) as ((80,STRONG),(70,BUY),(55,HOLD),
+#                  (40,WATCH),(0,AVOID)) — the same cuts score() already applied as
+#                  literals, so a refactor rather than a re-valuation. NEVER changed
+#                  afterwards. It predates both SPEC_CONSTANTS (b0497e3, 2026-08-09)
+#                  and the first hashed night (2026-08-09).
+#   EMISSION_*     introduced 2026-08-19 (cd6db73) with Module F. NEVER changed since.
+#                  Their introduction is a real scoring change and is already segmented
+#                  by the function capture: e65f7dc59d55 -> 2da60f7efd7b.
+#
+# So across the entire hashed period no captured constant ever changed value, and the
+# null capture therefore hid nothing. The only pair of digests that describes one body
+# of scoring code twice is the one below, and the equality is proved rather than
+# asserted: 43f4b3f's only non-comment change to this file is the relocation of the
+# SPEC_HASH assignment, and spec()["functions"] is byte-identical either side of it.
+# tests/test_persistence.py re-derives 2da60f7efd7b from today's source on every run.
+#
+# This is NOT a general amnesty. d600984ec00b and e65f7dc59d55 were computed under the
+# same buggy instrumentation but describe genuinely different scoring code (no emission
+# multiplier at all), so they remain distinct segments and are deliberately absent here.
+SPEC_EQUIVALENT = {
+    "2da60f7efd7b": {
+        "canonical": "6f98778fa627",
+        "reason": "instrumentation",
+        # The hash HEAD produced when the equivalence was verified. The re-derivation
+        # test only runs while SPEC_HASH still equals this; past that point the entry is
+        # a frozen historical record and is asserted to be unmodified instead.
+        "verified_against": "6f98778fa627",
+        # The five the old ordering captured as None. Nulling exactly these in today's
+        # specification reproduces the superseded digest.
+        "null_constants": ("TIER_CUTS", "EMISSION_FREE_RATIO", "EMISSION_ANCHOR_RATIO",
+                           "EMISSION_ANCHOR_SEVERITY", "EMISSION_MAX_PENALTY"),
+        "detail": ("SPEC_HASH was computed before five captured constants were defined, "
+                   "so they hashed as null. Same scoring functions, same constant "
+                   "values, different instrumentation — scoring-equivalent."),
+    },
+}
+
+
+def canonical_spec_hash(h):
+    """Collapse a superseded digest onto the one describing the same scoring code.
+
+    Identity for everything not in the table, which is every hash except the single
+    audited pair. A history spanning two hashes really is two datasets — that rule is
+    not being softened here, only applied to the model rather than to a defect in the
+    ruler.
+    """
+    key = (h or "").strip()
+    entry = SPEC_EQUIVALENT.get(key)
+    return entry["canonical"] if entry else key
+
+
+def spec_hash_as_recorded_before(null_constants) -> str:
+    """Today's specification, re-hashed with `null_constants` forced to None.
+
+    This is what makes the equivalence claim checkable rather than a comment. The old
+    ordering produced exactly this: the same functions and the same constant dict, with
+    the late-defined entries still unset at the moment the digest was taken.
+    """
+    import hashlib
+    sp = spec()
+    doctored = {"functions": sp["functions"],
+                "constants": {k: (None if k in set(null_constants) else v)
+                              for k, v in sp["constants"].items()}}
+    blob = json.dumps(doctored, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(blob).hexdigest()[:12]
+
+
 def _get_json(url: str, headers: dict | None = None) -> dict:
     req = urllib.request.Request(url, headers=headers or {"User-Agent": "conviction-monitor/1.0"})
     with urllib.request.urlopen(req, timeout=20) as resp:  # nosec
@@ -1801,17 +1883,29 @@ def _compute_monitor(dune_report: dict | None = None) -> dict:
     convs = [c for c in (_mon_float(r, "conviction") for r in latest.values()) if c is not None]
 
     # --- specification continuity -------------------------------------------
-    spec_spans, unknown_days = [], 0
+    # Spans are built on the CANONICAL hash, so the one audited instrumentation
+    # correction does not split twenty otherwise-comparable nights into two track
+    # records. Every other digest is its own identity — see SPEC_EQUIVALENT, which holds
+    # exactly one entry and says what was audited to justify it. The raw hash recorded
+    # on the rows travels alongside, so nothing is rewritten and the collapse is
+    # visible rather than silent.
+    spec_spans, unknown_days, aliased_days = [], 0, 0
     for d in dates:
         hashes = {r.get("spec_hash") for r in by_date[d].values() if r.get("spec_hash")}
-        h = sorted(hashes)[0] if hashes else None
+        raw = sorted(hashes)[0] if hashes else None
+        h = canonical_spec_hash(raw) if raw else None
+        if raw and h != raw:
+            aliased_days += 1
         if not h:
             unknown_days += 1
         if spec_spans and spec_spans[-1]["spec_hash"] == h:
             spec_spans[-1]["to"] = d
             spec_spans[-1]["days"] += 1
+            if raw and raw not in spec_spans[-1]["recorded_as"]:
+                spec_spans[-1]["recorded_as"].append(raw)
         else:
-            spec_spans.append({"spec_hash": h, "from": d, "to": d, "days": 1})
+            spec_spans.append({"spec_hash": h, "from": d, "to": d, "days": 1,
+                               "recorded_as": [raw] if raw else []})
 
     # --- health -------------------------------------------------------------
     checks = []
@@ -1910,6 +2004,9 @@ def _compute_monitor(dune_report: dict | None = None) -> dict:
             "%d specification(s) across %d recorded day(s)"
             % (len(real_spans), sum(s["days"] for s in real_spans))
             + ("; %d earlier day(s) unhashed" % unknown_days if unknown_days else "")
+            + ("; %d day(s) carry a superseded digest folded onto its canonical one "
+               "(instrumentation correction, scoring-equivalent)" % aliased_days
+               if aliased_days else "")
             + ("  — a series spanning two hashes is two datasets" if multi else ""),
             len(real_spans)))
 
@@ -2011,7 +2108,15 @@ def _compute_monitor(dune_report: dict | None = None) -> dict:
                                            "are recorded only for tokens whose vesting "
                                            "contracts are enumerated in the query.")}},
         "specification": {"spans": spec_spans, "unknown_days": unknown_days,
-                          "suspected_breaks": breaks},
+                          "suspected_breaks": breaks,
+                          # Published so the terminal can explain a folded span rather
+                          # than showing two dates under one digest with no account of
+                          # why. Empty for every hash outside the audited pair.
+                          "aliased_days": aliased_days,
+                          "equivalence": {k: {"canonical": v["canonical"],
+                                              "reason": v["reason"],
+                                              "detail": v["detail"]}
+                                          for k, v in SPEC_EQUIVALENT.items()}},
         "scope": ("Operational condition only. Whether these scores predict returns is a "
                   "separate question needing months of history inside one specification "
                   "hash. Nothing here is evidence that the conviction score forecasts "

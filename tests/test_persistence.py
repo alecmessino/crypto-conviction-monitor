@@ -13,7 +13,8 @@ from pathlib import Path
 import pytest
 
 HERE = Path(__file__).resolve().parent
-_spec = importlib.util.spec_from_file_location("persist_mod", HERE.parent / "nightly.py")
+ROOT = HERE.parent
+_spec = importlib.util.spec_from_file_location("persist_mod", ROOT / "nightly.py")
 nightly = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(nightly)
 
@@ -194,3 +195,175 @@ def test_the_structurally_empty_fields_are_gone():
     html = (HERE.parent / "index.html").read_text()
     code = re.sub(r"//[^\n]*", "", re.sub(r"/\*.*?\*/", "", html, flags=re.S))
     assert "persistent_30d" not in code and "persistent_90d" not in code
+
+
+# ---------------------------------------------------------------------------
+# specification integrity — the four properties the PR #22 review required
+# ---------------------------------------------------------------------------
+def test_a_cold_interpreter_produces_the_same_hash():
+    """Determinism across PROCESSES, not just across calls in one.
+
+    The in-process check above compares SPEC_HASH to spec_hash() inside a module that
+    has finished loading. This runs a fresh interpreter with no bytecode cache, which is
+    what CI does every night, and is the form of the check that would have caught the
+    original bug from the outside.
+    """
+    import shutil
+    import subprocess
+    import sys
+
+    for cache in ROOT.rglob("__pycache__"):
+        shutil.rmtree(cache, ignore_errors=True)
+    prog = (
+        "import importlib.util,sys;"
+        f"sp=importlib.util.spec_from_file_location('n',r'{ROOT / 'nightly.py'}');"
+        "m=importlib.util.module_from_spec(sp);sp.loader.exec_module(m);"
+        "print(m.SPEC_HASH, m.spec_hash())"
+    )
+    seen = set()
+    for _ in range(3):
+        out = subprocess.run([sys.executable, "-B", "-c", prog],
+                             capture_output=True, text=True, timeout=120)
+        assert out.returncode == 0, out.stderr[-2000:]
+        a, b = out.stdout.split()
+        assert a == b, f"cold import: SPEC_HASH {a} != spec_hash() {b}"
+        seen.add(a)
+    assert len(seen) == 1, f"a cold interpreter produced {len(seen)} different hashes: {seen}"
+    assert seen.pop() == nightly.SPEC_HASH, "the cold hash differs from the in-process one"
+
+
+def _perturb(value):
+    """A different value of the same broad kind, for the mutation check below."""
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, (int, float)):
+        return value + 1
+    if isinstance(value, (list, tuple)):
+        return list(value) + ["__mutation__"]
+    if isinstance(value, (set, frozenset)):
+        return set(value) | {"__MUTATION__"}
+    if isinstance(value, str):
+        return value + "_mutated"
+    raise AssertionError(f"no perturbation defined for {type(value)}")
+
+
+def test_changing_any_captured_constant_changes_the_hash():
+    """The property the whole mechanism claims, checked one constant at a time.
+
+    This is the check that fails loudly if a constant is named in the specification but
+    is not actually reaching the digest — which is exactly the state TIER_CUTS and the
+    four emission anchors were in for the entire recorded history. A name in the list is
+    not the same as a value in the hash, and only this distinguishes them.
+    """
+    # Computed FRESH rather than read off SPEC_HASH. Using the module attribute makes
+    # this test pass for the wrong reason under the very bug it guards against: with a
+    # stale SPEC_HASH, every perturbation trivially differs from it and nothing is
+    # actually being measured. spec_hash() reflects the module as it stands right now.
+    base = nightly.spec_hash()
+    funding = nightly.funding
+    unmoved = []
+
+    for name in nightly.SPEC_CONSTANTS:
+        original = getattr(nightly, name)
+        setattr(nightly, name, _perturb(original))
+        try:
+            if nightly.spec_hash() == base:
+                unmoved.append(name)
+        finally:
+            setattr(nightly, name, original)
+
+    for name in nightly.SPEC_FUNDING_CONSTANTS:
+        original = getattr(funding, name)
+        setattr(funding, name, _perturb(original))
+        try:
+            if nightly.spec_hash() == base:
+                unmoved.append("funding." + name)
+        finally:
+            setattr(funding, name, original)
+
+    assert not unmoved, (
+        f"{unmoved} are named in the specification but changing them does not move the "
+        f"hash — they are not reaching the digest, so an edit to any of them would "
+        f"silently reinterpret the history either side of it")
+    assert nightly.spec_hash() == base, "a perturbation leaked past its restore"
+
+
+def test_changing_a_captured_scoring_function_changes_the_hash(tmp_path):
+    """The other half: the functions, not just the constants.
+
+    Edits the threshold inside score() on a COPY of the module and confirms the digest
+    moves. Done on a copy because spec() parses the file from disk, so this cannot be
+    simulated by patching an attribute.
+    """
+    import importlib.util
+    import shutil
+
+    for f in ("nightly.py", "funding.py", "cryptometer.py", "coingecko.py", "quant.py"):
+        shutil.copy(ROOT / f, tmp_path / f)
+    target = tmp_path / "nightly.py"
+    src = target.read_text(encoding="utf-8")
+    needle = 'sig = "STRONG" if total >= 80'
+    assert needle in src, "score()'s tier threshold is no longer where this test looks"
+    target.write_text(src.replace(needle, 'sig = "STRONG" if total >= 81', 1),
+                      encoding="utf-8")
+    sp = importlib.util.spec_from_file_location("n_mutated", target)
+    mutated = importlib.util.module_from_spec(sp)
+    sp.loader.exec_module(mutated)
+    assert mutated.SPEC_HASH != nightly.SPEC_HASH, (
+        "moving the STRONG cut inside score() did not move the specification hash")
+
+
+def test_the_equivalence_table_covers_only_the_verified_correction():
+    """One entry, and it must be the audited one.
+
+    An equivalence table is a licence to treat two track-record segments as one. That is
+    exactly the thing this repository refuses to do casually, so the table is pinned to
+    the single pair that was audited commit by commit, and every other digest the ledger
+    holds must pass through unchanged.
+    """
+    table = nightly.SPEC_EQUIVALENT
+    assert set(table) == {"2da60f7efd7b"}, (
+        f"the equivalence table holds {sorted(table)} — only the audited "
+        f"instrumentation correction may be aliased")
+    entry = table["2da60f7efd7b"]
+    assert entry["canonical"] == "6f98778fa627"
+    assert entry["reason"] == "instrumentation"
+
+    # Identity for everything else, including the two earlier digests, which were
+    # computed under the same defect but describe genuinely different scoring code.
+    for other in ("d600984ec00b", "e65f7dc59d55", "596d414706be", "", None):
+        assert nightly.canonical_spec_hash(other) == (other or "").strip()
+    assert nightly.canonical_spec_hash("6f98778fa627") == "6f98778fa627"
+
+
+def test_the_aliased_pair_is_re_derivable_from_todays_source():
+    """The alias is proved on every run, not asserted once in a commit message.
+
+    Nulling exactly the five constants the old ordering missed, in today's specification,
+    must reproduce the superseded digest. If it does not, either the scoring code has
+    changed or the account of what went wrong is incorrect — and in both cases the
+    equivalence has to be re-justified rather than inherited.
+    """
+    entry = nightly.SPEC_EQUIVALENT["2da60f7efd7b"]
+    if nightly.SPEC_HASH != entry["verified_against"]:
+        # Scoring has moved on since the audit. The entry is then a frozen historical
+        # record about two old digests and must not have been edited to follow.
+        assert entry["canonical"] == "6f98778fa627"
+        pytest.skip("scoring has changed since the equivalence was verified; the entry "
+                    "is now a historical record and is asserted unmodified instead")
+    derived = nightly.spec_hash_as_recorded_before(entry["null_constants"])
+    assert derived == "2da60f7efd7b", (
+        f"re-deriving the superseded hash from today's source gave {derived}, not "
+        f"2da60f7efd7b — the equivalence claim no longer holds")
+
+
+def test_the_monitor_folds_the_aliased_night_without_hiding_it():
+    """A collapsed span must still show both digests it was recorded under."""
+    spec_block = nightly._compute_monitor()["specification"]
+    folded = [s for s in spec_block["spans"] if len(s.get("recorded_as", [])) > 1]
+    assert folded, "the aliased night was not folded onto its canonical span"
+    for span in folded:
+        assert "2da60f7efd7b" in span["recorded_as"]
+        assert span["spec_hash"] == "6f98778fa627"
+    assert spec_block["aliased_days"] >= 1
+    assert "2da60f7efd7b" in spec_block["equivalence"]
