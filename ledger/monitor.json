@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-20T02:23:57.114533+00:00",
+  "generated_at": "2026-08-20T05:51:37.822032+00:00",
   "spec_hash": "6f98778fa627",
   "observations": 20,
   "from": "2026-08-01",
@@ -8,8 +8,8 @@
     {
       "name": "Data freshness",
       "status": "pass",
-      "detail": "latest board 2026-08-20 (2h old)",
-      "value": 2.4
+      "detail": "latest board 2026-08-20 (6h old)",
+      "value": 5.9
     },
     {
       "name": "Universe size",
@@ -26,8 +26,8 @@
     {
       "name": "Score dispersion",
       "status": "pass",
-      "detail": "sigma = 17.74 across 50 assets",
-      "value": 17.74
+      "detail": "sigma = 17.26 across 50 assets",
+      "value": 17.26
     },
     {
       "name": "Field presence",
@@ -44,20 +44,20 @@
     {
       "name": "Ranking stability",
       "status": "pass",
-      "detail": "rank correlation 0.9433 across 48 names held in common",
-      "value": 0.9433
+      "detail": "rank correlation 0.8934 across 45 names held in common",
+      "value": 0.8934
     },
     {
       "name": "Universe churn",
       "status": "pass",
-      "detail": "2 of 50 assets are new (4%) \u2014 the ranking above is measured only on the rest",
-      "value": 0.04
+      "detail": "5 of 50 assets are new (10%) \u2014 the ranking above is measured only on the rest",
+      "value": 0.1
     },
     {
       "name": "Specification history",
       "status": "warn",
-      "detail": "4 specification(s) across 12 recorded day(s); 8 earlier day(s) unhashed  \u2014 a series spanning two hashes is two datasets",
-      "value": 4
+      "detail": "3 specification(s) across 12 recorded day(s); 8 earlier day(s) unhashed; 1 day(s) carry a superseded digest folded onto its canonical one (instrumentation correction, scoring-equivalent)  \u2014 a series spanning two hashes is two datasets",
+      "value": 3
     },
     {
       "name": "Undeclared specification change",
@@ -81,24 +81,30 @@
   "stability": {
     "from": "2026-08-19",
     "to": "2026-08-20",
-    "shared": 48,
-    "rank_correlation": 0.9433,
-    "mean_abs_move": 1.1,
-    "max_abs_move": 9.0,
+    "shared": 45,
+    "rank_correlation": 0.8934,
+    "mean_abs_move": 2.22,
+    "max_abs_move": 13.0,
     "entered": [
+      "ASTER",
+      "MON",
       "PENGU",
-      "TAO"
+      "TAO",
+      "XPL"
     ],
     "left": [
       "AVAX",
-      "JTO"
+      "JTO",
+      "TRUMP",
+      "UB",
+      "UNI"
     ],
-    "churn": 0.04,
+    "churn": 0.1,
     "universe_prev": 50,
     "universe_curr": 50
   },
   "dispersion": {
-    "latest": 17.74,
+    "latest": 17.26,
     "series": [
       {
         "date": "2026-08-01",
@@ -197,7 +203,7 @@
       },
       {
         "date": "2026-08-20",
-        "dispersion": 17.74,
+        "dispersion": 17.26,
         "median": 30.0
       }
     ],
@@ -531,10 +537,10 @@
         "oi_usd": 0.82,
         "long_short_ratio": 0.0,
         "funding_apr": 0.82,
-        "rsi7": 0.82,
+        "rsi7": 0.8,
         "funding_venue": 0.0,
         "funding_venues_n": 0.82,
-        "funding_apr_spread": 0.66,
+        "funding_apr_spread": 0.68,
         "funding_regime": 0.0,
         "liq_longs_usd": 0.0,
         "liq_shorts_usd": 0.0,
@@ -932,10 +938,10 @@
           "oi_usd": 0.82,
           "long_short_ratio": 0.0,
           "funding_apr": 0.82,
-          "rsi7": 0.82,
+          "rsi7": 0.8,
           "funding_venue": 0.0,
           "funding_venues_n": 0.82,
-          "funding_apr_spread": 0.66,
+          "funding_apr_spread": 0.68,
           "funding_regime": 0.0,
           "liq_longs_usd": 0.0,
           "liq_shorts_usd": 0.0,
@@ -957,31 +963,36 @@
         "spec_hash": null,
         "from": "2026-08-01",
         "to": "2026-08-08",
-        "days": 8
+        "days": 8,
+        "recorded_as": []
       },
       {
         "spec_hash": "d600984ec00b",
         "from": "2026-08-09",
         "to": "2026-08-15",
-        "days": 7
+        "days": 7,
+        "recorded_as": [
+          "d600984ec00b"
+        ]
       },
       {
         "spec_hash": "e65f7dc59d55",
         "from": "2026-08-16",
         "to": "2026-08-18",
-        "days": 3
-      },
-      {
-        "spec_hash": "2da60f7efd7b",
-        "from": "2026-08-19",
-        "to": "2026-08-19",
-        "days": 1
+        "days": 3,
+        "recorded_as": [
+          "e65f7dc59d55"
+        ]
       },
       {
         "spec_hash": "6f98778fa627",
-        "from": "2026-08-20",
+        "from": "2026-08-19",
         "to": "2026-08-20",
-        "days": 1
+        "days": 2,
+        "recorded_as": [
+          "2da60f7efd7b",
+          "6f98778fa627"
+        ]
       }
     ],
     "unknown_days": 8,
@@ -994,7 +1005,15 @@
         "median_price_move": 1.21,
         "detail": "the median asset's score moved 36 points on a night its price moved 1.21% \u2014 the scoring function changed"
       }
-    ]
+    ],
+    "aliased_days": 1,
+    "equivalence": {
+      "2da60f7efd7b": {
+        "canonical": "6f98778fa627",
+        "reason": "instrumentation",
+        "detail": "SPEC_HASH was computed before five captured constants were defined, so they hashed as null. Same scoring functions, same constant values, different instrumentation \u2014 scoring-equivalent."
+      }
+    }
   },
   "scope": "Operational condition only. Whether these scores predict returns is a separate question needing months of history inside one specification hash. Nothing here is evidence that the conviction score forecasts anything; it is evidence that the pipeline producing it is behaving."
 }
