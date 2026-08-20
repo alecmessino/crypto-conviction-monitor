@@ -19,6 +19,7 @@ The properties this file exists to hold:
   * No network. Every test here injects its own transport.
 """
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -400,3 +401,42 @@ def test_no_feed_ever_raises_on_a_dead_transport(monkeypatch):
     assert _t.monotonic() - _t0 < 5.0, (
         "a feed slept or reached the network despite both being substituted — check for "
         "a transport or sleep captured as a default argument")
+
+
+# ---------------------------------------------------------------------------
+# the credential must never leave the process
+# ---------------------------------------------------------------------------
+def test_the_published_session_carries_no_credential():
+    """fetch_all projects a whitelist, and `headers` must never be on it.
+
+    The session dict holds the live auth header. It is published into
+    ledger/market_intel.json, which is COMMITTED to a public repository, so an
+    accidental widening of that projection would publish the key on the next nightly.
+    Pinned as a property rather than trusted to the current field list.
+    """
+    sess = {"host": cg.PUBLIC_HOST, "headers": {"x-cg-demo-api-key": "CG-supersecret"},
+            "plan": "demo", "status": "live", "detail": "DEMO key accepted"}
+    rep = cg.fetch_all(sess, _getter(data=GLOBAL_PAYLOAD), with_dex=False)
+    published = rep["session"]
+    assert "headers" not in published
+    blob = json.dumps(rep, default=str)
+    assert "CG-supersecret" not in blob, "the key reached the published report"
+    assert "x-cg-demo-api-key" not in blob, "the auth header name reached the report"
+
+
+def test_no_feed_report_echoes_the_credential(monkeypatch):
+    """A 401 body, a detail string or an error message must not carry the key either."""
+    monkeypatch.setattr(cg, "_raw_get", lambda u, h: (401, "unauthorized"))
+    sess = {"host": cg.PUBLIC_HOST, "headers": {"x-cg-pro-api-key": "CG-leaky"},
+            "plan": "pro", "status": "live", "detail": "-"}
+    rep = cg.fetch_all(sess, lambda *a, **k: cg.get(*a, sleep=lambda s: None, **k),
+                       with_dex=False)
+    assert "CG-leaky" not in json.dumps(rep, default=str)
+
+
+def test_a_rejected_key_is_not_kept_in_the_session(monkeypatch):
+    """Belt and braces on the same property: a refused credential is dropped from the
+    headers entirely, so it cannot be sent again or serialised anywhere."""
+    monkeypatch.setattr(cg, "_raw_get", lambda u, h: (401, "nope"))
+    s = cg.open_session(key="CG-rejected")
+    assert "CG-rejected" not in json.dumps(s)

@@ -370,3 +370,77 @@ def test_the_new_columns_did_not_break_the_error_row_span():
     headers = re.search(r'<table id="tbl-conv"><thead><tr>(.*?)</tr>', HTML, re.S).group(1)
     assert headers.count("<th") == 14
     assert 'colspan="14"' in HTML
+
+
+# ---------------------------------------------------------------------------
+# provenance: the nightly's credential and the browser's live feed are two facts
+# ---------------------------------------------------------------------------
+def test_the_ribbon_separates_the_nightly_credential_from_the_live_feed():
+    """The contradiction this replaced: one card reading "CG PLAN KEYLESS" while the
+    pipeline it documented was authenticated. The nightly runs server-side and can hold
+    a secret; this page is a static file and never can. They are allowed to disagree and
+    the ribbon has to be able to say so."""
+    assert "function nightlyFeedState(" in SCRIPT
+    assert "function liveFeedState(" in SCRIPT
+    assert 'macroCard("Nightly Feed"' in SCRIPT
+    assert 'macroCard("Live Prices"' in SCRIPT
+    assert "CG Plan" not in SCRIPT, "the conflated single card is back"
+
+
+@pytest.mark.parametrize("label", ["DEMO KEY", "PRO KEY", "KEYLESS", "KEY REJECTED"])
+def test_every_nightly_credential_state_is_rendered(label):
+    assert label in SCRIPT
+
+
+@pytest.mark.parametrize("label", ["LIVE", "STALE", "STUBBED", "THROTTLED", "FAILED"])
+def test_every_live_feed_state_is_rendered(label):
+    assert label in SCRIPT
+
+
+def test_stubbed_data_is_detected_from_the_payload_not_a_flag():
+    """A preview flag someone has to remember to set is a flag that will be forgotten on
+    the screenshot that matters. The payload dates itself: a real /coins/markets response
+    carries last_updated timestamps seconds old."""
+    assert "function feedProvenance(" in SCRIPT
+    assert "last_updated" in SCRIPT
+    assert "FEED_LIVE_MIN" in SCRIPT and "FEED_STALE_MIN" in SCRIPT
+
+
+def test_the_feed_age_reads_the_newest_timestamp_not_the_oldest():
+    """A delisted token legitimately carries a month-old timestamp. Reading the minimum
+    would call every live fetch stale."""
+    fn = SCRIPT[SCRIPT.find("function feedProvenance("):]
+    fn = fn[:fn.find("\nfunction ")]
+    assert "v>newest" in fn.replace(" ", ""), "provenance is not taking the maximum"
+
+
+def test_a_stubbed_render_says_so_page_wide():
+    """One chip in a ribbon can be cropped out of a screenshot. The disclosure is a
+    full-width band plus a body class, mirroring the rewound treatment."""
+    assert "function renderFeedBanner(" in SCRIPT
+    assert "PREVIEW — PRICES ARE NOT LIVE" in SCRIPT
+    assert "body.stubbed" in HTML
+    assert ".stub-banner" in HTML
+    assert 'classList.toggle("stubbed"' in SCRIPT
+
+
+def test_a_failed_or_throttled_fetch_is_a_provenance_state():
+    """Without this the LIVE PRICES card keeps showing its last success while the board
+    underneath it renders an error."""
+    assert 'FEED = {state: /rate-limit|429/i.test(e.message)' in SCRIPT
+    assert "renderFeedBanner(); renderMacro();" in SCRIPT
+
+
+def test_the_ribbon_is_re_rendered_after_the_live_fetch():
+    """renderMacro runs on the ledger path, before any price arrives. Without a second
+    call the live card is frozen on 'pending' forever."""
+    live = SCRIPT[SCRIPT.find("async function load(){"):]
+    assert "factorQuad(); renderSizing(); renderMacro();" in live
+
+
+def test_the_page_never_holds_a_coingecko_credential():
+    """This is a static file served from Pages. There is nowhere to put a secret, and an
+    attempt to would publish it. Pinned so nobody 'fixes' the KEYLESS label by adding a
+    key to the client."""
+    for banned in ("x-cg-demo-api-key", "x-cg-pro-api-key", "COINGECKO_API_KEY"):
+        assert banned not in HTML, f"{banned} appears in a public static page"

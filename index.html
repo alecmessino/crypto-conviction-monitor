@@ -293,6 +293,15 @@ canvas{display:block;width:100%}
 body.rewound{box-shadow:inset 0 0 0 2px rgba(224,179,114,.55)}
 body.rewound .ribbon.glass{border:1px solid rgba(224,179,114,.45)}
 
+/* Preview disclosure. Red rather than amber, and a full-width band rather than a chip:
+   a fixture read as the market is the worst thing this page can do, and it has to be
+   impossible to crop out of a screenshot. */
+body.stubbed{box-shadow:inset 0 0 0 2px rgba(232,145,127,.6)}
+.stub-banner{grid-column:1/-1;padding:7px 16px;border-radius:8px;font-size:11px;
+  line-height:1.5;color:#FFE3DC;background:rgba(232,145,127,.16);
+  border:1px solid rgba(232,145,127,.55)}
+.stub-banner b{color:var(--red);letter-spacing:.5px}
+
 .tmd-row{display:grid;grid-template-columns:20px 1fr 54px 54px 96px;gap:6px;align-items:center;
   padding:3px 0;border-bottom:1px solid var(--grid);font-size:10.5px}
 .tmd-rank{color:var(--tert);font-variant-numeric:tabular-nums}
@@ -698,6 +707,15 @@ let STRAT = {};     // symbol -> {strategy, basis, confidence} from the recorded
 let ATR14 = {};     // symbol -> recorded 14-bar ATR, for the sizer's volatility scale
 let TURN_Z = {};    // symbol -> turnover z-score against the asset's own trailing baseline
 let INTEL_TH = {};  // thresholds the engine used, so the page colours what the engine decided
+/* Live-feed provenance, which is a SEPARATE fact from the nightly's credential.
+   The nightly runs server-side and can hold a secret; this page is a static file and
+   never can, so the browser's own fetch is always keyless. What varies is whether the
+   payload it got back is actually live — and that is detectable from the data rather
+   than from a flag someone has to remember to set. See feedProvenance(). */
+let FEED = {state: "pending", ageMin: null, detail: "no live fetch attempted yet"};
+// A genuine /coins/markets response carries timestamps seconds old. These bound what
+// "live" means before the page stops claiming it.
+const FEED_LIVE_MIN = 10, FEED_STALE_MIN = 90;
 // Rewind. REWIND_DATE is null in live mode and an ISO date when scrubbed back; every
 // renderer that can show history checks it, and the ones that cannot say so rather than
 // silently continuing to show tonight while the scrubber claims otherwise.
@@ -2543,6 +2561,85 @@ function macroCard(label, value, sub, cls, title, pending){
     ${sub?`<span class="sub">${sub}</span>`:""}</span>`;
 }
 
+/* What the nightly's credential was when it built the committed artifacts.
+
+   This is deliberately NOT a statement about the page. The artifact is produced by a
+   scheduled job that can read a repository secret; the browser cannot, and conflating
+   the two is what made an earlier screenshot read "CG PLAN KEYLESS" while the pipeline
+   it documented was authenticated. The card names whose credential it is describing. */
+function nightlyFeedState(){
+  const sess=(INTEL&&INTEL.session)||null;
+  if(!sess||!sess.plan) return {label:"UNKNOWN", cls:"neu", pending:true,
+    detail:"ledger/market_intel.json was not loaded, so the credential the nightly used is unknown."};
+  if(sess.status==="rejected") return {label:"KEY REJECTED", cls:"neg", pending:false,
+    detail:"A key was configured and neither the Demo nor the Pro endpoint accepted it, so the run fell back to keyless rather than sending a credential that is refused. "+(sess.detail||"")};
+  if(sess.plan==="demo") return {label:"DEMO KEY", cls:"pos", pending:false,
+    detail:"The nightly authenticated with a CoinGecko Demo key, probed against /ping rather than assumed. "+(sess.detail||"")};
+  if(sess.plan==="pro") return {label:"PRO KEY", cls:"pos", pending:false,
+    detail:"The nightly authenticated with a CoinGecko Pro key, probed against /ping rather than assumed. "+(sess.detail||"")};
+  return {label:"KEYLESS", cls:"a", pending:true,
+    detail:"The nightly ran with no CoinGecko credential, so every call took the public rate limit. "+(sess.detail||"")};
+}
+
+/* Whether the payload this browser just fetched is actually live.
+
+   Detected from the DATA, not from a build flag: a real /coins/markets response carries
+   `last_updated` timestamps seconds old, so the newest timestamp in the payload dates
+   the feed. That makes a replayed or intercepted payload self-evident without anyone
+   remembering to set a preview flag, and it is the honest reading anyway — "these
+   prices are four hours old" is the fact that matters whether the cause is a stub, a
+   stale cache or a broken edge node.
+
+   The NEWEST timestamp, not the oldest: a delisted token legitimately carries a
+   month-old timestamp, and reading the minimum would call every live fetch stale. */
+function feedProvenance(raw, nowMs){
+  if(!Array.isArray(raw)||!raw.length)
+    return {state:"failed", ageMin:null, detail:"the live fetch returned no rows"};
+  let newest=null;
+  raw.forEach(t=>{ const v=t&&t.last_updated?Date.parse(t.last_updated):NaN;
+    if(!isNaN(v)&&(newest===null||v>newest)) newest=v; });
+  if(newest===null)
+    return {state:"unknown", ageMin:null,
+            detail:"no row carried a last_updated timestamp, so the payload cannot be dated"};
+  const ageMin=(nowMs-newest)/60000;
+  const state = ageMin<=FEED_LIVE_MIN ? "live" : ageMin<=FEED_STALE_MIN ? "stale" : "stubbed";
+  return {state, ageMin,
+    detail: state==="live"
+      ? `newest quote ${ageMin<1?"under a minute":Math.round(ageMin)+" min"} old`
+      : state==="stale"
+        ? `newest quote ${Math.round(ageMin)} minutes old — the feed answered but the data is behind`
+        : `newest quote ${(ageMin/60).toFixed(1)} hours old. A live CoinGecko response is seconds old, so this payload is replayed or intercepted rather than fetched — treat every price, delta and chart on this page as a fixture, not as the market.`};
+}
+
+function liveFeedState(){
+  const f=FEED||{};
+  if(f.state==="live")    return {label:"LIVE", cls:"pos", pending:false, detail:"Browser fetch, keyless by construction — this page is a static file and cannot hold a credential. "+f.detail};
+  if(f.state==="stale")   return {label:"STALE", cls:"a", pending:true, detail:f.detail};
+  if(f.state==="stubbed") return {label:"STUBBED", cls:"neg", pending:true, detail:f.detail};
+  if(f.state==="failed")  return {label:"FAILED", cls:"neg", pending:true, detail:f.detail};
+  if(f.state==="throttled") return {label:"THROTTLED", cls:"neg", pending:true, detail:f.detail};
+  if(f.state==="unknown") return {label:"UNDATED", cls:"a", pending:true, detail:f.detail};
+  return {label:"PENDING", cls:"neu", pending:true, detail:f.detail||"no live fetch attempted yet"};
+}
+
+/* The page-level disclosure. Same reasoning as the rewound border: a fixture read as the
+   market is the worst thing this page can do, and one small chip in a ribbon is not
+   enough to stop it. */
+function renderFeedBanner(){
+  const bad = FEED && (FEED.state==="stubbed");
+  document.body.classList.toggle("stubbed", !!bad);
+  let el=$("#stub-banner");
+  if(!bad){ if(el) el.remove(); return; }
+  if(!el){
+    el=document.createElement("div"); el.id="stub-banner"; el.className="stub-banner";
+    const wrap=document.querySelector(".wrap");
+    wrap.insertBefore(el, wrap.firstChild);
+  }
+  el.innerHTML=`<b>PREVIEW — PRICES ARE NOT LIVE.</b> ${esc0(FEED.detail)}
+    The ledger-derived panels below are the real committed artifacts; the price columns,
+    deltas and scatter charts are a fixture.`;
+}
+
 function renderMacro(){
   const el=$("#macro"); if(!el) return;
   if(!INTEL){
@@ -2601,11 +2698,17 @@ function renderMacro(){
     "Median annualised funding across the scored board. Median rather than mean: funding has a fat right tail and one squeeze print would define the whole board's heat.",
     med==null));
 
-  const sess=INTEL.session||{};
-  out.push(macroCard("CG Plan", (sess.plan||"?").toUpperCase(), null,
-    sess.plan==="keyless"?"a":"pos",
-    (sess.detail||"")+" — Demo and Pro keys are issued in the same shape and differ in host AND header, so the plan is probed against /ping rather than assumed.",
-    sess.plan==="keyless"));
+  // Two cards, because these are two different facts and an earlier single card
+  // conflated them into a contradiction. The nightly can hold a secret; this page
+  // cannot. They can legitimately disagree — an artifact built with a Demo key
+  // overnight, read in a browser fetching keyless right now — and the ribbon has to be
+  // able to say so.
+  const nf=nightlyFeedState();
+  out.push(macroCard("Nightly Feed", nf.label, null, nf.cls, nf.detail, nf.pending));
+  const lf=liveFeedState();
+  out.push(macroCard("Live Prices", lf.label,
+    (FEED&&FEED.ageMin!=null)?(FEED.ageMin<1?"<1m":Math.round(FEED.ageMin)+"m"):null,
+    lf.cls, lf.detail, lf.pending));
 
   el.innerHTML=out.join("");
 }
@@ -2958,6 +3061,9 @@ async function load(){
     if(!r.ok) throw new Error("HTTP "+r.status);
     const raw=await r.json();
     if(!Array.isArray(raw)) throw new Error("rate-limited or empty");
+    // Dated from the payload itself, before anything is rendered from it.
+    FEED = feedProvenance(raw, Date.now());
+    renderFeedBanner();
     // build() reads PERP for the LAVL leverage multiplier, so the ledger has to be in
     // before conviction is computed — not merely started. Whichever request won the
     // race used to decide whether the overlay applied at all: a cold load had PERP
@@ -2967,7 +3073,7 @@ async function load(){
     await ledger;
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
-    renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); factorQuad(); renderSizing(); if(SEL) factorBreakdown(SEL);
+    renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); factorQuad(); renderSizing(); renderMacro(); if(SEL) factorBreakdown(SEL);
     // load() re-runs every 120s, so the banner is replaced rather than appended.
     const old=$("#perp-warn"); if(old) old.remove();
     if(PERP_LOADED){ st.textContent="OK"; st.className="live"; }
@@ -2980,6 +3086,12 @@ async function load(){
     $("#sys-rl").textContent="nominal";
     renderDiag();
   }catch(e){
+    // A failure is a provenance state, not an absence of one. Without this the LIVE
+    // PRICES card would keep showing whatever it last succeeded with while the board
+    // below it showed an error.
+    FEED = {state: /rate-limit|429/i.test(e.message) ? "throttled" : "failed",
+            ageMin: null, detail: "the live fetch failed: "+e.message};
+    renderFeedBanner(); renderMacro();
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
     $("#tbl-conv tbody").innerHTML=`<tr><td colspan="14" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
   }
