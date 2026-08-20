@@ -155,6 +155,9 @@ def test_the_ribbon_does_not_touch_the_specification():
     # overhang now multiplies the published score. That is a scoring change and it is
     # supposed to break this pin. A token with no published FDV is unaffected — the
     # neutral path is asserted in tests/test_parity.py.
-    assert nightly.SPEC_HASH == "2da60f7efd7b"
+    # 2da60f7efd7b -> 6f98778fa627: SPEC_HASH moved to the bottom of nightly.py.
+    # It was computed before TIER_CUTS and the emission anchors were defined, so five constants were captured as None on every row ever written — editing the tier boundaries would have moved no hash.
+    # Not a scoring change; a specification that was not capturing what it named.
+    assert nightly.SPEC_HASH == "6f98778fa627"
     for fn in nightly.spec()["functions"].values():
         assert "_model_health" not in fn

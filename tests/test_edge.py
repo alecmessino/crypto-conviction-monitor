@@ -157,7 +157,7 @@ def test_the_edge_panel_does_not_touch_the_specification():
     to break this line; see tests/test_perps.py for the boundary each moved and what
     stays observational.
     """
-    assert nightly.SPEC_HASH == "2da60f7efd7b"
+    assert nightly.SPEC_HASH == "6f98778fa627"
     captured = nightly.spec()["functions"]
     for fn in captured.values():
         for name in ("_edge_legs", "_compute_edge", "_active_contributions"):

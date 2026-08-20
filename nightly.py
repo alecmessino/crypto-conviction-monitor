@@ -319,9 +319,8 @@ def spec_hash() -> str:
     return hashlib.sha256(blob).hexdigest()[:12]
 
 
-# Computed once at import. spec() parses this module's source, which is not something
-# to do per row.
-SPEC_HASH = spec_hash()
+# The value is computed at the BOTTOM of this module, not here. See the block above the
+# assignment for why — it is not a style preference, it was a hole in the specification.
 
 
 def _get_json(url: str, headers: dict | None = None) -> dict:
@@ -3766,6 +3765,36 @@ def main() -> int:
         print(f"[basket] Top-10 conviction-weighted | rebalanced={basket.get('rebalanced')} | {hs}")
         print(f"[index] cumulative return tracked in ledger/index.json")
     return 0
+
+
+# ---------------------------------------------------------------------------
+# specification hash — computed LAST, deliberately
+# ---------------------------------------------------------------------------
+# This used to sit immediately after spec_hash() was defined, near the top of the file,
+# and it was wrong in a way that is invisible until you look for it.
+#
+# spec() captures FUNCTIONS by parsing this file from disk, so their position does not
+# matter. It captures CONSTANTS with globals().get(name) — which returns None for
+# anything not yet executed. TIER_CUTS is defined around line 1080 and the emission
+# anchors around line 555, both far below where the hash used to be computed, so both
+# were captured as null on every row this repository has ever written.
+#
+# The consequence is precisely the failure the funding.py capture was added to fix:
+# editing TIER_CUTS — the BUY/STRONG/HOLD boundaries themselves — would not have moved
+# the hash, and the mechanism built to make scoring changes visible would have reported
+# no change at all. It was also non-deterministic: SPEC_HASH taken at import and
+# spec_hash() called a moment later returned different values, because by the second
+# call the constants existed.
+#
+# Computing it here, after the whole module has executed, is the fix. Every SPEC_CONSTANT
+# is defined by this point, and tests/test_persistence.py now asserts both that the
+# import-time value equals a later call and that no captured constant is None — either
+# check would have caught this on the day it was introduced.
+#
+# This necessarily moves the published hash, because the specification now contains five
+# constants it always should have. That is a real re-segmentation and it is recorded as
+# one rather than papered over.
+SPEC_HASH = spec_hash()
 
 
 if __name__ == "__main__":

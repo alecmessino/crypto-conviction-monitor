@@ -134,6 +134,40 @@ def test_the_live_ledger_produces_a_populated_panel():
     assert any(r["best_streak"] > 1 for r in p["rows"]), "no multi-night run found"
 
 
+def test_the_specification_hash_is_deterministic():
+    """The import-time value must equal a later call. It did not.
+
+    SPEC_HASH was computed near the top of nightly.py, immediately after spec_hash() was
+    defined. spec() captures functions by parsing the file from disk — position
+    irrelevant — but captures constants with globals().get(), which returns None for
+    anything not yet executed. TIER_CUTS is defined ~750 lines below where the hash was
+    taken, so it was captured as null on every row this repository has ever written, and
+    a second call moments later produced a different digest.
+    """
+    assert nightly.SPEC_HASH == nightly.spec_hash(), (
+        "the hash recorded on every row differs from the hash of the specification as it "
+        "actually stands — a constant is being captured before it is defined")
+
+
+def test_every_captured_constant_has_a_value():
+    """The adjacent failure: a constant NAMED in the specification but never defined.
+
+    Distinct from the ordering bug above, which the determinism check catches — this one
+    catches a name added to SPEC_CONSTANTS that no assignment ever backs, or one left
+    behind after a rename. Either way the entry captures as None: it is in the list, it
+    is not in the hash, and editing the thing it refers to moves no digest and starts no
+    new track-record segment.
+    """
+    consts = nightly.spec()["constants"]
+    missing = sorted(k for k, v in consts.items() if v is None)
+    assert not missing, (
+        f"{missing} are named in the specification but captured as None — they are "
+        f"defined after SPEC_HASH is computed, so a change to them moves no hash")
+    expected = set(nightly.SPEC_CONSTANTS) | {
+        "funding." + c for c in nightly.SPEC_FUNDING_CONSTANTS}
+    assert set(consts) == expected
+
+
 def test_persistence_does_not_touch_the_specification():
     # d600984ec00b -> 596d414706be: the funding regime rewrite of lavl_perp_mult.
     # 596d414706be -> 2da60f7efd7b: Module F. `emission_mult` was added to score()'s risk term
@@ -141,7 +175,10 @@ def test_persistence_does_not_touch_the_specification():
     # overhang now multiplies the published score. That is a scoring change and it is
     # supposed to break this pin. A token with no published FDV is unaffected — the
     # neutral path is asserted in tests/test_parity.py.
-    assert nightly.SPEC_HASH == "2da60f7efd7b"
+    # 2da60f7efd7b -> 6f98778fa627: SPEC_HASH moved to the bottom of nightly.py.
+    # It was computed before TIER_CUTS and the emission anchors were defined, so five constants were captured as None on every row ever written — editing the tier boundaries would have moved no hash.
+    # Not a scoring change; a specification that was not capturing what it named.
+    assert nightly.SPEC_HASH == "6f98778fa627"
     for fn in nightly.spec()["functions"].values():
         assert "_persistence" not in fn
 

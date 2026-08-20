@@ -102,6 +102,6 @@ def test_the_recorder_does_not_touch_the_specification():
     spec = importlib.util.spec_from_file_location("n_obs", ROOT / "nightly.py")
     nightly = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(nightly)
-    assert nightly.SPEC_HASH == "2da60f7efd7b"
+    assert nightly.SPEC_HASH == "6f98778fa627"
     src = (ROOT / "scripts" / "observe.py").read_text(encoding="utf-8")
     assert "import nightly" not in src
