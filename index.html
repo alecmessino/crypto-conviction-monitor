@@ -2800,6 +2800,11 @@ function annotate(g, notes){
 function emptyChart(g, w, h, id){
   CHART_POINTS[id]=[];
   CHART_LABELS[id]={rect:{l:0,t:0,r:w,b:h}, placed:[], skipped:0};
+  // Wired here too. Each chart calls attachChartInteraction at the END of its draw, and
+  // this path returns before that — so an empty canvas never became focusable and the
+  // three charts differed in whether they took tab focus depending on the feed. The
+  // handlers no-op on an empty point set, and attach is idempotent.
+  attachChartInteraction(id);
   g.fillStyle="#475569"; g.font="10px monospace"; g.textAlign="left";
   const st=(FEED&&FEED.state)||"pending";
   const msg = (st==="failed"||st==="throttled"||st==="unknown")

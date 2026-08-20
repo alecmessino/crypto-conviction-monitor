@@ -589,6 +589,14 @@ def test_the_empty_state_names_the_cause_not_the_symptom():
     assert "which has no recorded equivalent" in SCRIPT
 
 
+def test_the_empty_state_is_still_keyboard_focusable():
+    """Each chart wires its interaction at the END of its draw, and the empty path
+    returns before that — so whether a canvas took tab focus depended on the feed."""
+    fn = SCRIPT[SCRIPT.find("function emptyChart("):]
+    fn = fn[:fn.find("\n}")]
+    assert "attachChartInteraction(id)" in fn
+
+
 def test_the_empty_state_still_records_a_placement():
     """Otherwise CHART_LABELS keeps whatever the last successful render left, and a
     render check would assert against a stale board."""
