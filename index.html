@@ -20,10 +20,16 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 
 /* Layout */
 .wrap{display:grid;grid-template-columns:240px 1fr 400px;gap:10px;padding:10px;max-width:1680px;margin:0 auto;align-items:start}
-@media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+/* minmax(0,1fr) rather than 1fr, for the same reason as .rail above: plain `1fr`
+   floors the track at min-content and the dense tables then set the page width. */
+@media(max-width:1100px){.wrap{grid-template-columns:minmax(0,1fr)}}
 
 /* Top ribbon */
-.ribbon{grid-column:1/-1;display:flex;gap:14px;flex-wrap:nowrap;padding:7px 16px;align-items:center;border-radius:8px}
+/* Wraps. It used to be nowrap, which gave the whole page a 921px minimum width and
+   made every viewport below ~1280px scroll horizontally — the layout rules forbid a
+   body that scrolls sideways, and the single-column breakpoint at 1100px could never
+   take effect while one flex row outvoted it. */
+.ribbon{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;padding:7px 16px;align-items:center;border-radius:8px}
 .ribbon .stat{display:flex;flex-direction:column;line-height:1.05}
 .ribbon .stat b{font-size:15px;font-weight:700;color:#FFFFFF;font-variant-numeric:tabular-nums}
 .ribbon .stat span{font-size:8px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-top:1px}
@@ -37,6 +43,9 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 .hp.act:hover{background:rgba(59,130,246,.16);border-color:var(--blue)}
 .hp .dotc{width:6px;height:6px;border-radius:50%}
 .ribbon .brand{font-weight:700;font-size:13px;letter-spacing:1px;margin-right:auto;white-space:nowrap}
+/* On a wrapped ribbon the auto margin would strand a single stat on its own row, so it
+   is dropped once the row is already breaking. */
+@media(max-width:1280px){.ribbon .brand{margin-right:0}}
 .live{color:var(--green)} .live::before{content:"●";margin-right:5px;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
@@ -225,7 +234,11 @@ tr.gated:hover{background:rgba(0,255,102,0.10)}
 .spark{display:inline-block;vertical-align:middle}
 
 /* Right rail charts — fixed-height boxes */
-.rail{display:flex;flex-direction:column;gap:10px;min-height:0}
+/* min-width:0 like its two sibling columns. A grid track sized `1fr` resolves its
+   minimum to min-content, and a 14-column table of nowrap cells has a very large
+   min-content width — so without this the rail widened the whole page instead of
+   letting its own panes scroll. */
+.rail{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
 .chart-box{padding:8px 12px}
 canvas{display:block;width:100%}
 .muted{color:var(--tert);font-size:10px}
@@ -277,8 +290,11 @@ canvas{display:block;width:100%}
 /* The rewind scrubber. Full width and pinned above the board it rewinds, because a
    control that changes what every panel below it means must not be findable only by
    scrolling. */
+/* Wraps, like the ribbons above it. Without this the JUMP TO LIVE button was the last
+   element setting the page's minimum width, and the body scrolled sideways by 23px on a
+   narrow viewport for the sake of one button. */
 .rewind{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:6px 16px;border-radius:8px;
-  background:rgba(10,15,26,.55);border-left:2px solid var(--amber)}
+  flex-wrap:wrap;background:rgba(10,15,26,.55);border-left:2px solid var(--amber)}
 .rewind input[type=range]{flex:1;accent-color:var(--amber);cursor:pointer;min-width:120px}
 .rewind .rw-date{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;min-width:92px}
 .rewind .rw-lbl{font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--sec)}
@@ -301,6 +317,17 @@ body.stubbed{box-shadow:inset 0 0 0 2px rgba(232,145,127,.6)}
   line-height:1.5;color:#FFE3DC;background:rgba(232,145,127,.16);
   border:1px solid rgba(232,145,127,.55)}
 .stub-banner b{color:var(--red);letter-spacing:.5px}
+
+/* Chart tooltip. Carries every point the label budget dropped, so the budget costs
+   reachability nothing. pointer-events:none so it can never eat the mousemove that
+   positions it. */
+.chart-tip{position:fixed;display:none;z-index:60;pointer-events:none;
+  background:rgba(8,12,20,.96);border:1px solid var(--border);border-radius:5px;
+  padding:5px 8px;font-size:10px;line-height:1.5;max-width:230px;
+  box-shadow:0 4px 18px rgba(0,0,0,.5)}
+.chart-tip b{display:block;font-size:11px;margin-bottom:2px}
+.chart-tip span{display:block;color:var(--sec);font-variant-numeric:tabular-nums}
+canvas:focus-visible{outline:2px solid var(--blue)}
 
 .tmd-row{display:grid;grid-template-columns:20px 1fr 54px 54px 96px;gap:6px;align-items:center;
   padding:3px 0;border-bottom:1px solid var(--grid);font-size:10.5px}
@@ -433,7 +460,7 @@ body.stubbed{box-shadow:inset 0 0 0 2px rgba(232,145,127,.6)}
   <main class="col-center">
     <div class="glass">
       <div class="card-h">CONVICTION MATRIX <span id="cm-note" class="muted">top 10 · scroll · click a row</span></div>
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--sec);cursor:pointer;user-select:none">
           <input type="checkbox" id="hide-nq" style="accent-color:#00FF66;cursor:pointer"> <b style="color:#00FF66">HIDE NON-QUALIFIED</b>
         </label>
@@ -1388,20 +1415,51 @@ function renderTiers(){
 
 // ---- charts ----
 function quad(){
-  const cv=$("#quad"), w=cv.clientWidth, h=cv.clientHeight||200; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  const cv=$("#quad"), w=cv.clientWidth, h=cv.clientHeight||200;
+  const dpr=window.devicePixelRatio||1;
+  cv.width=w*dpr; cv.height=h*dpr;
+  const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0);
   x.clearRect(0,0,w,h); const pad=26;
-  const xs=STATE.map(t=>t.turn), ys=STATE.map(t=>Math.log10(t.vol+1));
+  const rows=boardRows();
+  if(!rows.length){ x.fillStyle="#475569"; x.font="10px monospace";
+    x.fillText("no rows in view",12,h/2); CHART_POINTS.quad=[]; return; }
+  const xs=rows.map(t=>t.turn), ys=rows.map(t=>Math.log10(t.vol+1));
   const xmax=Math.max(...xs,1.2)*1.05;
-  // log axis spans ONLY the actual data range so points spread across the canvas
   const ymin=Math.min(...ys), ymax=Math.max(...ys);
   const lo=Math.floor(ymin), hi=Math.ceil(ymax);
   const px=v=>pad+(v/xmax)*(w-pad*2), py=v=>h-pad-((v-lo)/(hi-lo||1))*(h-pad*2);
   const mx=xmax/2, my=(hi+lo)/2;
   x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([3,3]);
   x.beginPath(); x.moveTo(px(mx),pad); x.lineTo(px(mx),h-pad); x.moveTo(pad,py(my)); x.lineTo(w-pad,py(my)); x.stroke(); x.setLineDash([]);
-  STATE.forEach(t=>{
-    const r=4+Math.sqrt(t.mc/1e9)/6; const cx=px(t.turn), cy=py(Math.log10(t.vol+1));
-    const gated=t.gated;
+
+  // The plot rect every label must stay inside. Quadrant names are placed first and
+  // handed to the engine as reserved space, so a point label can never sit on top of
+  // one — which is how the old version produced "HIGH VEL/LOW LIQ" with tickers
+  // printed through it.
+  const rect={l:pad, t:pad*0.5, r:w-4, b:h-10};
+  const FONT="8px monospace", BOLD="bold 8px monospace";
+  const meas=measurer(x, FONT);
+  x.font=FONT; x.textBaseline="alphabetic";
+  const reserved=[], notes=[];
+  const corner=(text,tx,ty,align)=>{
+    x.textAlign=align;
+    const wpx=x.measureText(text).width;
+    const x0 = align==="right" ? tx-wpx : tx;
+    const rc={x0, y0:ty-8, x1:x0+wpx, y1:ty+2};
+    reserved.push(rc);
+    notes.push({...rc, text, tx, ty, align, color:"#64748B", font:FONT});
+  };
+  corner("HIGH VEL/LOW LIQ", w-6, pad*0.5+8, "right");
+  corner("INSTITUTIONAL", pad+2, h-14, "left");
+  x.textAlign="left";
+
+  // EVERY point is drawn. Only the labels are budgeted.
+  const xc=extremeCuts(xs,0.05), yc=extremeCuts(ys,0.05);
+  const pts=[], cands=[];
+  rows.forEach(t=>{
+    const lv=Math.log10(t.vol+1);
+    const cx=px(t.turn), cy=py(lv);
+    const gated=t.gated, r=4+Math.sqrt(t.mc/1e9)/6;
     if(gated){
       x.beginPath(); x.arc(cx,cy,9,0,7); x.fillStyle="#00FF66";
       x.shadowColor="#00FF66"; x.shadowBlur=8; x.fill(); x.shadowBlur=0;
@@ -1411,58 +1469,139 @@ function quad(){
       x.fillStyle=t.sym===SEL?"rgba(59,130,246,.6)":"rgba(40,52,71,0.25)";
       x.fill();
     }
-    x.fillStyle=gated?"#00FF66":"#475569"; x.font=(gated?"bold 8px":"8px")+" monospace";
-    x.fillText(t.sym,cx+4,cy-4);
+    pts.push({x:cx, y:cy, r:gated?9:Math.max(2,r*0.45), sym:t.sym, lines:[
+      `turnover ${t.turn.toFixed(1)}%`,
+      `24h vol ${fmtUsd(t.vol)}`,
+      `mkt cap ${fmtUsd(t.mc)}`,
+      gated?"qualified":"not qualified"]});
+    cands.push({text:t.sym, x:cx, y:cy, r:gated?9:Math.max(2,r*0.45), gated,
+      priority: labelPriority({selected:t.sym===SEL, qualified:gated,
+        actionable:t.conv>=70,
+        xExtreme:t.turn<=xc.lo||t.turn>=xc.hi, yExtreme:lv<=yc.lo||lv>=yc.hi})});
   });
-  x.fillStyle="#475569"; x.font="8px monospace";
-  x.fillText("HIGH VEL/LOW LIQ",px(mx)+4,py(my)-4);
-  x.fillText("INSTITUTIONAL",pad+2,py(my)+12);
+  CHART_POINTS.quad=pts;
+  const budgeted=cands.filter(c=>c.priority>0);
+  const out=placeLabels(budgeted, rect, meas, 12,
+                        reserved.concat(budgeted.map(markerRect)));
+  out.placed.forEach(L=>{
+    x.font=L.gated?BOLD:FONT; x.fillStyle=L.gated?"#00FF66":"#94A3B8";
+    x.textAlign=L.align; x.textBaseline=L.base;
+    x.fillText(L.text,L.tx,L.ty);
+  });
+  x.textAlign="left"; x.textBaseline="alphabetic";
+  annotate(x, notes);
+  CHART_LABELS.quad={rect, placed:out.placed, skipped:out.skipped};
+  const note=$("#quad-legend");
+  if(note) note.textContent="X: Turnover % · Y: 24H Vol (log) · bubble: mkt cap · "
+    + `${rows.length} plotted, ${out.placed.length} labelled — hover or focus for the rest`;
+  attachChartInteraction("quad");
 }
 function alphaMap(){
-  const cv=$("#alpha"), w=cv.clientWidth, h=cv.clientHeight||210; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  const cv=$("#alpha"), w=cv.clientWidth, h=cv.clientHeight||210;
+  const dpr=window.devicePixelRatio||1;
+  cv.width=w*dpr; cv.height=h*dpr;
+  const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0);
   x.clearRect(0,0,w,h);
   const pad=34;
-  const xmin=-50, xmax=100; // 7D return %
-  const ymin=0, ymax=100;   // conviction
+  const rows=boardRows();
+  if(!rows.length){ x.fillStyle="#475569"; x.font="10px monospace";
+    x.fillText("no rows in view",12,h/2); CHART_POINTS.alpha=[]; return; }
+  const xmin=-50, xmax=100, ymin=0, ymax=100;
   const px=v=>pad+(v-xmin)/(xmax-xmin)*(w-pad*1.4);
   const py=v=>h-pad-(v-ymin)/(ymax-ymin)*(h-pad*1.6);
-  // quadrant grid + labels
   x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([3,3]);
-  x.beginPath(); x.moveTo(px(0),pad*0.6); x.lineTo(px(0),h-pad); x.stroke();          // x=0 (7D)
-  x.beginPath(); x.moveTo(px(xmin),py(50)); x.lineTo(px(xmax),py(50)); x.stroke();     // y=50
-  x.beginPath(); x.moveTo(px(xmin),py(75)); x.lineTo(px(xmax),py(75)); x.stroke();     // y=75
+  x.beginPath(); x.moveTo(px(0),pad*0.6); x.lineTo(px(0),h-pad); x.stroke();
+  x.beginPath(); x.moveTo(px(xmin),py(50)); x.lineTo(px(xmax),py(50)); x.stroke();
+  x.beginPath(); x.moveTo(px(xmin),py(75)); x.lineTo(px(xmax),py(75)); x.stroke();
   x.setLineDash([]);
-  x.fillStyle="#475569"; x.font="8px monospace";
-  x.fillText("ACCUM ZONE (conv>75, 7D<=0)", px(xmin)+2, py(88)+10);
-  x.fillText("MOMENTUM (conv>75, 7D>0)", px(8), py(88)+10);
-  x.fillText("VALUE TRAP", px(xmin)+2, py(25)+4);
-  x.fillText("DEAD/TOXIC", px(8), py(25)+4);
-  x.fillText("7D % →", w-pad, h-8);
-  x.save(); x.translate(10,h/2); x.rotate(-Math.PI/2); x.fillText("CONVICTION",0,0); x.restore();
-  STATE.forEach(t=>{
-    const X=Math.max(xmin,Math.min(xmax,t.chg7d)), Y=Math.max(ymin,Math.min(ymax,t.conv));
+
+  const FONT="8px monospace";
+  const meas=measurer(x, FONT);
+  x.font=FONT; x.textAlign="left"; x.textBaseline="alphabetic";
+  // The four zone names and the two axis titles are reserved BEFORE any point label is
+  // placed. Previously they were drawn last at fixed coordinates and ran straight
+  // through the ticker labels beneath them.
+  const reserved=[], notes=[];
+  const zone=(text,tx,ty,align)=>{
+    x.textAlign=align;
+    const wpx=x.measureText(text).width;
+    const x0 = align==="right" ? tx-wpx : align==="center" ? tx-wpx/2 : tx;
+    const rc={x0, y0:ty-8, x1:x0+wpx, y1:ty+2};
+    reserved.push(rc);
+    notes.push({...rc, text, tx, ty, align, color:"#64748B", font:FONT});
+  };
+  zone("ACCUM ZONE", px(xmin)+2, pad*0.6+8, "left");
+  zone("MOMENTUM",   w-6,        pad*0.6+8, "right");
+  zone("VALUE TRAP", px(xmin)+2, py(25)+4,  "left");
+  zone("DEAD/TOXIC", w-6,        py(25)+4,  "right");
+  x.textAlign="left";
+  const axw=x.measureText("7D % →").width;
+  reserved.push({x0:w-axw-6, y0:h-12, x1:w-6, y1:h-2});
+  notes.push({x0:w-axw-6, y0:h-12, x1:w-6, y1:h-2,
+              text:"7D % →", tx:w-axw-6, ty:h-4, align:"left",
+              color:"#64748B", font:FONT});
+  // The rotated axis title keeps its own transform, so it is drawn here rather than
+  // through annotate(), which only handles horizontal text.
+  x.save(); x.fillStyle="#64748B"; x.font=FONT;
+  x.translate(10,h/2); x.rotate(-Math.PI/2); x.fillText("CONVICTION",0,0); x.restore();
+  reserved.push({x0:2, y0:h/2-40, x1:14, y1:h/2+40});
+
+  const chgs=rows.map(t=>t.chg7d), convs=rows.map(t=>t.conv);
+  const xc=extremeCuts(chgs,0.05), yc=extremeCuts(convs,0.05);
+  const pts=[], cands=[];
+  let ndust=0;
+  rows.forEach(t=>{
+    const X=Math.max(xmin,Math.min(xmax,t.chg7d==null?0:t.chg7d));
+    const Y=Math.max(ymin,Math.min(ymax,t.conv));
     const cx=px(X), cy=py(Y);
     const actionable = t.gated || t.conv>=70;
     if(!actionable){
-      // BACKGROUND DUST: macro context only, no labels, no noise
-      x.fillStyle="rgba(100,116,139,0.15)"; x.fillRect(cx-0.5,cy-0.5,1,1); return;
+      // Still PLOTTED — the dust is macro context and is deliberately kept. It simply
+      // earns no label, and is reachable by hover like everything else.
+      ndust++;
+      x.fillStyle="rgba(100,116,139,0.15)"; x.fillRect(cx-0.5,cy-0.5,1,1);
+      pts.push({x:cx,y:cy,r:2,sym:t.sym,lines:[
+        `conviction ${t.conv}`,
+        t.chg7d==null?"7d — not recorded":`7d ${sgn(t.chg7d)}`,
+        "not qualified"]});
+      return;
     }
-    // color by MVRV Z (valuation): green(<0) -> amber(0..2) -> red(>2)
     const z=t.z;
-    const col = z<0 ? "#00FF66" : z<2 ? "#E0B372" : "#E8917F";
-    // size by dilution risk: bigger bubble = more dilution (proxy ERA or fdv/mc)
+    const col = z==null ? "#94A3B8" : z<0 ? "#00FF66" : z<2 ? "#E0B372" : "#E8917F";
     const dil = t.dilution==null?1:t.dilution;
     const r = 3 + Math.min(9, (dil-1)*6);
     if(t.gated){ x.beginPath(); x.arc(cx,cy,r+2,0,7); x.strokeStyle="#00FF66"; x.lineWidth=2; x.stroke(); }
     x.beginPath(); x.arc(cx,cy,r,0,7);
     x.fillStyle = t.sym===SEL ? "#3B82F6" : (t.gated? "rgba(0,255,102,0.55)" : col+"66");
     x.fill();
-    x.fillStyle = t.gated?"#00FF66":"#64748B"; x.font="7px monospace"; x.fillText(t.sym,cx+4,cy-4);
+    pts.push({x:cx,y:cy,r:r+2,sym:t.sym,lines:[
+      `conviction ${t.conv}`,
+      t.chg7d==null?"7d — not recorded":`7d ${sgn(t.chg7d)}`,
+      t.dilution==null?"FDV not published":`FDV/MC ${t.dilution.toFixed(2)}x`,
+      t.gated?"qualified":"actionable"]});
+    cands.push({text:t.sym, x:cx, y:cy, r:r+2, gated:t.gated,
+      priority: labelPriority({selected:t.sym===SEL, qualified:t.gated,
+        actionable:t.conv>=70,
+        xExtreme:t.chg7d!=null&&(t.chg7d<=xc.lo||t.chg7d>=xc.hi),
+        yExtreme:t.conv<=yc.lo||t.conv>=yc.hi})});
   });
-  // legend note
-  const ndust=STATE.filter(t=>!(t.gated||t.conv>=70)).length;
-  x.fillStyle="#475569"; x.font="7px monospace";
-  x.fillText("grey dust = "+ndust+" non-qualified (macro context)", px(xmin)+2, h-2);
+  CHART_POINTS.alpha=pts;
+  const rect={l:16, t:pad*0.6-8, r:w-4, b:h-14};
+  const aCands=cands.filter(c=>c.priority>0);
+  const out=placeLabels(aCands, rect, meas, 10,
+                        reserved.concat(aCands.map(markerRect)));
+  out.placed.forEach(L=>{
+    x.font=FONT; x.fillStyle=L.gated?"#00FF66":"#94A3B8";
+    x.textAlign=L.align; x.textBaseline=L.base;
+    x.fillText(L.text,L.tx,L.ty);
+  });
+  x.textAlign="left"; x.textBaseline="alphabetic";
+  annotate(x, notes);
+  CHART_LABELS.alpha={rect, placed:out.placed, skipped:out.skipped};
+  const note=$("#alpha-legend");
+  if(note) note.textContent="X: 7D return % · Y: Conviction · colour: MVRV Z · size: dilution · "
+    + `${ndust} non-qualified plotted as dust · ${out.placed.length} labelled — hover or focus for the rest`;
+  attachChartInteraction("alpha");
 }
 function heat(){ alphaMap(); } // alias kept for any stale caller
 /* Pipeline health. Deliberately not a port of the equity Monitor tab: two of its
@@ -2535,6 +2674,240 @@ const ccHold=$("#cc-hold"); if(ccHold) ccHold.oninput=renderCarry;
 
 
 // ---- load ----
+/* Chart hit-testing and the tooltip that carries every unlabelled point.
+
+   A budgeted label set is only honest if the names it drops are still reachable. Canvas
+   has no DOM nodes to hover, so each chart registers the points it drew and this does
+   nearest-point lookup in CSS pixels.
+
+   Keyboard too, not as an afterthought: the canvases take tabindex, arrow keys walk the
+   points in the same deterministic order the labels were ranked in, and Escape clears.
+   A tooltip reachable only by mouse would put the dropped names out of reach of anyone
+   navigating by keyboard, which is a worse failure than the collisions this replaced. */
+const CHART_POINTS = {};   // canvasId -> [{x,y,r,sym,lines}]
+// What each chart last DREW, for the render tests. Not debug scaffolding: bounds and
+// overlap are properties of the output, and the only way to assert them on the real
+// board is to read what was actually placed.
+const CHART_LABELS = {};   // canvasId -> {rect, placed:[{text,x0,y0,x1,y1}], skipped}
+let CHART_FOCUS = {};      // canvasId -> index of the keyboard-focused point
+
+function chartTip(){
+  let el=document.getElementById("chart-tip");
+  if(!el){ el=document.createElement("div"); el.id="chart-tip"; el.className="chart-tip";
+           el.setAttribute("role","status"); el.setAttribute("aria-live","polite");
+           document.body.appendChild(el); }
+  return el;
+}
+function hideTip(){ const el=document.getElementById("chart-tip"); if(el) el.style.display="none"; }
+
+function showTip(pt, clientX, clientY){
+  const el=chartTip();
+  el.innerHTML=`<b class="tick">${esc0(pt.sym)}</b>`+
+    (pt.lines||[]).map(l=>`<span>${esc0(l)}</span>`).join("");
+  el.style.display="block";
+  // Flip before the viewport edge rather than after, so the tip never causes the
+  // horizontal scroll the layout rules forbid.
+  const r=el.getBoundingClientRect();
+  const x=Math.min(clientX+14, window.innerWidth-r.width-8);
+  const y=Math.min(clientY+14, window.innerHeight-r.height-8);
+  el.style.left=Math.max(4,x)+"px"; el.style.top=Math.max(4,y)+"px";
+}
+
+function nearestPoint(id, cx, cy, maxDist){
+  const pts=CHART_POINTS[id]||[]; let best=null, bd=maxDist*maxDist;
+  for(const p of pts){ const dx=p.x-cx, dy=p.y-cy, d=dx*dx+dy*dy;
+    if(d<=bd){ bd=d; best=p; } }
+  return best;
+}
+
+function attachChartInteraction(id){
+  const cv=document.getElementById(id); if(!cv || cv.dataset.wired) return;
+  cv.dataset.wired="1";
+  cv.setAttribute("tabindex","0");
+  cv.setAttribute("role","application");
+  cv.style.outlineOffset="2px";
+  cv.addEventListener("mousemove", e=>{
+    const b=cv.getBoundingClientRect();
+    const pt=nearestPoint(id, e.clientX-b.left, e.clientY-b.top, 14);
+    if(pt) showTip(pt, e.clientX, e.clientY); else hideTip();
+  });
+  cv.addEventListener("mouseleave", hideTip);
+  cv.addEventListener("blur", hideTip);
+  cv.addEventListener("click", e=>{
+    const b=cv.getBoundingClientRect();
+    const pt=nearestPoint(id, e.clientX-b.left, e.clientY-b.top, 14);
+    if(pt && pt.sym) select(pt.sym);
+  });
+  cv.addEventListener("keydown", e=>{
+    const pts=CHART_POINTS[id]||[]; if(!pts.length) return;
+    if(e.key==="Escape"){ hideTip(); cv.blur(); return; }
+    let i=CHART_FOCUS[id];
+    if(e.key==="ArrowRight"||e.key==="ArrowDown") i=(i==null?0:i+1)%pts.length;
+    else if(e.key==="ArrowLeft"||e.key==="ArrowUp") i=(i==null?pts.length-1:i-1+pts.length)%pts.length;
+    else if(e.key==="Enter"||e.key===" "){ if(i!=null&&pts[i]) select(pts[i].sym); e.preventDefault(); return; }
+    else return;
+    e.preventDefault();
+    CHART_FOCUS[id]=i;
+    const b=cv.getBoundingClientRect(), pt=pts[i];
+    showTip(pt, b.left+pt.x, b.top+pt.y);
+  });
+}
+
+/* Quadrant and axis annotations, drawn LAST on a backing chip.
+
+   They used to be painted before the points, so on a dense board the markers were drawn
+   straight through them — "QUALITY, UNCONFIRMED" came out scribbled over by the very
+   cluster it was naming. Drawing them last fixes legibility but would then hide
+   markers, so each sits on a chip in the panel colour: it reads as a key rather than as
+   data, and nothing underneath is mistaken for a point.
+
+   The rects are still reserved BEFORE point labels are placed, so this only changes
+   paint order, never geometry. */
+function annotate(g, notes){
+  notes.forEach(n=>{
+    g.save();
+    g.fillStyle="rgba(11,15,25,.82)";
+    g.fillRect(n.x0-3, n.y0-1, (n.x1-n.x0)+6, (n.y1-n.y0)+2);
+    g.fillStyle=n.color; g.font=n.font; g.textAlign=n.align; g.textBaseline="alphabetic";
+    g.fillText(n.text, n.tx, n.ty);
+    g.restore();
+  });
+}
+
+/* Measure through the chart's own context so widths match what is drawn. */
+function measurer(g, font){
+  return text => { g.font = font; return {w: g.measureText(text).width,
+                                          h: parseFloat(font) || 8}; };
+}
+
+/* LABEL ENGINE — everything between these markers is executed verbatim by
+   tests/test_labels.py under node and exercised against adversarial point sets. It must
+   stay free of DOM access and of any reference to state outside this block.
+
+   Why it exists. All three canvas charts labelled points at a fixed offset with no
+   placement logic at all: quad() labelled every one of 234 names, alphaMap() every
+   actionable one, and factorQuad() its top six. On a real board that produced
+   overlapping smears in the dense corners and labels running off the canvas edge, and
+   the reviewer rejected the screenshots for exactly that.
+
+   The rule this encodes: EVERY POINT IS PLOTTED, only the LABELS are budgeted. A label
+   is drawn only if it fits inside the plot rect and collides with nothing already
+   placed; anything unlabelled stays reachable by hover and by keyboard. Shrinking the
+   type would have been the easy fix and is not one — it trades a legibility problem for
+   a smaller legibility problem.
+*/
+// Candidate positions, tried in this fixed order. Right and left first because a
+// horizontal label reads beside its point without implying a different y value.
+const LBL_ANCHORS = [
+  {dx: 1, dy: 0, align:"left",   base:"middle"},
+  {dx:-1, dy: 0, align:"right",  base:"middle"},
+  {dx: 0, dy:-1, align:"center", base:"bottom"},
+  {dx: 0, dy: 1, align:"center", base:"top"},
+  {dx: 1, dy:-1, align:"left",   base:"bottom"},
+  {dx:-1, dy:-1, align:"right",  base:"bottom"},
+  {dx: 1, dy: 1, align:"left",   base:"top"},
+  {dx:-1, dy: 1, align:"right",  base:"top"},
+];
+const LBL_GAP = 3;      // clearance between a point's edge and its label
+const LBL_PAD = 2;      // clearance between two labels
+
+function lblRect(text, px, py, r, anchor, wpx, hpx){
+  const gx = r + LBL_GAP, gy = r + LBL_GAP;
+  const cx = px + anchor.dx * gx, cy = py + anchor.dy * gy;
+  let x0;
+  if(anchor.align === "left") x0 = cx;
+  else if(anchor.align === "right") x0 = cx - wpx;
+  else x0 = cx - wpx / 2;
+  let y0;
+  if(anchor.base === "top") y0 = cy;
+  else if(anchor.base === "bottom") y0 = cy - hpx;
+  else y0 = cy - hpx / 2;
+  return {x0, y0, x1: x0 + wpx, y1: y0 + hpx, tx: cx, ty: cy,
+          align: anchor.align, base: anchor.base};
+}
+
+/* A point marker as a rectangle, so labels can be kept off other named bubbles.
+
+   Only the markers of points that are THEMSELVES label candidates are reserved. Feeding
+   in all 234 would leave no room in the dense corner and would starve exactly the
+   majors whose labels matter most; feeding in none lets a ticker sit on top of a
+   neighbour's bubble, which is what put "ZEC" across a large-dilution marker. */
+function markerRect(pt){
+  const r = (pt.r || 0);
+  return {x0: pt.x - r, y0: pt.y - r, x1: pt.x + r, y1: pt.y + r};
+}
+
+function lblOverlaps(a, b){
+  return !(a.x1 + LBL_PAD <= b.x0 || b.x1 + LBL_PAD <= a.x0 ||
+           a.y1 + LBL_PAD <= b.y0 || b.y1 + LBL_PAD <= a.y0);
+}
+
+function lblInside(rc, rect){
+  return rc.x0 >= rect.l && rc.x1 <= rect.r && rc.y0 >= rect.t && rc.y1 <= rect.b;
+}
+
+/* Place as many labels as fit, highest priority first.
+
+   `items`  [{text, x, y, r, priority}]  priority: higher wins. x/y/r in CSS pixels.
+   `rect`   {l,t,r,b} the plot area labels must stay inside.
+   `measure` (text) -> {w,h} — the caller supplies it so this stays DOM-free.
+   `budget` maximum number of labels to draw.
+   `reserved` rectangles already occupied (axis titles, quadrant names).
+
+   Deterministic: items are sorted by priority descending then text ascending, so the
+   same board always produces the same labels in the same places. No randomness, and no
+   dependence on object iteration order.
+
+   Returns {placed, skipped, considered}. A point whose label cannot be placed is
+   SKIPPED, never squeezed in — the point itself is drawn by the caller regardless.
+*/
+function placeLabels(items, rect, measure, budget, reserved){
+  const ranked = items.slice().sort((a,b)=>
+    (b.priority - a.priority) || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0));
+  const taken = (reserved || []).slice();
+  const placed = [];
+  let considered = 0;
+  for(const it of ranked){
+    if(placed.length >= budget) break;
+    considered++;
+    const m = measure(it.text);
+    let put = null;
+    for(const anchor of LBL_ANCHORS){
+      const rc = lblRect(it.text, it.x, it.y, it.r || 0, anchor, m.w, m.h);
+      if(!lblInside(rc, rect)) continue;
+      let clash = false;
+      for(const t of taken){ if(lblOverlaps(rc, t)){ clash = true; break; } }
+      if(clash) continue;
+      put = rc; break;
+    }
+    if(put){ taken.push(put); placed.push(Object.assign({}, it, put)); }
+  }
+  return {placed, skipped: ranked.length - placed.length, considered};
+}
+
+/* Which names earn a persistent label.
+
+   Qualified and selected names always; then meaningful OUTLIERS, defined as the extreme
+   `frac` of the plotted set on either axis. Outliers rather than "the biggest" because a
+   scatter's information is at its edges — the middle of the cloud is where a label helps
+   least and collides most.
+*/
+function labelPriority(item, stats){
+  if(item.selected) return 100;
+  if(item.qualified) return 80;
+  if(item.actionable) return 60;
+  if(item.xExtreme || item.yExtreme) return 40;
+  return 0;
+}
+
+function extremeCuts(values, frac){
+  const v = values.filter(n=>typeof n==="number" && !isNaN(n)).slice().sort((a,b)=>a-b);
+  if(v.length < 4) return {lo: -Infinity, hi: Infinity};
+  const k = Math.max(1, Math.floor(v.length * frac));
+  return {lo: v[k-1], hi: v[v.length-k]};
+}
+/* END LABEL ENGINE */
+
 /* =====================================================================
    Modules F-J renderers
    =====================================================================
@@ -2849,50 +3222,39 @@ function renderCorr(){
    name in one quadrant on a trending day and tell the reader nothing. */
 function factorQuad(){
   const cv=document.getElementById("fquad"); if(!cv) return;
-  const box=cv.parentElement, W=box.clientWidth||360, H=230;
+  // The CANVAS's own content box, not its parent's padding box. Reading
+  // parentElement.clientWidth returned 398 inside a 374px content area and then pinned
+  // that back on with an inline style, so the element was 24px wider than the space it
+  // had — which is why the right-hand quadrant names were clipped by the panel border.
+  // The other two charts already measured themselves; this one did not.
+  const W=cv.clientWidth||360, H=230;
   const dpr=window.devicePixelRatio||1;
-  cv.width=W*dpr; cv.height=H*dpr; cv.style.width=W+"px";
+  cv.width=W*dpr; cv.height=H*dpr;
   const g=cv.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
-  const pts=(FILTER?STATE.filter(matchesFilter):STATE).filter(t=>t.comp).slice(0,60);
-  if(!pts.length){ g.fillStyle="#475569"; g.font="10px monospace";
-    g.fillText("no rows in view",12,H/2); return; }
+  const src=(FILTER?boardRows().filter(matchesFilter):boardRows());
+  const pts0=src.filter(t=>t.comp).slice(0,60);
+  if(!pts0.length){ g.fillStyle="#475569"; g.font="10px monospace";
+    g.fillText("no rows in view",12,H/2); CHART_POINTS.fquad=[]; return; }
   const P={l:34,r:12,t:12,b:22};
-  /* Y: structural quality, as the score itself composes it — log-cap depth, times the
-     liquidity-fit haircut, times the Module F supply multiplier.
-
-     The third term is not decoration. `depth` is clamped to 1.0 above roughly $10B, so
-     on a board of majors it SATURATES: the first version of this chart plotted depth x
-     liquidity and thirty names landed on exactly y=1, stacked into one unreadable row
-     along the top edge. The supply multiplier is the one quality dimension that stays
-     continuous up there, and it breaks those ties in the right direction — between two
-     equally deep assets, the one with less of its supply still to issue is the higher
-     quality holding. */
   const qual=t=>(t.comp.depth/20)*(t.comp.liquidity/30)
                 *(t.comp.emission_mult!=null?t.comp.emission_mult:1);
-  const mom=t=>t.rsBlend;
-  const qs=pts.map(qual), ms=pts.map(mom);
+  const mom=t=>t.rsBlend==null?0:t.rsBlend;
+  const qs=pts0.map(qual), ms=pts0.map(mom);
   const sorted=a=>[...a].sort((x,y)=>x-y);
   const med=a=>{const b=sorted(a);const n=b.length;
     return n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2;};
-  // Domain from the 5th-95th percentile, NOT min/max. Relative strength has a long
-  // right tail — one name up 400% against BTC stretches a min/max axis until the other
-  // fifty-nine sit in a single column against the left edge, which is what this chart
-  // did on its first render. Outliers are clamped to the edge rather than dropped: a
-  // name that extreme belongs in the corner, not off the plot.
   const pct=(a,q)=>{const b=sorted(a);const i=(b.length-1)*q;
     const lo=Math.floor(i),hi=Math.ceil(i);
     return lo===hi?b[lo]:b[lo]+(b[hi]-b[lo])*(i-lo);};
   const qMed=med(qs), mMed=med(ms);
   let mLo=pct(ms,0.05), mHi=pct(ms,0.95);
   let qLo=pct(qs,0.05), qHi=pct(qs,0.95);
-  // The medians must stay inside the drawn box or the dividing lines leave the chart.
   mLo=Math.min(mLo,mMed); mHi=Math.max(mHi,mMed);
   qLo=Math.min(qLo,qMed); qHi=Math.max(qHi,qMed);
   const cl=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
   const X=v=>P.l+((cl(v,mLo,mHi)-mLo)/((mHi-mLo)||1))*(W-P.l-P.r);
   const Y=v=>H-P.b-((cl(v,qLo,qHi)-qLo)/((qHi-qLo)||1))*(H-P.t-P.b);
-  const clipped=pts.filter(t=>mom(t)<mLo||mom(t)>mHi||qual(t)<qLo||qual(t)>qHi).length;
-  // Quadrant fills, then the dividing lines, then the labels, then the points.
+  const clipped=pts0.filter(t=>mom(t)<mLo||mom(t)>mHi||qual(t)<qLo||qual(t)>qHi).length;
   const qx=X(mMed), qy=Y(qMed);
   const fills=[["rgba(123,201,160,.055)",qx,P.t,W-P.r-qx,qy-P.t],
                ["rgba(224,179,114,.05)",P.l,P.t,qx-P.l,qy-P.t],
@@ -2902,17 +3264,37 @@ function factorQuad(){
   g.strokeStyle="#1E293B"; g.lineWidth=1;
   g.beginPath(); g.moveTo(qx,P.t); g.lineTo(qx,H-P.b);
   g.moveTo(P.l,qy); g.lineTo(W-P.r,qy); g.stroke();
-  // Quadrant names in the OUTER corner of each quadrant, right-aligned on the right
-  // half. Drawn before the points so a dense corner covers the label rather than the
-  // label covering the data, and at low alpha because they are a key, not a reading.
-  g.font="7.5px monospace";
-  const qlab=(txt,col,x,y,right)=>{ g.fillStyle=col; g.textAlign=right?"right":"left";
-    g.fillText(txt,x,y); g.textAlign="left"; };
-  qlab("CONVICTION","rgba(123,201,160,.65)",W-P.r-3,P.t+9,true);
-  qlab("QUALITY, UNCONFIRMED","rgba(224,179,114,.6)",P.l+3,P.t+9,false);
-  qlab("MOMENTUM, THIN","rgba(59,130,246,.6)",W-P.r-3,H-P.b-4,true);
-  qlab("DE-ALLOCATE","rgba(232,145,127,.6)",P.l+3,H-P.b-4,false);
-  pts.forEach(t=>{
+
+  const FONT="7.5px monospace";
+  g.font=FONT; g.textBaseline="alphabetic";
+  // Quadrant names reserved before any ticker is placed, and shortened on a narrow
+  // canvas rather than allowed to run past the edge. Measured, not guessed: the long
+  // forms simply do not fit a 300px rail and were being clipped.
+  const narrow = W < 330;
+  const reserved=[], notes=[];
+  const qlab=(long,short,tx,ty,align,color)=>{
+    const text = narrow ? short : long;
+    g.textAlign=align; const wpx=g.measureText(text).width;
+    const x0 = align==="right" ? tx-wpx : tx;
+    if(x0 < P.l-2 || x0+wpx > W-2) { g.textAlign="left"; return; }
+    const rc={x0, y0:ty-8, x1:x0+wpx, y1:ty+2};
+    reserved.push(rc);
+    notes.push({...rc, text, tx, ty, align, color, font:FONT});
+  };
+  qlab("CONVICTION","CONV",W-P.r-3,P.t+9,"right","rgba(123,201,160,.8)");
+  qlab("QUALITY, UNCONFIRMED","QUALITY",P.l+3,P.t+9,"left","rgba(224,179,114,.8)");
+  qlab("MOMENTUM, THIN","MOMENTUM",W-P.r-3,H-P.b-4,"right","rgba(59,130,246,.85)");
+  qlab("DE-ALLOCATE","AVOID",P.l+3,H-P.b-4,"left","rgba(232,145,127,.8)");
+  g.textAlign="left";
+  const axw2=g.measureText("RS vs BTC →").width;
+  reserved.push({x0:P.l, y0:H-14, x1:P.l+axw2, y1:H-4});
+  notes.push({x0:P.l, y0:H-14, x1:P.l+axw2, y1:H-4,
+              text:"RS vs BTC →", tx:P.l, ty:H-6, align:"left",
+              color:"#64748B", font:FONT});
+
+  const xc=extremeCuts(ms,0.08), yc=extremeCuts(qs,0.08);
+  const pts=[], cands=[];
+  pts0.forEach(t=>{
     const x=X(mom(t)), y=Y(qual(t));
     const r=Math.max(2.5,Math.min(9,Math.log10(Math.max(1e6,t.mc))-5.2));
     const strong=t.conv>=70;
@@ -2920,29 +3302,36 @@ function factorQuad(){
     g.fillStyle=strong?"rgba(123,201,160,.55)":t.conv>=55?"rgba(59,130,246,.42)":"rgba(148,163,184,.28)";
     g.fill();
     if(t.sym===SEL){ g.strokeStyle="#E0B372"; g.lineWidth=1.6; g.stroke(); }
+    pts.push({x,y,r:r+2,sym:t.sym,lines:[
+      `conviction ${t.conv}`,
+      `RS vs BTC ${mom(t).toFixed(1)}`,
+      `quality ${qual(t).toFixed(2)}`,
+      `mkt cap ${fmtUsd(t.mc)}`]});
+    cands.push({text:t.sym, x, y, r:r+2, sel:t.sym===SEL,
+      priority: labelPriority({selected:t.sym===SEL, qualified:t.gated,
+        actionable:strong,
+        xExtreme:mom(t)<=xc.lo||mom(t)>=xc.hi,
+        yExtreme:qual(t)<=yc.lo||qual(t)>=yc.hi})});
   });
-  // Labels last and sparingly: the first version labelled every STRONG name and they
-  // overprinted each other into an unreadable smear in the top-left corner. Top six by
-  // conviction plus the selection, drawn on the inward side of the point so a label
-  // never runs off the canvas.
-  const named=pts.slice().sort((a,b)=>b.conv-a.conv).slice(0,6);
-  if(SEL && !named.some(t=>t.sym===SEL)){ const sd=pts.find(t=>t.sym===SEL); if(sd) named.push(sd); }
-  g.font="8px monospace";
-  named.forEach(t=>{
-    const x=X(mom(t)), y=Y(qual(t));
-    const r=Math.max(2.5,Math.min(9,Math.log10(Math.max(1e6,t.mc))-5.2));
-    const left = x > W*0.6;
-    g.fillStyle = t.sym===SEL ? "#E0B372" : "#94A3B8";
-    g.textAlign = left ? "right" : "left";
-    g.fillText(t.sym, left ? x-r-3 : x+r+3, y+3);
+  CHART_POINTS.fquad=pts;
+  const rect={l:P.l, t:P.t-6, r:W-4, b:H-P.b+2};
+  const meas=measurer(g, "8px monospace");
+  const out=placeLabels(cands.filter(c=>c.priority>0), rect, meas, narrow?5:8,
+                        reserved.concat(cands.map(markerRect)));
+  out.placed.forEach(L=>{
+    g.font="8px monospace"; g.fillStyle=L.sel?"#E0B372":"#94A3B8";
+    g.textAlign=L.align; g.textBaseline=L.base;
+    g.fillText(L.text,L.tx,L.ty);
   });
-  g.textAlign="left";
-  g.fillStyle="#475569"; g.font="8px monospace";
-  g.fillText("RS vs BTC →",P.l,H-6);
+  g.textAlign="left"; g.textBaseline="alphabetic";
+  annotate(g, notes);
+  CHART_LABELS.fquad={rect, placed:out.placed, skipped:out.skipped};
   const lg=$("#fquad-legend");
   if(lg) lg.textContent=`X: blended RS vs BTC (median ${mMed.toFixed(1)}) · Y: depth x liquidity x supply `
-    + `(median ${qMed.toFixed(2)}) · size: mkt cap · ${pts.length} names`
-    + (clipped?` · ${clipped} beyond the 5-95 percentile axis, clamped to the edge`:"");
+    + `(median ${qMed.toFixed(2)}) · ${pts0.length} plotted, ${out.placed.length} labelled`
+    + (clipped?` · ${clipped} clamped to the 5-95 percentile axis`:"")
+    + " — hover or focus for the rest";
+  attachChartInteraction("fquad");
 }
 
 /* ---- rewind -----------------------------------------------------------

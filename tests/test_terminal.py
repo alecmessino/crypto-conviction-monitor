@@ -352,7 +352,9 @@ def test_the_quadrant_axis_is_robust_to_an_outlier():
     min/max axis until the other fifty-nine sat in a single column against the left
     edge, which is what this chart did on its first render."""
     assert "pct(ms,0.05)" in SCRIPT and "pct(ms,0.95)" in SCRIPT
-    assert "clamped to the edge" in SCRIPT
+    # Wording moved with the rewrite; the property is that the count of clamped points
+    # is reported rather than silently absorbed.
+    assert "clamped to the 5-95 percentile axis" in SCRIPT
 
 
 def test_the_sizer_caps_a_correlated_book_and_prices_the_entry():
@@ -444,3 +446,120 @@ def test_the_page_never_holds_a_coingecko_credential():
     key to the client."""
     for banned in ("x-cg-demo-api-key", "x-cg-pro-api-key", "COINGECKO_API_KEY"):
         assert banned not in HTML, f"{banned} appears in a public static page"
+
+
+# ---------------------------------------------------------------------------
+# chart legibility: budgeted labels, collision-aware placement, reachability
+# ---------------------------------------------------------------------------
+def _chart_body(name):
+    start = SCRIPT.find(f"function {name}(){{")
+    assert start != -1, f"{name}() is gone"
+    end = SCRIPT.find("\n}\n", start)
+    return SCRIPT[start:end]
+
+
+@pytest.mark.parametrize("fn", ["quad", "alphaMap", "factorQuad"])
+def test_every_chart_places_labels_through_the_shared_engine(fn):
+    """Three charts each grew their own fixed +4/-4 offset and no placement logic at
+    all. One engine, executed by tests/test_labels.py under node, is what keeps the
+    overlap and bounds guarantees true for all of them at once."""
+    body = _chart_body(fn)
+    assert "placeLabels(" in body, f"{fn}() no longer uses the shared label engine"
+    assert "labelPriority(" in body, f"{fn}() no longer ranks its labels"
+
+
+@pytest.mark.parametrize("fn", ["quad", "alphaMap", "factorQuad"])
+def test_no_chart_labels_points_unconditionally(fn):
+    """The defect that produced the rejected screenshots: quad() drew a label for every
+    one of 234 rows inside its forEach. A label written directly from the point loop is
+    a label nothing budgeted or placed."""
+    body = _chart_body(fn)
+    loop_start = body.find("forEach(")
+    if loop_start == -1:
+        return
+    loop = body[loop_start:]
+    assert "fillText(t.sym" not in loop, \
+        f"{fn}() still writes a ticker straight from its point loop"
+
+
+@pytest.mark.parametrize("fn", ["quad", "alphaMap", "factorQuad"])
+def test_every_chart_bounds_its_labels_to_a_plot_rect(fn):
+    body = _chart_body(fn)
+    assert "rect=" in body.replace(" ", ""), f"{fn}() defines no plot rect"
+    assert "CHART_LABELS" in body, f"{fn}() does not record what it drew"
+
+
+@pytest.mark.parametrize("fn", ["quad", "alphaMap", "factorQuad"])
+def test_every_chart_registers_its_points_for_hover_and_keyboard(fn):
+    """A budgeted label set is only honest if the dropped names stay reachable."""
+    body = _chart_body(fn)
+    assert "CHART_POINTS" in body, f"{fn}() registers no points for hit-testing"
+    assert "attachChartInteraction(" in body, f"{fn}() wires no interaction"
+
+
+@pytest.mark.parametrize("fn", ["quad", "alphaMap", "factorQuad"])
+def test_every_chart_still_plots_every_point(fn):
+    """Only the LABELS are budgeted. A chart that dropped points to relieve crowding
+    would be solving the wrong problem — the scatter's whole value is the distribution."""
+    body = _chart_body(fn)
+    assert "slice(0,12)" not in body and "slice(0,10)" not in body, \
+        f"{fn}() truncates its point set"
+    # The budget must be applied to the LABEL candidates, not to the points. Both charts
+    # that plot the full universe register every row for hit-testing, so the registered
+    # count is the check: it is pushed inside the point loop, unfiltered.
+    if fn in ("quad", "alphaMap"):
+        assert "pts.push(" in body, f"{fn}() registers no points at all"
+        assert body.count("pts.push(") >= 1
+        loop = body[body.find("forEach("):body.find("placeLabels(")]
+        assert "pts.push(" in loop, (
+            f"{fn}() does not register its points from inside the point loop, so some "
+            f"rows are plotted without becoming reachable")
+
+
+def test_the_annotations_are_drawn_last_so_markers_cannot_scribble_them():
+    """They used to be painted before the points, so a dense cluster was drawn straight
+    through 'QUALITY, UNCONFIRMED'."""
+    assert "function annotate(" in SCRIPT
+    for fn in ("quad", "alphaMap", "factorQuad"):
+        body = _chart_body(fn)
+        # Matched on the CALL, not the bare token: alphaMap explains in a comment why
+        # its rotated axis title bypasses annotate(), and that mention sits above
+        # placeLabels — a substring search finds the prose and reports a false failure.
+        call = "annotate(x, notes)" if fn != "factorQuad" else "annotate(g, notes)"
+        assert call in body, f"{fn}() does not defer its annotations"
+        assert body.find(call) > body.find("placeLabels("), \
+            f"{fn}() draws annotations before its labels are placed"
+
+
+def test_the_charts_are_keyboard_reachable():
+    """A tooltip reachable only by mouse puts the dropped names out of reach of anyone
+    navigating by keyboard, which is worse than the collisions this replaced."""
+    assert 'cv.setAttribute("tabindex","0")' in SCRIPT
+    assert '"ArrowRight"' in SCRIPT and '"Escape"' in SCRIPT
+    assert "canvas:focus-visible" in HTML
+
+
+def test_the_tooltip_cannot_eat_its_own_mouse_events():
+    tip = HTML[HTML.find(".chart-tip{"):]
+    tip = tip[:tip.find("}")]
+    assert "pointer-events:none" in tip
+
+
+def test_factor_quad_measures_its_own_canvas_not_its_parents_padding_box():
+    """It read parentElement.clientWidth (398) inside a 374px content area and pinned
+    that back with an inline style, so the element was 24px wider than its container —
+    which is what clipped the right-hand quadrant names."""
+    body = _chart_body("factorQuad")
+    assert "cv.clientWidth" in body
+    assert "box.clientWidth" not in body
+    assert 'cv.style.width' not in body
+
+
+def test_the_layout_never_scrolls_sideways():
+    """Three flex rows had nowrap and one grid track was plain 1fr, so the page had a
+    921px minimum and every viewport below ~1280px scrolled horizontally."""
+    assert ".ribbon{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap" in HTML
+    assert "flex-wrap:wrap;background:rgba(10,15,26,.55)" in HTML   # .rewind
+    assert "grid-template-columns:minmax(0,1fr)" in HTML
+    rail = HTML[HTML.find(".rail{"):]
+    assert "min-width:0" in rail[:rail.find("}")]
