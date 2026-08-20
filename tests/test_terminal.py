@@ -615,3 +615,25 @@ def test_the_inline_favicon_is_valid_svg():
     svg = urllib.parse.unquote(m.group(1))
     assert "http://www.w3.org/2000/svg" in svg, "wrong or mistyped SVG namespace"
     ET.fromstring(svg)
+
+
+def test_the_charts_plot_the_live_board_only_never_the_rewound_one():
+    """The rewind note promises the charts are not rewound, and it was half true:
+    renderTables() ends by calling quad(), so scrubbing back moved that one chart to the
+    recorded rows while the other two stayed live — three panels side by side, one
+    silently on a different date."""
+    assert "function liveRows(){ return STATE; }" in SCRIPT
+    for fn in ("quad", "alphaMap", "factorQuad"):
+        body = _chart_body(fn)
+        assert "liveRows()" in body, f"{fn}() does not read the live board"
+        assert "boardRows()" not in body, (
+            f"{fn}() reads boardRows(), so scrubbing the rewind moves it to a different "
+            f"date than the two charts beside it")
+
+
+def test_only_the_conviction_matrix_follows_the_rewind():
+    """boardRows() is the rewind-aware source and must stay confined to the table."""
+    assert "function boardRows(){ return RENDER_ROWS || STATE; }" in SCRIPT
+    assert SCRIPT.count("boardRows()") <= 3, (
+        "boardRows() has spread beyond renderTables — every extra caller is a panel "
+        "that can silently disagree about which night it is showing")

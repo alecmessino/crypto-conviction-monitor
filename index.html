@@ -1310,6 +1310,21 @@ function perpBlock(t){
       from a measurement.</div>`;
 }
 
+/* The three canvases plot the LIVE board only, never the rewound one.
+
+   This is what the rewind control promises in words, and it was half true: renderTables()
+   ends by calling quad(), so scrubbing back re-rendered that one chart from the recorded
+   rows while alphaMap() and factorQuad() kept showing live — three panels side by side,
+   one of them silently on a different date.
+
+   Live-only rather than making all three follow the scrubber, because two of these axes
+   are not in the ledger. alphaMap plots 7-day return and factorQuad's colour reads the
+   all-time-range Z; a recorded row has neither, and a rewound point would have to be
+   drawn at a fabricated zero to appear at all. Plotting a name at "7d = 0" because 7d is
+   unknown is exactly the kind of confident-looking substitution this repository refuses
+   everywhere else. */
+function liveRows(){ return STATE; }
+
 /* What the conviction matrix draws: the recorded board when scrubbed back, the live one
    otherwise. Deliberately not a global swap of STATE — the live-price panels have no
    recorded equivalent and would have to be faked to follow it. */
@@ -1424,7 +1439,7 @@ function quad(){
   cv.width=w*dpr; cv.height=h*dpr;
   const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0);
   x.clearRect(0,0,w,h); const pad=26;
-  const rows=boardRows();
+  const rows=liveRows();
   if(!rows.length){ emptyChart(x,w,h,"quad"); return; }
   const xs=rows.map(t=>t.turn), ys=rows.map(t=>Math.log10(t.vol+1));
   const xmax=Math.max(...xs,1.2)*1.05;
@@ -1506,7 +1521,7 @@ function alphaMap(){
   const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0);
   x.clearRect(0,0,w,h);
   const pad=34;
-  const rows=boardRows();
+  const rows=liveRows();
   if(!rows.length){ emptyChart(x,w,h,"alpha"); return; }
   const xmin=-50, xmax=100, ymin=0, ymax=100;
   const px=v=>pad+(v-xmin)/(xmax-xmin)*(w-pad*1.4);
@@ -3254,7 +3269,7 @@ function factorQuad(){
   const dpr=window.devicePixelRatio||1;
   cv.width=W*dpr; cv.height=H*dpr;
   const g=cv.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
-  const src=(FILTER?boardRows().filter(matchesFilter):boardRows());
+  const src=(FILTER?liveRows().filter(matchesFilter):liveRows());
   const pts0=src.filter(t=>t.comp).slice(0,60);
   if(!pts0.length){ emptyChart(g,W,H,"fquad"); return; }
   const P={l:34,r:12,t:12,b:22};
