@@ -563,3 +563,55 @@ def test_the_layout_never_scrolls_sideways():
     assert "grid-template-columns:minmax(0,1fr)" in HTML
     rail = HTML[HTML.find(".rail{"):]
     assert "min-width:0" in rail[:rail.find("}")]
+
+
+# ---------------------------------------------------------------------------
+# degraded rendering: what a throttled visitor actually sees
+# ---------------------------------------------------------------------------
+def test_the_charts_render_an_empty_state_when_the_live_fetch_fails():
+    """Found by smoke-testing the deployed bytes: the three canvases only ever ran
+    inside the success path, so a rate-limited visitor got three blank rectangles beside
+    a board that was reporting the error in words. Blank reads as broken."""
+    assert "function emptyChart(" in SCRIPT
+    # Anchored inside load(), not on the first '}catch(e){' in the file — loadLedger()
+    # has seven of them above it and a naive search lands in the wrong function.
+    body = SCRIPT[SCRIPT.find("async function load(){"):]
+    body = body[:body.find("\n}\n")]
+    catch = body[body.find("}catch(e){"):]
+    assert catch, "load() no longer has a catch path"
+    assert "quad(); alphaMap(); factorQuad();" in catch, \
+        "the charts are still unreachable when the live fetch fails"
+
+
+def test_the_empty_state_names_the_cause_not_the_symptom():
+    """'no rows in view' does not distinguish a starved panel from a broken one."""
+    assert "awaiting live prices" in SCRIPT
+    assert "which has no recorded equivalent" in SCRIPT
+
+
+def test_the_empty_state_still_records_a_placement():
+    """Otherwise CHART_LABELS keeps whatever the last successful render left, and a
+    render check would assert against a stale board."""
+    fn = SCRIPT[SCRIPT.find("function emptyChart("):]
+    fn = fn[:fn.find("\n}")]
+    assert "CHART_LABELS[id]=" in fn and "CHART_POINTS[id]=[]" in fn
+
+
+def test_the_page_declares_a_favicon():
+    """Production answered 404 to every visitor's /favicon.ico. Inline, so there is no
+    binary asset to keep in sync and no second request."""
+    assert 'rel="icon"' in HTML
+    assert "data:image/svg+xml," in HTML
+
+
+def test_the_inline_favicon_is_valid_svg():
+    """A malformed data URI fails silently — the browser shows the default icon and
+    nothing reports it. This caught a mistyped SVG namespace on the first attempt."""
+    import urllib.parse
+    import xml.etree.ElementTree as ET
+
+    m = re.search(r'<link rel="icon" href="data:image/svg\+xml,([^"]+)"', HTML)
+    assert m, "no inline favicon"
+    svg = urllib.parse.unquote(m.group(1))
+    assert "http://www.w3.org/2000/svg" in svg, "wrong or mistyped SVG namespace"
+    ET.fromstring(svg)

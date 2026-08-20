@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Conviction Monitor — Terminal</title>
+<!-- Inline, so there is no binary asset to keep in sync and no second request. Every
+     visitor's browser asks for /favicon.ico and production answered 404 on all of them;
+     a declared icon stops the request being made at all. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230B0F19'/%3E%3Cpath d='M6 21l5-7 4 4 5-9 6 12' fill='none' stroke='%237BC9A0' stroke-width='2.5' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
 <style>
 :root{
   --bg:#0B0F19; --panel:rgba(20,28,44,0.55); --panel-solid:#111827;
@@ -1421,8 +1425,7 @@ function quad(){
   const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0);
   x.clearRect(0,0,w,h); const pad=26;
   const rows=boardRows();
-  if(!rows.length){ x.fillStyle="#475569"; x.font="10px monospace";
-    x.fillText("no rows in view",12,h/2); CHART_POINTS.quad=[]; return; }
+  if(!rows.length){ emptyChart(x,w,h,"quad"); return; }
   const xs=rows.map(t=>t.turn), ys=rows.map(t=>Math.log10(t.vol+1));
   const xmax=Math.max(...xs,1.2)*1.05;
   const ymin=Math.min(...ys), ymax=Math.max(...ys);
@@ -1504,8 +1507,7 @@ function alphaMap(){
   x.clearRect(0,0,w,h);
   const pad=34;
   const rows=boardRows();
-  if(!rows.length){ x.fillStyle="#475569"; x.font="10px monospace";
-    x.fillText("no rows in view",12,h/2); CHART_POINTS.alpha=[]; return; }
+  if(!rows.length){ emptyChart(x,w,h,"alpha"); return; }
   const xmin=-50, xmax=100, ymin=0, ymax=100;
   const px=v=>pad+(v-xmin)/(xmax-xmin)*(w-pad*1.4);
   const py=v=>h-pad-(v-ymin)/(ymax-ymin)*(h-pad*1.6);
@@ -2774,6 +2776,27 @@ function annotate(g, notes){
   });
 }
 
+/* One empty state for all three canvases, naming the cause rather than the symptom.
+
+   These charts are built from the live price fetch, which has no recorded equivalent —
+   so when it fails there is genuinely nothing to plot. Saying "no rows in view" left a
+   throttled visitor unable to tell a starved panel from a broken one, next to a board
+   that was reporting the real error in words. */
+function emptyChart(g, w, h, id){
+  CHART_POINTS[id]=[];
+  CHART_LABELS[id]={rect:{l:0,t:0,r:w,b:h}, placed:[], skipped:0};
+  g.fillStyle="#475569"; g.font="10px monospace"; g.textAlign="left";
+  const st=(FEED&&FEED.state)||"pending";
+  const msg = (st==="failed"||st==="throttled"||st==="unknown")
+    ? ["awaiting live prices", "this chart is built from the live feed,",
+       "which has no recorded equivalent"]
+    : ["no rows in view", "the filter matches nothing on this board", ""];
+  g.fillText(msg[0], 12, h/2 - 8);
+  g.font="8px monospace"; g.fillStyle="#3d4a5f";
+  g.fillText(msg[1], 12, h/2 + 6);
+  if(msg[2]) g.fillText(msg[2], 12, h/2 + 17);
+}
+
 /* Measure through the chart's own context so widths match what is drawn. */
 function measurer(g, font){
   return text => { g.font = font; return {w: g.measureText(text).width,
@@ -3233,8 +3256,7 @@ function factorQuad(){
   const g=cv.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
   const src=(FILTER?boardRows().filter(matchesFilter):boardRows());
   const pts0=src.filter(t=>t.comp).slice(0,60);
-  if(!pts0.length){ g.fillStyle="#475569"; g.font="10px monospace";
-    g.fillText("no rows in view",12,H/2); CHART_POINTS.fquad=[]; return; }
+  if(!pts0.length){ emptyChart(g,W,H,"fquad"); return; }
   const P={l:34,r:12,t:12,b:22};
   const qual=t=>(t.comp.depth/20)*(t.comp.liquidity/30)
                 *(t.comp.emission_mult!=null?t.comp.emission_mult:1);
@@ -3481,6 +3503,10 @@ async function load(){
     FEED = {state: /rate-limit|429/i.test(e.message) ? "throttled" : "failed",
             ageMin: null, detail: "the live fetch failed: "+e.message};
     renderFeedBanner(); renderMacro();
+    // The three canvases only ever ran inside the success path, so a throttled visitor
+    // got three blank rectangles with no explanation — the panels looked broken rather
+    // than starved. They render their own empty state, which is worth reaching.
+    quad(); alphaMap(); factorQuad();
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
     $("#tbl-conv tbody").innerHTML=`<tr><td colspan="14" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
   }
