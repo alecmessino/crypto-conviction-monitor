@@ -20,10 +20,16 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 
 /* Layout */
 .wrap{display:grid;grid-template-columns:240px 1fr 400px;gap:10px;padding:10px;max-width:1680px;margin:0 auto;align-items:start}
-@media(max-width:1100px){.wrap{grid-template-columns:1fr}}
+/* minmax(0,1fr) rather than 1fr, for the same reason as .rail above: plain `1fr`
+   floors the track at min-content and the dense tables then set the page width. */
+@media(max-width:1100px){.wrap{grid-template-columns:minmax(0,1fr)}}
 
 /* Top ribbon */
-.ribbon{grid-column:1/-1;display:flex;gap:14px;flex-wrap:nowrap;padding:7px 16px;align-items:center;border-radius:8px}
+/* Wraps. It used to be nowrap, which gave the whole page a 921px minimum width and
+   made every viewport below ~1280px scroll horizontally — the layout rules forbid a
+   body that scrolls sideways, and the single-column breakpoint at 1100px could never
+   take effect while one flex row outvoted it. */
+.ribbon{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap;padding:7px 16px;align-items:center;border-radius:8px}
 .ribbon .stat{display:flex;flex-direction:column;line-height:1.05}
 .ribbon .stat b{font-size:15px;font-weight:700;color:#FFFFFF;font-variant-numeric:tabular-nums}
 .ribbon .stat span{font-size:8px;color:#64748B;text-transform:uppercase;letter-spacing:1px;margin-top:1px}
@@ -37,6 +43,9 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 .hp.act:hover{background:rgba(59,130,246,.16);border-color:var(--blue)}
 .hp .dotc{width:6px;height:6px;border-radius:50%}
 .ribbon .brand{font-weight:700;font-size:13px;letter-spacing:1px;margin-right:auto;white-space:nowrap}
+/* On a wrapped ribbon the auto margin would strand a single stat on its own row, so it
+   is dropped once the row is already breaking. */
+@media(max-width:1280px){.ribbon .brand{margin-right:0}}
 .live{color:var(--green)} .live::before{content:"●";margin-right:5px;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
@@ -225,7 +234,11 @@ tr.gated:hover{background:rgba(0,255,102,0.10)}
 .spark{display:inline-block;vertical-align:middle}
 
 /* Right rail charts — fixed-height boxes */
-.rail{display:flex;flex-direction:column;gap:10px;min-height:0}
+/* min-width:0 like its two sibling columns. A grid track sized `1fr` resolves its
+   minimum to min-content, and a 14-column table of nowrap cells has a very large
+   min-content width — so without this the rail widened the whole page instead of
+   letting its own panes scroll. */
+.rail{display:flex;flex-direction:column;gap:10px;min-height:0;min-width:0}
 .chart-box{padding:8px 12px}
 canvas{display:block;width:100%}
 .muted{color:var(--tert);font-size:10px}
@@ -241,6 +254,89 @@ canvas{display:block;width:100%}
 .note{padding:10px 14px;color:var(--sec);font-size:10px;line-height:1.5}
 .err{color:var(--amber);padding:14px}
 #status{font-size:10px;color:var(--sec)}
+
+/* ---- Modules F-J ------------------------------------------------------ */
+/* Macro regime ribbon. A third bar rather than more chips on the health one: those are
+   statements about the pipeline and these are statements about the market, and a reader
+   scanning for one must not have to filter out the other. */
+.ribbon.macro{grid-column:1/-1;background:rgba(10,15,26,.55);border-left:2px solid var(--violet);
+  padding:5px 14px;gap:8px;flex-wrap:wrap;min-height:26px}
+.mc{display:inline-flex;align-items:baseline;gap:6px;font-size:10px;padding:2px 9px;border-radius:10px;
+  background:rgba(148,163,184,.09);border:1px solid var(--grid);white-space:nowrap}
+.mc .lbl{color:var(--sec);text-transform:uppercase;letter-spacing:.6px;font-size:8px}
+.mc b{font-variant-numeric:tabular-nums}
+.mc .sub{color:var(--tert);font-size:9px}
+.mc.pending{border-style:dashed;opacity:.75}
+
+/* Sector rotation. A fixed-width label column and a centred zero so the bars read as a
+   diverging scale rather than as a bar chart that happens to have negatives in it. */
+.sec-row{display:grid;grid-template-columns:130px 1fr 62px;gap:8px;align-items:center;
+  padding:2px 0;font-size:10.5px}
+.sec-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--txt);cursor:pointer}
+.sec-name:hover{color:var(--blue)}
+.sec-track{position:relative;height:12px;background:rgba(148,163,184,.06);border-radius:2px}
+.sec-track::before{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--grid)}
+.sec-bar{position:absolute;top:2px;bottom:2px;border-radius:1px}
+.sec-val{text-align:right;font-variant-numeric:tabular-nums}
+
+/* Correlation matrix. Fixed cells so it reads as a matrix; the diagonal is dimmed
+   because a name's correlation to itself is 1 by construction and carries no news. */
+.cm-grid{display:grid;gap:1px;font-size:8px;overflow:auto;padding:2px 0}
+.cm-cell{width:100%;aspect-ratio:1;border-radius:1px;position:relative}
+.cm-cell.diag{opacity:.25}
+.cm-lab{font-size:7.5px;color:var(--sec);text-align:center;white-space:nowrap;overflow:hidden}
+.cm-lab.row{text-align:right;padding-right:3px}
+
+/* The rewind scrubber. Full width and pinned above the board it rewinds, because a
+   control that changes what every panel below it means must not be findable only by
+   scrolling. */
+/* Wraps, like the ribbons above it. Without this the JUMP TO LIVE button was the last
+   element setting the page's minimum width, and the body scrolled sideways by 23px on a
+   narrow viewport for the sake of one button. */
+.rewind{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:6px 16px;border-radius:8px;
+  flex-wrap:wrap;background:rgba(10,15,26,.55);border-left:2px solid var(--amber)}
+.rewind input[type=range]{flex:1;accent-color:var(--amber);cursor:pointer;min-width:120px}
+.rewind .rw-date{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;min-width:92px}
+.rewind .rw-lbl{font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--sec)}
+.rewind button{background:rgba(148,163,184,.10);color:var(--sec);border:1px solid var(--border);
+  border-radius:4px;padding:3px 9px;cursor:pointer;font-family:inherit;font-size:9px}
+.rewind button:hover{border-color:var(--amber);color:var(--txt)}
+.rewind.live-mode{border-left-color:var(--green)}
+
+/* Rewound state. The whole page is showing history, so it says so somewhere impossible
+   to miss rather than in one corner — a board being read as live when it is nineteen
+   days old is the single worst failure this control can cause. */
+body.rewound{box-shadow:inset 0 0 0 2px rgba(224,179,114,.55)}
+body.rewound .ribbon.glass{border:1px solid rgba(224,179,114,.45)}
+
+/* Preview disclosure. Red rather than amber, and a full-width band rather than a chip:
+   a fixture read as the market is the worst thing this page can do, and it has to be
+   impossible to crop out of a screenshot. */
+body.stubbed{box-shadow:inset 0 0 0 2px rgba(232,145,127,.6)}
+.stub-banner{grid-column:1/-1;padding:7px 16px;border-radius:8px;font-size:11px;
+  line-height:1.5;color:#FFE3DC;background:rgba(232,145,127,.16);
+  border:1px solid rgba(232,145,127,.55)}
+.stub-banner b{color:var(--red);letter-spacing:.5px}
+
+/* Chart tooltip. Carries every point the label budget dropped, so the budget costs
+   reachability nothing. pointer-events:none so it can never eat the mousemove that
+   positions it. */
+.chart-tip{position:fixed;display:none;z-index:60;pointer-events:none;
+  background:rgba(8,12,20,.96);border:1px solid var(--border);border-radius:5px;
+  padding:5px 8px;font-size:10px;line-height:1.5;max-width:230px;
+  box-shadow:0 4px 18px rgba(0,0,0,.5)}
+.chart-tip b{display:block;font-size:11px;margin-bottom:2px}
+.chart-tip span{display:block;color:var(--sec);font-variant-numeric:tabular-nums}
+canvas:focus-visible{outline:2px solid var(--blue)}
+
+.tmd-row{display:grid;grid-template-columns:20px 1fr 54px 54px 96px;gap:6px;align-items:center;
+  padding:3px 0;border-bottom:1px solid var(--grid);font-size:10.5px}
+.tmd-rank{color:var(--tert);font-variant-numeric:tabular-nums}
+.lab{font-size:8px;padding:1px 5px;border-radius:3px;font-weight:700;letter-spacing:.4px;white-space:nowrap}
+.lab.crowded{background:rgba(232,145,127,.16);color:var(--red)}
+.lab.quiet{background:rgba(123,201,160,.16);color:var(--green)}
+.lab.aligned{background:rgba(148,163,184,.12);color:var(--sec)}
+.lab.unranked{background:rgba(148,163,184,.08);color:var(--tert)}
 </style>
 </head>
 <body>
@@ -262,6 +358,26 @@ canvas{display:block;width:100%}
        statements about the model, not about the market, and a reader scanning for
        prices must not have to step over them. -->
   <div class="ribbon health" id="health"></div>
+
+  <!-- Macro anchors. Separate from the health ribbon above on purpose: that one is
+       about whether the pipeline is working, this one is about what the market is
+       doing, and mixing the two means a reader scanning for one filters out the other
+       every time. Populated from ledger/market_intel.json; each card renders a dashed
+       "pending" state rather than a zero when its feed did not answer. -->
+  <div class="ribbon macro" id="macro"></div>
+
+  <!-- Rewind. The ledger already held a per-night board and nothing could look at one.
+       This scrubs the whole terminal — matrix, sectors, correlation, ribbon — back
+       across the recorded nights. Live is the right-hand end and the default; anything
+       left of it puts the page into the rewound state, which is bordered so a
+       nineteen-day-old board can never be read as this morning's. -->
+  <div class="rewind live-mode" id="rewind" hidden>
+    <span class="rw-lbl">Rewind</span>
+    <b class="rw-date" id="rw-date">—</b>
+    <input type="range" id="rw-slider" min="0" max="0" value="0" step="1">
+    <span class="muted" id="rw-note">live</span>
+    <button id="rw-live">JUMP TO LIVE</button>
+  </div>
 
   <!-- LEFT -->
   <aside class="side">
@@ -344,7 +460,7 @@ canvas{display:block;width:100%}
   <main class="col-center">
     <div class="glass">
       <div class="card-h">CONVICTION MATRIX <span id="cm-note" class="muted">top 10 · scroll · click a row</span></div>
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--sec);cursor:pointer;user-select:none">
           <input type="checkbox" id="hide-nq" style="accent-color:#00FF66;cursor:pointer"> <b style="color:#00FF66">HIDE NON-QUALIFIED</b>
         </label>
@@ -358,8 +474,9 @@ canvas{display:block;width:100%}
         <table id="tbl-conv"><thead><tr>
           <th>#</th><th>Ticker</th><th>Price</th><th id="th-delta">24H Δ</th><th>Spark</th>
           <th>Turnover</th><th>Liquidity</th><th>Z(ATH)</th>
+          <th title="Fully diluted valuation over market cap, as a score multiplier. This one DOES reach conviction: a token whose supply still has to be issued is marked down on a curve capped at a 10% haircut. A token whose FDV the feed does not publish is NOT marked down — unknown is not the same as fully circulating. See Module F.">Supply</th>
           <th title="Annualised funding carry from the recorded perp feed. This one DOES reach conviction: the regime it falls in sets a multiplier on the score, gated on a confirming price or RSI leg. See Module E.">Funding</th>
-          <th title="Choppiness index over accumulated daily bars. Observational — it does not feed conviction.">Regime</th>
+          <th title="Choppiness index and Wilder ADX over accumulated daily bars, resolved to the book each suits. Observational — none of it feeds conviction.">Regime</th>
           <th>Conv</th><th>Signal</th><th>⧉</th>
         </tr></thead><tbody></tbody></table>
       </div>
@@ -380,6 +497,46 @@ canvas{display:block;width:100%}
         </tr></thead><tbody></tbody></table>
       </div>
     </div>
+    <div class="glass">
+      <div class="card-h">SECTOR CAPITAL FLOW <span class="muted" id="sec-note">relative to total market cap</span></div>
+      <div class="card-b" id="sectors">
+        <div class="muted">Sector feed pending — <code>ledger/market_intel.json</code> was not produced.</div>
+      </div>
+      <div class="note">Each sector's 24h market-cap change <b>minus the whole market's</b>. The absolute
+        number mostly answers "did Bitcoin go up"; the relative one answers "did capital move here", which is
+        the only question a rotation matrix is for. The multi-day flow column is accumulated from
+        <code>ledger/sectors.csv</code> — <code>/coins/categories</code> publishes a 24h column and no history
+        at all, so a 7d figure cannot be fetched and reads as accumulating until seven nights exist.</div>
+    </div>
+
+    <div class="glass">
+      <div class="card-h">TRENDING vs CONVICTION
+        <span class="muted" id="tmd-note">search rank against model rank</span></div>
+      <div class="card-b" id="tmd">
+        <div class="muted">Trending feed pending — <code>ledger/market_intel.json</code> was not produced.</div>
+      </div>
+      <div class="note">The two rankings are compared <b>within their overlap</b> — the names that are both
+        trending and scored — so each percentile is over the same population. Ranking each side against its own
+        population instead looks reasonable and is not: the trending list is a top-15 slice while the board is
+        the whole universe, and the mismatch tipped eleven of fifteen names into a single label on a live run.
+        <b class="neg">FOMO_CROWDED</b> means the crowd ranks a name well above this
+        model; <b class="pos">QUIET_ACCUMULATION</b> means the reverse. Neither is an instruction — a crowded
+        name is not automatically a short, and a quiet one is not automatically early.</div>
+    </div>
+
+    <div class="glass">
+      <div class="card-h">FALLEN QUALITY KINGS <span class="muted" id="fk-note">drawdown with exhaustion</span></div>
+      <div class="card-b" id="fallen">
+        <div class="muted">Screen pending — <code>ledger/market_intel.json</code> was not produced.</div>
+      </div>
+      <div class="note">Names that held a top-25 market-cap rank on most of their recorded nights and are now
+        10–40% off their <b>recorded</b> peak with either an oversold RSI or a bullish momentum divergence.
+        Both drawdown bounds matter: below the floor nothing is dislocated, and past the ceiling the market
+        is usually repricing something real, where "mean reversion" is a bet against information. The peak is
+        the highest close <b>this pipeline recorded</b>, not the all-time high — the bar count is shown on
+        every row so a 12% drawdown off a 19-night peak is never read as 12% off the cycle high.</div>
+    </div>
+
     <div class="glass">
       <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
       <div class="card-b" style="padding:0">
@@ -488,6 +645,37 @@ canvas{display:block;width:100%}
       <div class="chart-box"><canvas id="alpha" height="210" style="height:210px"></canvas>
         <div class="muted" id="alpha-legend">X: 7D return % · Y: Conviction (0–100) · color: MVRV Z · size: dilution</div></div>
     </div>
+    <!-- The four-quadrant factor map. Distinct from the alpha map above it, which plots
+         a raw 7d return against conviction: this one plots the two FACTORS conviction is
+         built from against each other, so a name's position says which half of its score
+         it earned. The quadrant labels are drawn on the canvas rather than kept in a
+         legend, because a quadrant chart whose quadrants are unnamed is a scatter plot. -->
+    <div class="glass">
+      <div class="card-h">FACTOR QUADRANT <span class="muted" id="fq-note">quality × momentum</span></div>
+      <div class="chart-box"><canvas id="fquad" height="230" style="height:230px"></canvas>
+        <div class="muted" id="fquad-legend">X: confirmation (blended RS vs BTC) · Y: quality × liquidity · size: mkt cap</div></div>
+      <div class="note">Both axes are the score's own components, not restatements of price. <b>Y</b> is
+        structural quality — log-market-cap depth, times the liquidity-fit haircut, times the Module F supply
+        multiplier — and <b>X</b> is market
+        confirmation, the blended relative strength against BTC that the score reads. A name high on both is
+        backed by structure and by the tape; high on X alone is momentum without the depth to hold a position;
+        high on Y alone is a quality asset the market has not confirmed. The dividing lines are the board's
+        own medians, so this is a statement about tonight's universe rather than against fixed cut-offs.</div>
+    </div>
+
+    <div class="glass">
+      <div class="card-h">CORRELATION &amp; SYSTEMIC RISK <span class="muted" id="corr-note">—</span></div>
+      <div class="card-b" id="corr">
+        <div class="muted">Correlation pending — <code>ledger/market_intel.json</code> was not produced.</div>
+      </div>
+      <div class="note">Pearson correlation of daily log returns across the top names by conviction, over the
+        nights actually recorded. The number that matters is <b>effective breadth</b>: N&sup2; divided by the
+        sum of the correlation matrix, which returns N for an uncorrelated book and 1 for a perfectly
+        correlated one. A fifteen-name book whose members move together is not fifteen positions, and every
+        per-position risk statistic computed as though it were is wrong in the same direction. Pairs with too
+        few overlapping nights are excluded from the mean rather than imputed into it.</div>
+    </div>
+
     <div class="glass">
       <div class="card-h">FACTOR BREAKDOWN <span class="muted" id="fb-sym">—</span></div>
       <div class="fb-wrap" id="fb"><div class="muted" style="padding:30px 12px">Select a token to see its factor tilt.</div></div>
@@ -525,6 +713,7 @@ const TIER = {
 };
 let STATE = [];
 let LEDGER = [];   // nightly signals.json rows (Module B real data when present)
+let ALL_ROWS = [];  // the same file, unfiltered — what the rewind scrubber reads
 let INDEX = null;  // nightly index.json (conviction-weighted basket track record)
 let PERP = {};     // symbol -> RiskMult_perp (LAVL leverage overlay) from nightly ledger
 // False until the overlay has actually been loaded. Without it every multiplier
@@ -540,6 +729,31 @@ let BREADTH = null; // market_breadth.json: conviction time-series, breadth, dis
 let MONITOR = null; // monitor.json: pipeline health, stability, field presence, spec continuity
 let FUNDING = null; // funding.json: cross-venue funding, regimes, modifiers, carry screen
 let FUND = {};      // the same, keyed by symbol
+let INTEL = null;   // market_intel.json: sectors, correlation, trending divergence, macro anchors
+let STRAT = {};     // symbol -> {strategy, basis, confidence} from the recorded ADX + choppiness
+let ATR14 = {};     // symbol -> recorded 14-bar ATR, for the sizer's volatility scale
+let TURN_Z = {};    // symbol -> turnover z-score against the asset's own trailing baseline
+let INTEL_TH = {};  // thresholds the engine used, so the page colours what the engine decided
+/* Live-feed provenance, which is a SEPARATE fact from the nightly's credential.
+   The nightly runs server-side and can hold a secret; this page is a static file and
+   never can, so the browser's own fetch is always keyless. What varies is whether the
+   payload it got back is actually live — and that is detectable from the data rather
+   than from a flag someone has to remember to set. See feedProvenance(). */
+let FEED = {state: "pending", ageMin: null, detail: "no live fetch attempted yet"};
+// A genuine /coins/markets response carries timestamps seconds old. These bound what
+// "live" means before the page stops claiming it.
+const FEED_LIVE_MIN = 10, FEED_STALE_MIN = 90;
+// Rewind. REWIND_DATE is null in live mode and an ISO date when scrubbed back; every
+// renderer that can show history checks it, and the ones that cannot say so rather than
+// silently continuing to show tonight while the scrubber claims otherwise.
+let REWIND_DATE = null;
+let REWIND_DATES = [];      // every date the signals ledger actually holds, ascending
+let LEDGER_BY_DATE = {};    // date -> rows, built once on load
+// The rewound board, in build()'s own shape. Null in live mode, and read ONLY by the
+// conviction matrix — Modules A and C are live-price panels with no recorded
+// equivalent, so they keep showing tonight and the control says so rather than letting
+// a reader infer it from a number that did not move.
+let RENDER_ROWS = null;
 // Fallbacks only. The live values are overwritten from funding.json on load, so these
 // are what the page shows when the artifact is missing — at which point Module E
 // renders its "pending" state and none of them are actually used to colour anything.
@@ -552,7 +766,16 @@ async function loadLedger(){
     const r=await fetch("ledger/signals.json",{cache:"no-store"});
     if(!r.ok) return;
     const j=await r.json();
-    LEDGER = (j.rows||[]).filter(r=>r.era!=null && r.era!=="None" && r.era!=="");
+    // Every recorded night, keyed by date, so the rewind scrubber has something to
+    // scrub. Built from the FULL row set rather than the Module-B-filtered LEDGER
+    // below: the filter drops rows with no Dune era, which is most of them, and a
+    // rewind over that subset would show a board that was never published.
+    ALL_ROWS = (j.rows||[]);
+    LEDGER_BY_DATE = {};
+    ALL_ROWS.forEach(r=>{ const d=r.date; if(!d) return;
+      (LEDGER_BY_DATE[d]=LEDGER_BY_DATE[d]||[]).push(r); });
+    REWIND_DATES = Object.keys(LEDGER_BY_DATE).sort();
+    LEDGER = ALL_ROWS.filter(r=>r.era!=null && r.era!=="None" && r.era!=="");
     // Build per-asset LAVL RiskMult_perp map so the live Alpha Map uses the SAME
     // leverage overlay as the nightly conviction-weighted index (single source of truth).
     PERP = {};
@@ -598,6 +821,31 @@ async function loadLedger(){
       if(FUNDING.thresholds) FTH = Object.assign({}, FTH, FUNDING.thresholds);
     }
   }catch(e){ /* funding artifact absent — Module E says so rather than rendering zeros */ }
+  try{
+    const rx=await fetch("ledger/market_intel.json",{cache:"no-store"});
+    if(rx.ok){
+      INTEL = await rx.json();
+      INTEL_TH = INTEL.thresholds || {};
+    }
+  }catch(e){ /* intel artifact absent — every Module F-J panel renders its pending state */ }
+  // Trend structure is recorded per row in signals.csv rather than in the intel
+  // artifact, because it is one reading per asset and belongs beside the asset. Read
+  // from the same rows the board is built from so the column can never describe a
+  // different night than the row it sits on.
+  STRAT = {}; ATR14 = {}; TURN_Z = {};
+  // The LATEST row per symbol, not every row: ALL_ROWS is the whole history and a plain
+  // forEach would leave each map holding whichever night happened to be written last in
+  // the file. Sorted by date so the last write is the most recent night.
+  const latest={};
+  ALL_ROWS.forEach(r=>{ const sy=(r.symbol||"").toUpperCase(); if(!sy) return;
+    const cur=latest[sy];
+    if(!cur || (r.date||"") >= (cur.date||"")) latest[sy]=r; });
+  const n=(r,k)=>{const v=r[k];return (v==null||v===""||v==="None"||isNaN(parseFloat(v)))?null:parseFloat(v);};
+  Object.keys(latest).forEach(sy=>{ const r=latest[sy];
+    if(r.strategy) STRAT[sy]={strategy:r.strategy, basis:strategyBasis(r),
+                              confidence:(n(r,"adx")!=null)?"confirmed":"partial"};
+    const a=n(r,"atr14"); if(a!=null) ATR14[sy]=a;
+    const z=n(r,"turnover_z"); if(z!=null) TURN_Z[sy]=z; });
   buildMarginal();
 }
 
@@ -622,9 +870,14 @@ function sigBadge(t){
 
 // ---- helpers ----
 const $ = s=>document.querySelector(s);
+// Magnitude chosen on the ABSOLUTE value, so a negative flow does not fall through
+// every branch and render in raw dollars. The trillions branch exists because the macro
+// ribbon carries total market cap, which the B branch rendered as "$2474.5B".
 const fmtUsd = n=>{ if(n==null||isNaN(n))return "—";
-  if(n>=1e9)return "$"+(n/1e9).toFixed(1)+"B"; if(n>=1e6)return "$"+(n/1e6).toFixed(1)+"M";
-  if(n>=1e3)return "$"+(n/1e3).toFixed(1)+"K"; return "$"+n.toFixed(2);};
+  const a=Math.abs(n);
+  if(a>=1e12)return "$"+(n/1e12).toFixed(2)+"T";
+  if(a>=1e9)return "$"+(n/1e9).toFixed(1)+"B"; if(a>=1e6)return "$"+(n/1e6).toFixed(1)+"M";
+  if(a>=1e3)return "$"+(n/1e3).toFixed(1)+"K"; return "$"+n.toFixed(2);};
 const fmtPrice = n=>{ if(n==null||isNaN(n))return "—";
   if(n>=1000)return "$"+n.toLocaleString(undefined,{maximumFractionDigits:0});
   if(n>=1)return "$"+n.toFixed(2); if(n>=0.01)return "$"+n.toFixed(4); return "$"+n.toPrecision(3);};
@@ -656,6 +909,28 @@ function liquidityFit(turn){ // turn = vol/mc as a FRACTION (0.05 = 5%). Mirrors
 function momentum(chg){ if(chg==null||isNaN(chg))return 50; if(chg<-15)return 4; if(chg<0)return 12-Math.abs(chg)*0.6;
   if(chg<=8)return 14+chg*1.0; if(chg<=20)return 20; return Math.max(8,20-(chg-20)*1.0);}
 function depthScore(mc){ if(!mc)return 0; return Math.max(0,Math.min(1,(Math.log10(mc)-6)/4.0));}
+// Module F — supply overhang. Mirrors nightly.emission_drag / emission_mult exactly,
+// including the null/zero distinction: a token whose FDV the feed does not publish has
+// an UNKNOWN overhang and returns null here, which becomes a neutral 1.0 multiplier.
+// Scoring an unpublished schedule as "fully circulating" would give the least
+// transparent tokens on the board the best supply grade.
+const EMISSION_FREE_RATIO=1.10, EMISSION_ANCHOR_RATIO=3.0,
+      EMISSION_ANCHOR_SEVERITY=0.75, EMISSION_MAX_PENALTY=0.90;
+function _atanh(x){ return 0.5*Math.log((1+x)/(1-x)); }   // ES has no Math.atanh pre-ES6 targets
+function emissionDrag(fdv, mc){
+  fdv = (fdv==null||fdv===""||isNaN(fdv))?null:Number(fdv);
+  mc  = (mc==null||mc===""||isNaN(mc))?null:Number(mc);
+  if(fdv==null||mc==null||fdv<=0||mc<=0) return null;
+  const ratio = fdv/mc;
+  if(ratio<=EMISSION_FREE_RATIO) return 0;
+  const scale = Math.log(EMISSION_ANCHOR_RATIO/EMISSION_FREE_RATIO)/_atanh(EMISSION_ANCHOR_SEVERITY);
+  return Math.round(Math.tanh(Math.log(ratio/EMISSION_FREE_RATIO)/scale)*1e6)/1e6;
+}
+function emissionMult(fdv, mc){
+  const d = emissionDrag(fdv, mc);
+  if(d==null) return 1;
+  return Math.round((1-(1-EMISSION_MAX_PENALTY)*d)*1e4)/1e4;
+}
 function conviction(t, perp, rsBlend){ perp = perp||1; rsBlend = rsBlend||0; // rsBlend = blended RS vs BTC (0 if unknown)
   // v2 MULTIPLICATIVE: Quality x Confirmation x RiskAdjustment (replaces additive).
   // Kills the hard-momentum clamp collision (PUMP/HYPE no longer tie at 20).
@@ -671,11 +946,15 @@ function conviction(t, perp, rsBlend){ perp = perp||1; rsBlend = rsBlend||0; // 
   let a_frac;
   if (depth >= 0.90) a_frac = 1.0;
   else { a_frac = liquidityFit(turn)/30; a_frac = Math.max(0.4, a_frac); }
-  const risk = a_frac * perp;
+  // Module F applies unconditionally — it is a property of the token's own schedule and
+  // does not wait on a derivatives feed the way `perp` does.
+  const em = emissionMult(t.fdv, t.mc);
+  const risk = a_frac * em * perp;
   const conv = Math.max(0, Math.min(100, Math.round(100*depth*cm*risk)));
   const comp = {liquidity:Math.round(a_frac*30*10)/10, era:Math.round(b*10)/10, depth:Math.round(depth*20*10)/10,
                 momentum:Math.round(cm*20*10)/10, risk_adjustment:Math.round(risk*1000)/1000,
-                rsBlend:Math.round(rsBlend*100)/100};
+                rsBlend:Math.round(rsBlend*100)/100,
+                emission_mult:em, emission_drag:emissionDrag(t.fdv, t.mc)};
   return {conv, comp};
 }
 function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
@@ -700,7 +979,7 @@ function build(raw){
     const pct = tf => (t["price_change_percentage_"+tf+"d_in_currency"]||0) - btcPct(tf);
     const rs7=pct(7), rs14=pct(14), rs30=pct(30), rs200=pct(200);
     const rsBlend = rsBlendOf(t, btc);   // inside MODEL PORT — see the gate
-    const {conv, comp} = conviction({vol,mc,chg}, PERP[(t.symbol||"").toUpperCase()]||1, rsBlend);
+    const {conv, comp} = conviction({vol,mc,chg,fdv:t.fully_diluted_valuation}, PERP[(t.symbol||"").toUpperCase()]||1, rsBlend);
     const sig=signal(conv);
     // Mean-reversion Z (relative to all-time range, since free API lacks 30d MA).
     const ath=t.ath||0, atl=t.atl||0;
@@ -807,7 +1086,7 @@ function rowConv(t,i,gated){
   const fr=FUND[t.sym]?.regime;
   const ftint = fr==="OVERHEATED_LONG" ? " f-hot" : fr==="SHORT_SQUEEZE_RISK" ? " f-cold" : "";
   tr.className="row"+(t.divergence?" div":"")+(gated?" gated":"")+ftint; tr.dataset.sym=t.sym;
-  const zc=t.z>0.5?"neg":t.z<-0.5?"pos":"neu"; // far above ATH = overbought(red), far below ATL = oversold(green)
+  const zc=t.z==null?"muted":t.z>0.5?"neg":t.z<-0.5?"pos":"neu"; // far above ATH = overbought(red), far below ATL = oversold(green)
   const div=t.divergence?'<span class="badge a" title="Price soft / liquidity rising — accumulation">ACCUM</span>':'';
   tr.innerHTML=`<td class="muted num">${i+1}</td>
     <td class="tick">${execLink(t.sym)}<span class="tier ${t.tier}" data-filter title="Filter the board to ${t.tier}">${t.tier}</span></td>
@@ -819,9 +1098,12 @@ function rowConv(t,i,gated){
     <td><span class="spark" data-spark></span></td>
     <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
     <td><span class="bar"><i style="width:${Math.min(100,t.mc/2e10*100)}%"></i></span></td>
-    <td class="num ${zc}" title="Distance from all-time range (-1 floor .. +1 ATH)">${t.z>0?'+':''}${t.z.toFixed(2)}</td>
-    <td>${fundingCell(t.sym)}${divBadge(PERPS[t.sym])}</td>
-    <td>${regimeCell(t.sym)}</td>
+    ${t.z==null
+      ? `<td class="num muted" title="The ledger records no all-time high or low, so a recorded row has no range position. Absent rather than centred at zero.">—</td>`
+      : `<td class="num ${zc}" title="Distance from all-time range (-1 floor .. +1 ATH)">${t.z>0?'+':''}${t.z.toFixed(2)}</td>`}
+    <td>${supplyCell(t)}</td>
+    <td>${fundingCell(t.sym,t)}${t._rewound?"":divBadge(PERPS[t.sym])}</td>
+    <td>${regimeCell(t.sym,t)}</td>
     <td class="num ${t.conv>=70?'pos':t.conv>=55?'neu':'neg'}">${t.conv}</td>
     <td>${sigBadge(t)}</td>
     <td>${div}<span class="copy" data-copy="${t.sym}">⧉</span></td>`;
@@ -904,7 +1186,16 @@ const DIV_LABEL = {ACCUMULATION:["ACCUM","g","price up on rising open interest �
    35% APR rendered red in one table and amber in the other, on one screen. Colour is a
    claim about which band a reading falls in, and two colour schemes for one quantity is
    two claims. */
-function fundingCell(sym){
+function fundingCell(sym,row){
+  // A rewound row reads the carry ITS OWN night recorded and never tonight's artifact.
+  // FUND is the current funding.json; joining it to a three-week-old board would print
+  // a rate that did not exist on the date the board claims to show, with no way for a
+  // reader to tell.
+  if(row && row._rewound){
+    return row._fundApr!=null
+      ? aprCell(row._fundApr)
+      : `<span class="muted" title="No funding was recorded for this asset on this night.">—</span>`;
+  }
   const f=FUND[sym];
   if(f && f.funding_apr!=null) return aprCell(f.funding_apr)+modBadge(f);
   const p=PERPS[sym];
@@ -915,8 +1206,49 @@ function divBadge(p){
   const d=DIV_LABEL[p.divergence]; if(!d) return "";
   return `<span class="badge ${d[1]}" title="${d[2]}">${d[0]}</span>`;
 }
-function regimeCell(sym){
+/* Module F in the board. The three states are deliberately distinct: a dash means the
+   FDV was never published and NO multiplier was applied, "1.00" means the token is
+   inside the free band and the multiplier was exactly neutral, and anything below 1
+   is a haircut that was actually taken off the score in this row. Collapsing the first
+   two would tell a reader that an undisclosed schedule had been checked and cleared. */
+function supplyCell(t){
+  const m=(t.comp&&t.comp.emission_mult), d=(t.comp&&t.comp.emission_drag);
+  if(d==null){
+    return `<span class="muted" title="This token publishes no fully diluted valuation, so its supply overhang is UNKNOWN and no multiplier was applied. It is not being credited as fully circulating — that would give the least transparent tokens on the board the best supply grade.">—</span>`;
+  }
+  const ratio=(t.fdv>0&&t.mc>0)?(t.fdv/t.mc):null;
+  const cls = m>=0.999?"neu" : m>=0.96?"a" : "neg";
+  const rtxt = ratio!=null?`${ratio.toFixed(2)}x float expansion`:"ratio unavailable";
+  return `<span class="${cls} num" title="${rtxt} — severity ${(d*100).toFixed(0)}%, multiplier x${m}. Capped at a 10% haircut: dilution is a headwind with an unknown date.">x${m.toFixed(3)}</span>`;
+}
+
+function regimeCell(sym,row){
+  // Same rule as fundingCell: CHOP and STRAT are tonight's readings, and a recorded row
+  // carries its own. A row from before the columns existed shows a dash, which is the
+  // truth — the indicator was not being computed then.
+  if(row && row._rewound){
+    if(!row._strategy) return `<span class="muted" title="Trend structure was not recorded on this night — the columns were added later and nothing is back-filled.">—</span>`;
+    const short = row._strategy==="TREND / ALPHA BASKET"?"TREND"
+                : row._strategy==="GRID / RANGE HARVEST"?"GRID"
+                : row._strategy==="STAND ASIDE"?"ASIDE":"COMPRESS";
+    const cls = short==="TREND"?"g":short==="GRID"?"a":short==="ASIDE"?"r":"n";
+    return `<span class="badge ${cls}" title="${row._strategy}, as recorded on this night${
+      row._adx!=null?` (ADX ${row._adx.toFixed(0)})`:""}.">${short}</span>`;
+  }
   const c=CHOP[sym];
+  const st=(STRAT&&STRAT[sym])||null;
+  // The strategy label supersedes the raw choppiness badge when both indices have
+  // enough bars to agree, because "GRID" is the actionable form of "RANGE-BOUND" and
+  // showing both spends a column on saying the same thing twice.
+  if(st&&st.strategy){
+    const cls = st.strategy.indexOf("TREND")===0?"g"
+              : st.strategy.indexOf("GRID")===0?"a"
+              : st.strategy==="STAND ASIDE"?"r":"n";
+    const short = st.strategy==="TREND / ALPHA BASKET"?"TREND"
+                : st.strategy==="GRID / RANGE HARVEST"?"GRID"
+                : st.strategy==="STAND ASIDE"?"ASIDE":"COMPRESS";
+    return `<span class="badge ${cls}" title="${st.strategy} — ${st.basis} (${st.confidence}). Choppiness measures how much of the range was travelled; ADX how persistently one side won. Where they disagree the label is ASIDE rather than whichever was read first.">${short}</span>`;
+  }
   if(!c) return '<span class="muted">—</span>';
   if(c.chop==null){
     // Not an empty cell: an empty cell reads as a broken column, and this one is
@@ -974,14 +1306,20 @@ function perpBlock(t){
       from a measurement.</div>`;
 }
 
+/* What the conviction matrix draws: the recorded board when scrubbed back, the live one
+   otherwise. Deliberately not a global swap of STATE — the live-price panels have no
+   recorded equivalent and would have to be faked to follow it. */
+function boardRows(){ return RENDER_ROWS || STATE; }
+
 function renderTables(){
+  const BOARD = boardRows();
   // Conjunctive gate: qualified coins clear Liquidity + Dilution + Regime.
-  const gated = STATE.filter(t=>t.gated);
+  const gated = BOARD.filter(t=>t.gated);
   const hide = document.getElementById("hide-nq")?.checked;
   // When filtering, show ALL qualified tokens (they should be few); else top 10 by conviction.
   // A text filter searches the whole universe rather than the visible ten — a filter
   // that only searches what is already on screen is a highlighter, not a filter.
-  const base = hide ? gated : STATE;
+  const base = hide ? gated : BOARD;
   const active = FILTER || FLIP_SET;
   const matched = active ? base.filter(matchesFilter) : base;
   const VIEW = active ? matched.slice(0, 50) : (hide ? gated : base.slice(0,10));
@@ -1077,20 +1415,51 @@ function renderTiers(){
 
 // ---- charts ----
 function quad(){
-  const cv=$("#quad"), w=cv.clientWidth, h=cv.clientHeight||200; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  const cv=$("#quad"), w=cv.clientWidth, h=cv.clientHeight||200;
+  const dpr=window.devicePixelRatio||1;
+  cv.width=w*dpr; cv.height=h*dpr;
+  const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0);
   x.clearRect(0,0,w,h); const pad=26;
-  const xs=STATE.map(t=>t.turn), ys=STATE.map(t=>Math.log10(t.vol+1));
+  const rows=boardRows();
+  if(!rows.length){ x.fillStyle="#475569"; x.font="10px monospace";
+    x.fillText("no rows in view",12,h/2); CHART_POINTS.quad=[]; return; }
+  const xs=rows.map(t=>t.turn), ys=rows.map(t=>Math.log10(t.vol+1));
   const xmax=Math.max(...xs,1.2)*1.05;
-  // log axis spans ONLY the actual data range so points spread across the canvas
   const ymin=Math.min(...ys), ymax=Math.max(...ys);
   const lo=Math.floor(ymin), hi=Math.ceil(ymax);
   const px=v=>pad+(v/xmax)*(w-pad*2), py=v=>h-pad-((v-lo)/(hi-lo||1))*(h-pad*2);
   const mx=xmax/2, my=(hi+lo)/2;
   x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([3,3]);
   x.beginPath(); x.moveTo(px(mx),pad); x.lineTo(px(mx),h-pad); x.moveTo(pad,py(my)); x.lineTo(w-pad,py(my)); x.stroke(); x.setLineDash([]);
-  STATE.forEach(t=>{
-    const r=4+Math.sqrt(t.mc/1e9)/6; const cx=px(t.turn), cy=py(Math.log10(t.vol+1));
-    const gated=t.gated;
+
+  // The plot rect every label must stay inside. Quadrant names are placed first and
+  // handed to the engine as reserved space, so a point label can never sit on top of
+  // one — which is how the old version produced "HIGH VEL/LOW LIQ" with tickers
+  // printed through it.
+  const rect={l:pad, t:pad*0.5, r:w-4, b:h-10};
+  const FONT="8px monospace", BOLD="bold 8px monospace";
+  const meas=measurer(x, FONT);
+  x.font=FONT; x.textBaseline="alphabetic";
+  const reserved=[], notes=[];
+  const corner=(text,tx,ty,align)=>{
+    x.textAlign=align;
+    const wpx=x.measureText(text).width;
+    const x0 = align==="right" ? tx-wpx : tx;
+    const rc={x0, y0:ty-8, x1:x0+wpx, y1:ty+2};
+    reserved.push(rc);
+    notes.push({...rc, text, tx, ty, align, color:"#64748B", font:FONT});
+  };
+  corner("HIGH VEL/LOW LIQ", w-6, pad*0.5+8, "right");
+  corner("INSTITUTIONAL", pad+2, h-14, "left");
+  x.textAlign="left";
+
+  // EVERY point is drawn. Only the labels are budgeted.
+  const xc=extremeCuts(xs,0.05), yc=extremeCuts(ys,0.05);
+  const pts=[], cands=[];
+  rows.forEach(t=>{
+    const lv=Math.log10(t.vol+1);
+    const cx=px(t.turn), cy=py(lv);
+    const gated=t.gated, r=4+Math.sqrt(t.mc/1e9)/6;
     if(gated){
       x.beginPath(); x.arc(cx,cy,9,0,7); x.fillStyle="#00FF66";
       x.shadowColor="#00FF66"; x.shadowBlur=8; x.fill(); x.shadowBlur=0;
@@ -1100,58 +1469,139 @@ function quad(){
       x.fillStyle=t.sym===SEL?"rgba(59,130,246,.6)":"rgba(40,52,71,0.25)";
       x.fill();
     }
-    x.fillStyle=gated?"#00FF66":"#475569"; x.font=(gated?"bold 8px":"8px")+" monospace";
-    x.fillText(t.sym,cx+4,cy-4);
+    pts.push({x:cx, y:cy, r:gated?9:Math.max(2,r*0.45), sym:t.sym, lines:[
+      `turnover ${t.turn.toFixed(1)}%`,
+      `24h vol ${fmtUsd(t.vol)}`,
+      `mkt cap ${fmtUsd(t.mc)}`,
+      gated?"qualified":"not qualified"]});
+    cands.push({text:t.sym, x:cx, y:cy, r:gated?9:Math.max(2,r*0.45), gated,
+      priority: labelPriority({selected:t.sym===SEL, qualified:gated,
+        actionable:t.conv>=70,
+        xExtreme:t.turn<=xc.lo||t.turn>=xc.hi, yExtreme:lv<=yc.lo||lv>=yc.hi})});
   });
-  x.fillStyle="#475569"; x.font="8px monospace";
-  x.fillText("HIGH VEL/LOW LIQ",px(mx)+4,py(my)-4);
-  x.fillText("INSTITUTIONAL",pad+2,py(my)+12);
+  CHART_POINTS.quad=pts;
+  const budgeted=cands.filter(c=>c.priority>0);
+  const out=placeLabels(budgeted, rect, meas, 12,
+                        reserved.concat(budgeted.map(markerRect)));
+  out.placed.forEach(L=>{
+    x.font=L.gated?BOLD:FONT; x.fillStyle=L.gated?"#00FF66":"#94A3B8";
+    x.textAlign=L.align; x.textBaseline=L.base;
+    x.fillText(L.text,L.tx,L.ty);
+  });
+  x.textAlign="left"; x.textBaseline="alphabetic";
+  annotate(x, notes);
+  CHART_LABELS.quad={rect, placed:out.placed, skipped:out.skipped};
+  const note=$("#quad-legend");
+  if(note) note.textContent="X: Turnover % · Y: 24H Vol (log) · bubble: mkt cap · "
+    + `${rows.length} plotted, ${out.placed.length} labelled — hover or focus for the rest`;
+  attachChartInteraction("quad");
 }
 function alphaMap(){
-  const cv=$("#alpha"), w=cv.clientWidth, h=cv.clientHeight||210; cv.width=w; cv.height=h; const x=cv.getContext("2d");
+  const cv=$("#alpha"), w=cv.clientWidth, h=cv.clientHeight||210;
+  const dpr=window.devicePixelRatio||1;
+  cv.width=w*dpr; cv.height=h*dpr;
+  const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0);
   x.clearRect(0,0,w,h);
   const pad=34;
-  const xmin=-50, xmax=100; // 7D return %
-  const ymin=0, ymax=100;   // conviction
+  const rows=boardRows();
+  if(!rows.length){ x.fillStyle="#475569"; x.font="10px monospace";
+    x.fillText("no rows in view",12,h/2); CHART_POINTS.alpha=[]; return; }
+  const xmin=-50, xmax=100, ymin=0, ymax=100;
   const px=v=>pad+(v-xmin)/(xmax-xmin)*(w-pad*1.4);
   const py=v=>h-pad-(v-ymin)/(ymax-ymin)*(h-pad*1.6);
-  // quadrant grid + labels
   x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([3,3]);
-  x.beginPath(); x.moveTo(px(0),pad*0.6); x.lineTo(px(0),h-pad); x.stroke();          // x=0 (7D)
-  x.beginPath(); x.moveTo(px(xmin),py(50)); x.lineTo(px(xmax),py(50)); x.stroke();     // y=50
-  x.beginPath(); x.moveTo(px(xmin),py(75)); x.lineTo(px(xmax),py(75)); x.stroke();     // y=75
+  x.beginPath(); x.moveTo(px(0),pad*0.6); x.lineTo(px(0),h-pad); x.stroke();
+  x.beginPath(); x.moveTo(px(xmin),py(50)); x.lineTo(px(xmax),py(50)); x.stroke();
+  x.beginPath(); x.moveTo(px(xmin),py(75)); x.lineTo(px(xmax),py(75)); x.stroke();
   x.setLineDash([]);
-  x.fillStyle="#475569"; x.font="8px monospace";
-  x.fillText("ACCUM ZONE (conv>75, 7D<=0)", px(xmin)+2, py(88)+10);
-  x.fillText("MOMENTUM (conv>75, 7D>0)", px(8), py(88)+10);
-  x.fillText("VALUE TRAP", px(xmin)+2, py(25)+4);
-  x.fillText("DEAD/TOXIC", px(8), py(25)+4);
-  x.fillText("7D % →", w-pad, h-8);
-  x.save(); x.translate(10,h/2); x.rotate(-Math.PI/2); x.fillText("CONVICTION",0,0); x.restore();
-  STATE.forEach(t=>{
-    const X=Math.max(xmin,Math.min(xmax,t.chg7d)), Y=Math.max(ymin,Math.min(ymax,t.conv));
+
+  const FONT="8px monospace";
+  const meas=measurer(x, FONT);
+  x.font=FONT; x.textAlign="left"; x.textBaseline="alphabetic";
+  // The four zone names and the two axis titles are reserved BEFORE any point label is
+  // placed. Previously they were drawn last at fixed coordinates and ran straight
+  // through the ticker labels beneath them.
+  const reserved=[], notes=[];
+  const zone=(text,tx,ty,align)=>{
+    x.textAlign=align;
+    const wpx=x.measureText(text).width;
+    const x0 = align==="right" ? tx-wpx : align==="center" ? tx-wpx/2 : tx;
+    const rc={x0, y0:ty-8, x1:x0+wpx, y1:ty+2};
+    reserved.push(rc);
+    notes.push({...rc, text, tx, ty, align, color:"#64748B", font:FONT});
+  };
+  zone("ACCUM ZONE", px(xmin)+2, pad*0.6+8, "left");
+  zone("MOMENTUM",   w-6,        pad*0.6+8, "right");
+  zone("VALUE TRAP", px(xmin)+2, py(25)+4,  "left");
+  zone("DEAD/TOXIC", w-6,        py(25)+4,  "right");
+  x.textAlign="left";
+  const axw=x.measureText("7D % →").width;
+  reserved.push({x0:w-axw-6, y0:h-12, x1:w-6, y1:h-2});
+  notes.push({x0:w-axw-6, y0:h-12, x1:w-6, y1:h-2,
+              text:"7D % →", tx:w-axw-6, ty:h-4, align:"left",
+              color:"#64748B", font:FONT});
+  // The rotated axis title keeps its own transform, so it is drawn here rather than
+  // through annotate(), which only handles horizontal text.
+  x.save(); x.fillStyle="#64748B"; x.font=FONT;
+  x.translate(10,h/2); x.rotate(-Math.PI/2); x.fillText("CONVICTION",0,0); x.restore();
+  reserved.push({x0:2, y0:h/2-40, x1:14, y1:h/2+40});
+
+  const chgs=rows.map(t=>t.chg7d), convs=rows.map(t=>t.conv);
+  const xc=extremeCuts(chgs,0.05), yc=extremeCuts(convs,0.05);
+  const pts=[], cands=[];
+  let ndust=0;
+  rows.forEach(t=>{
+    const X=Math.max(xmin,Math.min(xmax,t.chg7d==null?0:t.chg7d));
+    const Y=Math.max(ymin,Math.min(ymax,t.conv));
     const cx=px(X), cy=py(Y);
     const actionable = t.gated || t.conv>=70;
     if(!actionable){
-      // BACKGROUND DUST: macro context only, no labels, no noise
-      x.fillStyle="rgba(100,116,139,0.15)"; x.fillRect(cx-0.5,cy-0.5,1,1); return;
+      // Still PLOTTED — the dust is macro context and is deliberately kept. It simply
+      // earns no label, and is reachable by hover like everything else.
+      ndust++;
+      x.fillStyle="rgba(100,116,139,0.15)"; x.fillRect(cx-0.5,cy-0.5,1,1);
+      pts.push({x:cx,y:cy,r:2,sym:t.sym,lines:[
+        `conviction ${t.conv}`,
+        t.chg7d==null?"7d — not recorded":`7d ${sgn(t.chg7d)}`,
+        "not qualified"]});
+      return;
     }
-    // color by MVRV Z (valuation): green(<0) -> amber(0..2) -> red(>2)
     const z=t.z;
-    const col = z<0 ? "#00FF66" : z<2 ? "#E0B372" : "#E8917F";
-    // size by dilution risk: bigger bubble = more dilution (proxy ERA or fdv/mc)
+    const col = z==null ? "#94A3B8" : z<0 ? "#00FF66" : z<2 ? "#E0B372" : "#E8917F";
     const dil = t.dilution==null?1:t.dilution;
     const r = 3 + Math.min(9, (dil-1)*6);
     if(t.gated){ x.beginPath(); x.arc(cx,cy,r+2,0,7); x.strokeStyle="#00FF66"; x.lineWidth=2; x.stroke(); }
     x.beginPath(); x.arc(cx,cy,r,0,7);
     x.fillStyle = t.sym===SEL ? "#3B82F6" : (t.gated? "rgba(0,255,102,0.55)" : col+"66");
     x.fill();
-    x.fillStyle = t.gated?"#00FF66":"#64748B"; x.font="7px monospace"; x.fillText(t.sym,cx+4,cy-4);
+    pts.push({x:cx,y:cy,r:r+2,sym:t.sym,lines:[
+      `conviction ${t.conv}`,
+      t.chg7d==null?"7d — not recorded":`7d ${sgn(t.chg7d)}`,
+      t.dilution==null?"FDV not published":`FDV/MC ${t.dilution.toFixed(2)}x`,
+      t.gated?"qualified":"actionable"]});
+    cands.push({text:t.sym, x:cx, y:cy, r:r+2, gated:t.gated,
+      priority: labelPriority({selected:t.sym===SEL, qualified:t.gated,
+        actionable:t.conv>=70,
+        xExtreme:t.chg7d!=null&&(t.chg7d<=xc.lo||t.chg7d>=xc.hi),
+        yExtreme:t.conv<=yc.lo||t.conv>=yc.hi})});
   });
-  // legend note
-  const ndust=STATE.filter(t=>!(t.gated||t.conv>=70)).length;
-  x.fillStyle="#475569"; x.font="7px monospace";
-  x.fillText("grey dust = "+ndust+" non-qualified (macro context)", px(xmin)+2, h-2);
+  CHART_POINTS.alpha=pts;
+  const rect={l:16, t:pad*0.6-8, r:w-4, b:h-14};
+  const aCands=cands.filter(c=>c.priority>0);
+  const out=placeLabels(aCands, rect, meas, 10,
+                        reserved.concat(aCands.map(markerRect)));
+  out.placed.forEach(L=>{
+    x.font=FONT; x.fillStyle=L.gated?"#00FF66":"#94A3B8";
+    x.textAlign=L.align; x.textBaseline=L.base;
+    x.fillText(L.text,L.tx,L.ty);
+  });
+  x.textAlign="left"; x.textBaseline="alphabetic";
+  annotate(x, notes);
+  CHART_LABELS.alpha={rect, placed:out.placed, skipped:out.skipped};
+  const note=$("#alpha-legend");
+  if(note) note.textContent="X: 7D return % · Y: Conviction · colour: MVRV Z · size: dilution · "
+    + `${ndust} non-qualified plotted as dust · ${out.placed.length} labelled — hover or focus for the rest`;
+  attachChartInteraction("alpha");
 }
 function heat(){ alphaMap(); } // alias kept for any stale caller
 /* Pipeline health. Deliberately not a port of the equity Monitor tab: two of its
@@ -1494,9 +1944,47 @@ function szInputs(){
           participation: isFinite(p) && p > 0 ? Math.min(p, 25) / 100 : 0.02};
 }
 
+/* Square-root market impact, mirroring quant.execution_drag. The coefficient is the one
+   number here that is a choice rather than an identity: published estimates of the
+   Almgren-Chriss temporary-impact constant cluster around 1 for liquid equities, and
+   nothing in this repository has calibrated it for crypto. It is a plausible scale, not
+   a measurement, and every figure derived from it is labelled an estimate. What is NOT
+   arbitrary is the shape — impact growing with the square root of participation is the
+   well-established part. */
+const IMPACT_COEFF = 1.0, SPREAD_BPS = 5.0;
+
+/* Daily volatility for the impact term, from the recorded ATR where the ledger has
+   enough bars and from the 24h range otherwise. Returns null when neither exists: an
+   impact estimate with no volatility scale would be a number no input supports, so the
+   sizer reports the spread as a FLOOR instead of inventing the rest. */
+function dailySigma(t){
+  const a=(ATR14[t.sym]!=null&&t.price>0)?ATR14[t.sym]/t.price:null;
+  if(a!=null&&a>0) return a;
+  if(t.high24>0&&t.low24>0&&t.price>0) return (t.high24-t.low24)/t.price;
+  return null;
+}
+
+function execDrag(notional, adv, sigma){
+  if(!(adv>0)||!(notional>0)) return {total:null, impact:null, basis:"no volume recorded — cost is unknown, not zero"};
+  const part=notional/adv;
+  if(sigma==null||!(sigma>0)) return {total:null, impact:null,
+    basis:`${(part*100).toFixed(2)}% of ADV, but no volatility reading — only the ${SPREAD_BPS}bp spread is known`};
+  const impact=10000*IMPACT_COEFF*sigma*Math.sqrt(part);
+  return {impact, total:impact+SPREAD_BPS,
+    basis:`sqrt-impact on ${(part*100).toFixed(2)}% of ADV at sigma ${(sigma*100).toFixed(1)}%/day, plus ${SPREAD_BPS}bp spread`};
+}
+
 function sizeBook(state, notional, participation){
   const held = state.filter(t => t.conv > 0).slice(0, SZ_TOP_N);
   const totalConv = held.reduce((s, t) => s + t.conv, 0) || 1;
+  // Correlation cluster cap. A book of fifteen names that are 0.9 correlated is not
+  // fifteen positions, and sizing it as though it were concentrates risk precisely
+  // where it is least visible. The FIRST name of a cluster keeps its full target and
+  // every subsequent member is halved — arbitrary in which name it favours, deliberate
+  // in that it does not silently double-count the bet. Names with no recorded
+  // correlation are never capped: an unmeasured pair is not an uncorrelated one.
+  const clusters=((INTEL&&INTEL.correlation&&INTEL.correlation.clusters)||{});
+  const claimed=new Set();
   const rows = held.map(t => {
     const target = notional * (t.conv / totalConv);
     const adv = t.vol || 0;
@@ -1508,6 +1996,16 @@ function sizeBook(state, notional, participation){
     if(t.turn > SZ_TURN_WASH){ hair *= SZ_HAIRCUT.wash; reasons.push("wash-risk turnover"); }
     const regime = (CHOP[t.sym]||{}).regime;
     if(regime === "RANGE-BOUND"){ hair *= SZ_HAIRCUT.chop; reasons.push("range-bound"); }
+    const peers=clusters[t.sym]||[];
+    const dupe=peers.some(x=>claimed.has(x));
+    if(dupe){ hair *= 0.5; reasons.push("correlated with "+peers.filter(x=>claimed.has(x))[0]); }
+    claimed.add(t.sym);
+    // A turnover collapse against the name's OWN baseline is a liquidity freeze, and
+    // the ADV cap below cannot see it — ADV is a trailing average and the freeze is
+    // today. Halved rather than refused: the reading is a warning, not an outage.
+    const shockZ=TURN_Z[t.sym];
+    if(shockZ!=null && shockZ<=(INTEL_TH.liq_shock_z!=null?INTEL_TH.liq_shock_z:-2)){
+      hair *= 0.5; reasons.push(`turnover ${shockZ.toFixed(1)}σ below its own baseline`); }
     const wanted = target * hair;
     // No volume figure means no cap can be computed. Sizing it anyway would put a
     // number on an asset whose exit cost is unknown, so it is refused outright.
@@ -1515,16 +2013,27 @@ function sizeBook(state, notional, participation){
     const binding = adv <= 0 ? "no volume data"
                   : sized < wanted - 0.01 ? "ADV cap"
                   : reasons.length ? reasons.join(" + ") : "conviction";
+    const drag = execDrag(sized, adv, dailySigma(t));
     return {sym: t.sym, conv: t.conv, target, wanted, cap, adv, sized, binding,
-            reasons, turn: t.turn, regime,
+            reasons, turn: t.turn, regime, drag,
             // Days to exit at the same participation rate — the number that decides
             // whether a position is a position or a trap.
             exitDays: adv > 0 && sized > 0 ? sized / (adv * participation) : null};
   });
   const allocated = rows.reduce((s, r) => s + r.sized, 0);
+  // Book-level entry cost, weighted by what each line was actually sized to. Lines
+  // whose drag could not be estimated are excluded from the weighted mean and counted,
+  // rather than entered as zero — averaging in an unknown as free is how an execution
+  // estimate ends up flattering exactly the names it should warn about.
+  let dw=0, dsum=0, dmissing=0;
+  rows.forEach(r=>{ if(r.sized<=0) return;
+    if(r.drag.total==null){ dmissing++; return; }
+    dw+=r.sized; dsum+=r.drag.total*r.sized; });
   return {rows, allocated, unallocated: Math.max(0, notional - allocated),
           capped: rows.filter(r => r.binding === "ADV cap").length,
-          refused: rows.filter(r => r.sized <= 0).length};
+          refused: rows.filter(r => r.sized <= 0).length,
+          dragBps: dw>0 ? dsum/dw : null, dragMissing: dmissing,
+          effectiveN: ((INTEL&&INTEL.correlation)||{}).effective_n};
 }
 
 function renderSizing(){
@@ -1540,7 +2049,8 @@ function renderSizing(){
     const tone = r.sized<=0 ? "var(--red)" : r.binding==="ADV cap" ? "var(--amber)" : "var(--sec)";
     return `<div class="cf-row" title="target ${usd(r.target)} from conviction ${r.conv}${
         r.reasons.length?" · haircut: "+r.reasons.join(", "):""} · ADV ${usd(r.adv)} · cap ${usd(r.cap)}${
-        r.exitDays!=null?` · ~${r.exitDays.toFixed(1)}d to exit`:""}">
+        r.exitDays!=null?` · ~${r.exitDays.toFixed(1)}d to exit`:""} · entry cost ${
+        r.drag.total!=null?r.drag.total.toFixed(0)+"bp":"unknown"} (${r.drag.basis})">
       <b style="min-width:56px">${r.sym}</b>
       <span class="num" style="min-width:52px;text-align:right">${r.sized>0?usd(r.sized):"—"}</span>
       <span class="muted" style="font-size:9px;color:${tone};flex:1;text-align:right">${r.binding}</span>
@@ -1550,8 +2060,17 @@ function renderSizing(){
       <span>Allocated</span><b class="num">${usd(b.allocated)}</b></div>
     <div class="kv"><span>Unallocated</span>
       <b class="num" style="color:${b.unallocated>notional*0.2?"var(--amber)":"var(--sec)"}">${usd(b.unallocated)}</b></div>
+    <div class="kv"><span>Est. entry cost</span>
+      <b class="num" title="${b.dragBps==null?"No line had both a volume and a volatility reading, so no impact estimate is possible."
+        :`Size-weighted square-root impact plus spread, across the lines that could be estimated${b.dragMissing?`. ${b.dragMissing} line(s) had no volatility reading and are excluded rather than counted as free`:""}.`}"
+        style="color:${b.dragBps==null?"var(--sec)":b.dragBps>50?"var(--red)":b.dragBps>20?"var(--amber)":"var(--green)"}">${
+        b.dragBps==null?"—":b.dragBps.toFixed(0)+" bp"}</b></div>
+    ${b.effectiveN!=null?`<div class="kv"><span>Effective bets</span>
+      <b class="num" title="From the correlation matrix. This book holds ${b.rows.filter(r=>r.sized>0).length} lines; the top names by conviction behave like ${b.effectiveN} independent positions."
+        style="color:${b.effectiveN<3?"var(--red)":b.effectiveN<6?"var(--amber)":"var(--green)"}">${b.effectiveN}</b></div>`:""}
     <div class="muted" style="font-size:9px;margin-top:6px;line-height:1.5">
-      Conviction sets the shape; the ADV cap and regime set the ceiling. Money the
+      Conviction sets the shape; the ADV cap, the regime, the correlation cluster and a
+      turnover collapse against the name's own baseline each set a ceiling. Money the
       caps refuse stays unallocated — pushing it into the next name would concentrate the
       book into whatever happened to be liquid and present that as the same portfolio.
       <b style="color:var(--amber)">Not an optimal allocation</b>: the measured information
@@ -2155,6 +2674,763 @@ const ccHold=$("#cc-hold"); if(ccHold) ccHold.oninput=renderCarry;
 
 
 // ---- load ----
+/* Chart hit-testing and the tooltip that carries every unlabelled point.
+
+   A budgeted label set is only honest if the names it drops are still reachable. Canvas
+   has no DOM nodes to hover, so each chart registers the points it drew and this does
+   nearest-point lookup in CSS pixels.
+
+   Keyboard too, not as an afterthought: the canvases take tabindex, arrow keys walk the
+   points in the same deterministic order the labels were ranked in, and Escape clears.
+   A tooltip reachable only by mouse would put the dropped names out of reach of anyone
+   navigating by keyboard, which is a worse failure than the collisions this replaced. */
+const CHART_POINTS = {};   // canvasId -> [{x,y,r,sym,lines}]
+// What each chart last DREW, for the render tests. Not debug scaffolding: bounds and
+// overlap are properties of the output, and the only way to assert them on the real
+// board is to read what was actually placed.
+const CHART_LABELS = {};   // canvasId -> {rect, placed:[{text,x0,y0,x1,y1}], skipped}
+let CHART_FOCUS = {};      // canvasId -> index of the keyboard-focused point
+
+function chartTip(){
+  let el=document.getElementById("chart-tip");
+  if(!el){ el=document.createElement("div"); el.id="chart-tip"; el.className="chart-tip";
+           el.setAttribute("role","status"); el.setAttribute("aria-live","polite");
+           document.body.appendChild(el); }
+  return el;
+}
+function hideTip(){ const el=document.getElementById("chart-tip"); if(el) el.style.display="none"; }
+
+function showTip(pt, clientX, clientY){
+  const el=chartTip();
+  el.innerHTML=`<b class="tick">${esc0(pt.sym)}</b>`+
+    (pt.lines||[]).map(l=>`<span>${esc0(l)}</span>`).join("");
+  el.style.display="block";
+  // Flip before the viewport edge rather than after, so the tip never causes the
+  // horizontal scroll the layout rules forbid.
+  const r=el.getBoundingClientRect();
+  const x=Math.min(clientX+14, window.innerWidth-r.width-8);
+  const y=Math.min(clientY+14, window.innerHeight-r.height-8);
+  el.style.left=Math.max(4,x)+"px"; el.style.top=Math.max(4,y)+"px";
+}
+
+function nearestPoint(id, cx, cy, maxDist){
+  const pts=CHART_POINTS[id]||[]; let best=null, bd=maxDist*maxDist;
+  for(const p of pts){ const dx=p.x-cx, dy=p.y-cy, d=dx*dx+dy*dy;
+    if(d<=bd){ bd=d; best=p; } }
+  return best;
+}
+
+function attachChartInteraction(id){
+  const cv=document.getElementById(id); if(!cv || cv.dataset.wired) return;
+  cv.dataset.wired="1";
+  cv.setAttribute("tabindex","0");
+  cv.setAttribute("role","application");
+  cv.style.outlineOffset="2px";
+  cv.addEventListener("mousemove", e=>{
+    const b=cv.getBoundingClientRect();
+    const pt=nearestPoint(id, e.clientX-b.left, e.clientY-b.top, 14);
+    if(pt) showTip(pt, e.clientX, e.clientY); else hideTip();
+  });
+  cv.addEventListener("mouseleave", hideTip);
+  cv.addEventListener("blur", hideTip);
+  cv.addEventListener("click", e=>{
+    const b=cv.getBoundingClientRect();
+    const pt=nearestPoint(id, e.clientX-b.left, e.clientY-b.top, 14);
+    if(pt && pt.sym) select(pt.sym);
+  });
+  cv.addEventListener("keydown", e=>{
+    const pts=CHART_POINTS[id]||[]; if(!pts.length) return;
+    if(e.key==="Escape"){ hideTip(); cv.blur(); return; }
+    let i=CHART_FOCUS[id];
+    if(e.key==="ArrowRight"||e.key==="ArrowDown") i=(i==null?0:i+1)%pts.length;
+    else if(e.key==="ArrowLeft"||e.key==="ArrowUp") i=(i==null?pts.length-1:i-1+pts.length)%pts.length;
+    else if(e.key==="Enter"||e.key===" "){ if(i!=null&&pts[i]) select(pts[i].sym); e.preventDefault(); return; }
+    else return;
+    e.preventDefault();
+    CHART_FOCUS[id]=i;
+    const b=cv.getBoundingClientRect(), pt=pts[i];
+    showTip(pt, b.left+pt.x, b.top+pt.y);
+  });
+}
+
+/* Quadrant and axis annotations, drawn LAST on a backing chip.
+
+   They used to be painted before the points, so on a dense board the markers were drawn
+   straight through them — "QUALITY, UNCONFIRMED" came out scribbled over by the very
+   cluster it was naming. Drawing them last fixes legibility but would then hide
+   markers, so each sits on a chip in the panel colour: it reads as a key rather than as
+   data, and nothing underneath is mistaken for a point.
+
+   The rects are still reserved BEFORE point labels are placed, so this only changes
+   paint order, never geometry. */
+function annotate(g, notes){
+  notes.forEach(n=>{
+    g.save();
+    g.fillStyle="rgba(11,15,25,.82)";
+    g.fillRect(n.x0-3, n.y0-1, (n.x1-n.x0)+6, (n.y1-n.y0)+2);
+    g.fillStyle=n.color; g.font=n.font; g.textAlign=n.align; g.textBaseline="alphabetic";
+    g.fillText(n.text, n.tx, n.ty);
+    g.restore();
+  });
+}
+
+/* Measure through the chart's own context so widths match what is drawn. */
+function measurer(g, font){
+  return text => { g.font = font; return {w: g.measureText(text).width,
+                                          h: parseFloat(font) || 8}; };
+}
+
+/* LABEL ENGINE — everything between these markers is executed verbatim by
+   tests/test_labels.py under node and exercised against adversarial point sets. It must
+   stay free of DOM access and of any reference to state outside this block.
+
+   Why it exists. All three canvas charts labelled points at a fixed offset with no
+   placement logic at all: quad() labelled every one of 234 names, alphaMap() every
+   actionable one, and factorQuad() its top six. On a real board that produced
+   overlapping smears in the dense corners and labels running off the canvas edge, and
+   the reviewer rejected the screenshots for exactly that.
+
+   The rule this encodes: EVERY POINT IS PLOTTED, only the LABELS are budgeted. A label
+   is drawn only if it fits inside the plot rect and collides with nothing already
+   placed; anything unlabelled stays reachable by hover and by keyboard. Shrinking the
+   type would have been the easy fix and is not one — it trades a legibility problem for
+   a smaller legibility problem.
+*/
+// Candidate positions, tried in this fixed order. Right and left first because a
+// horizontal label reads beside its point without implying a different y value.
+const LBL_ANCHORS = [
+  {dx: 1, dy: 0, align:"left",   base:"middle"},
+  {dx:-1, dy: 0, align:"right",  base:"middle"},
+  {dx: 0, dy:-1, align:"center", base:"bottom"},
+  {dx: 0, dy: 1, align:"center", base:"top"},
+  {dx: 1, dy:-1, align:"left",   base:"bottom"},
+  {dx:-1, dy:-1, align:"right",  base:"bottom"},
+  {dx: 1, dy: 1, align:"left",   base:"top"},
+  {dx:-1, dy: 1, align:"right",  base:"top"},
+];
+const LBL_GAP = 3;      // clearance between a point's edge and its label
+const LBL_PAD = 2;      // clearance between two labels
+
+function lblRect(text, px, py, r, anchor, wpx, hpx){
+  const gx = r + LBL_GAP, gy = r + LBL_GAP;
+  const cx = px + anchor.dx * gx, cy = py + anchor.dy * gy;
+  let x0;
+  if(anchor.align === "left") x0 = cx;
+  else if(anchor.align === "right") x0 = cx - wpx;
+  else x0 = cx - wpx / 2;
+  let y0;
+  if(anchor.base === "top") y0 = cy;
+  else if(anchor.base === "bottom") y0 = cy - hpx;
+  else y0 = cy - hpx / 2;
+  return {x0, y0, x1: x0 + wpx, y1: y0 + hpx, tx: cx, ty: cy,
+          align: anchor.align, base: anchor.base};
+}
+
+/* A point marker as a rectangle, so labels can be kept off other named bubbles.
+
+   Only the markers of points that are THEMSELVES label candidates are reserved. Feeding
+   in all 234 would leave no room in the dense corner and would starve exactly the
+   majors whose labels matter most; feeding in none lets a ticker sit on top of a
+   neighbour's bubble, which is what put "ZEC" across a large-dilution marker. */
+function markerRect(pt){
+  const r = (pt.r || 0);
+  return {x0: pt.x - r, y0: pt.y - r, x1: pt.x + r, y1: pt.y + r};
+}
+
+function lblOverlaps(a, b){
+  return !(a.x1 + LBL_PAD <= b.x0 || b.x1 + LBL_PAD <= a.x0 ||
+           a.y1 + LBL_PAD <= b.y0 || b.y1 + LBL_PAD <= a.y0);
+}
+
+function lblInside(rc, rect){
+  return rc.x0 >= rect.l && rc.x1 <= rect.r && rc.y0 >= rect.t && rc.y1 <= rect.b;
+}
+
+/* Place as many labels as fit, highest priority first.
+
+   `items`  [{text, x, y, r, priority}]  priority: higher wins. x/y/r in CSS pixels.
+   `rect`   {l,t,r,b} the plot area labels must stay inside.
+   `measure` (text) -> {w,h} — the caller supplies it so this stays DOM-free.
+   `budget` maximum number of labels to draw.
+   `reserved` rectangles already occupied (axis titles, quadrant names).
+
+   Deterministic: items are sorted by priority descending then text ascending, so the
+   same board always produces the same labels in the same places. No randomness, and no
+   dependence on object iteration order.
+
+   Returns {placed, skipped, considered}. A point whose label cannot be placed is
+   SKIPPED, never squeezed in — the point itself is drawn by the caller regardless.
+*/
+function placeLabels(items, rect, measure, budget, reserved){
+  const ranked = items.slice().sort((a,b)=>
+    (b.priority - a.priority) || (a.text < b.text ? -1 : a.text > b.text ? 1 : 0));
+  const taken = (reserved || []).slice();
+  const placed = [];
+  let considered = 0;
+  for(const it of ranked){
+    if(placed.length >= budget) break;
+    considered++;
+    const m = measure(it.text);
+    let put = null;
+    for(const anchor of LBL_ANCHORS){
+      const rc = lblRect(it.text, it.x, it.y, it.r || 0, anchor, m.w, m.h);
+      if(!lblInside(rc, rect)) continue;
+      let clash = false;
+      for(const t of taken){ if(lblOverlaps(rc, t)){ clash = true; break; } }
+      if(clash) continue;
+      put = rc; break;
+    }
+    if(put){ taken.push(put); placed.push(Object.assign({}, it, put)); }
+  }
+  return {placed, skipped: ranked.length - placed.length, considered};
+}
+
+/* Which names earn a persistent label.
+
+   Qualified and selected names always; then meaningful OUTLIERS, defined as the extreme
+   `frac` of the plotted set on either axis. Outliers rather than "the biggest" because a
+   scatter's information is at its edges — the middle of the cloud is where a label helps
+   least and collides most.
+*/
+function labelPriority(item, stats){
+  if(item.selected) return 100;
+  if(item.qualified) return 80;
+  if(item.actionable) return 60;
+  if(item.xExtreme || item.yExtreme) return 40;
+  return 0;
+}
+
+function extremeCuts(values, frac){
+  const v = values.filter(n=>typeof n==="number" && !isNaN(n)).slice().sort((a,b)=>a-b);
+  if(v.length < 4) return {lo: -Infinity, hi: Infinity};
+  const k = Math.max(1, Math.floor(v.length * frac));
+  return {lo: v[k-1], hi: v[v.length-k]};
+}
+/* END LABEL ENGINE */
+
+/* =====================================================================
+   Modules F-J renderers
+   =====================================================================
+   Every one of these renders a PENDING state rather than a zero when its feed did not
+   answer. That distinction is the whole reason the artifact carries a status per feed:
+   a sector matrix with no rows and a market where nothing moved look identical, and
+   only one of them is a reason to go and look at the pipeline. */
+
+function strategyBasis(r){
+  const bits=[];
+  if(r.adx!=null && r.adx!=="") bits.push("ADX "+Number(r.adx).toFixed(0)
+    + (r.adx_regime?" ("+r.adx_regime+")":""));
+  else if(r.adx_bars!=null && r.adx_bars!=="") bits.push("ADX accumulating "+r.adx_bars+"/29");
+  const c=CHOP[(r.symbol||"").toUpperCase()];
+  if(c && c.regime) bits.push("CHOP "+c.regime);
+  return bits.join(" · ") || "recorded regime";
+}
+
+/* One macro card. `pending` is a real state and looks like one — dashed, dimmed and
+   carrying the reason — rather than a card showing an em dash that reads as "flat". */
+function macroCard(label, value, sub, cls, title, pending){
+  return `<span class="mc${pending?" pending":""}"${title?` title="${esc0(title)}"`:""}>
+    <span class="lbl">${label}</span><b class="${cls||""}">${value}</b>
+    ${sub?`<span class="sub">${sub}</span>`:""}</span>`;
+}
+
+/* What the nightly's credential was when it built the committed artifacts.
+
+   This is deliberately NOT a statement about the page. The artifact is produced by a
+   scheduled job that can read a repository secret; the browser cannot, and conflating
+   the two is what made an earlier screenshot read "CG PLAN KEYLESS" while the pipeline
+   it documented was authenticated. The card names whose credential it is describing. */
+function nightlyFeedState(){
+  const sess=(INTEL&&INTEL.session)||null;
+  if(!sess||!sess.plan) return {label:"UNKNOWN", cls:"neu", pending:true,
+    detail:"ledger/market_intel.json was not loaded, so the credential the nightly used is unknown."};
+  if(sess.status==="rejected") return {label:"KEY REJECTED", cls:"neg", pending:false,
+    detail:"A key was configured and neither the Demo nor the Pro endpoint accepted it, so the run fell back to keyless rather than sending a credential that is refused. "+(sess.detail||"")};
+  if(sess.plan==="demo") return {label:"DEMO KEY", cls:"pos", pending:false,
+    detail:"The nightly authenticated with a CoinGecko Demo key, probed against /ping rather than assumed. "+(sess.detail||"")};
+  if(sess.plan==="pro") return {label:"PRO KEY", cls:"pos", pending:false,
+    detail:"The nightly authenticated with a CoinGecko Pro key, probed against /ping rather than assumed. "+(sess.detail||"")};
+  return {label:"KEYLESS", cls:"a", pending:true,
+    detail:"The nightly ran with no CoinGecko credential, so every call took the public rate limit. "+(sess.detail||"")};
+}
+
+/* Whether the payload this browser just fetched is actually live.
+
+   Detected from the DATA, not from a build flag: a real /coins/markets response carries
+   `last_updated` timestamps seconds old, so the newest timestamp in the payload dates
+   the feed. That makes a replayed or intercepted payload self-evident without anyone
+   remembering to set a preview flag, and it is the honest reading anyway — "these
+   prices are four hours old" is the fact that matters whether the cause is a stub, a
+   stale cache or a broken edge node.
+
+   The NEWEST timestamp, not the oldest: a delisted token legitimately carries a
+   month-old timestamp, and reading the minimum would call every live fetch stale. */
+function feedProvenance(raw, nowMs){
+  if(!Array.isArray(raw)||!raw.length)
+    return {state:"failed", ageMin:null, detail:"the live fetch returned no rows"};
+  let newest=null;
+  raw.forEach(t=>{ const v=t&&t.last_updated?Date.parse(t.last_updated):NaN;
+    if(!isNaN(v)&&(newest===null||v>newest)) newest=v; });
+  if(newest===null)
+    return {state:"unknown", ageMin:null,
+            detail:"no row carried a last_updated timestamp, so the payload cannot be dated"};
+  const ageMin=(nowMs-newest)/60000;
+  const state = ageMin<=FEED_LIVE_MIN ? "live" : ageMin<=FEED_STALE_MIN ? "stale" : "stubbed";
+  return {state, ageMin,
+    detail: state==="live"
+      ? `newest quote ${ageMin<1?"under a minute":Math.round(ageMin)+" min"} old`
+      : state==="stale"
+        ? `newest quote ${Math.round(ageMin)} minutes old — the feed answered but the data is behind`
+        : `newest quote ${(ageMin/60).toFixed(1)} hours old. A live CoinGecko response is seconds old, so this payload is replayed or intercepted rather than fetched — treat every price, delta and chart on this page as a fixture, not as the market.`};
+}
+
+function liveFeedState(){
+  const f=FEED||{};
+  if(f.state==="live")    return {label:"LIVE", cls:"pos", pending:false, detail:"Browser fetch, keyless by construction — this page is a static file and cannot hold a credential. "+f.detail};
+  if(f.state==="stale")   return {label:"STALE", cls:"a", pending:true, detail:f.detail};
+  if(f.state==="stubbed") return {label:"STUBBED", cls:"neg", pending:true, detail:f.detail};
+  if(f.state==="failed")  return {label:"FAILED", cls:"neg", pending:true, detail:f.detail};
+  if(f.state==="throttled") return {label:"THROTTLED", cls:"neg", pending:true, detail:f.detail};
+  if(f.state==="unknown") return {label:"UNDATED", cls:"a", pending:true, detail:f.detail};
+  return {label:"PENDING", cls:"neu", pending:true, detail:f.detail||"no live fetch attempted yet"};
+}
+
+/* The page-level disclosure. Same reasoning as the rewound border: a fixture read as the
+   market is the worst thing this page can do, and one small chip in a ribbon is not
+   enough to stop it. */
+function renderFeedBanner(){
+  const bad = FEED && (FEED.state==="stubbed");
+  document.body.classList.toggle("stubbed", !!bad);
+  let el=$("#stub-banner");
+  if(!bad){ if(el) el.remove(); return; }
+  if(!el){
+    el=document.createElement("div"); el.id="stub-banner"; el.className="stub-banner";
+    const wrap=document.querySelector(".wrap");
+    wrap.insertBefore(el, wrap.firstChild);
+  }
+  el.innerHTML=`<b>PREVIEW — PRICES ARE NOT LIVE.</b> ${esc0(FEED.detail)}
+    The ledger-derived panels below are the real committed artifacts; the price columns,
+    deltas and scatter charts are a fixture.`;
+}
+
+function renderMacro(){
+  const el=$("#macro"); if(!el) return;
+  if(!INTEL){
+    el.innerHTML=macroCard("Macro","unavailable","ledger/market_intel.json not loaded",
+      "neu","The nightly did not produce the artifact, or this page is being served without it.",true);
+    return;
+  }
+  const m=INTEL.macro||{}, out=[];
+  const feeds=INTEL.feeds||{};
+  const gLive=(feeds.global||{}).status==="live";
+  const sLive=(feeds.stablecoins||{}).status==="live";
+
+  out.push(macroCard("BTC Dom", m.btc_dominance!=null?m.btc_dominance.toFixed(2)+"%":"—",
+    null, "num",
+    gLive?"Bitcoin's share of total crypto market cap. Rising dominance in a rising market is a flight to the majors; rising dominance in a falling one is an alt drawdown."
+         :"The /global feed did not answer: "+((feeds.global||{}).detail||"no detail"), !gLive));
+  out.push(macroCard("ETH/BTC", m.eth_btc_dominance_ratio!=null?m.eth_btc_dominance_ratio.toFixed(4):"—",
+    null, "num",
+    gLive?"The ratio of ETH dominance to BTC dominance. Taken from the dominance split rather than a price ratio — same information, no second request."
+         :"unavailable", !gLive));
+  out.push(macroCard("Cap ex-BTC", fmtUsd(m.total_mcap_ex_btc), null, "num",
+    "Total market cap with Bitcoin removed. This, not the headline total, is the denominator an alt book is actually measured against.", !gLive));
+  out.push(macroCard("Total 24h", m.mcap_chg_24h!=null?sgn(m.mcap_chg_24h):"—", null,
+    m.mcap_chg_24h>0?"pos":m.mcap_chg_24h<0?"neg":"neu",
+    "Whole-market 24h change. Every sector's relative strength on this page is measured against exactly this number.", !gLive));
+
+  const sr=m.stable_regime||{};
+  const rcls = sr.regime==="RISK-ON"?"pos" : sr.regime==="RISK-OFF"?"neg"
+             : sr.regime==="UNCONFIRMED"?"neu" : "neu";
+  out.push(macroCard("Fiat Bridge", sr.regime||"—",
+    m.stable_velocity!=null?("v "+m.stable_velocity.toFixed(3)):null, rcls,
+    sLive?(sr.basis||"")+" — the regime is claimed only when velocity and float growth agree; one without the other is MIXED, which is a reading rather than a failure."
+         :"The stablecoin feed did not answer.", !sLive));
+  out.push(macroCard("Stable Float", fmtUsd(m.stable_mcap), null, "num",
+    "Aggregate cap of the redeemable stablecoins only — algorithmic and yield-bearing tokens are excluded, because their cap can expand without a dollar being wired anywhere.", !sLive));
+
+  const c=INTEL.correlation||{};
+  out.push(macroCard("Effective Bets",
+    c.effective_n!=null?c.effective_n.toFixed(2):"—",
+    c.n?("of "+c.n):null,
+    c.effective_n!=null?(c.effective_n<3?"neg":c.effective_n<6?"a":"pos"):"neu",
+    c.effective_n!=null
+      ? `The top ${c.n} names by conviction behave like ${c.effective_n} independent positions (mean pairwise r ${c.mean_correlation}, over ${c.pairs_measured} measured pairs). Below 3 the book is effectively one trade.`
+      : `Not enough overlapping nights yet — a Pearson r needs ${INTEL_TH.corr_min_obs||8} and the ledger is still accumulating.`,
+    c.effective_n==null));
+
+  // The board's own funding temperature, from the same rows the board is built from.
+  const aprs=[]; Object.keys(FUND).forEach(k=>{ const a=FUND[k].funding_apr;
+    if(a!=null&&!isNaN(a)) aprs.push(Number(a)); });
+  aprs.sort((a,b)=>a-b);
+  const med = aprs.length?(aprs.length%2?aprs[(aprs.length-1)/2]
+              :(aprs[aprs.length/2-1]+aprs[aprs.length/2])/2):null;
+  out.push(macroCard("Funding Heat", med!=null?med.toFixed(1)+"%":"—",
+    aprs.length?("n "+aprs.length):null,
+    med==null?"neu":med>=(FTH.elevated_apr||12)?"neg":med<=(FTH.squeeze_apr||-15)?"pos":"neu",
+    "Median annualised funding across the scored board. Median rather than mean: funding has a fat right tail and one squeeze print would define the whole board's heat.",
+    med==null));
+
+  // Two cards, because these are two different facts and an earlier single card
+  // conflated them into a contradiction. The nightly can hold a secret; this page
+  // cannot. They can legitimately disagree — an artifact built with a Demo key
+  // overnight, read in a browser fetching keyless right now — and the ribbon has to be
+  // able to say so.
+  const nf=nightlyFeedState();
+  out.push(macroCard("Nightly Feed", nf.label, null, nf.cls, nf.detail, nf.pending));
+  const lf=liveFeedState();
+  out.push(macroCard("Live Prices", lf.label,
+    (FEED&&FEED.ageMin!=null)?(FEED.ageMin<1?"<1m":Math.round(FEED.ageMin)+"m"):null,
+    lf.cls, lf.detail, lf.pending));
+
+  el.innerHTML=out.join("");
+}
+
+function renderSectors(){
+  const el=$("#sectors"); if(!el) return;
+  const rep=(INTEL&&INTEL.sectors)||null;
+  const st=((INTEL&&INTEL.feeds)||{}).categories||{};
+  if(!rep||!rep.sectors||!rep.sectors.length){
+    el.innerHTML=`<div class="muted">Sector feed ${st.status?("<b>"+st.status+"</b> — "+esc0(st.detail)):"pending"}.</div>`;
+    return;
+  }
+  const n=8;
+  const rows=rep.sectors.filter(r=>r.rs24h!=null||r.chg24h!=null);
+  const lead=rows.slice(0,n), lag=rows.slice(-n).reverse();
+  const val=r=>(r.rs24h!=null?r.rs24h:r.chg24h);
+  const span=Math.max(1,...rows.map(r=>Math.abs(val(r)||0)));
+  const bar=r=>{ const v=val(r)||0, w=Math.min(50,Math.abs(v)/span*50);
+    const col=v>=0?"var(--green)":"var(--red)";
+    return `<div class="sec-track"><div class="sec-bar" style="background:${col};${
+      v>=0?`left:50%;width:${w}%`:`right:50%;width:${w}%`}"></div></div>`; };
+  const flow=r=>(r.flow_pct!=null
+      ? `<span class="${r.flow_pct>=0?'pos':'neg'}" title="${r.flow_days}-night flow accumulated from ledger/sectors.csv">${sgn(r.flow_pct)}</span>`
+      : `<span class="muted" title="Multi-day flow needs prior nights on disk. /coins/categories publishes no history, so this accumulates one night at a time.">${r.flow_days||0}d</span>`);
+  const row=r=>`<div class="sec-row">
+      <span class="sec-name" data-sector="${esc0(r.name)}" title="${esc0(r.name)} — ${fmtUsd(r.mcap)} cap${r.coins_count?`, ${r.coins_count} coins`:""}${r.turnover!=null?`, turnover ${(r.turnover*100).toFixed(1)}%`:""}${r.top3&&r.top3.length?`. Top: ${esc0(r.top3.join(", "))}`:""}">${esc0(r.name)}</span>
+      ${bar(r)}
+      <span class="sec-val ${val(r)>=0?'pos':'neg'}">${sgn(val(r))}</span>
+    </div>`;
+  el.innerHTML=`
+    <div class="cf-h pos">CAPITAL ROTATING IN</div>${lead.map(row).join("")}
+    <div class="cf-h neg" style="margin-top:8px">CAPITAL ROTATING OUT</div>${lag.map(row).join("")}
+    <div class="muted" style="margin-top:8px">${rep.n} sector(s) cleared the size and breadth floors · ${esc0(rep.basis)}${
+      rep.market_chg_24h!=null?` (${sgn(rep.market_chg_24h)})`:""}</div>`;
+  const note=$("#sec-note");
+  if(note) note.textContent = rep.market_chg_24h!=null
+    ? `vs market ${sgn(rep.market_chg_24h)}` : "absolute — no benchmark tonight";
+}
+
+function renderTMD(){
+  const el=$("#tmd"); if(!el) return;
+  const rep=(INTEL&&INTEL.trending)||null;
+  const st=((INTEL&&INTEL.feeds)||{}).trending||{};
+  if(!rep||!rep.assets||!rep.assets.length){
+    el.innerHTML=`<div class="muted">Trending feed ${st.status?("<b>"+st.status+"</b> — "+esc0(st.detail)):"pending"}.</div>`;
+    return;
+  }
+  const cls=l=>l==="FOMO_CROWDED"?"crowded":l==="QUIET_ACCUMULATION"?"quiet"
+            :l==="UNRANKED"?"unranked":"aligned";
+  const rows=rep.assets.map(a=>`<div class="tmd-row">
+      <span class="tmd-rank">${a.trending_rank}</span>
+      <span class="tick">${a.symbol}</span>
+      <span class="num muted" title="Rank among the names that are BOTH trending and scored — the population the label is computed over. Its rank across the whole 15-name trending list is ${a.trending_pct}%.">${a.overlap_trend_pct==null?"—":a.overlap_trend_pct+"%"}</span>
+      <span class="num ${a.conviction==null?'muted':a.conviction>=70?'pos':'neu'}"
+            title="${a.conviction==null?'Not in the scored universe — most trending coins fall below the market-cap cut.':'Conviction '+a.conviction+' — '+a.conviction_pct+'th percentile of the whole board, '+a.overlap_conv_pct+'th among the names that are also trending.'}">${a.conviction==null?"—":a.conviction}</span>
+      <span><span class="lab ${cls(a.label)}" title="${a.divergence==null
+        ? 'The crowd is looking at something this model does not rank at all.'
+        : 'Percentile gap of '+a.divergence+' between the two rankings. Positive means the crowd ranks it above the model.'}">${a.label.replace("_"," ")}</span></span>
+    </div>`).join("");
+  const quiet=(rep.backed_but_unsearched||[]).slice(0,6);
+  el.innerHTML=rows + (quiet.length?`<div class="cf-h" style="margin-top:8px">BACKED, NOT SEARCHED</div>
+      <div class="muted">Top-10 conviction names absent from the trending list entirely: ${
+      quiet.map(q=>`<b class="tick">${q.symbol}</b> ${q.conviction}`).join(" · ")}</div>`:"");
+  const note=$("#tmd-note");
+  if(note) note.textContent=esc0(rep.detail||"");
+  const foot=el.querySelector(".tmd-basis");
+  if(!foot && rep.basis) el.insertAdjacentHTML("beforeend",
+    `<div class="muted tmd-basis" style="margin-top:6px">${esc0(rep.basis)}.</div>`);
+}
+
+function renderFallen(){
+  const el=$("#fallen"); if(!el) return;
+  const rows=(INTEL&&INTEL.fallen_kings)||null;
+  if(!INTEL){ el.innerHTML='<div class="muted">Screen pending — <code>ledger/market_intel.json</code> was not produced.</div>'; return; }
+  if(!rows||!rows.length){
+    el.innerHTML=`<div class="muted">No name currently qualifies. The screen requires a sustained top-${
+      25} market-cap rank, a drawdown between ${INTEL_TH.fallen_min_dd||10}% and ${
+      INTEL_TH.fallen_max_dd||40}% off the recorded peak, and either an oversold RSI or a
+      bullish momentum divergence. An empty screen is a reading, not a missing feed.</div>`;
+    return;
+  }
+  el.innerHTML=rows.map(r=>`<div class="cf-row" title="Peak ${r.peak} on ${r.peak_date}, ${r.days_since_peak} night(s) ago, over ${r.bars} recorded bars. Held a top-25 rank on ${(r.quality_share*100).toFixed(0)}% of them.">
+      <span><b class="tick">${r.symbol}</b>
+        <span class="lab ${r.divergence?'quiet':'aligned'}">${esc0(r.trigger)}</span></span>
+      <span><b class="neg num">${r.drawdown_pct}%</b>
+        <span class="muted">RSI ${r.rsi7!=null?Number(r.rsi7).toFixed(0):"—"} · ${r.bars} bars</span></span>
+    </div>`).join("");
+}
+
+function renderCorr(){
+  const el=$("#corr"); if(!el) return;
+  const c=(INTEL&&INTEL.correlation)||null;
+  if(!c||!c.symbols||!c.symbols.length){
+    el.innerHTML='<div class="muted">Correlation pending — <code>ledger/market_intel.json</code> was not produced.</div>';
+    return;
+  }
+  if(c.effective_n==null){
+    el.innerHTML=`<div class="muted">Accumulating. A Pearson correlation needs ${c.min_obs}
+      overlapping nightly returns and no pair has them yet — ${c.n} name(s) are in the window.
+      Reported as pending rather than as a number that happens to be computable.</div>`;
+    return;
+  }
+  const syms=c.symbols.slice(0,14);
+  // Blue for independent, red for correlated. A diverging scale would imply a
+  // meaningful midpoint; for book risk, "uncorrelated" is simply the good end.
+  const col=r=>{ if(r==null) return "rgba(148,163,184,.10)";
+    const t=Math.max(0,Math.min(1,(r+1)/2));
+    return `rgba(${Math.round(60+195*t)},${Math.round(140-60*t)},${Math.round(200-140*t)},${0.25+0.65*Math.abs(r)})`; };
+  const grid=`<div class="cm-grid" style="grid-template-columns:34px repeat(${syms.length},1fr)">
+    <span></span>${syms.map(x=>`<span class="cm-lab">${x.slice(0,4)}</span>`).join("")}
+    ${syms.map(a=>`<span class="cm-lab row">${a.slice(0,5)}</span>`+
+      syms.map(b=>{ const r=(c.matrix[a]||{})[b];
+        return `<span class="cm-cell${a===b?" diag":""}" style="background:${col(r)}"
+          title="${a} vs ${b}: ${r==null?"too few overlapping nights":r}"></span>`;}).join("")).join("")}
+  </div>`;
+  const betas=c["beta_to_btc"]||{};
+  const hot=Object.keys(c.clusters||{});
+  el.innerHTML=`
+    <div class="kv"><span>Effective breadth</span><b class="${c.effective_n<3?'neg':c.effective_n<6?'':'pos'}"
+      title="N squared over the sum of the correlation matrix. Returns N for an uncorrelated book and 1 for a perfectly correlated one.">${c.effective_n} of ${c.n}</b></div>
+    <div class="kv"><span>Mean pairwise r</span><b class="num" title="Over ${c.pairs_measured} pairs with at least ${c.min_obs} overlapping nights. Shorter pairs are excluded rather than imputed.">${c.mean_correlation}</b></div>
+    <div class="kv"><span>Window</span><b class="num">&le; ${c.window} nights</b></div>
+    ${grid}
+    ${hot.length?`<div class="muted" style="margin-top:6px">At or above r ${c.cluster_threshold},
+      these are one bet for risk purposes: ${hot.slice(0,6).map(k=>
+      `<b class="tick" title="${esc0((c.clusters[k]||[]).join(', '))}">${k}</b>`).join(" · ")}</div>`
+      :`<div class="muted" style="margin-top:6px">No pair sits at or above r ${c.cluster_threshold}.</div>`}
+    <div class="cf-h" style="margin-top:8px">BETA TO BTC</div>
+    <div class="muted">${Object.keys(betas).slice(0,10).map(k=>
+      `<b class="tick">${k}</b> ${betas[k]==null?"—":betas[k].toFixed(2)}`).join(" · ")||"—"}</div>`;
+  const note=$("#corr-note");
+  if(note) note.textContent=`${c.n} names · ${c.pairs_measured} pairs`;
+}
+
+/* The four-quadrant factor map. Both axes are components of the score itself, so a
+   name's position says WHICH HALF of its conviction it earned rather than restating the
+   score against price. Split on the board's own medians: fixed cut-offs would put every
+   name in one quadrant on a trending day and tell the reader nothing. */
+function factorQuad(){
+  const cv=document.getElementById("fquad"); if(!cv) return;
+  // The CANVAS's own content box, not its parent's padding box. Reading
+  // parentElement.clientWidth returned 398 inside a 374px content area and then pinned
+  // that back on with an inline style, so the element was 24px wider than the space it
+  // had — which is why the right-hand quadrant names were clipped by the panel border.
+  // The other two charts already measured themselves; this one did not.
+  const W=cv.clientWidth||360, H=230;
+  const dpr=window.devicePixelRatio||1;
+  cv.width=W*dpr; cv.height=H*dpr;
+  const g=cv.getContext("2d"); g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
+  const src=(FILTER?boardRows().filter(matchesFilter):boardRows());
+  const pts0=src.filter(t=>t.comp).slice(0,60);
+  if(!pts0.length){ g.fillStyle="#475569"; g.font="10px monospace";
+    g.fillText("no rows in view",12,H/2); CHART_POINTS.fquad=[]; return; }
+  const P={l:34,r:12,t:12,b:22};
+  const qual=t=>(t.comp.depth/20)*(t.comp.liquidity/30)
+                *(t.comp.emission_mult!=null?t.comp.emission_mult:1);
+  const mom=t=>t.rsBlend==null?0:t.rsBlend;
+  const qs=pts0.map(qual), ms=pts0.map(mom);
+  const sorted=a=>[...a].sort((x,y)=>x-y);
+  const med=a=>{const b=sorted(a);const n=b.length;
+    return n%2?b[(n-1)/2]:(b[n/2-1]+b[n/2])/2;};
+  const pct=(a,q)=>{const b=sorted(a);const i=(b.length-1)*q;
+    const lo=Math.floor(i),hi=Math.ceil(i);
+    return lo===hi?b[lo]:b[lo]+(b[hi]-b[lo])*(i-lo);};
+  const qMed=med(qs), mMed=med(ms);
+  let mLo=pct(ms,0.05), mHi=pct(ms,0.95);
+  let qLo=pct(qs,0.05), qHi=pct(qs,0.95);
+  mLo=Math.min(mLo,mMed); mHi=Math.max(mHi,mMed);
+  qLo=Math.min(qLo,qMed); qHi=Math.max(qHi,qMed);
+  const cl=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+  const X=v=>P.l+((cl(v,mLo,mHi)-mLo)/((mHi-mLo)||1))*(W-P.l-P.r);
+  const Y=v=>H-P.b-((cl(v,qLo,qHi)-qLo)/((qHi-qLo)||1))*(H-P.t-P.b);
+  const clipped=pts0.filter(t=>mom(t)<mLo||mom(t)>mHi||qual(t)<qLo||qual(t)>qHi).length;
+  const qx=X(mMed), qy=Y(qMed);
+  const fills=[["rgba(123,201,160,.055)",qx,P.t,W-P.r-qx,qy-P.t],
+               ["rgba(224,179,114,.05)",P.l,P.t,qx-P.l,qy-P.t],
+               ["rgba(59,130,246,.045)",qx,qy,W-P.r-qx,H-P.b-qy],
+               ["rgba(232,145,127,.05)",P.l,qy,qx-P.l,H-P.b-qy]];
+  fills.forEach(f=>{ g.fillStyle=f[0]; g.fillRect(f[1],f[2],f[3],f[4]); });
+  g.strokeStyle="#1E293B"; g.lineWidth=1;
+  g.beginPath(); g.moveTo(qx,P.t); g.lineTo(qx,H-P.b);
+  g.moveTo(P.l,qy); g.lineTo(W-P.r,qy); g.stroke();
+
+  const FONT="7.5px monospace";
+  g.font=FONT; g.textBaseline="alphabetic";
+  // Quadrant names reserved before any ticker is placed, and shortened on a narrow
+  // canvas rather than allowed to run past the edge. Measured, not guessed: the long
+  // forms simply do not fit a 300px rail and were being clipped.
+  const narrow = W < 330;
+  const reserved=[], notes=[];
+  const qlab=(long,short,tx,ty,align,color)=>{
+    const text = narrow ? short : long;
+    g.textAlign=align; const wpx=g.measureText(text).width;
+    const x0 = align==="right" ? tx-wpx : tx;
+    if(x0 < P.l-2 || x0+wpx > W-2) { g.textAlign="left"; return; }
+    const rc={x0, y0:ty-8, x1:x0+wpx, y1:ty+2};
+    reserved.push(rc);
+    notes.push({...rc, text, tx, ty, align, color, font:FONT});
+  };
+  qlab("CONVICTION","CONV",W-P.r-3,P.t+9,"right","rgba(123,201,160,.8)");
+  qlab("QUALITY, UNCONFIRMED","QUALITY",P.l+3,P.t+9,"left","rgba(224,179,114,.8)");
+  qlab("MOMENTUM, THIN","MOMENTUM",W-P.r-3,H-P.b-4,"right","rgba(59,130,246,.85)");
+  qlab("DE-ALLOCATE","AVOID",P.l+3,H-P.b-4,"left","rgba(232,145,127,.8)");
+  g.textAlign="left";
+  const axw2=g.measureText("RS vs BTC →").width;
+  reserved.push({x0:P.l, y0:H-14, x1:P.l+axw2, y1:H-4});
+  notes.push({x0:P.l, y0:H-14, x1:P.l+axw2, y1:H-4,
+              text:"RS vs BTC →", tx:P.l, ty:H-6, align:"left",
+              color:"#64748B", font:FONT});
+
+  const xc=extremeCuts(ms,0.08), yc=extremeCuts(qs,0.08);
+  const pts=[], cands=[];
+  pts0.forEach(t=>{
+    const x=X(mom(t)), y=Y(qual(t));
+    const r=Math.max(2.5,Math.min(9,Math.log10(Math.max(1e6,t.mc))-5.2));
+    const strong=t.conv>=70;
+    g.beginPath(); g.arc(x,y,r,0,7);
+    g.fillStyle=strong?"rgba(123,201,160,.55)":t.conv>=55?"rgba(59,130,246,.42)":"rgba(148,163,184,.28)";
+    g.fill();
+    if(t.sym===SEL){ g.strokeStyle="#E0B372"; g.lineWidth=1.6; g.stroke(); }
+    pts.push({x,y,r:r+2,sym:t.sym,lines:[
+      `conviction ${t.conv}`,
+      `RS vs BTC ${mom(t).toFixed(1)}`,
+      `quality ${qual(t).toFixed(2)}`,
+      `mkt cap ${fmtUsd(t.mc)}`]});
+    cands.push({text:t.sym, x, y, r:r+2, sel:t.sym===SEL,
+      priority: labelPriority({selected:t.sym===SEL, qualified:t.gated,
+        actionable:strong,
+        xExtreme:mom(t)<=xc.lo||mom(t)>=xc.hi,
+        yExtreme:qual(t)<=yc.lo||qual(t)>=yc.hi})});
+  });
+  CHART_POINTS.fquad=pts;
+  const rect={l:P.l, t:P.t-6, r:W-4, b:H-P.b+2};
+  const meas=measurer(g, "8px monospace");
+  const out=placeLabels(cands.filter(c=>c.priority>0), rect, meas, narrow?5:8,
+                        reserved.concat(cands.map(markerRect)));
+  out.placed.forEach(L=>{
+    g.font="8px monospace"; g.fillStyle=L.sel?"#E0B372":"#94A3B8";
+    g.textAlign=L.align; g.textBaseline=L.base;
+    g.fillText(L.text,L.tx,L.ty);
+  });
+  g.textAlign="left"; g.textBaseline="alphabetic";
+  annotate(g, notes);
+  CHART_LABELS.fquad={rect, placed:out.placed, skipped:out.skipped};
+  const lg=$("#fquad-legend");
+  if(lg) lg.textContent=`X: blended RS vs BTC (median ${mMed.toFixed(1)}) · Y: depth x liquidity x supply `
+    + `(median ${qMed.toFixed(2)}) · ${pts0.length} plotted, ${out.placed.length} labelled`
+    + (clipped?` · ${clipped} clamped to the 5-95 percentile axis`:"")
+    + " — hover or focus for the rest";
+  attachChartInteraction("fquad");
+}
+
+/* ---- rewind -----------------------------------------------------------
+   The ledger has held a full board per night since 2026-08-01 and nothing on this page
+   could look at one. This scrubs the conviction matrix back across the recorded nights,
+   reading the same signals.json the live board is reconciled against.
+
+   Two things it deliberately does NOT do. It does not rewind the live-price panels —
+   the quadrant charts and the ribbon are built from a live CoinGecko fetch that has no
+   history, so they are dimmed and labelled rather than left showing tonight beside a
+   three-week-old board. And it does not rewind the context panels: market_intel.json is
+   a single night's artifact, and sectors.csv/macro.csv hold the series but are not
+   published to the browser as one. Both are stated on the control rather than left for
+   a reader to discover by noticing a number that did not move. */
+function rewindRows(d){
+  return (LEDGER_BY_DATE[d]||[]).slice().sort((a,b)=>
+    (Number(b.conviction)||0)-(Number(a.conviction)||0));
+}
+
+/* A recorded row rendered in the shape build() produces, so renderTables can draw a
+   historical board through exactly the same path as a live one. Fields the ledger does
+   not carry are null rather than zero — a rewound row has no 7d sparkline and saying so
+   is better than drawing a flat line that looks like a quiet week. */
+function rowToState(r){
+  const num=k=>{const v=r[k];return (v==null||v===""||v==="None"||isNaN(parseFloat(v)))?null:parseFloat(v);};
+  const mc=num("market_cap")||0, price=num("price")||0;
+  const turn=num("turnover_pct")||0;
+  const fdv=num("fdv_usd");
+  const conv=Math.round(num("conviction")||0);
+  return {
+    id:null, sym:(r.symbol||"").toUpperCase(), name:r.name||"", price, mc,
+    vol:mc*turn/100, turn, chg:null, conv, sig:signal(conv),
+    tier:tierOf(r.symbol||""), spark:null,
+    // No ATH/ATL in the ledger, so the range Z is UNKNOWN for a rewound row rather
+    // than 0.00 — which renders as "exactly mid-range" and is a claim this row cannot
+    // support.
+    ath:0, atl:0, z:null, divergence:false,
+    high24:num("high_24h")||0, low24:num("low_24h")||0, mcapChg:0,
+    fdv:fdv||0,
+    chg7d:null, chg1h:null, chg30d:null,
+    rs7:num("rs7"), rs14:num("rs14"), rs30:num("rs30"), rs200:num("rs200"),
+    rsBlend:num("rs_blend"),
+    comp:{liquidity:num("c_liquidity")||0, era:num("c_era")||0,
+          depth:num("c_depth")||0, momentum:num("c_momentum")||0,
+          rsBlend:num("rs_blend")||0,
+          emission_mult:num("emission_mult")!=null?num("emission_mult"):1,
+          emission_drag:num("emission_drag")},
+    proxyEra:null, dilution:(fdv&&mc)?fdv/mc:null,
+    lavl:0, lavlBand:null, gated:false, _rewound:true,
+    // The funding and regime THIS night recorded. Without these the rewound board
+    // borrows tonight's funding.json and tonight's choppiness for a three-week-old row
+    // — which is how a historical board ends up asserting a carry that did not exist
+    // on the day it claims to show.
+    _fundApr:num("funding_apr"), _fundRegime:r.funding_regime||null,
+    _strategy:r.strategy||null, _adx:num("adx"), _adxBars:num("adx_bars")
+  };
+}
+
+function setRewind(d){
+  REWIND_DATE = d;
+  const live = (d==null);
+  document.body.classList.toggle("rewound", !live);
+  const bar=$("#rewind"); if(bar) bar.classList.toggle("live-mode", live);
+  const dl=$("#rw-date"); if(dl) dl.textContent = live ? "LIVE" : d;
+  const note=$("#rw-note");
+  if(note) note.innerHTML = live
+    ? "live board · scrub left to replay a recorded night"
+    : `showing the board recorded on <b>${d}</b> · Modules A and C, the quadrant charts,
+       the sector matrix and the correlation panel are built from tonight's live fetch
+       and are NOT rewound`;
+  if(live){
+    RENDER_ROWS = null;
+    if(STATE.length) renderTables();
+  } else {
+    RENDER_ROWS = rewindRows(d).map(rowToState);
+    if(RENDER_ROWS.length) renderTables();
+  }
+  const cm=$("#cm-note");
+  if(cm) cm.textContent = live
+    ? "top 10 · scroll · click a row"
+    : `recorded board for ${d} — ${(LEDGER_BY_DATE[d]||[]).length} rows from the ledger`;
+}
+
+function renderRewind(){
+  const bar=$("#rewind"); if(!bar) return;
+  if(REWIND_DATES.length<2){ bar.hidden=true; return; }
+  bar.hidden=false;
+  const sl=$("#rw-slider");
+  sl.min=0; sl.max=REWIND_DATES.length;   // one past the end == live
+  if(REWIND_DATE==null) sl.value=REWIND_DATES.length;
+  sl.oninput=()=>{
+    const i=Number(sl.value);
+    setRewind(i>=REWIND_DATES.length ? null : REWIND_DATES[i]);
+  };
+  const btn=$("#rw-live");
+  if(btn) btn.onclick=()=>{ sl.value=REWIND_DATES.length; setRewind(null); };
+  if(REWIND_DATE==null) setRewind(null);
+}
+
 async function load(){
   const st=$("#status");
   // The ledger is a static file in this repo and owes nothing to CoinGecko, so it loads
@@ -2162,7 +3438,11 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderHealth(); renderDiag(); renderSizing(); renderFunding(); renderCarry(); renderBoardLeverage(); });
+  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderHealth(); renderDiag(); renderSizing(); renderFunding(); renderCarry(); renderBoardLeverage();
+    // Modules F-J. All read committed artifacts rather than the live fetch, so they are
+    // rendered here with the rest of the ledger-derived panels and stay up on a night
+    // CoinGecko rate-limits the browser.
+    renderMacro(); renderSectors(); renderTMD(); renderFallen(); renderCorr(); renderRewind(); });
   try{
     const t0=performance.now();
     const r=await fetch(API,{headers:{Accept:"application/json"}});
@@ -2170,6 +3450,9 @@ async function load(){
     if(!r.ok) throw new Error("HTTP "+r.status);
     const raw=await r.json();
     if(!Array.isArray(raw)) throw new Error("rate-limited or empty");
+    // Dated from the payload itself, before anything is rendered from it.
+    FEED = feedProvenance(raw, Date.now());
+    renderFeedBanner();
     // build() reads PERP for the LAVL leverage multiplier, so the ledger has to be in
     // before conviction is computed — not merely started. Whichever request won the
     // race used to decide whether the overlay applied at all: a cold load had PERP
@@ -2179,7 +3462,7 @@ async function load(){
     await ledger;
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
-    renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); renderSizing(); if(SEL) factorBreakdown(SEL);
+    renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); factorQuad(); renderSizing(); renderMacro(); if(SEL) factorBreakdown(SEL);
     // load() re-runs every 120s, so the banner is replaced rather than appended.
     const old=$("#perp-warn"); if(old) old.remove();
     if(PERP_LOADED){ st.textContent="OK"; st.className="live"; }
@@ -2192,8 +3475,14 @@ async function load(){
     $("#sys-rl").textContent="nominal";
     renderDiag();
   }catch(e){
+    // A failure is a provenance state, not an absence of one. Without this the LIVE
+    // PRICES card would keep showing whatever it last succeeded with while the board
+    // below it showed an error.
+    FEED = {state: /rate-limit|429/i.test(e.message) ? "throttled" : "failed",
+            ageMin: null, detail: "the live fetch failed: "+e.message};
+    renderFeedBanner(); renderMacro();
     st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
-    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="13" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
+    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="14" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
   }
 }
 // Timeframe switches. These used to be layout-only — they moved the highlight and

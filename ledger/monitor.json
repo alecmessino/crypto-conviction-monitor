@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-08-19T07:07:05.173247+00:00",
-  "spec_hash": "596d414706be",
-  "observations": 19,
+  "generated_at": "2026-08-20T05:51:37.822032+00:00",
+  "spec_hash": "6f98778fa627",
+  "observations": 20,
   "from": "2026-08-01",
-  "to": "2026-08-19",
+  "to": "2026-08-20",
   "health": [
     {
       "name": "Data freshness",
       "status": "pass",
-      "detail": "latest board 2026-08-19 (7h old)",
-      "value": 7.1
+      "detail": "latest board 2026-08-20 (6h old)",
+      "value": 5.9
     },
     {
       "name": "Universe size",
       "status": "pass",
-      "detail": "50 assets scored on 2026-08-19",
+      "detail": "50 assets scored on 2026-08-20",
       "value": 50
     },
     {
@@ -26,8 +26,8 @@
     {
       "name": "Score dispersion",
       "status": "pass",
-      "detail": "sigma = 18.84 across 50 assets",
-      "value": 18.84
+      "detail": "sigma = 17.26 across 50 assets",
+      "value": 17.26
     },
     {
       "name": "Field presence",
@@ -38,14 +38,14 @@
     {
       "name": "Contextual feeds",
       "status": "info",
-      "detail": "8 of 17 recorded-not-scored fields carry values (addr_growth_pct, funding_rate, oi_usd, long_short_ratio, funding_apr, rsi7, funding_venues_n, funding_apr_spread) \u2014 observational only, nothing here reaches score()",
-      "value": 0.4706
+      "detail": "6 of 17 recorded-not-scored fields carry values (funding_rate, oi_usd, funding_apr, rsi7, funding_venues_n, funding_apr_spread) \u2014 observational only, nothing here reaches score()",
+      "value": 0.3529
     },
     {
       "name": "Ranking stability",
       "status": "pass",
-      "detail": "rank correlation 0.9639 across 45 names held in common",
-      "value": 0.9639
+      "detail": "rank correlation 0.8934 across 45 names held in common",
+      "value": 0.8934
     },
     {
       "name": "Universe churn",
@@ -56,7 +56,7 @@
     {
       "name": "Specification history",
       "status": "warn",
-      "detail": "3 specification(s) across 11 recorded day(s); 8 earlier day(s) unhashed  \u2014 a series spanning two hashes is two datasets",
+      "detail": "3 specification(s) across 12 recorded day(s); 8 earlier day(s) unhashed; 1 day(s) carry a superseded digest folded onto its canonical one (instrumentation correction, scoring-equivalent)  \u2014 a series spanning two hashes is two datasets",
       "value": 3
     },
     {
@@ -68,8 +68,8 @@
     {
       "name": "Funding feed",
       "status": "pass",
-      "detail": "funding present for 74% of the board, in line with the 57% baseline \u2014 the rest are spot-only, which is not a dropout",
-      "value": 0.74
+      "detail": "funding present for 82% of the board, in line with the 64% baseline \u2014 the rest are spot-only, which is not a dropout",
+      "value": 0.82
     },
     {
       "name": "Ledger integrity",
@@ -79,32 +79,32 @@
     }
   ],
   "stability": {
-    "from": "2026-08-18",
-    "to": "2026-08-19",
+    "from": "2026-08-19",
+    "to": "2026-08-20",
     "shared": 45,
-    "rank_correlation": 0.9639,
-    "mean_abs_move": 2.0,
-    "max_abs_move": 16.0,
+    "rank_correlation": 0.8934,
+    "mean_abs_move": 2.22,
+    "max_abs_move": 13.0,
     "entered": [
-      "CAKE",
+      "ASTER",
+      "MON",
       "PENGU",
-      "POL",
-      "VIRTUAL",
-      "YLDS"
+      "TAO",
+      "XPL"
     ],
     "left": [
-      "CASHCAT",
-      "CRV",
-      "MON",
-      "WLD",
-      "XPL"
+      "AVAX",
+      "JTO",
+      "TRUMP",
+      "UB",
+      "UNI"
     ],
     "churn": 0.1,
     "universe_prev": 50,
     "universe_curr": 50
   },
   "dispersion": {
-    "latest": 18.84,
+    "latest": 17.26,
     "series": [
       {
         "date": "2026-08-01",
@@ -198,7 +198,12 @@
       },
       {
         "date": "2026-08-19",
-        "dispersion": 18.84,
+        "dispersion": 18.09,
+        "median": 30.0
+      },
+      {
+        "date": "2026-08-20",
+        "dispersion": 17.26,
         "median": 30.0
       }
     ],
@@ -503,6 +508,21 @@
         "perp_mult": 1.0,
         "high_24h": 1.0,
         "low_24h": 1.0
+      },
+      {
+        "date": "2026-08-20",
+        "n": 50,
+        "price": 1.0,
+        "market_cap": 1.0,
+        "turnover_pct": 1.0,
+        "conviction": 1.0,
+        "rs7": 1.0,
+        "rs14": 1.0,
+        "rs30": 1.0,
+        "rs200": 1.0,
+        "perp_mult": 1.0,
+        "high_24h": 1.0,
+        "low_24h": 1.0
       }
     ],
     "warn_below": 0.9,
@@ -512,15 +532,15 @@
         "era": 0.0,
         "unlocks_usd": 0.0,
         "supply_increase_pct": 0.0,
-        "addr_growth_pct": 0.02,
-        "funding_rate": 0.74,
-        "oi_usd": 0.74,
-        "long_short_ratio": 0.28,
-        "funding_apr": 0.74,
-        "rsi7": 0.72,
+        "addr_growth_pct": 0.0,
+        "funding_rate": 0.82,
+        "oi_usd": 0.82,
+        "long_short_ratio": 0.0,
+        "funding_apr": 0.82,
+        "rsi7": 0.8,
         "funding_venue": 0.0,
-        "funding_venues_n": 0.74,
-        "funding_apr_spread": 0.54,
+        "funding_venues_n": 0.82,
+        "funding_apr_spread": 0.68,
         "funding_regime": 0.0,
         "liq_longs_usd": 0.0,
         "liq_shorts_usd": 0.0,
@@ -893,15 +913,35 @@
           "era": 0.0,
           "unlocks_usd": 0.0,
           "supply_increase_pct": 0.0,
-          "addr_growth_pct": 0.02,
-          "funding_rate": 0.74,
-          "oi_usd": 0.74,
-          "long_short_ratio": 0.28,
-          "funding_apr": 0.74,
-          "rsi7": 0.72,
+          "addr_growth_pct": 0.0,
+          "funding_rate": 0.82,
+          "oi_usd": 0.82,
+          "long_short_ratio": 0.0,
+          "funding_apr": 0.82,
+          "rsi7": 0.84,
           "funding_venue": 0.0,
-          "funding_venues_n": 0.74,
-          "funding_apr_spread": 0.54,
+          "funding_venues_n": 0.82,
+          "funding_apr_spread": 0.66,
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
+        },
+        {
+          "date": "2026-08-20",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.0,
+          "funding_rate": 0.82,
+          "oi_usd": 0.82,
+          "long_short_ratio": 0.0,
+          "funding_apr": 0.82,
+          "rsi7": 0.8,
+          "funding_venue": 0.0,
+          "funding_venues_n": 0.82,
+          "funding_apr_spread": 0.68,
           "funding_regime": 0.0,
           "liq_longs_usd": 0.0,
           "liq_shorts_usd": 0.0,
@@ -910,14 +950,9 @@
         }
       ],
       "feed": {
-        "columns": [
-          "addr_growth_pct",
-          "supply_increase_pct",
-          "symbol",
-          "unlocks_usd"
-        ],
-        "status": "partial",
-        "detail": "99 token(s) enriched; no values for unlocks_usd, supply_increase_pct"
+        "status": "unconfigured",
+        "columns": [],
+        "detail": "no query id or key configured"
       },
       "basis": "Recorded, not scored. These columns are logged beside every board so they can be studied against realised returns before anyone argues for adopting them; adoption would change the specification hash and start a new track record. Nulls here are expected \u2014 unlock schedules are contractual, not on-chain, and are recorded only for tokens whose vesting contracts are enumerated in the query."
     }
@@ -928,25 +963,36 @@
         "spec_hash": null,
         "from": "2026-08-01",
         "to": "2026-08-08",
-        "days": 8
+        "days": 8,
+        "recorded_as": []
       },
       {
         "spec_hash": "d600984ec00b",
         "from": "2026-08-09",
         "to": "2026-08-15",
-        "days": 7
+        "days": 7,
+        "recorded_as": [
+          "d600984ec00b"
+        ]
       },
       {
         "spec_hash": "e65f7dc59d55",
         "from": "2026-08-16",
         "to": "2026-08-18",
-        "days": 3
+        "days": 3,
+        "recorded_as": [
+          "e65f7dc59d55"
+        ]
       },
       {
-        "spec_hash": "596d414706be",
+        "spec_hash": "6f98778fa627",
         "from": "2026-08-19",
-        "to": "2026-08-19",
-        "days": 1
+        "to": "2026-08-20",
+        "days": 2,
+        "recorded_as": [
+          "2da60f7efd7b",
+          "6f98778fa627"
+        ]
       }
     ],
     "unknown_days": 8,
@@ -959,7 +1005,15 @@
         "median_price_move": 1.21,
         "detail": "the median asset's score moved 36 points on a night its price moved 1.21% \u2014 the scoring function changed"
       }
-    ]
+    ],
+    "aliased_days": 1,
+    "equivalence": {
+      "2da60f7efd7b": {
+        "canonical": "6f98778fa627",
+        "reason": "instrumentation",
+        "detail": "SPEC_HASH was computed before five captured constants were defined, so they hashed as null. Same scoring functions, same constant values, different instrumentation \u2014 scoring-equivalent."
+      }
+    }
   },
   "scope": "Operational condition only. Whether these scores predict returns is a separate question needing months of history inside one specification hash. Nothing here is evidence that the conviction score forecasts anything; it is evidence that the pipeline producing it is behaving."
 }

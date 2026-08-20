@@ -133,7 +133,8 @@ def check_frontend_backend_parity():
     for sym in syms:
         t, _ = _asset(sym)
         cases.append({"t": {"vol": t["total_volume"], "mc": t["market_cap"],
-                            "chg": t["price_change_percentage_24h"]},
+                            "chg": t["price_change_percentage_24h"],
+                            "fdv": t.get("fully_diluted_valuation")},
                       "perp": 1.0, "asset": t, "btc": BTC})
     fe_all = run_js(cases)
     for sym, fe in zip(syms, fe_all):
@@ -158,7 +159,8 @@ def check_parity_under_perp_overlay():
         pm = nightly.lavl_perp_mult(sym, {sym: {"funding_rate": fr, "open_interest": 0.0}})
         mults.append(pm)
         cases.append({"t": {"vol": t["total_volume"], "mc": t["market_cap"],
-                            "chg": t["price_change_percentage_24h"]},
+                            "chg": t["price_change_percentage_24h"],
+                            "fdv": t.get("fully_diluted_valuation")},
                       "perp": pm, "asset": t, "btc": BTC})
     fe_all = run_js(cases)
     for (sym, fr), pm, fe in zip(pairs, mults, fe_all):
@@ -167,6 +169,58 @@ def check_parity_under_perp_overlay():
             t, {sym: {"funding_rate": fr, "open_interest": 0.0}}, BTC)
         assert fe["conv"] == be_conv, \
             f"{sym}@perp{pm}: frontend {fe['conv']} != backend {be_conv}"
+
+
+def check_emission_drag_parity():
+    """Module F must agree across the boundary, including where it declines to read.
+
+    Three of these four cases exist because of a specific way a port can drift and still
+    look right. A token with no FDV must score EXACTLY as it did before Module F existed
+    — not "almost", not "within a point" — because the whole envelope is a 10% haircut
+    and a JS `||0` in the wrong place would turn "unknown" into "fully circulating" and
+    move the score by less than the eye catches on a board of fifty rows.
+    """
+    ladder = [
+        ("no FDV published", None),        # unknown -> neutral 1.0 on both sides
+        ("fully circulating", 1.00),       # inside the free band -> no drag
+        ("2x float expansion", 2.00),
+        ("11x float expansion", 11.00),    # deep in the tanh tail, near the cap
+    ]
+    base = dict(FIXTURE["SOL"])
+    base["symbol"] = "SOL"
+    cases, assets = [], []
+    for _, mult in ladder:
+        t = dict(base)
+        if mult is not None:
+            t["fully_diluted_valuation"] = t["market_cap"] * mult
+        assets.append(t)
+        cases.append({"t": {"vol": t["total_volume"], "mc": t["market_cap"],
+                            "chg": t["price_change_percentage_24h"],
+                            "fdv": t.get("fully_diluted_valuation")},
+                      "perp": 1.0, "asset": t, "btc": BTC})
+    fe_all = run_js(cases)
+    for (label, _), t, fe in zip(ladder, assets, fe_all):
+        era, be_conv, sig, be_comp = nightly.score(t, {}, BTC)
+        assert fe["conv"] == be_conv, \
+            f"{label}: frontend {fe['conv']} != backend {be_conv}"
+        assert fe["comp"]["emission_mult"] == be_comp["emission_mult"], \
+            (f"{label}: emission_mult fe={fe['comp']['emission_mult']} "
+             f"be={be_comp['emission_mult']}")
+        fe_drag = fe["comp"]["emission_drag"]
+        be_drag = be_comp["emission_drag"]
+        assert (fe_drag is None) == (be_drag is None), \
+            (f"{label}: one side read the overhang and the other did not "
+             f"(fe={fe_drag}, be={be_drag}) — unknown and zero are different readings")
+        if be_drag is not None:
+            assert abs(fe_drag - be_drag) < 1e-6, \
+                f"{label}: drag fe={fe_drag} be={be_drag}"
+    # And the reason the ladder starts where it does: absent FDV must be inert.
+    plain = dict(base)
+    _, conv_absent, _, _ = nightly.score(plain, {}, BTC)
+    assert conv_absent == FROZEN_CONVICTION["SOL"], (
+        "a token with no published FDV no longer scores what it scored before Module F "
+        f"existed ({conv_absent} vs {FROZEN_CONVICTION['SOL']}) — the neutral path is "
+        "not neutral")
 
 
 def check_the_gate_reads_the_real_terminal():
@@ -178,7 +232,8 @@ def check_the_gate_reads_the_real_terminal():
     """
     port = extract_port()
     for fn in ("function conviction", "function liquidityFit", "function depthScore",
-               "function signal", "function rsBlendOf"):
+               "function signal", "function rsBlendOf",
+               "function emissionDrag", "function emissionMult"):
         assert fn in port, f"{fn} is no longer inside the MODEL PORT markers"
     assert "document." not in port and "PERP[" not in port, \
         "the port block touches page state and can no longer be executed standalone"
@@ -213,6 +268,7 @@ def _run_all():
     for name, fn in [
         ("frontend/backend parity", check_frontend_backend_parity),
         ("parity under perp overlay", check_parity_under_perp_overlay),
+        ("emission drag parity", check_emission_drag_parity),
         ("frozen conviction regression", check_frozen_conviction_regression),
         ("gate reads the real terminal", check_the_gate_reads_the_real_terminal),
     ]:
@@ -252,10 +308,10 @@ if __name__ == "__main__":
         # Not a skip. The gate cannot verify the frontend without node, and reporting
         # success it did not establish is the failure mode this file exists to remove.
         print("  ERROR node is not available — the frontend port cannot be executed")
-        _write_result(["node unavailable"], 4)
+        _write_result(["node unavailable"], 5)
         sys.exit(1)
     failures = _run_all()
-    _write_result(failures, 4)
+    _write_result(failures, 5)
     if failures:
         print(f"\nFAILED: {len(failures)} check(s): {failures}")
         sys.exit(1)

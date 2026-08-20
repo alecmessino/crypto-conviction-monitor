@@ -73,6 +73,9 @@ li{margin:5px 0}
     <tr><td>Perpetual funding — Binance, Bybit, Hyperliquid, Coinbase Advanced</td><td>funding rate <b>and its settlement interval</b>, mark price, open interest</td><td>Annualised carry → regime → LAVL leverage overlay (RiskMult<sub>perp</sub>); cross-venue spread and carry screen</td><td><span class="tag a">LIVE</span> (keyless; each venue degrades independently)</td></tr>
     <tr><td>Recorded closes (<code>ledger/signals.csv</code>)</td><td>daily close per symbol</td><td>7-period RSI — the confirming leg for the short-squeeze boost. Null until a symbol has eight recorded closes; there is no free daily-close series for this universe, so the ledger <i>is</i> the series</td><td><span class="tag a">LIVE</span> (accrues)</td></tr>
     <tr><td>Nightly ledger (<code>ledger/</code>)</td><td>daily conviction per symbol, index rows</td><td>Time-series: breadth, dispersion, persistence, change feed</td><td><span class="tag a">LIVE</span></td></tr>
+    <tr><td>CoinGecko <code>/search/trending</code>, <code>/coins/categories</code>, <code>/global</code></td><td>search rank; sector cap, volume and 24h change; total cap, total volume, BTC/ETH dominance</td><td>Trending divergence (Module J), sector rotation, and the macro anchors on the ribbon</td><td><span class="tag a">LIVE</span> (keyed if <code>COINGECKO_API_KEY</code> is set, otherwise the public rate limit)</td></tr>
+    <tr><td>GeckoTerminal <code>/networks/{net}/pools</code></td><td>pool depth (<code>reserve_in_usd</code>), 24h pool volume</td><td>Per-chain depth and the volume-to-liquidity ratio — a pool turning over many multiples of its own depth daily is a thin pool being churned, not deep liquidity being used</td><td><span class="tag a">LIVE</span> (keyless; a different host, and the CoinGecko credential is deliberately not sent to it)</td></tr>
+    <tr><td>Recorded sectors / macro / DEX (<code>ledger/sectors.csv</code>, <code>macro.csv</code>, <code>dex.csv</code>)</td><td>one row per sector, per network, and one macro row per night</td><td>Every multi-day flow on the page. None of the sources above publishes history — <code>/coins/categories</code> has a 24h column and nothing else, <code>/global</code> is a snapshot, and pool volume is a rolling 24h window — so a 7d rotation cannot be fetched, only accumulated</td><td><span class="tag a">LIVE</span> (accrues)</td></tr>
     <tr><td>Dune Analytics (unlock/vesting)</td><td>unlocks USD, supply increase %, address growth</td><td>Replaces Module B proxy with real ERA</td><td><span class="tag b">OPTIONAL</span> (secret <code>DUNE_UNLOCK_QUERY_ID</code>)</td></tr>
   </table>
 
@@ -95,7 +98,12 @@ rs_blend = 0.30·RS7 + 0.25·RS14 + 0.25·RS30 + 0.20·RS200</div>
     <h3>Depth · Dilution · Funding · ERA</h3>
     <ul>
       <li><b>Depth</b> = clamp((log10(mc) − 6)/4, 0, 1) — log-scaled size, rewards real scale without over-weighting mega-caps.</li>
-      <li><b>Dilution</b> = FDV / market cap — structural supply overhang (conjunctive gate requires ≤ 2.0).</li>
+      <li><b>Dilution → Module F, the supply-overhang multiplier.</b> FDV / market cap is the multiple by which supply expands if every scheduled token is issued. It is <i>not</i> a forecast of when, which is why the penalty is capped far below the funding one — dilution is a headwind with an unknown date.
+        <div class="formula">ratio = FDV / market cap<br>
+drag = 0 for ratio ≤ 1.10, else tanh( ln(ratio / 1.10) / scale ) &nbsp;<span class="muted small">scale set so ratio = 3.0 lands at drag 0.75</span><br>
+EmissionMult = 1 − 0.10 × drag &nbsp;∈ [0.90, 1.00]</div>
+        The gate already knew this mattered — it refuses FDV/MC above 2.0 — but a cliff at exactly 2.0 waves 1.99 through unpenalised and excludes 2.01 outright, expressing nothing in between. A binary admission test is not a way of pricing a continuous risk. Log rather than linear because the difference between 1.2× and 2.4× float expansion is the same <i>kind</i> of difference as between 4× and 8×.
+        <br><br><b>An unpublished FDV returns a neutral 1.00, not a penalty and not a pass.</b> A token whose fully diluted valuation CoinGecko does not publish has an <i>unknown</i> overhang; scoring it as though it were fully circulating would hand the least transparent assets on the board the best supply grade. The terminal renders that case as a dash rather than as x1.000, so "checked and clear" and "never disclosed" stay distinguishable. This is the second thing in the pipeline that reaches the score, and it moved the specification hash from <code>596d414706be</code> to <code>2da60f7efd7b</code>.</li>
       <li><b>Funding</b> → RiskMult<sub>perp</sub> ∈ [0.85, 1.15], from the <b>annualised</b> carry consolidated across venues. The multiplier is <code>1 + available_adjustment × severity × confirmation</code>, continuous in every input:
         <ul>
           <li><b>Severity</b> — how far past the inert band (0% to +12% APR, and down to −15%) the carry sits, as a <code>tanh</code> curve scaled so +40% APR lands at half the available markdown and −40% at 85% of the available boost. Nothing steps: 39.9% and 40.1% APR score alike, while 40% and 400% no longer do.</li>
@@ -114,12 +122,14 @@ rs_blend = 0.30·RS7 + 0.25·RS14 + 0.25·RS30 + 0.20·RS200</div>
     <h3><span class="tag a">Q</span> Structural Quality · depth (log-mcap) &nbsp; <span class="tag b">C</span> Market Confirmation · RS sigmoid &nbsp; <span class="tag d">D</span> Risk Adjustment · liquidity × LAVL</h3>
     <div class="formula">Q = clamp( (log10(mc) − 6) / 4, 0, 1 ) · 100<br>
 C = 0.10 + 0.90 · ( 1 + tanh(rs_blend / 25) ) / 2 &nbsp;<span class="muted small">(soft — no hard clamp, rankable within a tier)</span><br>
-R = liquidityFit(turnover) × RiskMult<sub>perp</sub> &nbsp;<span class="muted small">(floored to 1.0 for depth ≥ 0.90)</span><br>
+R = liquidityFit(turnover) × EmissionMult × RiskMult<sub>perp</sub> &nbsp;<span class="muted small">(liquidity floored to 1.0 for depth ≥ 0.90; EmissionMult is 1.00 when FDV is unpublished)</span><br>
 <i>v2 multiplicative:</i> conviction = clamp( 100 · Q · C · R , 0, 100 )<br>
 <i>v1 additive (deprecated):</i> conviction = a + b + (depth·20 + clamp(12+rs_blend·0.4,4,20))<br>
 signal: STRONG ≥80 · BUY ≥70 · HOLD ≥55 · WATCH ≥40 · AVOID &lt;40</div>
     <p class="muted">The switch to <b>multiplication</b> was forced by a ceiling collision in v1: the hard-clamped momentum term pinned PUMP, KAITO and HYPE to the same c_momentum=20, erasing any way to rank a thin-float pump below a blue-chip RS leader on RS strength alone. Under v2, a weak Q (small market cap) or a weak R (thin liquidity) <i>multiplies the whole score down</i> instead of being additively offset, so thin names can no longer overrank quality even on a hot 24h. Confirmation is a soft sigmoid over rs_blend — monotonic, no clamp → names inside the BUY tier stay rankable.</p>
   </div>
+  <div class="callout"><b>Two things reach the score, and only two.</b> The funding regime multiplier (Module E) and the supply-overhang multiplier (Module F). Everything else added alongside them — trend structure, correlation and beta, liquidity shock, trending divergence, sector rotation and the macro anchors — is <b>observational</b>: recorded per night, rendered on the terminal, read by the position sizer, and reaching the conviction number nowhere. That boundary is enforced rather than asserted: the specification hash is derived from the source of the scoring functions themselves, and a test fails if any name from <code>quant.py</code> appears among them.</div>
+
   <div class="callout"><b>Conjunctive gate (eligibility).</b> An asset is "qualified" only if it passes Liquidity (turnover 30–60%), Dilution (FDV/MC ≤ 2.0), and Regime (not COMPRESS / LIQ TRAP) <i>simultaneously</i>. The gate filters <i>eligibility</i>; the score ranks among eligible assets.</div>
 
   <h3>Factor Attribution</h3>
@@ -172,7 +182,55 @@ w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)&nbsp;&nbsp;·&nbsp;&
   </div>
 
   <!-- ============ HONEST CAVEATS ============ -->
-  <h2>6 · Honest Caveats</h2>
+  <!-- ============ MODULES G-J ============ -->
+  <h2>6 · Observational Modules (G–J)</h2>
+  <p>None of the following touches the conviction score. They inform the regime column, the context panels and the position sizer's ceilings — which shape a book <i>after</i> the ranking exists, and are a different decision from the ranking itself. All of them are pure functions over data this pipeline recorded, in <a href="https://github.com/alecmessino/crypto-conviction-monitor/blob/main/quant.py"><code>quant.py</code></a>.</p>
+
+  <div class="glass">
+    <h3><span class="tag a">G</span> Trend structure · ADX + Choppiness → strategy</h3>
+    <p>Wilder's ADX and the two directional indicators, computed from bars this repository recorded itself. <b>A 14-period ADX needs 29 nights, not 15</b> — Wilder consumes the period twice, once to establish the DI and once to average the DX into an ADX. That distinction is what decides whether the column is real or is a shorter reading wearing a longer label, and it is the reason the cell shows <code>9/29</code> rather than sitting empty. CoinGecko has no daily-granularity OHLC endpoint at all (30-minute at 1 day, 4-hour to 30 days, 4-day beyond), so a "14-day" ADX taken from it would be a 14-bar ADX over 56 hours. Nothing is back-filled.</p>
+    <p>ADX is joined to the existing Choppiness Index to select a book: <b>TREND / ALPHA BASKET</b>, <b>GRID / RANGE HARVEST</b>, or <b>COMPRESSING</b>. The two indices measure overlapping but different things — CHOP how much of the range was travelled, ADX how persistently one side won — and where they disagree the label is <b>STAND ASIDE</b> rather than whichever was read first. A market that is directional bar to bar but makes no net progress is a whipsaw, and it is the worst state to run either book in.</p>
+  </div>
+
+  <div class="glass">
+    <h3><span class="tag b">H</span> Correlation, beta, and effective breadth</h3>
+    <p>Pearson correlation of daily log returns across the top names by conviction, plus beta to BTC. The number the panel exists to produce is <b>effective breadth</b>:</p>
+    <div class="formula">N<sub>eff</sub> = N² / Σ<sub>ij</sub> ρ<sub>ij</sub></div>
+    <p>which returns N for an uncorrelated book and 1 for a perfectly correlated one. A fifteen-name book whose members move together is not fifteen positions, and every per-position risk statistic computed as though it were is wrong in the same direction. The position sizer reads the cluster list directly: the first name of a cluster keeps its full target and every subsequent member is halved. Pairs with too few overlapping nights are <b>excluded from the mean rather than imputed into it</b>, and a constant price series returns <i>undefined</i> rather than r = 0 — reporting a stale price as uncorrelated would make the stalest name in the book look like its best diversifier.</p>
+  </div>
+
+  <div class="glass">
+    <h3><span class="tag c">I</span> Liquidity shock · the asset against its own baseline</h3>
+    <p>The z-score of tonight's turnover against the same asset's trailing mean and standard deviation. A <i>cross-sectional</i> liquidity screen compares assets to each other and therefore flags the same illiquid names every night, which is a list of facts about the universe rather than news. This flags the night a normally liquid name stops trading. Null below seven baseline nights, and null when the trailing series has no dispersion — a constant history gives an infinite z-score and reports every small change as a crisis.</p>
+  </div>
+
+  <div class="glass">
+    <h3><span class="tag d">J</span> Trending divergence · search rank against model rank</h3>
+    <p>CoinGecko orders <code>/search/trending</code> by search interest, so position 1 is not "the best coin" — it is the coin the most people who do not own it yet are looking up. The disagreement between that ordering and the conviction ordering is the reading.</p>
+    <p><b>The comparison is made within the overlap</b> — the names that are both trending and scored — and this is the whole correctness of it. Ranking each side against its own population looks reasonable and is not: the trending list is a top-15 slice while the board is the whole universe, so their percentiles do not share a scale. On a live 234-name board that method put <b>eleven of fifteen names in a single bucket</b>, and a classifier that puts three quarters of its input in one category is not classifying. Ranking both sides among the overlapping names only puts them on one scale by construction.</p>
+    <p><span class="tag c">FOMO_CROWDED</span> means the crowd ranks a name well above this model; <span class="tag a">QUIET_ACCUMULATION</span> the reverse. <b>Neither is an instruction.</b> A crowded name is not automatically a short and a quiet one is not automatically early — the label says two rankings disagree and by how much.</p>
+  </div>
+
+  <div class="glass">
+    <h3>Execution · impact, drag, and the exit</h3>
+    <div class="formula">impact (bp) = 10,000 × k × σ<sub>daily</sub> × √( order / ADV ) &nbsp;+&nbsp; spread<br>
+days to exit = ( order / ADV ) / participation rate</div>
+    <p>The square-root shape is the well-established part. <b>The coefficient k is not:</b> published estimates of the Almgren–Chriss temporary-impact constant cluster around 1 for liquid equities and nothing here has calibrated it for crypto, so it is a plausible scale rather than a measurement and every figure derived from it is labelled an estimate. Where volatility cannot be read the impact term is reported as <i>unknown</i> and only the spread is charged — an impact estimate with no volatility scale would be a number no input supports. Where volume is unknown the line is refused outright: a sizer that assumes infinite liquidity for a token it has no volume for sizes the least liquid names on the board the largest, which is precisely backwards. Lines that cannot be estimated are counted and excluded from the book-level average rather than entered as free.</p>
+    <p><b>Days to exit is often the binding constraint.</b> A position costing 30bp to enter and taking nine days to unwind at 20% of volume is not a 30bp position — the exit is where illiquidity is actually paid, and it is paid in market moves rather than in spread.</p>
+  </div>
+
+  <div class="glass">
+    <h3>Macro anchors &amp; the fiat bridge</h3>
+    <p>BTC dominance, the ETH/BTC dominance ratio, total market cap <i>ex-BTC</i> (the denominator an alt book is actually measured against, rather than the headline total), the board's median funding APR, and stablecoin velocity.</p>
+    <p>Velocity is 24h stablecoin volume over aggregate float, taken across the <b>redeemable</b> issuers only — algorithmic and yield-bearing tokens are excluded because their cap can expand without a dollar being wired anywhere, and the indicator is meant to say that fiat arrived. The regime is claimed only when velocity and float growth <b>agree</b>: velocity alone cannot distinguish new dollars from the same dollars moving faster, and float growth alone cannot distinguish deployed capital from parked capital. One without the other is <code>MIXED</code>, which is a reading rather than a failure, and no prior night to compare against is <code>UNCONFIRMED</code> rather than RISK-OFF — treating "no history" as "no growth" would print risk-off on the first night of every deployment.</p>
+  </div>
+
+  <div class="glass">
+    <h3>Time rewind</h3>
+    <p>The ledger has held a full board per night since 2026-08-01 and nothing could look at one. The scrubber replays the recorded conviction matrix across every night on disk. Two things it deliberately does <i>not</i> do: it does not rewind the live-price panels, which are built from a fetch that has no history, and a rewound row reads the funding and regime <b>its own night recorded</b> rather than joining tonight's artifacts onto a three-week-old board. Columns that did not exist on the night being shown render as a dash — including the range Z, which the ledger does not record and which would otherwise show 0.00 and read as "exactly mid-range". The whole page is bordered while rewound, because a nineteen-day-old board read as this morning's is the worst failure the control can cause.</p>
+  </div>
+
+  <h2>7 · Honest Caveats</h2>
   <div class="glass">
     <ul>
       <li><b>Live vs snapshot.</b> The terminal's top-10 leaders are computed live; the Index comes from the 06:17 UTC nightly snapshot. Minor intraday ordering differences are expected. The Index is the authoritative record.</li>
@@ -183,6 +241,12 @@ w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)&nbsp;&nbsp;·&nbsp;&
       <li><b>Carry is not conviction.</b> The cash-and-carry screener ranks the same assets the conviction model penalises, and that is not a contradiction: a high positive funding rate is a reason to be cautious about a directional long and a reason to want the delta-neutral short-perp leg. The two panels answer different questions and are deliberately not reconciled.</li>
       <li><b>The modifier reads tonight's print, not the trend — and the counterfactual is recorded.</b> Funding mean-reverts, so one settlement is a noisy estimate of what a position holding the asset would earn. The trailing mean and the share of recorded nights funding was positive sit beside every board and drive the carry screener, but they are <i>not</i> in the score. <code>perp_mult_trail</code> records what the multiplier <i>would</i> have been reading the trailing carry — same function, same confirming legs, applied to nothing. That turns "trend or print" from an argument into a query over two recorded columns, answerable once enough nights exist; adopting it is then a one-line edit inside <code>lavl_perp_mult</code>, which moves the specification hash and draws its own boundary. As of this writing <code>funding_apr</code> has been written on two nights, which is not a basis for changing a published score.</li>
       <li><b>The specification spans two files.</b> <code>lavl_perp_mult</code> is a two-line delegation into <code>funding.py</code>, so the hash captures that module's regime boundaries, severity curve, confirmation weights and envelope as well. It has to: for one commit it did not, and replacing the entire step modifier with a continuous surface produced an <i>identical</i> hash — the mechanism built to notice scoring rewrites reporting no change at all.</li>
+      <li><b>Supply overhang is scored; supply <i>timing</i> is not.</b> Module F prices the multiple by which float expands if every scheduled token is issued. It does not know the schedule. A token that unlocks 40% of supply next Tuesday and one that unlocks it over four years carry the same FDV/MC and earn the same multiplier, which is why the whole envelope is a 10% haircut rather than something a desk would trade off. Real unlock dates are what <code>DUNE_UNLOCK_QUERY_ID</code> would supply, and until it does this is a magnitude without a date.</li>
+      <li><b>ADX has 9 of the 29 bars it needs.</b> <code>high_24h</code> and <code>low_24h</code> were appended as ledger columns partway through, so the bar series is shorter than the close series and no symbol can produce a 14-period ADX yet. The column reports its progress rather than a number computed over too few bars, and the strategy label falls back to choppiness alone until the bars exist. Nothing is back-filled to close the gap.</li>
+      <li><b>Every multi-day flow starts at zero nights.</b> Sector rotation, chain rotation and stablecoin float growth are accumulated in <code>ledger/sectors.csv</code>, <code>dex.csv</code> and <code>macro.csv</code> because none of their sources publishes history. On the first night after deployment all three read "accumulating", which is the truth — a 7d rotation computed from one night is a 24h rotation with a longer label.</li>
+      <li><b>The impact coefficient is a plausible scale, not a measurement.</b> Square-root impact is well established in shape; the constant in front of it is taken from the equities literature and has not been calibrated against crypto fills by anyone here. Treat entry-cost figures as an ordering over the board rather than as basis points anyone was actually charged.</li>
+      <li><b>The correlation window is short.</b> Effective breadth is computed over at most 30 recorded nights and currently far fewer, so it is a reading about the recent regime rather than a structural property of the book. Correlations rise in drawdowns, which is exactly when the number matters most and exactly when a short trailing window will have understated it.</li>
+      <li><b>Trending divergence is a disagreement, not a direction.</b> Both labels describe two rankings failing to agree. Nothing in the recorded history yet says which side is right more often — that is a question the accumulating ledger can eventually answer and this page will not pre-empt.</li>
       <li><b>Paper only.</b> A research signal system, not investment advice.</li>
       <li><b>v2 multiplicative is now live.</b> conviction = 100·Q·C·R replaces the additive model so a saturated clamp can no longer erase discrimination between thin pumps and blue-chip RS leaders. Log-return / per-timeframe volatility normalization for RS is the remaining deferral.</li>
     </ul>

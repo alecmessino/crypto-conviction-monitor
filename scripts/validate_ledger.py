@@ -80,7 +80,16 @@ def check_headers(ledger: Path) -> list[str]:
     """
     problems = []
     for name, fields in (("signals.csv", nightly.FIELDS),
-                         ("index.csv", nightly.INDEX_FIELDS)):
+                         ("index.csv", nightly.INDEX_FIELDS),
+                         # The three context ledgers are append-only daily series on
+                         # exactly the same terms as signals.csv, and a stale header on
+                         # one of them misaligns a sector's market cap into its volume
+                         # column just as silently. They are optional — a repository that
+                         # has never run the new pipeline has none of them — so a missing
+                         # file is skipped below rather than failed.
+                         ("sectors.csv", nightly.SECTOR_FIELDS),
+                         ("macro.csv", nightly.MACRO_FIELDS),
+                         ("dex.csv", nightly.DEX_FIELDS)):
         path = ledger / name
         if not path.exists():
             continue
@@ -333,6 +342,37 @@ def check_basket(ledger: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+def check_context_ledgers(ledger: Path) -> list[str]:
+    """The three append-only context series must be one row per key per date.
+
+    Same failure the signals ledger already guards against, in a place it is easier to
+    miss: a second run on the same day appending rather than replacing turns a 7-day
+    sector flow into a window that holds one day twice, and the resulting number is a
+    rotation that did not happen. The writer replaces today's rows, so a duplicate here
+    means the writer did not run — which is worth failing the gate over, because the
+    file will keep being read as a daily series regardless.
+    """
+    problems = []
+    for name, key in (("sectors.csv", "category_id"), ("macro.csv", None),
+                      ("dex.csv", "network")):
+        path = ledger / name
+        if not path.exists():
+            continue
+        rows = list(csv.DictReader(path.open(newline="", encoding="utf-8")))
+        seen = Counter((r.get("date"), r.get(key) if key else "") for r in rows)
+        dupes = [k for k, n in seen.items() if n > 1]
+        if dupes:
+            problems.append(
+                f"{name}: {len(dupes)} duplicate (date, {key or 'row'}) key(s), "
+                f"first {dupes[0]} — a multi-day flow computed over this counts one "
+                f"day twice")
+        blank = sum(1 for r in rows if not (r.get("date") or "").strip())
+        if blank:
+            problems.append(f"{name}: {blank} row(s) carry no date and cannot be "
+                            f"placed in the series")
+    return problems
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -353,6 +393,7 @@ def main() -> int:
     problems += check_returns(ledger)
     problems += check_basket(ledger)
     problems += check_monitor(ledger)
+    problems += check_context_ledgers(ledger)
 
     # Context, printed whether or not the gate passes — a validator that only speaks up
     # on failure teaches nobody what healthy looks like.
@@ -372,6 +413,20 @@ def main() -> int:
             print(f"latest:      {len(latest)} assets  conviction {min(convs):.0f}-"
                   f"{max(convs):.0f}  dispersion {sd:.1f}")
             print("tiers:       " + "  ".join(f"{k}={v}" for k, v in sorted(tiers.items())))
+    intel = ledger / "market_intel.json"
+    if intel.exists():
+        try:
+            j = json.loads(intel.read_text())
+            feeds = j.get("feeds") or {}
+            live = [n for n, f in feeds.items() if f.get("status") == "live"]
+            c = j.get("correlation") or {}
+            print(f"context:     {len(live)}/{len(feeds)} feed(s) live on the "
+                  f"{(j.get('session') or {}).get('plan', '?')} plan, "
+                  f"{len((j.get('sectors') or {}).get('sectors') or [])} sector(s)"
+                  + (f", top {c['n']} names = {c['effective_n']} effective bet(s)"
+                     if c.get("effective_n") is not None else ", correlation pending"))
+        except Exception:
+            pass
     breadth = ledger / "market_breadth.json"
     if breadth.exists():
         try:

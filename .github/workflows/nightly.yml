@@ -28,6 +28,13 @@ jobs:
           # Module 4. Optional by design: absent, the liquidation columns are null and
           # the long/short column stays dark, which is exactly what they are today.
           CRYPTOMETER_API_KEY: ${{ secrets.CRYPTOMETER_API_KEY }}
+          # Modules F-J. Optional on exactly the same terms as the two above: absent, the
+          # session resolves to keyless and the context feeds run on the public rate
+          # limit, which is what every run before this one did. Present, every
+          # /coins/markets page carries the key too — which is the half of this that
+          # matters most, because a 429 there costs a page of the scored universe and the
+          # backoff loop cannot always buy it back.
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: python nightly.py
 
       - name: Cryptometer smoke test
@@ -44,6 +51,26 @@ jobs:
         env:
           CRYPTOMETER_API_KEY: ${{ secrets.CRYPTOMETER_API_KEY }}
         run: python cryptometer.py
+
+      - name: CoinGecko smoke test
+        # Same reasoning as the Cryptometer step above, and the same failure it was
+        # written to catch. Every field name in coingecko.py came from a response this
+        # repository actually received — /search/trending returning market cap as the
+        # string "$15,982,922,471" while every other endpoint returns a number is not in
+        # the documentation — and this is what keeps that true after a CoinGecko change.
+        #
+        # It also reports which plan the key resolved to, which is the one thing that
+        # cannot be read off the secret itself: Demo and Pro keys are issued in the same
+        # shape and differ in host AND header, so a Pro key sent to the public host
+        # degrades to keyless silently.
+        #
+        # continue-on-error, because the whole feed set is optional by design and must
+        # never fail the job that writes the ledger. The script exits non-zero only when
+        # a FREE endpoint fails.
+        continue-on-error: true
+        env:
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+        run: python coingecko.py
 
       - name: Record the observations under watch
         # Both open questions on this repo are "has X held for N nights". Answering them
@@ -88,7 +115,21 @@ jobs:
           # one score() actually applied — recomputing it client-side from a live feed
           # would produce a number that disagrees with the published board whenever
           # funding moved during the day.
+          # market_intel.json is the Module F-J artifact: sector rotation, the
+          # correlation matrix, trending divergence, the fallen-kings screen and the
+          # on-chain depth read. Committed rather than derived in the browser for the
+          # same reason funding.json is — it records the readings the published board
+          # was actually built beside, and a client-side recomputation from a live feed
+          # would disagree with it whenever the market moved during the day.
+          #
+          # sectors.csv / macro.csv / dex.csv are the append-only series behind the
+          # multi-day columns. None of their sources publishes history: /coins/categories
+          # has a 24h column and nothing else, /global is a snapshot, and GeckoTerminal's
+          # pool volume is a rolling 24h window. A 7d sector rotation therefore cannot be
+          # fetched, only accumulated — so losing these files with the runner would reset
+          # every multi-day reading to "accumulating" the next night.
           git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json ledger/funding.json ledger/venue_health.csv
+          git add ledger/market_intel.json ledger/sectors.csv ledger/macro.csv ledger/dex.csv
           git add ledger/index.legacy.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes to commit"

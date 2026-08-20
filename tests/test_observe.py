@@ -93,10 +93,15 @@ def test_a_missing_funding_artifact_is_not_an_error(tmp_path):
 
 
 def test_the_recorder_does_not_touch_the_specification():
-    """It reads what the nightly wrote and appends. Nothing here is scored."""
+    """It reads what the nightly wrote and appends. Nothing here is scored.
+
+    596d414706be -> 2da60f7efd7b: Module F, a scoring change in nightly.py. This
+    pin moves with it and the recorder itself is untouched, which is the whole point of
+    asserting it here.
+    """
     spec = importlib.util.spec_from_file_location("n_obs", ROOT / "nightly.py")
     nightly = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(nightly)
-    assert nightly.SPEC_HASH == "596d414706be"
+    assert nightly.SPEC_HASH == "6f98778fa627"
     src = (ROOT / "scripts" / "observe.py").read_text(encoding="utf-8")
     assert "import nightly" not in src
