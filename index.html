@@ -291,19 +291,64 @@ canvas{display:block;width:100%}
 .cm-lab{font-size:7.5px;color:var(--sec);text-align:center;white-space:nowrap;overflow:hidden}
 .cm-lab.row{text-align:right;padding-right:3px}
 
-/* The rewind scrubber. Full width and pinned above the board it rewinds, because a
-   control that changes what every panel below it means must not be findable only by
-   scrolling. */
-/* Wraps, like the ribbons above it. Without this the JUMP TO LIVE button was the last
-   element setting the page's minimum width, and the body scrolled sideways by 23px on a
-   narrow viewport for the sake of one button. */
-.rewind{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:6px 16px;border-radius:8px;
-  flex-wrap:wrap;background:rgba(10,15,26,.55);border-left:2px solid var(--amber)}
-.rewind input[type=range]{flex:1;accent-color:var(--amber);cursor:pointer;min-width:120px}
-.rewind .rw-date{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;min-width:92px}
+/* The status strip. One row, and the only chrome above the board — see the markup
+   comment for why. Tight vertical padding because every pixel spent here is a pixel
+   the ranked board does not get. */
+.ribbon.statusbar{padding:5px 14px;gap:12px;row-gap:4px}
+.statusbar .stat b{font-size:13px}
+.statusbtn{margin-left:auto;background:rgba(148,163,184,.10);color:var(--sec);
+  border:1px solid var(--border);border-radius:4px;padding:3px 10px;cursor:pointer;
+  font-family:inherit;font-size:9px;letter-spacing:.5px;white-space:nowrap}
+.statusbtn:hover{border-color:var(--blue);color:var(--txt)}
+.statusbtn .caret{display:inline-block;transition:transform .12s}
+.statusbtn[aria-expanded="true"] .caret{transform:rotate(90deg)}
+/* `display:flex` beats the user-agent `[hidden]{display:none}` rule on specificity, so
+   without the second line the "collapsed" panel still occupied a full grid row — it was
+   136px of invisible chrome sitting between the strip and the board, which is exactly
+   the thing this pass exists to remove. */
+.statuspanel{grid-column:1/-1;display:flex;flex-direction:column;gap:6px}
+.statuspanel[hidden]{display:none}
+
+/* Secondary-pane tabs. Deliberately quiet — this pane is secondary to the board above
+   it, and a loud tab strip would compete with the one thing the first screen is for. */
+.tabs{display:flex;gap:2px}
+.tab{background:transparent;color:var(--tert);border:1px solid transparent;
+  border-bottom:1px solid var(--border);border-radius:4px 4px 0 0;padding:3px 10px;
+  cursor:pointer;font-family:inherit;font-size:9px;letter-spacing:1px;
+  text-transform:uppercase}
+.tab:hover{color:var(--sec)}
+.tab.on{color:var(--txt);background:rgba(59,130,246,.12);
+  border-color:var(--border);border-bottom-color:transparent}
+.tab:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+
+/* Relocated prose. Closed by default; nothing was deleted, and methodology.html remains
+   the permanent home for the long form. A terminal that explains itself at length on
+   every panel is a terminal you scroll past to reach the numbers. */
+details.why{border-top:1px solid var(--grid)}
+details.why > summary{list-style:none;cursor:pointer;padding:5px 12px;
+  font-size:8px;letter-spacing:1px;text-transform:uppercase;color:var(--tert);
+  user-select:none}
+details.why > summary::-webkit-details-marker{display:none}
+details.why > summary::before{content:"▸ ";display:inline-block;transition:transform .12s}
+details.why[open] > summary::before{content:"▾ "}
+details.why > summary:hover{color:var(--sec)}
+details.why > summary:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+details.why .note,details.why .muted{padding-top:0}
+.statusfoot{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:4px 14px;
+  border-radius:8px;background:rgba(10,15,26,.4);border:1px solid var(--grid)}
+
+/* The rewind scrubber, now inline in the strip rather than a full-width bar of its own.
+   Same control and the same ids the renderer and the tests use; only the chrome around
+   it shrank. It keeps its own border so it still reads as a control rather than as
+   another status field. */
+.rewind{display:flex;align-items:center;gap:7px;padding:2px 8px;border-radius:6px;
+  background:rgba(10,15,26,.55);border:1px solid var(--grid);
+  border-left:2px solid var(--amber)}
+.rewind input[type=range]{width:96px;accent-color:var(--amber);cursor:pointer}
+.rewind .rw-date{font-size:10px;font-weight:700;font-variant-numeric:tabular-nums;min-width:66px}
 .rewind .rw-lbl{font-size:8px;text-transform:uppercase;letter-spacing:1px;color:var(--sec)}
 .rewind button{background:rgba(148,163,184,.10);color:var(--sec);border:1px solid var(--border);
-  border-radius:4px;padding:3px 9px;cursor:pointer;font-family:inherit;font-size:9px}
+  border-radius:4px;padding:2px 7px;cursor:pointer;font-family:inherit;font-size:8px}
 .rewind button:hover{border-color:var(--amber);color:var(--txt)}
 .rewind.live-mode{border-left-color:var(--green)}
 
@@ -345,42 +390,47 @@ canvas:focus-visible{outline:2px solid var(--blue)}
 </head>
 <body>
 <div class="wrap">
-  <!-- RIBBON -->
-  <div class="ribbon glass">
+  <!-- STATUS STRIP — one row, and the only chrome above the board.
+
+       This was three stacked ribbons plus a rewind bar: 225px of status before any
+       market data, on a page whose first job is the ranked board. Everything that is
+       not needed to TRUST the board at a glance now lives one click away under
+       Status; nothing was removed. -->
+  <div class="ribbon glass statusbar">
     <div class="brand">CRYPTO <span class="live">CONVICTION</span> MONITOR</div>
-    <a href="methodology.html" class="pill" style="margin-left:12px;text-decoration:none">Methodology · Performance</a>
     <div class="stat"><b id="rb-mcap" class="num">—</b><span>Tracked Mkt Cap</span></div>
-    <div class="stat"><b id="rb-turn" class="num">—</b><span>Avg Turnover</span></div>
-    <div class="stat"><b id="rb-conv" class="num">—</b><span>Avg Conviction</span></div>
     <div class="stat"><b id="rb-str" class="num">—</b><span>BUY+ (≥70)</span></div>
     <div class="stat"><b id="rb-upd" class="num">—</b><span>Last Update</span></div>
     <div class="stat"><b id="rb-lev" class="num">—</b><span>Board Leverage</span></div>
     <div class="stat"><b id="status">INIT…</b><span>Feed</span></div>
+
+    <!-- Compact rewind. Same control and the same ids the tests and the renderer use;
+         only the chrome around it shrank. -->
+    <div class="rewind live-mode" id="rewind" hidden>
+      <span class="rw-lbl">Rewind</span>
+      <b class="rw-date" id="rw-date">—</b>
+      <input type="range" id="rw-slider" min="0" max="0" value="0" step="1">
+      <button id="rw-live" title="Return to the live board">LIVE</button>
+      <span class="muted" id="rw-note" hidden></span>
+    </div>
+
+    <button id="status-toggle" class="statusbtn" aria-expanded="false"
+            aria-controls="status-detail"
+            title="Model health, macro anchors and pipeline diagnostics">Status <span class="caret">▸</span></button>
   </div>
 
-  <!-- Model health. Secondary to the price ribbon above by design: these are
-       statements about the model, not about the market, and a reader scanning for
-       prices must not have to step over them. -->
-  <div class="ribbon health" id="health"></div>
-
-  <!-- Macro anchors. Separate from the health ribbon above on purpose: that one is
-       about whether the pipeline is working, this one is about what the market is
-       doing, and mixing the two means a reader scanning for one filters out the other
-       every time. Populated from ledger/market_intel.json; each card renders a dashed
-       "pending" state rather than a zero when its feed did not answer. -->
-  <div class="ribbon macro" id="macro"></div>
-
-  <!-- Rewind. The ledger already held a per-night board and nothing could look at one.
-       This scrubs the whole terminal — matrix, sectors, correlation, ribbon — back
-       across the recorded nights. Live is the right-hand end and the default; anything
-       left of it puts the page into the rewound state, which is bordered so a
-       nineteen-day-old board can never be read as this morning's. -->
-  <div class="rewind live-mode" id="rewind" hidden>
-    <span class="rw-lbl">Rewind</span>
-    <b class="rw-date" id="rw-date">—</b>
-    <input type="range" id="rw-slider" min="0" max="0" value="0" step="1">
-    <span class="muted" id="rw-note">live</span>
-    <button id="rw-live">JUMP TO LIVE</button>
+  <!-- Everything the strip above no longer carries. Closed by default and rendered
+       either way, so the panels inside keep their existing render path and there is no
+       second code path that only runs when someone expands this. -->
+  <div class="statuspanel" id="status-detail" hidden>
+    <div class="ribbon health" id="health"></div>
+    <div class="ribbon macro" id="macro"></div>
+    <div class="statusfoot">
+      <div class="stat"><b id="rb-turn" class="num">—</b><span>Avg Turnover</span></div>
+      <div class="stat"><b id="rb-conv" class="num">—</b><span>Avg Conviction</span></div>
+      <span class="muted" id="rw-detail"></span>
+      <a href="methodology.html" class="pill" style="text-decoration:none;margin-left:auto">Methodology · Performance</a>
+    </div>
   </div>
 
   <!-- LEFT -->
@@ -486,83 +536,50 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       </div>
     </div>
     <div class="glass">
-      <div class="card-h">MODULE A — LIQUIDITY <span id="lia-note" class="muted">top 10 · scroll</span></div>
-      <div class="scroll-pane">
+      <!-- SECONDARY PANE — four panels folded into one.
+
+           Liquidity and Momentum re-presented columns the conviction matrix already
+           shows, in two more full-height scroll-panes; Sectors and Funding were two
+           further panels below them. One tabbed pane costs one panel of height instead
+           of four and removes the duplicated columns entirely. Every table keeps its
+           existing id, so the renderers are untouched. -->
+      <div class="card-h">
+        <div class="tabs" id="sec-tabs" role="tablist">
+          <button class="tab on" data-tab="liq" role="tab" aria-selected="true">Liquidity</button>
+          <button class="tab" data-tab="mom" role="tab" aria-selected="false">Momentum</button>
+          <button class="tab" data-tab="sec" role="tab" aria-selected="false">Sectors</button>
+          <button class="tab" data-tab="fund" role="tab" aria-selected="false">Funding</button>
+        </div>
+        <!-- One subtitle per tab, only the active one shown. Each keeps the id its own
+             renderer already writes to, so folding four panels into one changed no
+             render code. -->
+        <span class="muted" id="lia-note" data-note="liq">top 10 · scroll</span>
+        <span class="muted" id="mom-note" data-note="mom" hidden>top 10 · scroll</span>
+        <span class="muted" id="sec-note" data-note="sec" hidden>relative to total market cap</span>
+        <span class="muted" id="fh-note" data-note="fund" hidden>cross-venue · scored</span>
+      </div>
+      <div data-pane="liq">      <div class="scroll-pane">
         <table id="tbl-liq"><thead><tr>
           <th>Ticker</th><th>Mkt Cap</th><th>24H Vol</th><th>Turnover</th><th>Fit</th><th>Status</th>
         </tr></thead><tbody></tbody></table>
       </div>
     </div>
-    <div class="glass">
-      <div class="card-h">MODULE C — MOMENTUM <span id="mom-note" class="muted">top 10 · scroll</span></div>
-      <div class="scroll-pane">
+      <div data-pane="mom" hidden>      <div class="scroll-pane">
         <table id="tbl-mom"><thead><tr>
           <th>Ticker</th><th>Price</th><th>Chg</th><th>Momentum</th><th>Read</th>
         </tr></thead><tbody></tbody></table>
       </div>
     </div>
-    <div class="glass">
-      <div class="card-h">SECTOR CAPITAL FLOW <span class="muted" id="sec-note">relative to total market cap</span></div>
-      <div class="card-b" id="sectors">
+      <div data-pane="sec" hidden>      <div class="card-b" id="sectors">
         <div class="muted">Sector feed pending — <code>ledger/market_intel.json</code> was not produced.</div>
       </div>
-      <div class="note">Each sector's 24h market-cap change <b>minus the whole market's</b>. The absolute
+      <details class="why"><summary>Why this panel exists</summary><div class="note">Each sector's 24h market-cap change <b>minus the whole market's</b>. The absolute
         number mostly answers "did Bitcoin go up"; the relative one answers "did capital move here", which is
         the only question a rotation matrix is for. The multi-day flow column is accumulated from
         <code>ledger/sectors.csv</code> — <code>/coins/categories</code> publishes a 24h column and no history
-        at all, so a 7d figure cannot be fetched and reads as accumulating until seven nights exist.</div>
+        at all, so a 7d figure cannot be fetched and reads as accumulating until seven nights exist.</div></details>
     </div>
-
-    <div class="glass">
-      <div class="card-h">TRENDING vs CONVICTION
-        <span class="muted" id="tmd-note">search rank against model rank</span></div>
-      <div class="card-b" id="tmd">
-        <div class="muted">Trending feed pending — <code>ledger/market_intel.json</code> was not produced.</div>
-      </div>
-      <div class="note">The two rankings are compared <b>within their overlap</b> — the names that are both
-        trending and scored — so each percentile is over the same population. Ranking each side against its own
-        population instead looks reasonable and is not: the trending list is a top-15 slice while the board is
-        the whole universe, and the mismatch tipped eleven of fifteen names into a single label on a live run.
-        <b class="neg">FOMO_CROWDED</b> means the crowd ranks a name well above this
-        model; <b class="pos">QUIET_ACCUMULATION</b> means the reverse. Neither is an instruction — a crowded
-        name is not automatically a short, and a quiet one is not automatically early.</div>
-    </div>
-
-    <div class="glass">
-      <div class="card-h">FALLEN QUALITY KINGS <span class="muted" id="fk-note">drawdown with exhaustion</span></div>
-      <div class="card-b" id="fallen">
-        <div class="muted">Screen pending — <code>ledger/market_intel.json</code> was not produced.</div>
-      </div>
-      <div class="note">Names that held a top-25 market-cap rank on most of their recorded nights and are now
-        10–40% off their <b>recorded</b> peak with either an oversold RSI or a bullish momentum divergence.
-        Both drawdown bounds matter: below the floor nothing is dislocated, and past the ceiling the market
-        is usually repricing something real, where "mean reversion" is a bet against information. The peak is
-        the highest close <b>this pipeline recorded</b>, not the all-time high — the bar count is shown on
-        every row so a 12% drawdown off a 19-night peak is never read as 12% off the cycle high.</div>
-    </div>
-
-    <div class="glass">
-      <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
-      <div class="card-b" style="padding:0">
-        <div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko; RiskMult<sub>perp</sub> from Module E.
-        <details class="why" style="margin-left:0"><summary>what RiskMult is doing</summary>
-          <div class="body">It is <b>not</b> neutral, despite the older note here that said so. It reads the cross-venue annualised carry and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do — continuously, with no step at any threshold. Assets inside the inert funding band, and assets with no perpetual market at all, sit at exactly 1.0: a real reading, not a placeholder.</div></details></div>
-        <div class="scroll-pane">
-          <table id="tbl-lavl"><thead><tr>
-            <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>RiskMult</th><th>LAVL</th><th>Regime</th>
-          </tr></thead><tbody></tbody></table>
-        </div>
-      </div>
-    </div>
-
-    <!-- MODULE E — the funding heatmap. Unlike Modules 1 and 2, this one is NOT
-         observational: the regime sets a multiplier on the conviction score, and the
-         panel says so in its own header rather than leaving the reader to infer it from
-         a matching number elsewhere on the board. -->
-    <div class="glass">
-      <div class="card-h">MODULE E — DERIVATIVES &amp; FUNDING
-        <span class="muted" id="fh-note">cross-venue · scored</span></div>
-      <div class="card-b" style="padding:0">
+      <div data-pane="fund" hidden>      <div class="card-b" style="padding:0">
         <div class="muted" style="padding:8px 12px 0" id="fh-sub">Funding feed pending — <code>ledger/funding.json</code> was not produced.</div>
         <div class="scroll-pane">
           <table id="tbl-fund"><thead><tr>
@@ -577,6 +594,57 @@ canvas:focus-visible{outline:2px solid var(--blue)}
         </div>
       </div>
     </div>
+    </div>
+    
+    
+
+    <div class="glass">
+      <div class="card-h">TRENDING vs CONVICTION
+        <span class="muted" id="tmd-note">search rank against model rank</span></div>
+      <div class="card-b" id="tmd">
+        <div class="muted">Trending feed pending — <code>ledger/market_intel.json</code> was not produced.</div>
+      </div>
+      <details class="why"><summary>Why this panel exists</summary><div class="note">The two rankings are compared <b>within their overlap</b> — the names that are both
+        trending and scored — so each percentile is over the same population. Ranking each side against its own
+        population instead looks reasonable and is not: the trending list is a top-15 slice while the board is
+        the whole universe, and the mismatch tipped eleven of fifteen names into a single label on a live run.
+        <b class="neg">FOMO_CROWDED</b> means the crowd ranks a name well above this
+        model; <b class="pos">QUIET_ACCUMULATION</b> means the reverse. Neither is an instruction — a crowded
+        name is not automatically a short, and a quiet one is not automatically early.</div></details>
+    </div>
+
+    <div class="glass">
+      <div class="card-h">FALLEN QUALITY KINGS <span class="muted" id="fk-note">drawdown with exhaustion</span></div>
+      <div class="card-b" id="fallen">
+        <div class="muted">Screen pending — <code>ledger/market_intel.json</code> was not produced.</div>
+      </div>
+      <details class="why"><summary>Why this panel exists</summary><div class="note">Names that held a top-25 market-cap rank on most of their recorded nights and are now
+        10–40% off their <b>recorded</b> peak with either an oversold RSI or a bullish momentum divergence.
+        Both drawdown bounds matter: below the floor nothing is dislocated, and past the ceiling the market
+        is usually repricing something real, where "mean reversion" is a bet against information. The peak is
+        the highest close <b>this pipeline recorded</b>, not the all-time high — the bar count is shown on
+        every row so a 12% drawdown off a 19-night peak is never read as 12% off the cycle high.</div></details>
+    </div>
+
+    <div class="glass">
+      <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
+      <div class="card-b" style="padding:0">
+        <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko; RiskMult<sub>perp</sub> from Module E.
+        <details class="why" style="margin-left:0"><summary>what RiskMult is doing</summary>
+          <div class="body">It is <b>not</b> neutral, despite the older note here that said so. It reads the cross-venue annualised carry and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do — continuously, with no step at any threshold. Assets inside the inert funding band, and assets with no perpetual market at all, sit at exactly 1.0: a real reading, not a placeholder.</div></details></div></details>
+        <div class="scroll-pane">
+          <table id="tbl-lavl"><thead><tr>
+            <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>RiskMult</th><th>LAVL</th><th>Regime</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODULE E — the funding heatmap. Unlike Modules 1 and 2, this one is NOT
+         observational: the regime sets a multiplier on the conviction score, and the
+         panel says so in its own header rather than leaving the reader to infer it from
+         a matching number elsewhere on the board. -->
+    
 
     <div class="glass">
       <div class="card-h">CASH-AND-CARRY SCREENER
@@ -658,13 +726,13 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       <div class="card-h">FACTOR QUADRANT <span class="muted" id="fq-note">quality × momentum</span></div>
       <div class="chart-box"><canvas id="fquad" height="230" style="height:230px"></canvas>
         <div class="muted" id="fquad-legend">X: confirmation (blended RS vs BTC) · Y: quality × liquidity · size: mkt cap</div></div>
-      <div class="note">Both axes are the score's own components, not restatements of price. <b>Y</b> is
+      <details class="why"><summary>Why this panel exists</summary><div class="note">Both axes are the score's own components, not restatements of price. <b>Y</b> is
         structural quality — log-market-cap depth, times the liquidity-fit haircut, times the Module F supply
         multiplier — and <b>X</b> is market
         confirmation, the blended relative strength against BTC that the score reads. A name high on both is
         backed by structure and by the tape; high on X alone is momentum without the depth to hold a position;
         high on Y alone is a quality asset the market has not confirmed. The dividing lines are the board's
-        own medians, so this is a statement about tonight's universe rather than against fixed cut-offs.</div>
+        own medians, so this is a statement about tonight's universe rather than against fixed cut-offs.</div></details>
     </div>
 
     <div class="glass">
@@ -672,12 +740,12 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       <div class="card-b" id="corr">
         <div class="muted">Correlation pending — <code>ledger/market_intel.json</code> was not produced.</div>
       </div>
-      <div class="note">Pearson correlation of daily log returns across the top names by conviction, over the
+      <details class="why"><summary>Why this panel exists</summary><div class="note">Pearson correlation of daily log returns across the top names by conviction, over the
         nights actually recorded. The number that matters is <b>effective breadth</b>: N&sup2; divided by the
         sum of the correlation matrix, which returns N for an uncorrelated book and 1 for a perfectly
         correlated one. A fifteen-name book whose members move together is not fifteen positions, and every
         per-position risk statistic computed as though it were is wrong in the same direction. Pairs with too
-        few overlapping nights are excluded from the mean rather than imputed into it.</div>
+        few overlapping nights are excluded from the mean rather than imputed into it.</div></details>
     </div>
 
     <div class="glass">
@@ -693,7 +761,7 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       <div class="chart-box"><canvas id="idx" height="120" style="height:120px"></canvas>
         <div class="muted" id="idx-note">Cumulative basket vs market · live paper track record</div></div>
       <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
-      <div class="muted" style="padding:4px 12px 10px">Nightly Top-10 basket (06:17 UTC snapshot), score-proportional weights. The <b>live</b> conviction leaders in the Alpha Map use the same formula but diverge slightly on intraday price moves. Paper return is chained from the recorded signals ledger — weights from the earlier night, priced at both ends — against BTC, with the equal-weight universe as the control that separates selection from market beta.</div>
+      <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:4px 12px 10px">Nightly Top-10 basket (06:17 UTC snapshot), score-proportional weights. The <b>live</b> conviction leaders in the Alpha Map use the same formula but diverge slightly on intraday price moves. Paper return is chained from the recorded signals ledger — weights from the earlier night, priced at both ends — against BTC, with the equal-weight universe as the control that separates selection from market beta.</div></details>
     </div>
   </aside>
 </div>
@@ -2086,13 +2154,15 @@ function renderSizing(){
       <b class="num" title="From the correlation matrix. This book holds ${b.rows.filter(r=>r.sized>0).length} lines; the top names by conviction behave like ${b.effectiveN} independent positions."
         style="color:${b.effectiveN<3?"var(--red)":b.effectiveN<6?"var(--amber)":"var(--green)"}">${b.effectiveN}</b></div>`:""}
     <div class="muted" style="font-size:9px;margin-top:6px;line-height:1.5">
+      <b style="color:var(--amber)">Not an optimal allocation</b> — the measured information
+      coefficient is indistinguishable from zero, so these are bounds on damage, not bet sizes.</div>
+    <details class="why"><summary>what sets each ceiling</summary>
+      <div class="muted" style="font-size:9px;line-height:1.5">
       Conviction sets the shape; the ADV cap, the regime, the correlation cluster and a
       turnover collapse against the name's own baseline each set a ceiling. Money the
       caps refuse stays unallocated — pushing it into the next name would concentrate the
       book into whatever happened to be liquid and present that as the same portfolio.
-      <b style="color:var(--amber)">Not an optimal allocation</b>: the measured information
-      coefficient is indistinguishable from zero, so there is no expected return to size
-      against. These are bounds on damage, not a bet size.</div>`;
+      There is no expected return to size against.</div></details>`;
 }
 
 /* ---------- model health ribbon ----------
@@ -3438,12 +3508,16 @@ function setRewind(d){
   document.body.classList.toggle("rewound", !live);
   const bar=$("#rewind"); if(bar) bar.classList.toggle("live-mode", live);
   const dl=$("#rw-date"); if(dl) dl.textContent = live ? "LIVE" : d;
-  const note=$("#rw-note");
+  // The long form moved into the Status expand: it is a caveat about what the whole
+  // page means, not a label on a control, and it was the single widest thing in the
+  // old chrome. The compact strip keeps the date; the border and the banner keep the
+  // state impossible to miss.
+  const note=$("#rw-detail");
   if(note) note.innerHTML = live
-    ? "live board · scrub left to replay a recorded night"
-    : `showing the board recorded on <b>${d}</b> · Modules A and C, the quadrant charts,
-       the sector matrix and the correlation panel are built from tonight's live fetch
-       and are NOT rewound`;
+    ? "Rewind is at LIVE. Scrub left to replay a recorded night."
+    : `Showing the board recorded on <b>${d}</b>. The secondary pane, the quadrant
+       charts and the correlation panel are built from tonight's live fetch and are
+       <b>not</b> rewound.`;
   if(live){
     RENDER_ROWS = null;
     if(STATE.length) renderTables();
@@ -3507,8 +3581,13 @@ async function load(){
     renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); factorQuad(); renderSizing(); renderMacro(); if(SEL) factorBreakdown(SEL);
     // load() re-runs every 120s, so the banner is replaced rather than appended.
     const old=$("#perp-warn"); if(old) old.remove();
-    if(PERP_LOADED){ st.textContent="OK"; st.className="live"; }
-    else { st.textContent="DEGRADED"; st.className="neu";
+    // The strip's Feed chip speaks the SAME vocabulary as the LIVE PRICES card in the
+    // Status expand — LIVE / STALE / STUBBED — rather than a second set of words for
+    // the same fact. "OK" beside a card reading "STUBBED" is the kind of quiet
+    // disagreement the provenance split was built to remove.
+    const lf=liveFeedState();
+    if(PERP_LOADED){ st.textContent=lf.label; st.className=lf.cls==="pos"?"live":lf.cls; }
+    else { st.textContent=lf.label==="LIVE"?"DEGRADED":lf.label; st.className="neu";
            $("#tbl-conv").insertAdjacentHTML("beforebegin",
              `<div class="err" id="perp-warn" style="padding:6px 12px">Leverage overlay
               unavailable — <code>ledger/signals.json</code> did not load, so every
@@ -3527,7 +3606,9 @@ async function load(){
     // got three blank rectangles with no explanation — the panels looked broken rather
     // than starved. They render their own empty state, which is worth reaching.
     quad(); alphaMap(); factorQuad();
-    st.textContent="ERR: "+e.message; st.className="neu"; $("#sys-rl").textContent="throttled";
+    st.textContent=liveFeedState().label; st.className="neg";
+    st.title="Live fetch failed: "+e.message;
+    $("#sys-rl").textContent="throttled";
     $("#tbl-conv tbody").innerHTML=`<tr><td colspan="14" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
   }
 }
@@ -3550,6 +3631,39 @@ if(hideNq) hideNq.onchange=()=>{ if(STATE.length) renderTables(); };
    `/` focuses the filter, Esc clears it and closes the drawer. Deliberately no 1-4 tab
    bindings: this terminal has no tabs, and binding keys to views that do not exist
    would be a shortcut to nothing. */
+/* Status expand. Everything the strip no longer carries is one click away, and the
+   panels inside it render whether or not it is open — so there is no second code path
+   that only runs when someone expands it, and no chance of a stale health ribbon
+   appearing the first time it is opened. */
+/* Secondary-pane tabs. Switching a tab reveals a pane whose table was already
+   rendered — every renderer writes to its own table id on every load regardless of
+   which tab is showing — so there is no lazy path that can render stale content the
+   first time a tab is opened. The charts are re-measured on reveal because a canvas
+   sized while its container was `hidden` has a clientWidth of zero. */
+document.querySelectorAll("#sec-tabs .tab").forEach(btn=>{
+  btn.onclick=()=>{
+    const want=btn.dataset.tab;
+    document.querySelectorAll("#sec-tabs .tab").forEach(b=>{
+      const on=b.dataset.tab===want;
+      b.classList.toggle("on",on); b.setAttribute("aria-selected",on?"true":"false");
+    });
+    document.querySelectorAll("[data-pane]").forEach(pane=>{
+      pane.hidden = pane.dataset.pane!==want;
+    });
+    document.querySelectorAll("[data-note]").forEach(n=>{
+      n.hidden = n.dataset.note!==want;
+    });
+  };
+});
+
+const statusBtn=$("#status-toggle");
+if(statusBtn) statusBtn.onclick=()=>{
+  const panel=$("#status-detail");
+  const open=panel.hidden;
+  panel.hidden=!open;
+  statusBtn.setAttribute("aria-expanded", open ? "true" : "false");
+};
+
 const fbox=$("#screen-filter");
 if(fbox) fbox.oninput=()=>setFilter(fbox.value);
 const fnote=$("#filter-note");
