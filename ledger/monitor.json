@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-08-20T07:08:18.015878+00:00",
+  "generated_at": "2026-08-21T07:09:54.301225+00:00",
   "spec_hash": "6f98778fa627",
-  "observations": 20,
+  "observations": 21,
   "from": "2026-08-01",
-  "to": "2026-08-20",
+  "to": "2026-08-21",
   "health": [
     {
       "name": "Data freshness",
       "status": "pass",
-      "detail": "latest board 2026-08-20 (7h old)",
-      "value": 7.1
+      "detail": "latest board 2026-08-21 (7h old)",
+      "value": 7.2
     },
     {
       "name": "Universe size",
       "status": "pass",
-      "detail": "50 assets scored on 2026-08-20",
+      "detail": "50 assets scored on 2026-08-21",
       "value": 50
     },
     {
@@ -26,8 +26,8 @@
     {
       "name": "Score dispersion",
       "status": "pass",
-      "detail": "sigma = 17.44 across 50 assets",
-      "value": 17.44
+      "detail": "sigma = 16.31 across 50 assets",
+      "value": 16.31
     },
     {
       "name": "Field presence",
@@ -44,19 +44,19 @@
     {
       "name": "Ranking stability",
       "status": "pass",
-      "detail": "rank correlation 0.9206 across 44 names held in common",
-      "value": 0.9206
+      "detail": "rank correlation 0.7881 across 40 names held in common",
+      "value": 0.7881
     },
     {
       "name": "Universe churn",
       "status": "pass",
-      "detail": "6 of 50 assets are new (12%) \u2014 the ranking above is measured only on the rest",
-      "value": 0.12
+      "detail": "10 of 50 assets are new (20%) \u2014 the ranking above is measured only on the rest",
+      "value": 0.2
     },
     {
       "name": "Specification history",
       "status": "warn",
-      "detail": "3 specification(s) across 12 recorded day(s); 8 earlier day(s) unhashed; 1 day(s) carry a superseded digest folded onto its canonical one (instrumentation correction, scoring-equivalent)  \u2014 a series spanning two hashes is two datasets",
+      "detail": "3 specification(s) across 13 recorded day(s); 8 earlier day(s) unhashed; 1 day(s) carry a superseded digest folded onto its canonical one (instrumentation correction, scoring-equivalent)  \u2014 a series spanning two hashes is two datasets",
       "value": 3
     },
     {
@@ -68,8 +68,8 @@
     {
       "name": "Funding feed",
       "status": "pass",
-      "detail": "funding present for 82% of the board, in line with the 64% baseline \u2014 the rest are spot-only, which is not a dropout",
-      "value": 0.82
+      "detail": "funding present for 80% of the board, in line with the 67% baseline \u2014 the rest are spot-only, which is not a dropout",
+      "value": 0.8
     },
     {
       "name": "Ledger integrity",
@@ -79,34 +79,42 @@
     }
   ],
   "stability": {
-    "from": "2026-08-19",
-    "to": "2026-08-20",
-    "shared": 44,
-    "rank_correlation": 0.9206,
-    "mean_abs_move": 2.0,
-    "max_abs_move": 10.0,
+    "from": "2026-08-20",
+    "to": "2026-08-21",
+    "shared": 40,
+    "rank_correlation": 0.7881,
+    "mean_abs_move": 6.7,
+    "max_abs_move": 19.0,
     "entered": [
-      "AERO",
-      "ASTER",
-      "MON",
-      "PENGU",
-      "TAO",
-      "XPL"
-    ],
-    "left": [
+      "ANSEM",
       "AVAX",
       "CASHCAT",
+      "DRV",
       "ENA",
+      "FARTCOIN",
+      "GEOD",
+      "GRAM",
       "JTO",
-      "TRUMP",
-      "UNI"
+      "PYTH"
     ],
-    "churn": 0.12,
+    "left": [
+      "AERO",
+      "ARB",
+      "ASTER",
+      "CAKE",
+      "CRVUSD",
+      "OKB",
+      "U",
+      "UB",
+      "WLD",
+      "XPL"
+    ],
+    "churn": 0.2,
     "universe_prev": 50,
     "universe_curr": 50
   },
   "dispersion": {
-    "latest": 17.44,
+    "latest": 16.31,
     "series": [
       {
         "date": "2026-08-01",
@@ -207,6 +215,11 @@
         "date": "2026-08-20",
         "dispersion": 17.44,
         "median": 30.0
+      },
+      {
+        "date": "2026-08-21",
+        "dispersion": 16.31,
+        "median": 34.0
       }
     ],
     "warn_below": 8.0
@@ -525,6 +538,21 @@
         "perp_mult": 1.0,
         "high_24h": 1.0,
         "low_24h": 1.0
+      },
+      {
+        "date": "2026-08-21",
+        "n": 50,
+        "price": 1.0,
+        "market_cap": 1.0,
+        "turnover_pct": 1.0,
+        "conviction": 1.0,
+        "rs7": 1.0,
+        "rs14": 1.0,
+        "rs30": 1.0,
+        "rs200": 1.0,
+        "perp_mult": 1.0,
+        "high_24h": 1.0,
+        "low_24h": 1.0
       }
     ],
     "warn_below": 0.9,
@@ -535,13 +563,13 @@
         "unlocks_usd": 0.0,
         "supply_increase_pct": 0.0,
         "addr_growth_pct": 0.02,
-        "funding_rate": 0.82,
-        "oi_usd": 0.82,
-        "long_short_ratio": 0.28,
-        "funding_apr": 0.82,
-        "rsi7": 0.78,
+        "funding_rate": 0.8,
+        "oi_usd": 0.8,
+        "long_short_ratio": 0.32,
+        "funding_apr": 0.8,
+        "rsi7": 0.76,
         "funding_venue": 0.0,
-        "funding_venues_n": 0.82,
+        "funding_venues_n": 0.8,
         "funding_apr_spread": 0.68,
         "funding_regime": 0.0,
         "liq_longs_usd": 0.0,
@@ -949,6 +977,26 @@
           "liq_shorts_usd": 0.0,
           "liq_imbalance": 0.0,
           "funding_interval_basis": 0.0
+        },
+        {
+          "date": "2026-08-21",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.02,
+          "funding_rate": 0.8,
+          "oi_usd": 0.8,
+          "long_short_ratio": 0.32,
+          "funding_apr": 0.8,
+          "rsi7": 0.76,
+          "funding_venue": 0.0,
+          "funding_venues_n": 0.8,
+          "funding_apr_spread": 0.68,
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         }
       ],
       "feed": {
@@ -994,8 +1042,8 @@
       {
         "spec_hash": "6f98778fa627",
         "from": "2026-08-19",
-        "to": "2026-08-20",
-        "days": 2,
+        "to": "2026-08-21",
+        "days": 3,
         "recorded_as": [
           "2da60f7efd7b",
           "6f98778fa627"
