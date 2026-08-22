@@ -150,7 +150,17 @@ def test_slash_does_not_hijack_typing_in_an_input():
 def test_no_shortcuts_are_bound_to_views_that_do_not_exist():
     """The brief asked for 1-4 to switch view tabs. This terminal has no tabs, and a
     shortcut to nothing is worse than no shortcut."""
-    assert 'e.key==="1"' not in SCRIPT and "data-tab" not in HTML
+    # The terminal now HAS tabs (the secondary pane), so the original form of this —
+    # "no tabs exist, therefore bind no tab keys" — no longer states the property. The
+    # property was always that a shortcut must not point at a view that does not exist.
+    tabs = set(re.findall(r'data-tab="([a-z]+)"', HTML))
+    panes = set(re.findall(r'data-pane="([a-z]+)"', HTML))
+    assert tabs and tabs == panes, (
+        f"tab buttons {sorted(tabs)} do not match panes {sorted(panes)} — a tab that "
+        f"reveals nothing is a shortcut to a view that does not exist")
+    # And no digit is bound to anything, because nothing numbers these views.
+    for k in ("1", "2", "3", "4"):
+        assert f'e.key==="{k}"' not in SCRIPT
 
 
 def test_the_parity_status_is_read_from_an_artifact_and_never_hardcoded():
@@ -217,7 +227,12 @@ def test_the_health_ribbon_is_subordinate_to_the_price_ribbon():
     prices must not have to step over them."""
     assert ".ribbon.health{" in HTML
     assert "border-left:2px solid var(--blue)" in HTML
-    assert HTML.index('class="ribbon glass"') < HTML.index('class="ribbon health"')
+    # The health ribbon moved inside the Status expand when the three ribbons were
+    # collapsed into one strip. It is now subordinate by being closed by default, which
+    # is a stronger form of the same property — but it must still come after the strip.
+    assert HTML.index('class="ribbon glass statusbar"') < HTML.index('class="ribbon health"')
+    assert HTML.index('id="status-detail" hidden') < HTML.index('class="ribbon health"'), \
+        "the health ribbon is no longer inside the collapsed Status panel"
 
 
 def test_flip_counters_are_clickable_and_carry_their_symbols():
@@ -559,10 +574,17 @@ def test_the_layout_never_scrolls_sideways():
     """Three flex rows had nowrap and one grid track was plain 1fr, so the page had a
     921px minimum and every viewport below ~1280px scrolled horizontally."""
     assert ".ribbon{grid-column:1/-1;display:flex;gap:14px;flex-wrap:wrap" in HTML
-    assert "flex-wrap:wrap;background:rgba(10,15,26,.55)" in HTML   # .rewind
     assert "grid-template-columns:minmax(0,1fr)" in HTML
     rail = HTML[HTML.find(".rail{"):]
     assert "min-width:0" in rail[:rail.find("}")]
+    # The rewind moved inside the wrapping status strip, so it no longer needs its own
+    # wrap rule — but it must not reintroduce a fixed minimum. Its slider is the one
+    # element with a width, and it is a small fixed one rather than a flex-basis that
+    # grows the row.
+    rw = HTML[HTML.find(".rewind{"):]
+    rw = rw[:rw.find("}")]
+    assert "grid-column" not in rw, "the rewind is a full-width row again"
+    assert "min-width" not in rw
 
 
 # ---------------------------------------------------------------------------
@@ -645,3 +667,216 @@ def test_only_the_conviction_matrix_follows_the_rewind():
     assert SCRIPT.count("boardRows()") <= 3, (
         "boardRows() has spread beyond renderTables — every extra caller is a panel "
         "that can silently disagree about which night it is showing")
+
+
+# ---------------------------------------------------------------------------
+# density pass: one status strip, one tabbed secondary pane, relocated prose
+# ---------------------------------------------------------------------------
+def test_there_is_exactly_one_ribbon_above_the_board():
+    """Three stacked ribbons plus a rewind bar put 225px of status above a page whose
+    first job is the ranked board."""
+    markup = HTML[:HTML.find("<script>")]
+    strip = markup.find('class="ribbon glass statusbar"')
+    matrix = markup.find("CONVICTION MATRIX")
+    between = markup[strip:matrix]
+    # The health and macro ribbons still exist in the markup between the two, but inside
+    # the collapsed Status panel — so they are excluded here rather than counted. What
+    # must not come back is a ribbon that is VISIBLE above the board by default.
+    detail = between.find('id="status-detail"')
+    visible = between[:detail] if detail != -1 else between
+    assert visible.count('class="ribbon') == 1, (
+        "more than one ribbon is visible between the status strip and the board")
+
+
+def test_the_status_strip_carries_only_what_is_needed_to_trust_the_board():
+    strip = HTML[HTML.find('class="ribbon glass statusbar"'):]
+    strip = strip[:strip.find('id="status-detail"')]
+    for keep in ("rb-mcap", "rb-str", "rb-upd", "rb-lev", "status", "rewind"):
+        assert f'id="{keep}"' in strip, f"{keep} left the live strip"
+    # Everything else moved behind Status, not away.
+    for moved in ("rb-turn", "rb-conv"):
+        assert f'id="{moved}"' not in strip, f"{moved} is still on the live strip"
+        assert f'id="{moved}"' in HTML, f"{moved} was DELETED rather than relocated"
+
+
+def test_the_status_detail_is_collapsed_by_default_and_keeps_its_panels():
+    assert 'id="status-detail" hidden' in HTML
+    panel = HTML[HTML.find('id="status-detail"'):]
+    panel = panel[:panel.find("<!-- LEFT")]
+    for kept in ("health", "macro", "rb-turn", "rb-conv"):
+        assert f'id="{kept}"' in panel, f"{kept} is not in the Status expand"
+    assert 'href="methodology.html"' in panel, "the methodology link is unreachable"
+
+
+def test_the_status_toggle_is_wired_and_announced():
+    assert 'id="status-toggle"' in HTML
+    assert 'aria-expanded="false"' in HTML and 'aria-controls="status-detail"' in HTML
+    assert 'statusBtn.setAttribute("aria-expanded"' in SCRIPT
+
+
+def test_the_status_panels_render_whether_or_not_the_expand_is_open():
+    """Otherwise the first open shows a stale ribbon, and a reader who never opens it
+    silently loses the pipeline-health checks the nightly writes."""
+    ledger = SCRIPT[SCRIPT.find("const ledger = loadLedger()"):]
+    ledger = ledger[:ledger.find("\n  try{")]
+    assert "renderHealth()" in ledger and "renderMacro()" in ledger
+
+
+def test_the_secondary_pane_is_one_panel_with_four_tabs():
+    """Liquidity and Momentum re-presented columns the matrix already shows, in two more
+    full-height scroll-panes, with Sectors and Funding as two further panels below."""
+    tabs = re.findall(r'data-tab="([a-z]+)"', HTML)
+    assert tabs == ["liq", "mom", "sec", "fund"], tabs
+    panes = re.findall(r'data-pane="([a-z]+)"', HTML)
+    assert panes == tabs
+    for gone in ("MODULE A — LIQUIDITY", "MODULE C — MOMENTUM",
+                 "SECTOR CAPITAL FLOW", "MODULE E — DERIVATIVES"):
+        assert gone not in HTML, f"{gone} still has its own panel"
+
+
+def test_the_tabbed_pane_kept_every_table_and_its_renderer():
+    """Folding four panels into one must not have touched a single render path."""
+    for tid in ("tbl-liq", "tbl-mom", "tbl-fund"):
+        assert f'id="{tid}"' in HTML, f"{tid} was lost in the fold"
+    assert 'id="sectors"' in HTML
+    # every per-panel subtitle the renderers write to still exists
+    for note in ("lia-note", "mom-note", "sec-note", "fh-note"):
+        assert f'id="{note}"' in HTML, f"{note} was dropped with its old card header"
+
+
+def test_only_the_default_tab_is_visible():
+    assert '<button class="tab on" data-tab="liq"' in HTML
+    for hidden in ("mom", "sec", "fund"):
+        assert f'data-pane="{hidden}" hidden' in HTML
+
+
+def test_switching_a_tab_moves_its_pane_and_its_subtitle_together():
+    assert 'pane.hidden = pane.dataset.pane!==want' in SCRIPT
+    assert 'n.hidden = n.dataset.note!==want' in SCRIPT
+
+
+def test_the_long_prose_is_relocated_not_deleted():
+    """The brief was explicit: move it, never remove it."""
+    markup = HTML[:HTML.find("<script>")]
+    assert markup.count('<details class="why">') >= 5
+    # Compared on the TEXT, not the raw HTML: several of these sentences carry a <b>
+    # mid-phrase, and a substring search across the markup would report a false loss.
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", markup))
+    for phrase in ("did capital move here",
+                   "compared within their overlap",
+                   "top-25 market-cap rank",
+                   "structural quality",
+                   "effective breadth"):
+        assert phrase.lower() in text.lower(), \
+            f"relocated prose lost the phrase {phrase!r} — it was moved, not deleted"
+
+
+def test_the_relocated_prose_is_closed_by_default():
+    markup = HTML[:HTML.find("<script>")]
+    assert "<details class=\"why\" open" not in markup
+    assert "details.why > summary" in HTML, "the summary has no styling to click"
+
+
+def test_the_banners_were_not_relocated():
+    """Stub, rewound and degraded disclosures must stay impossible to miss — they are
+    the one category of prose the brief said to leave exactly where it is."""
+    assert "PREVIEW — PRICES ARE NOT LIVE" in SCRIPT
+    assert "body.stubbed" in HTML and "body.rewound" in HTML
+    banner = HTML[HTML.find(".stub-banner{"):]
+    assert "details" not in banner[:banner.find("}")]
+
+
+def test_the_rewind_caveat_moved_into_the_expand_rather_than_vanishing():
+    assert 'id="rw-detail"' in HTML
+    assert "are\n       <b>not</b> rewound" in SCRIPT or "not</b> rewound" in SCRIPT
+
+
+def test_the_feed_chip_speaks_the_same_vocabulary_as_the_provenance_card():
+    """'OK' beside a card reading 'STUBBED' is the quiet disagreement the provenance
+    split was built to remove."""
+    assert "const lf=liveFeedState();" in SCRIPT
+    assert 'st.textContent=lf.label' in SCRIPT
+    assert 'st.textContent="OK"' not in SCRIPT
+
+
+def test_the_sizing_panel_shows_numbers_and_folds_its_prose():
+    """The left rail's own density rule: the figures stay, the paragraph folds.
+
+    Allocated, unallocated and the entry-cost estimate are the panel's output and must
+    read without a click. Everything qualifying them — including the caveat that these
+    are bounds rather than bet sizes — sits behind one closed summary.
+
+    Asserted against the script half because this block is built in a template literal
+    and so never appears in the static markup the other relocation test reads, which is
+    exactly why it survived the first pass still sitting on the first screen.
+    """
+    for label in ("Allocated", "Unallocated", "Est. entry cost"):
+        assert f"<span>{label}</span>" in SCRIPT, \
+            f"the sizer stopped showing {label!r} — the numbers are not the prose"
+    fold = SCRIPT.find("what these figures are and are not")
+    assert fold != -1, "the sizing prose is no longer behind a summary"
+    opening = SCRIPT.rfind("<details", 0, fold)
+    assert opening != -1 and " open" not in SCRIPT[opening:fold], \
+        "the sizing prose renders expanded"
+    # Moved, not deleted — and all of it inside the one <details>, not half in and half
+    # out, which is the state this panel was in before the refinement.
+    body = SCRIPT[opening:SCRIPT.index("</details>", opening)]
+    for phrase in ("Not an optimal allocation",
+                   "caps refuse stays unallocated",
+                   "whatever happened to be liquid"):
+        assert phrase in body, f"sizing prose lost {phrase!r} — it was to move, not go"
+
+
+def test_the_module_b_provenance_note_folds_too():
+    """Standing provenance, not a degraded-state banner.
+
+    The distinction matters: the stub and rewound banners must stay unmissable, but
+    Module B is working — on a documented proxy — and the SYSTEM rows already say so in
+    a single line. The paragraph explaining the substitution is prose, so it folds.
+    """
+    markup = HTML[:HTML.find("<script>")]
+    fold = markup.find("what Module B is measuring")
+    assert fold != -1, "the Module B note is back out in the open"
+    opening = markup.rfind("<details", 0, fold)
+    assert opening != -1 and " open" not in markup[opening:fold]
+    body = markup[opening:markup.index("</details>", opening)]
+    assert "FDV/MCap dilution proxy" in body and "DUNE_UNLOCK_QUERY_ID" in body, \
+        "the Module B note was deleted rather than folded"
+    assert 'id="sys-dune"' in markup, \
+        "the one-line Module B status row went with it — the row was the point"
+
+
+# ---------------------------------------------------------------------------
+# The Status expand overlays; it does not push
+# ---------------------------------------------------------------------------
+def test_the_status_expand_is_positioned_rather_than_stacked():
+    """Rendered in flow, opening Status re-injected the health and macro ribbons as real
+    grid rows and drove the matrix from 57px down to 207px — handing back the whole
+    density win in exchange for one click. It is now anchored to the strip and overlays
+    the board, so opening it costs no layout at all.
+    """
+    css = HTML[:HTML.find("<script>")]
+    assert ".statuswrap{" in css and "position:relative" in css
+    panel = css[css.index(".statuspanel{"):css.index(".statuspanel[hidden]")]
+    assert "position:absolute" in panel, "the expand is back in the document flow"
+    assert "grid-column" not in panel, "the expand is claiming a grid row again"
+    assert "max-height" in panel and "overflow:auto" in panel, \
+        "a positioned panel taller than the viewport has no way to be read"
+
+
+def test_the_status_expand_can_be_dismissed_without_the_button():
+    """An overlay hides content while it is open, so dismissal is part of the control."""
+    assert "function setStatusOpen(" in SCRIPT
+    assert 'if(statusIsOpen()){ setStatusOpen(false);' in SCRIPT, \
+        "Escape no longer closes the Status expand"
+    outside = SCRIPT[SCRIPT.index('document.addEventListener("pointerdown"'):]
+    outside = outside[:outside.index("});") + 3]
+    assert 'closest("#status-detail")' in outside and 'closest("#status-toggle")' in outside, \
+        "the outside-click handler will close the panel on the press that opened it"
+
+
+def test_the_collapsed_expand_is_display_none_not_merely_hidden():
+    """`display:flex` outranks the user-agent `[hidden]` rule. Without the explicit rule
+    the collapsed panel was 136px of invisible chrome in flow, and is an invisible
+    click-blocker over the board now that it is positioned."""
+    assert ".statuspanel[hidden]{display:none}" in HTML
