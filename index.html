@@ -302,12 +302,29 @@ canvas{display:block;width:100%}
 .statusbtn:hover{border-color:var(--blue);color:var(--txt)}
 .statusbtn .caret{display:inline-block;transition:transform .12s}
 .statusbtn[aria-expanded="true"] .caret{transform:rotate(90deg)}
-/* `display:flex` beats the user-agent `[hidden]{display:none}` rule on specificity, so
-   without the second line the "collapsed" panel still occupied a full grid row — it was
-   136px of invisible chrome sitting between the strip and the board, which is exactly
-   the thing this pass exists to remove. */
-.statuspanel{grid-column:1/-1;display:flex;flex-direction:column;gap:6px}
+/* The strip and its expand are one grid child so the expand can be positioned against
+   the strip. `.statuswrap` is the row; `.statuspanel` hangs off its bottom edge.
+
+   The expand OVERLAYS rather than pushes. Rendered in flow it re-injected the health and
+   macro ribbons as real rows and drove the matrix back down to 207px the moment anyone
+   opened it — which handed back the density win in exchange for one click. Positioned,
+   opening it costs zero layout: the board does not move, and the panel closes on Escape
+   or on a click outside because content it covers is still content the reader wants.
+
+   `display:flex` beats the user-agent `[hidden]{display:none}` rule on specificity, so
+   without the explicit rule below the "collapsed" panel still occupied space — 136px of
+   invisible chrome when it was in flow, and an invisible click-blocker now. */
+.statuswrap{grid-column:1/-1;position:relative;z-index:60}
+.statuspanel{position:absolute;left:0;right:0;top:calc(100% + 6px);
+  display:flex;flex-direction:column;gap:5px;padding:8px;border-radius:8px;
+  background:rgba(8,12,20,.97);border:1px solid var(--border);
+  box-shadow:0 12px 32px rgba(0,0,0,.6);
+  max-height:min(62vh,520px);overflow:auto;overscroll-behavior:contain}
 .statuspanel[hidden]{display:none}
+/* Inside the expand these are panes of a popover, not full-width bands of the page, so
+   they drop the ribbon's own padding and border treatment and tighten their rows. */
+.statuspanel .ribbon{padding:5px 10px;gap:10px;row-gap:4px}
+.statuspanel .statusfoot{padding:4px 10px}
 
 /* Secondary-pane tabs. Deliberately quiet — this pane is secondary to the board above
    it, and a loud tab strip would compete with the one thing the first screen is for. */
@@ -396,40 +413,42 @@ canvas:focus-visible{outline:2px solid var(--blue)}
        market data, on a page whose first job is the ranked board. Everything that is
        not needed to TRUST the board at a glance now lives one click away under
        Status; nothing was removed. -->
-  <div class="ribbon glass statusbar">
-    <div class="brand">CRYPTO <span class="live">CONVICTION</span> MONITOR</div>
-    <div class="stat"><b id="rb-mcap" class="num">—</b><span>Tracked Mkt Cap</span></div>
-    <div class="stat"><b id="rb-str" class="num">—</b><span>BUY+ (≥70)</span></div>
-    <div class="stat"><b id="rb-upd" class="num">—</b><span>Last Update</span></div>
-    <div class="stat"><b id="rb-lev" class="num">—</b><span>Board Leverage</span></div>
-    <div class="stat"><b id="status">INIT…</b><span>Feed</span></div>
+  <div class="statuswrap">
+    <div class="ribbon glass statusbar">
+      <div class="brand">CRYPTO <span class="live">CONVICTION</span> MONITOR</div>
+      <div class="stat"><b id="rb-mcap" class="num">—</b><span>Tracked Mkt Cap</span></div>
+      <div class="stat"><b id="rb-str" class="num">—</b><span>BUY+ (≥70)</span></div>
+      <div class="stat"><b id="rb-upd" class="num">—</b><span>Last Update</span></div>
+      <div class="stat"><b id="rb-lev" class="num">—</b><span>Board Leverage</span></div>
+      <div class="stat"><b id="status">INIT…</b><span>Feed</span></div>
 
-    <!-- Compact rewind. Same control and the same ids the tests and the renderer use;
-         only the chrome around it shrank. -->
-    <div class="rewind live-mode" id="rewind" hidden>
-      <span class="rw-lbl">Rewind</span>
-      <b class="rw-date" id="rw-date">—</b>
-      <input type="range" id="rw-slider" min="0" max="0" value="0" step="1">
-      <button id="rw-live" title="Return to the live board">LIVE</button>
-      <span class="muted" id="rw-note" hidden></span>
+      <!-- Compact rewind. Same control and the same ids the tests and the renderer use;
+           only the chrome around it shrank. -->
+      <div class="rewind live-mode" id="rewind" hidden>
+        <span class="rw-lbl">Rewind</span>
+        <b class="rw-date" id="rw-date">—</b>
+        <input type="range" id="rw-slider" min="0" max="0" value="0" step="1">
+        <button id="rw-live" title="Return to the live board">LIVE</button>
+        <span class="muted" id="rw-note" hidden></span>
+      </div>
+
+      <button id="status-toggle" class="statusbtn" aria-expanded="false"
+              aria-controls="status-detail"
+              title="Model health, macro anchors and pipeline diagnostics">Status <span class="caret">▸</span></button>
     </div>
 
-    <button id="status-toggle" class="statusbtn" aria-expanded="false"
-            aria-controls="status-detail"
-            title="Model health, macro anchors and pipeline diagnostics">Status <span class="caret">▸</span></button>
-  </div>
-
-  <!-- Everything the strip above no longer carries. Closed by default and rendered
-       either way, so the panels inside keep their existing render path and there is no
-       second code path that only runs when someone expands this. -->
-  <div class="statuspanel" id="status-detail" hidden>
-    <div class="ribbon health" id="health"></div>
-    <div class="ribbon macro" id="macro"></div>
-    <div class="statusfoot">
-      <div class="stat"><b id="rb-turn" class="num">—</b><span>Avg Turnover</span></div>
-      <div class="stat"><b id="rb-conv" class="num">—</b><span>Avg Conviction</span></div>
-      <span class="muted" id="rw-detail"></span>
-      <a href="methodology.html" class="pill" style="text-decoration:none;margin-left:auto">Methodology · Performance</a>
+    <!-- Everything the strip above no longer carries. Closed by default and rendered
+         either way, so the panels inside keep their existing render path and there is no
+         second code path that only runs when someone expands this. -->
+    <div class="statuspanel" id="status-detail" hidden>
+      <div class="ribbon health" id="health"></div>
+      <div class="ribbon macro" id="macro"></div>
+      <div class="statusfoot">
+        <div class="stat"><b id="rb-turn" class="num">—</b><span>Avg Turnover</span></div>
+        <div class="stat"><b id="rb-conv" class="num">—</b><span>Avg Conviction</span></div>
+        <span class="muted" id="rw-detail"></span>
+        <a href="methodology.html" class="pill" style="text-decoration:none;margin-left:auto">Methodology · Performance</a>
+      </div>
     </div>
   </div>
 
@@ -444,7 +463,11 @@ canvas:focus-visible{outline:2px solid var(--blue)}
         <div class="kv"><span>Rate limit</span><b id="sys-rl" class="neu">—</b></div>
         <div class="kv"><span>Skew Qualified</span><b id="sys-skew" class="num">—</b></div>
         <div class="diag" id="diag"></div>
-        <div class="note" style="padding:8px 0 0">Module B uses a live <b>FDV/MCap dilution proxy</b> (real CoinGecko payload) until a Dune unlock feed is connected via repo secret <b>DUNE_API_KEY</b> + <b>DUNE_UNLOCK_QUERY_ID</b> (on-chain override). No fabricated numbers.</div>
+        <!-- Standing provenance, not a degraded-state banner: Module B is working, on a
+             documented proxy. The SYSTEM rows above already say so at a glance
+             ("Module B (Dune) LIVE"), so the paragraph explaining the substitution is
+             first-screen cost and folds like the rest of the prose. -->
+        <details class="why"><summary>what Module B is measuring</summary><div class="note">Module B uses a live <b>FDV/MCap dilution proxy</b> (real CoinGecko payload) until a Dune unlock feed is connected via repo secret <b>DUNE_API_KEY</b> + <b>DUNE_UNLOCK_QUERY_ID</b> (on-chain override). No fabricated numbers.</div></details>
         <div class="switches" id="tf">
           <div class="sw on" data-tf="24h">24H</div>
           <div class="sw" data-tf="7d">7D</div>
@@ -2153,11 +2176,10 @@ function renderSizing(){
     ${b.effectiveN!=null?`<div class="kv"><span>Effective bets</span>
       <b class="num" title="From the correlation matrix. This book holds ${b.rows.filter(r=>r.sized>0).length} lines; the top names by conviction behave like ${b.effectiveN} independent positions."
         style="color:${b.effectiveN<3?"var(--red)":b.effectiveN<6?"var(--amber)":"var(--green)"}">${b.effectiveN}</b></div>`:""}
-    <div class="muted" style="font-size:9px;margin-top:6px;line-height:1.5">
-      <b style="color:var(--amber)">Not an optimal allocation</b> — the measured information
-      coefficient is indistinguishable from zero, so these are bounds on damage, not bet sizes.</div>
-    <details class="why"><summary>what sets each ceiling</summary>
+    <details class="why"><summary>what these figures are and are not</summary>
       <div class="muted" style="font-size:9px;line-height:1.5">
+      <b style="color:var(--amber)">Not an optimal allocation</b> — the measured information
+      coefficient is indistinguishable from zero, so these are bounds on damage, not bet sizes.
       Conviction sets the shape; the ADV cap, the regime, the correlation cluster and a
       turnover collapse against the name's own baseline each set a ceiling. Money the
       caps refuse stays unallocated — pushing it into the next name would concentrate the
@@ -3656,13 +3678,25 @@ document.querySelectorAll("#sec-tabs .tab").forEach(btn=>{
   };
 });
 
+/* The Status expand overlays the board rather than pushing it, so unlike an in-flow
+   panel it hides content while it is open. That makes dismissal part of the control
+   rather than a nicety: Escape and a click outside both close it. */
 const statusBtn=$("#status-toggle");
-if(statusBtn) statusBtn.onclick=()=>{
+function setStatusOpen(open){
   const panel=$("#status-detail");
-  const open=panel.hidden;
+  if(!panel||!statusBtn) return;
   panel.hidden=!open;
   statusBtn.setAttribute("aria-expanded", open ? "true" : "false");
-};
+}
+function statusIsOpen(){ const p=$("#status-detail"); return !!p && !p.hidden; }
+if(statusBtn) statusBtn.onclick=()=>setStatusOpen(!statusIsOpen());
+document.addEventListener("pointerdown",e=>{
+  if(!statusIsOpen()) return;
+  // The button toggles; letting the outside-click handler see it too would close and
+  // immediately reopen on the same press.
+  if(e.target.closest("#status-detail")||e.target.closest("#status-toggle")) return;
+  setStatusOpen(false);
+});
 
 const fbox=$("#screen-filter");
 if(fbox) fbox.oninput=()=>setFilter(fbox.value);
@@ -3672,6 +3706,7 @@ document.addEventListener("keydown",e=>{
   const typing = /^(INPUT|TEXTAREA)$/.test((e.target&&e.target.tagName)||"");
   if(e.key==="/" && !typing){ e.preventDefault(); if(fbox) fbox.focus(); return; }
   if(e.key==="Escape"){
+    if(statusIsOpen()){ setStatusOpen(false); if(statusBtn) statusBtn.focus(); }
     if(FLIP_SET){ FLIP_SET=null; if(STATE.length) renderTables(); }
     if(FILTER) setFilter("");
     closeDrawer();

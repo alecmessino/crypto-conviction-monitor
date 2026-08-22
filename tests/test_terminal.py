@@ -799,23 +799,84 @@ def test_the_feed_chip_speaks_the_same_vocabulary_as_the_provenance_card():
     assert 'st.textContent="OK"' not in SCRIPT
 
 
-def test_the_sizing_panel_keeps_its_caveat_and_relocates_its_mechanics():
-    """Decision 3, applied to the one long paragraph the sizer renders from JS.
+def test_the_sizing_panel_shows_numbers_and_folds_its_prose():
+    """The left rail's own density rule: the figures stay, the paragraph folds.
 
-    The sentence that changes what the dollar figures MEAN stays on the panel; the
-    paragraph explaining which cap bound which name moves behind a closed <details>.
+    Allocated, unallocated and the entry-cost estimate are the panel's output and must
+    read without a click. Everything qualifying them — including the caveat that these
+    are bounds rather than bet sizes — sits behind one closed summary.
+
     Asserted against the script half because this block is built in a template literal
-    and so never appears in the static markup the other relocation test reads — which is
+    and so never appears in the static markup the other relocation test reads, which is
     exactly why it survived the first pass still sitting on the first screen.
     """
-    assert "Not an optimal allocation" in SCRIPT, \
-        "the sizer lost the caveat that its dollar figures are bounds, not bet sizes"
-    ceiling = SCRIPT.find("what sets each ceiling")
-    assert ceiling != -1, "the cap mechanics are no longer behind a summary"
-    opening = SCRIPT.rfind("<details", 0, ceiling)
-    assert opening != -1 and " open" not in SCRIPT[opening:ceiling], \
-        "the relocated cap mechanics render expanded"
-    for phrase in ("caps refuse stays unallocated", "whatever happened to be liquid"):
-        assert phrase in SCRIPT, f"relocated sizing prose lost {phrase!r} — moved, not deleted"
-    assert SCRIPT.find("Not an optimal allocation") < opening, \
-        "the caveat was folded into the expand along with the mechanics it qualifies"
+    for label in ("Allocated", "Unallocated", "Est. entry cost"):
+        assert f"<span>{label}</span>" in SCRIPT, \
+            f"the sizer stopped showing {label!r} — the numbers are not the prose"
+    fold = SCRIPT.find("what these figures are and are not")
+    assert fold != -1, "the sizing prose is no longer behind a summary"
+    opening = SCRIPT.rfind("<details", 0, fold)
+    assert opening != -1 and " open" not in SCRIPT[opening:fold], \
+        "the sizing prose renders expanded"
+    # Moved, not deleted — and all of it inside the one <details>, not half in and half
+    # out, which is the state this panel was in before the refinement.
+    body = SCRIPT[opening:SCRIPT.index("</details>", opening)]
+    for phrase in ("Not an optimal allocation",
+                   "caps refuse stays unallocated",
+                   "whatever happened to be liquid"):
+        assert phrase in body, f"sizing prose lost {phrase!r} — it was to move, not go"
+
+
+def test_the_module_b_provenance_note_folds_too():
+    """Standing provenance, not a degraded-state banner.
+
+    The distinction matters: the stub and rewound banners must stay unmissable, but
+    Module B is working — on a documented proxy — and the SYSTEM rows already say so in
+    a single line. The paragraph explaining the substitution is prose, so it folds.
+    """
+    markup = HTML[:HTML.find("<script>")]
+    fold = markup.find("what Module B is measuring")
+    assert fold != -1, "the Module B note is back out in the open"
+    opening = markup.rfind("<details", 0, fold)
+    assert opening != -1 and " open" not in markup[opening:fold]
+    body = markup[opening:markup.index("</details>", opening)]
+    assert "FDV/MCap dilution proxy" in body and "DUNE_UNLOCK_QUERY_ID" in body, \
+        "the Module B note was deleted rather than folded"
+    assert 'id="sys-dune"' in markup, \
+        "the one-line Module B status row went with it — the row was the point"
+
+
+# ---------------------------------------------------------------------------
+# The Status expand overlays; it does not push
+# ---------------------------------------------------------------------------
+def test_the_status_expand_is_positioned_rather_than_stacked():
+    """Rendered in flow, opening Status re-injected the health and macro ribbons as real
+    grid rows and drove the matrix from 57px down to 207px — handing back the whole
+    density win in exchange for one click. It is now anchored to the strip and overlays
+    the board, so opening it costs no layout at all.
+    """
+    css = HTML[:HTML.find("<script>")]
+    assert ".statuswrap{" in css and "position:relative" in css
+    panel = css[css.index(".statuspanel{"):css.index(".statuspanel[hidden]")]
+    assert "position:absolute" in panel, "the expand is back in the document flow"
+    assert "grid-column" not in panel, "the expand is claiming a grid row again"
+    assert "max-height" in panel and "overflow:auto" in panel, \
+        "a positioned panel taller than the viewport has no way to be read"
+
+
+def test_the_status_expand_can_be_dismissed_without_the_button():
+    """An overlay hides content while it is open, so dismissal is part of the control."""
+    assert "function setStatusOpen(" in SCRIPT
+    assert 'if(statusIsOpen()){ setStatusOpen(false);' in SCRIPT, \
+        "Escape no longer closes the Status expand"
+    outside = SCRIPT[SCRIPT.index('document.addEventListener("pointerdown"'):]
+    outside = outside[:outside.index("});") + 3]
+    assert 'closest("#status-detail")' in outside and 'closest("#status-toggle")' in outside, \
+        "the outside-click handler will close the panel on the press that opened it"
+
+
+def test_the_collapsed_expand_is_display_none_not_merely_hidden():
+    """`display:flex` outranks the user-agent `[hidden]` rule. Without the explicit rule
+    the collapsed panel was 136px of invisible chrome in flow, and is an invisible
+    click-blocker over the board now that it is positioned."""
+    assert ".statuspanel[hidden]{display:none}" in HTML
