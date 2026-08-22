@@ -1,6 +1,6 @@
 {
-  "date": "2026-08-21",
-  "generated_at": "2026-08-21T07:09:54.154077+00:00",
+  "date": "2026-08-22",
+  "generated_at": "2026-08-22T07:01:55.699450+00:00",
   "spec_hash": "6f98778fa627",
   "venues": {
     "binance": {
@@ -19,36 +19,36 @@
     },
     "gateio": {
       "status": "live",
-      "detail": "140 market(s); intervals 4h x62, 8h x78",
-      "markets": 140,
+      "detail": "145 market(s); intervals 4h x66, 8h x79",
+      "markets": 145,
       "http_status": null,
       "policy_blocked": false
     },
     "kraken": {
       "status": "live",
-      "detail": "93 perpetual(s) at 1h; 9 sub-cent index price(s) excluded",
-      "markets": 93,
+      "detail": "97 perpetual(s) at 1h; 9 sub-cent index price(s) excluded",
+      "markets": 97,
       "http_status": null,
       "policy_blocked": false
     },
     "dydx": {
       "status": "live",
-      "detail": "77 market(s) at 1h; 197 non-active skipped",
-      "markets": 77,
+      "detail": "78 market(s) at 1h; 197 non-active skipped",
+      "markets": 78,
       "http_status": null,
       "policy_blocked": false
     },
     "hyperliquid": {
       "status": "live",
-      "detail": "92 market(s) at 1h",
-      "markets": 92,
+      "detail": "95 market(s) at 1h",
+      "markets": 95,
       "http_status": null,
       "policy_blocked": false
     },
     "coinbase": {
       "status": "live",
-      "detail": "77 perpetual market(s)",
-      "markets": 77,
+      "detail": "78 perpetual market(s)",
+      "markets": 78,
       "http_status": null,
       "policy_blocked": false
     },
@@ -60,7 +60,7 @@
       "policy_blocked": false
     }
   },
-  "consolidated_markets": 144,
+  "consolidated_markets": 149,
   "thresholds": {
     "overheated_apr": 40.0,
     "elevated_apr": 12.0,
@@ -81,14 +81,71 @@
     "hold_days": 30
   },
   "modifiers_applied": {
-    "BTW": 0.9323,
-    "CASHCAT": 0.9016,
-    "JST": 1.0058
+    "ZEC": 0.9995,
+    "XMR": 0.889,
+    "DASH": 0.9712,
+    "CASHCAT": 0.9251
   },
   "assets": [
     {
+      "symbol": "ZEC",
+      "price": 795.28,
+      "funding_rate_8h": 0.000111,
+      "funding_rate_raw": 0.000111,
+      "interval_hours": 8.0,
+      "funding_apr": 12.1545,
+      "regime": "ELEVATED",
+      "score_modifier": 0.9995,
+      "modifier_reason": "longs paying 12% APR, on a +31.6% 24h move \u2014 severity 0.00, confirmation 1.00",
+      "rsi7": 93.92,
+      "price_chg_24h": 31.6,
+      "venue": "gateio",
+      "venues_n": 5,
+      "apr_spread": 206.0221,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 22550256.95,
+      "severity": -0.003,
+      "apr_trail": 9.5524,
+      "score_modifier_trail": 1.0,
+      "trail_n": 7,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 12.1545,
+          "interval_hours": 8.0,
+          "funding_rate": 0.000111,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 5.1096,
+          "interval_hours": 1.0,
+          "funding_rate": 5.832876211848192e-06,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 149.9055,
+          "interval_hours": 1.0,
+          "funding_rate": 0.000171125,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 172.7341,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0001971851,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": -33.288,
+          "interval_hours": 1.0,
+          "funding_rate": -3.8e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
       "symbol": "HYPE",
-      "price": 72.91,
+      "price": 80.17,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 5e-05,
       "interval_hours": 4.0,
@@ -96,16 +153,221 @@
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 94.28,
-      "price_chg_24h": 2.4,
+      "rsi7": 96.4,
+      "price_chg_24h": 9.9,
       "venue": "gateio",
       "venues_n": 5,
-      "apr_spread": 61.931,
+      "apr_spread": 111.9839,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 19079172.35,
+      "oi_usd": 20921881.98,
       "severity": 0.0,
-      "apr_trail": 7.2236,
+      "apr_trail": 9.1354,
+      "score_modifier_trail": 1.0,
+      "trail_n": 7,
+      "pos_share": 0.857,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 42.4523,
+          "interval_hours": 1.0,
+          "funding_rate": 4.8461538809032346e-05,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 111.9839,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0001278355,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 55.188,
+          "interval_hours": 1.0,
+          "funding_rate": 6.3e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "XRP",
+      "price": 1.57,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 95.75,
+      "price_chg_24h": 19.7,
+      "venue": "gateio",
+      "venues_n": 6,
+      "apr_spread": 1770.8712,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 163072665.0,
+      "severity": 0.0,
+      "apr_trail": 6.4026,
+      "score_modifier_trail": 1.0,
+      "trail_n": 7,
+      "pos_share": 0.714,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 1760.2497,
+          "interval_hours": 1.0,
+          "funding_rate": 0.002009417425325548,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": -10.6215,
+          "interval_hours": 1.0,
+          "funding_rate": -1.2125e-05,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 126.2791,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0001441542,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 33.288,
+          "interval_hours": 1.0,
+          "funding_rate": 3.8e-05,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "assumed"
+        }
+      }
+    },
+    {
+      "symbol": "LINK",
+      "price": 11.85,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 95.54,
+      "price_chg_24h": 8.4,
+      "venue": "gateio",
+      "venues_n": 6,
+      "apr_spread": 50.6205,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 62773760.78,
+      "severity": 0.0,
+      "apr_trail": 5.8348,
+      "score_modifier_trail": 1.0,
+      "trail_n": 7,
+      "pos_share": 0.714,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 20.052,
+          "interval_hours": 1.0,
+          "funding_rate": 2.2890365255149415e-05,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 55.407,
+          "interval_hours": 1.0,
+          "funding_rate": 6.325e-05,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 61.5705,
+          "interval_hours": 1.0,
+          "funding_rate": 7.0286e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 33.288,
+          "interval_hours": 1.0,
+          "funding_rate": 3.8e-05,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "assumed"
+        }
+      }
+    },
+    {
+      "symbol": "WBT",
+      "price": 72.35,
+      "funding_rate_8h": null,
+      "funding_rate_raw": null,
+      "interval_hours": null,
+      "funding_apr": null,
+      "regime": null,
+      "score_modifier": 1.0,
+      "modifier_reason": "no funding feed",
+      "rsi7": 96.47,
+      "price_chg_24h": 16.4,
+      "venue": null,
+      "venues_n": null,
+      "apr_spread": null,
+      "interval_basis": null,
+      "gap_filled": false,
+      "oi_usd": null,
+      "severity": 0.0,
+      "apr_trail": 0.0,
+      "score_modifier_trail": 1.0,
+      "trail_n": 3,
+      "pos_share": 0.0,
+      "by_venue": {}
+    },
+    {
+      "symbol": "PUMP",
+      "price": 0.00459821,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 90.21,
+      "price_chg_24h": 18.4,
+      "venue": "gateio",
+      "venues_n": 4,
+      "apr_spread": 261.1989,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 2654575.06,
+      "severity": 0.0,
+      "apr_trail": 4.9535,
       "score_modifier_trail": 1.0,
       "trail_n": 7,
       "pos_share": 0.714,
@@ -116,35 +378,29 @@
           "funding_rate": 5e-05,
           "interval_basis": "reported"
         },
-        "kraken": {
-          "funding_apr": 72.881,
-          "interval_hours": 1.0,
-          "funding_rate": 8.319748402470347e-05,
-          "interval_basis": "protocol"
-        },
         "dydx": {
-          "funding_apr": 15.9383,
+          "funding_apr": 0.0,
           "interval_hours": 1.0,
-          "funding_rate": 1.819444444444444e-05,
+          "funding_rate": 0.0,
           "interval_basis": "protocol"
         },
         "hyperliquid": {
-          "funding_apr": 14.2111,
+          "funding_apr": 261.1989,
           "interval_hours": 1.0,
-          "funding_rate": 1.62227e-05,
+          "funding_rate": 0.0002981723,
           "interval_basis": "protocol"
         },
         "coinbase": {
-          "funding_apr": 43.8,
+          "funding_apr": 74.46,
           "interval_hours": 1.0,
-          "funding_rate": 5e-05,
+          "funding_rate": 8.5e-05,
           "interval_basis": "protocol"
         }
       }
     },
     {
-      "symbol": "ZEC",
-      "price": 602.46,
+      "symbol": "ETH",
+      "price": 2437.07,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 0.0001,
       "interval_hours": 8.0,
@@ -152,16 +408,78 @@
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 83.91,
-      "price_chg_24h": 8.9,
+      "rsi7": 95.01,
+      "price_chg_24h": 3.0,
       "venue": "gateio",
-      "venues_n": 5,
-      "apr_spread": 144.6326,
+      "venues_n": 6,
+      "apr_spread": 10.95,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 12703137.1,
+      "oi_usd": 1279576567.67,
       "severity": 0.0,
-      "apr_trail": 7.7308,
+      "apr_trail": 8.3815,
+      "score_modifier_trail": 1.0,
+      "trail_n": 7,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 8.7964,
+          "interval_hours": 1.0,
+          "funding_rate": 1.0041575265622445e-05,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 10.95,
+          "interval_hours": 1.0,
+          "funding_rate": 1.25e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 6.132,
+          "interval_hours": 1.0,
+          "funding_rate": 7e-06,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "assumed"
+        }
+      }
+    },
+    {
+      "symbol": "XLM",
+      "price": 0.21058,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 87.88,
+      "price_chg_24h": 12.7,
+      "venue": "gateio",
+      "venues_n": 5,
+      "apr_spread": 107.6261,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 1850151.74,
+      "severity": 0.0,
+      "apr_trail": 4.8763,
       "score_modifier_trail": 1.0,
       "trail_n": 7,
       "pos_share": 0.857,
@@ -173,189 +491,9 @@
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": 70.5192,
+          "funding_apr": 59.6809,
           "interval_hours": 1.0,
-          "funding_rate": 8.050141949847596e-05,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 2.993,
-          "interval_hours": 1.0,
-          "funding_rate": 3.41666666666667e-06,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 147.6256,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0001685224,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 17.52,
-          "interval_hours": 1.0,
-          "funding_rate": 2e-05,
-          "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "LINK",
-      "price": 11.01,
-      "funding_rate_8h": 4.5e-05,
-      "funding_rate_raw": 4.5e-05,
-      "interval_hours": 8.0,
-      "funding_apr": 4.9275,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 5% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 93.26,
-      "price_chg_24h": 4.7,
-      "venue": "gateio",
-      "venues_n": 6,
-      "apr_spread": 66.9018,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 55107636.96,
-      "severity": 0.0,
-      "apr_trail": 6.2145,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 0.714,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 4.9275,
-          "interval_hours": 8.0,
-          "funding_rate": 4.5e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": 10.7082,
-          "interval_hours": 1.0,
-          "funding_rate": 1.2223976246458401e-05,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 6.3875,
-          "interval_hours": 1.0,
-          "funding_rate": 7.29166666666667e-06,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 71.8293,
-          "interval_hours": 1.0,
-          "funding_rate": 8.19969e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 28.908,
-          "interval_hours": 1.0,
-          "funding_rate": 3.3e-05,
-          "interval_basis": "protocol"
-        },
-        "xoomar": {
-          "funding_apr": 10.95,
-          "interval_hours": 8.0,
-          "funding_rate": 0.0001,
-          "interval_basis": "assumed"
-        }
-      }
-    },
-    {
-      "symbol": "ETH",
-      "price": 2372.09,
-      "funding_rate_8h": 8.4e-05,
-      "funding_rate_raw": 8.4e-05,
-      "interval_hours": 8.0,
-      "funding_apr": 9.198,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 9% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 94.16,
-      "price_chg_24h": 5.6,
-      "venue": "gateio",
-      "venues_n": 6,
-      "apr_spread": 25.0268,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 1315238673.18,
-      "severity": 0.0,
-      "apr_trail": 8.4505,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 1.0,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 9.198,
-          "interval_hours": 8.0,
-          "funding_rate": 8.4e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": 9.4434,
-          "interval_hours": 1.0,
-          "funding_rate": 1.0780142033129832e-05,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": -14.0768,
-          "interval_hours": 1.0,
-          "funding_rate": -1.606944444444444e-05,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 7.008,
-          "interval_hours": 1.0,
-          "funding_rate": 8e-06,
-          "interval_basis": "protocol"
-        },
-        "xoomar": {
-          "funding_apr": 10.927,
-          "interval_hours": 8.0,
-          "funding_rate": 9.979e-05,
-          "interval_basis": "assumed"
-        }
-      }
-    },
-    {
-      "symbol": "ENA",
-      "price": 0.131506,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 5e-05,
-      "interval_hours": 4.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 95.08,
-      "price_chg_24h": 41.2,
-      "venue": "gateio",
-      "venues_n": 5,
-      "apr_spread": 122.508,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 3457677.26,
-      "severity": 0.0,
-      "apr_trail": 10.95,
-      "score_modifier_trail": 1.0,
-      "trail_n": 1,
-      "pos_share": 1.0,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 4.0,
-          "funding_rate": 5e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": 53.7569,
-          "interval_hours": 1.0,
-          "funding_rate": 6.136637591616271e-05,
+          "funding_rate": 6.812891858198467e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
@@ -365,134 +503,22 @@
           "interval_basis": "protocol"
         },
         "hyperliquid": {
-          "funding_apr": 122.508,
+          "funding_apr": 107.6261,
           "interval_hours": 1.0,
-          "funding_rate": 0.0001398493,
+          "funding_rate": 0.0001228609,
           "interval_basis": "protocol"
         },
         "coinbase": {
-          "funding_apr": 19.272,
+          "funding_apr": 27.156,
           "interval_hours": 1.0,
-          "funding_rate": 2.2e-05,
+          "funding_rate": 3.1e-05,
           "interval_basis": "protocol"
         }
       }
     },
     {
-      "symbol": "XRP",
-      "price": 1.31,
-      "funding_rate_8h": 6.7e-05,
-      "funding_rate_raw": 6.7e-05,
-      "interval_hours": 8.0,
-      "funding_apr": 7.3365,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 7% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 91.75,
-      "price_chg_24h": 17.7,
-      "venue": "gateio",
-      "venues_n": 6,
-      "apr_spread": 629.7256,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 144455214.33,
-      "severity": 0.0,
-      "apr_trail": 6.3094,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 0.714,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 7.3365,
-          "interval_hours": 8.0,
-          "funding_rate": 6.7e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": 629.7256,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0007188648588059811,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 12.264,
-          "interval_hours": 1.0,
-          "funding_rate": 1.4e-05,
-          "interval_basis": "protocol"
-        },
-        "xoomar": {
-          "funding_apr": 10.95,
-          "interval_hours": 8.0,
-          "funding_rate": 0.0001,
-          "interval_basis": "assumed"
-        }
-      }
-    },
-    {
-      "symbol": "PUMP",
-      "price": 0.00388014,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 5e-05,
-      "interval_hours": 4.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 85.0,
-      "price_chg_24h": 23.8,
-      "venue": "gateio",
-      "venues_n": 4,
-      "apr_spread": 22.776,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 2072456.17,
-      "severity": 0.0,
-      "apr_trail": 3.6503,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 0.714,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 4.0,
-          "funding_rate": 5e-05,
-          "interval_basis": "reported"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 22.776,
-          "interval_hours": 1.0,
-          "funding_rate": 2.6e-05,
-          "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "SOL",
-      "price": 90.48,
+      "symbol": "DOGE",
+      "price": 0.092625,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 0.0001,
       "interval_hours": 8.0,
@@ -500,14 +526,76 @@
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 93.39,
-      "price_chg_24h": 6.2,
+      "rsi7": 94.78,
+      "price_chg_24h": 12.0,
       "venue": "gateio",
       "venues_n": 6,
-      "apr_spread": 12.7691,
+      "apr_spread": 45.7208,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 363755657.74,
+      "oi_usd": 137313770.76,
+      "severity": 0.0,
+      "apr_trail": 8.5097,
+      "score_modifier_trail": 1.0,
+      "trail_n": 7,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 5.7806,
+          "interval_hours": 1.0,
+          "funding_rate": 6.598819726541411e-06,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 45.7208,
+          "interval_hours": 1.0,
+          "funding_rate": 5.21927e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 21.9,
+          "interval_hours": 1.0,
+          "funding_rate": 2.5e-05,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "assumed"
+        }
+      }
+    },
+    {
+      "symbol": "SOL",
+      "price": 94.26,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 94.93,
+      "price_chg_24h": 3.9,
+      "venue": "gateio",
+      "venues_n": 6,
+      "apr_spread": 25.5768,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 423196129.84,
       "severity": 0.0,
       "apr_trail": 7.2751,
       "score_modifier_trail": 1.0,
@@ -521,27 +609,176 @@
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": 13.8641,
+          "funding_apr": -8.9328,
           "interval_hours": 1.0,
-          "funding_rate": 1.582659371872734e-05,
+          "funding_rate": -1.019729236611877e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
-          "funding_apr": 1.095,
+          "funding_apr": 0.0,
           "interval_hours": 1.0,
-          "funding_rate": 1.25e-06,
+          "funding_rate": 0.0,
           "interval_basis": "protocol"
         },
         "hyperliquid": {
-          "funding_apr": 10.95,
+          "funding_apr": 12.8267,
           "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
+          "funding_rate": 1.46423e-05,
           "interval_basis": "protocol"
         },
         "coinbase": {
-          "funding_apr": 9.636,
+          "funding_apr": 16.644,
           "interval_hours": 1.0,
-          "funding_rate": 1.1e-05,
+          "funding_rate": 1.9e-05,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "assumed"
+        }
+      }
+    },
+    {
+      "symbol": "AAVE",
+      "price": 121.61,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 91.3,
+      "price_chg_24h": 20.6,
+      "venue": "gateio",
+      "venues_n": 6,
+      "apr_spread": 118.0194,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 4087926.19,
+      "severity": 0.0,
+      "apr_trail": 9.2254,
+      "score_modifier_trail": 1.0,
+      "trail_n": 4,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": -38.1519,
+          "interval_hours": 1.0,
+          "funding_rate": -4.355242039882699e-05,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 79.8675,
+          "interval_hours": 1.0,
+          "funding_rate": 9.11729e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 21.024,
+          "interval_hours": 1.0,
+          "funding_rate": 2.4e-05,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "assumed"
+        }
+      }
+    },
+    {
+      "symbol": "RAIN",
+      "price": 0.01429455,
+      "funding_rate_8h": null,
+      "funding_rate_raw": null,
+      "interval_hours": null,
+      "funding_apr": null,
+      "regime": null,
+      "score_modifier": 1.0,
+      "modifier_reason": "no funding feed",
+      "rsi7": 80.78,
+      "price_chg_24h": 3.0,
+      "venue": null,
+      "venues_n": null,
+      "apr_spread": null,
+      "interval_basis": null,
+      "gap_filled": false,
+      "oi_usd": null,
+      "severity": 0.0,
+      "apr_trail": 0.0,
+      "score_modifier_trail": 1.0,
+      "trail_n": 3,
+      "pos_share": 0.0,
+      "by_venue": {}
+    },
+    {
+      "symbol": "NEAR",
+      "price": 1.99,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 88.53,
+      "price_chg_24h": 8.2,
+      "venue": "gateio",
+      "venues_n": 6,
+      "apr_spread": 131.1028,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 5273439.59,
+      "severity": 0.0,
+      "apr_trail": 9.271,
+      "score_modifier_trail": 1.0,
+      "trail_n": 6,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 4.5656,
+          "interval_hours": 1.0,
+          "funding_rate": 5.211854956896552e-06,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 131.1028,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0001496607,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 8.76,
+          "interval_hours": 1.0,
+          "funding_rate": 1e-05,
           "interval_basis": "protocol"
         },
         "xoomar": {
@@ -554,168 +791,56 @@
     },
     {
       "symbol": "BTC",
-      "price": 75684,
-      "funding_rate_8h": 6.6e-05,
-      "funding_rate_raw": 6.6e-05,
+      "price": 77453,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
       "interval_hours": 8.0,
-      "funding_apr": 7.227,
+      "funding_apr": 10.95,
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 7% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 93.21,
-      "price_chg_24h": 8.9,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 94.19,
+      "price_chg_24h": 2.8,
       "venue": "gateio",
       "venues_n": 6,
-      "apr_spread": 43.0092,
+      "apr_spread": 15.1364,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 2324878973.21,
+      "oi_usd": 2224138813.77,
       "severity": 0.0,
-      "apr_trail": 8.4521,
+      "apr_trail": 8.18,
       "score_modifier_trail": 1.0,
       "trail_n": 7,
       "pos_share": 1.0,
       "by_venue": {
         "gateio": {
-          "funding_apr": 7.227,
-          "interval_hours": 8.0,
-          "funding_rate": 6.6e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": 8.7445,
-          "interval_hours": 1.0,
-          "funding_rate": 9.982286493166947e-06,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": -32.0592,
-          "interval_hours": 1.0,
-          "funding_rate": -3.659722222222222e-05,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
           "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 1.752,
-          "interval_hours": 1.0,
-          "funding_rate": 2e-06,
-          "interval_basis": "protocol"
-        },
-        "xoomar": {
-          "funding_apr": 5.014,
           "interval_hours": 8.0,
-          "funding_rate": 4.579e-05,
-          "interval_basis": "assumed"
-        }
-      }
-    },
-    {
-      "symbol": "RAIN",
-      "price": 0.01387171,
-      "funding_rate_8h": null,
-      "funding_rate_raw": null,
-      "interval_hours": null,
-      "funding_apr": null,
-      "regime": null,
-      "score_modifier": 1.0,
-      "modifier_reason": "no funding feed",
-      "rsi7": 74.6,
-      "price_chg_24h": -0.2,
-      "venue": null,
-      "venues_n": null,
-      "apr_spread": null,
-      "interval_basis": null,
-      "gap_filled": false,
-      "oi_usd": null,
-      "severity": 0.0,
-      "apr_trail": 0.0,
-      "score_modifier_trail": 1.0,
-      "trail_n": 4,
-      "pos_share": 0.0,
-      "by_venue": {}
-    },
-    {
-      "symbol": "WBT",
-      "price": 62.4,
-      "funding_rate_8h": null,
-      "funding_rate_raw": null,
-      "interval_hours": null,
-      "funding_apr": null,
-      "regime": null,
-      "score_modifier": 1.0,
-      "modifier_reason": "no funding feed",
-      "rsi7": 90.99,
-      "price_chg_24h": 5.4,
-      "venue": null,
-      "venues_n": null,
-      "apr_spread": null,
-      "interval_basis": null,
-      "gap_filled": false,
-      "oi_usd": null,
-      "severity": 0.0,
-      "apr_trail": 0.0,
-      "score_modifier_trail": 1.0,
-      "trail_n": 4,
-      "pos_share": 0.0,
-      "by_venue": {}
-    },
-    {
-      "symbol": "DOGE",
-      "price": 0.08331,
-      "funding_rate_8h": 6e-06,
-      "funding_rate_raw": 6e-06,
-      "interval_hours": 8.0,
-      "funding_apr": 0.657,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 1% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 90.93,
-      "price_chg_24h": 11.5,
-      "venue": "gateio",
-      "venues_n": 6,
-      "apr_spread": 45.8616,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 126676433.53,
-      "severity": 0.0,
-      "apr_trail": 9.9801,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 1.0,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 0.657,
-          "interval_hours": 8.0,
-          "funding_rate": 6e-06,
+          "funding_rate": 0.0001,
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": 3.3827,
+          "funding_apr": 24.7724,
           "interval_hours": 1.0,
-          "funding_rate": 3.861491760432804e-06,
+          "funding_rate": 2.827902647575795e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
-          "funding_apr": 0.0,
+          "funding_apr": 9.636,
           "interval_hours": 1.0,
-          "funding_rate": 0.0,
+          "funding_rate": 1.1e-05,
           "interval_basis": "protocol"
         },
         "hyperliquid": {
-          "funding_apr": 45.8616,
+          "funding_apr": 24.3019,
           "interval_hours": 1.0,
-          "funding_rate": 5.23534e-05,
+          "funding_rate": 2.77419e-05,
           "interval_basis": "protocol"
         },
         "coinbase": {
-          "funding_apr": 5.256,
+          "funding_apr": 15.768,
           "interval_hours": 1.0,
-          "funding_rate": 6e-06,
+          "funding_rate": 1.8e-05,
           "interval_basis": "protocol"
         },
         "xoomar": {
@@ -727,8 +852,8 @@
       }
     },
     {
-      "symbol": "XMR",
-      "price": 417.04,
+      "symbol": "ADA",
+      "price": 0.233447,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 0.0001,
       "interval_hours": 8.0,
@@ -736,16 +861,16 @@
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 68.2,
-      "price_chg_24h": 1.8,
+      "rsi7": 85.47,
+      "price_chg_24h": 11.8,
       "venue": "gateio",
-      "venues_n": 4,
-      "apr_spread": 173.7801,
+      "venues_n": 6,
+      "apr_spread": 42.8497,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 272322.04,
+      "oi_usd": 44086051.56,
       "severity": 0.0,
-      "apr_trail": 7.8214,
+      "apr_trail": 6.3133,
       "score_modifier_trail": 1.0,
       "trail_n": 7,
       "pos_share": 0.714,
@@ -757,28 +882,40 @@
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": 105.3559,
+          "funding_apr": 42.189,
           "interval_hours": 1.0,
-          "funding_rate": 0.00012026928814433615,
+          "funding_rate": 4.8160911305113985e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
-          "funding_apr": 21.5593,
+          "funding_apr": 0.0,
           "interval_hours": 1.0,
-          "funding_rate": 2.461111111111111e-05,
+          "funding_rate": 0.0,
           "interval_basis": "protocol"
         },
         "hyperliquid": {
-          "funding_apr": 184.7301,
+          "funding_apr": 42.8497,
           "interval_hours": 1.0,
-          "funding_rate": 0.0002108791,
+          "funding_rate": 4.89152e-05,
           "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 28.032,
+          "interval_hours": 1.0,
+          "funding_rate": 3.2e-05,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "assumed"
         }
       }
     },
     {
       "symbol": "CRV",
-      "price": 0.316131,
+      "price": 0.322978,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 0.0001,
       "interval_hours": 8.0,
@@ -786,16 +923,16 @@
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 82.63,
-      "price_chg_24h": 19.0,
+      "rsi7": 83.7,
+      "price_chg_24h": 4.1,
       "venue": "gateio",
       "venues_n": 5,
-      "apr_spread": 66.1763,
+      "apr_spread": 28.9741,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 688381.47,
+      "oi_usd": 823065.89,
       "severity": 0.0,
-      "apr_trail": 8.4863,
+      "apr_trail": 8.4862,
       "score_modifier_trail": 1.0,
       "trail_n": 6,
       "pos_share": 1.0,
@@ -807,9 +944,9 @@
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": 62.0971,
+          "funding_apr": 9.5728,
           "interval_hours": 1.0,
-          "funding_rate": 7.088710751965738e-05,
+          "funding_rate": 1.0927833242778861e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
@@ -819,257 +956,95 @@
           "interval_basis": "protocol"
         },
         "hyperliquid": {
-          "funding_apr": 66.1763,
+          "funding_apr": 28.9741,
           "interval_hours": 1.0,
-          "funding_rate": 7.55437e-05,
+          "funding_rate": 3.30755e-05,
           "interval_basis": "protocol"
         },
         "coinbase": {
-          "funding_apr": 18.396,
+          "funding_apr": 16.644,
           "interval_hours": 1.0,
-          "funding_rate": 2.1e-05,
+          "funding_rate": 1.9e-05,
           "interval_basis": "protocol"
         }
       }
     },
     {
-      "symbol": "MON",
-      "price": 0.02803865,
+      "symbol": "BCH",
+      "price": 282.41,
       "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 5e-05,
-      "interval_hours": 4.0,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
       "funding_apr": 10.95,
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": null,
-      "price_chg_24h": 14.5,
+      "rsi7": 92.25,
+      "price_chg_24h": 18.8,
       "venue": "gateio",
       "venues_n": 5,
-      "apr_spread": 263.6554,
+      "apr_spread": 38.544,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 439298.75,
+      "oi_usd": 5149789.42,
       "severity": 0.0,
-      "apr_trail": 1.533,
+      "apr_trail": -0.0729,
       "score_modifier_trail": 1.0,
-      "trail_n": 2,
-      "pos_share": 0.5,
+      "trail_n": 7,
+      "pos_share": 0.571,
       "by_venue": {
         "gateio": {
           "funding_apr": 10.95,
-          "interval_hours": 4.0,
-          "funding_rate": 5e-05,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": 274.6054,
+          "funding_apr": 31.7494,
           "interval_hours": 1.0,
-          "funding_rate": 0.0003134764956921156,
+          "funding_rate": 3.624357376919503e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
           "funding_apr": 10.95,
           "interval_hours": 1.0,
           "funding_rate": 1.25e-05,
           "interval_basis": "protocol"
         },
-        "hyperliquid": {
-          "funding_apr": 222.7898,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0002543262,
-          "interval_basis": "protocol"
-        },
         "coinbase": {
-          "funding_apr": 58.692,
+          "funding_apr": 38.544,
           "interval_hours": 1.0,
-          "funding_rate": 6.7e-05,
+          "funding_rate": 4.4e-05,
           "interval_basis": "protocol"
         }
       }
     },
     {
       "symbol": "BNB",
-      "price": 668.01,
-      "funding_rate_8h": 9.9e-05,
-      "funding_rate_raw": 9.9e-05,
+      "price": 700.18,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
       "interval_hours": 8.0,
-      "funding_apr": 10.8405,
+      "funding_apr": 10.95,
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 88.14,
-      "price_chg_24h": 6.7,
+      "rsi7": 92.03,
+      "price_chg_24h": 5.4,
       "venue": "gateio",
       "venues_n": 6,
-      "apr_spread": 13.2112,
+      "apr_spread": 87.782,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 15693970.75,
+      "oi_usd": 15626889.2,
       "severity": 0.0,
-      "apr_trail": 4.6848,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 0.714,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.8405,
-          "interval_hours": 8.0,
-          "funding_rate": 9.9e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": 12.3352,
-          "interval_hours": 1.0,
-          "funding_rate": 1.4081239390355767e-05,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": -0.876,
-          "interval_hours": 1.0,
-          "funding_rate": -1e-06,
-          "interval_basis": "protocol"
-        },
-        "xoomar": {
-          "funding_apr": 0.0,
-          "interval_hours": 8.0,
-          "funding_rate": 0.0,
-          "interval_basis": "assumed"
-        }
-      }
-    },
-    {
-      "symbol": "XLM",
-      "price": 0.186642,
-      "funding_rate_8h": 9.8e-05,
-      "funding_rate_raw": 9.8e-05,
-      "interval_hours": 8.0,
-      "funding_apr": 10.731,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 79.13,
-      "price_chg_24h": 11.4,
-      "venue": "gateio",
-      "venues_n": 5,
-      "apr_spread": 27.883,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 1324795.84,
-      "severity": 0.0,
-      "apr_trail": 4.4968,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 0.857,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.731,
-          "interval_hours": 8.0,
-          "funding_rate": 9.8e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": 22.627,
-          "interval_hours": 1.0,
-          "funding_rate": 2.5829936691079863e-05,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": -5.256,
-          "interval_hours": 1.0,
-          "funding_rate": -6e-06,
-          "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "PEPE",
-      "price": 3.39e-06,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 0.0001,
-      "interval_hours": 8.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 86.99,
-      "price_chg_24h": 17.3,
-      "venue": "gateio",
-      "venues_n": 3,
-      "apr_spread": 10.95,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 38604034.8,
-      "severity": 0.0,
-      "apr_trail": 8.4315,
-      "score_modifier_trail": 1.0,
-      "trail_n": 2,
-      "pos_share": 1.0,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 8.0,
-          "funding_rate": 0.0001,
-          "interval_basis": "reported"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "xoomar": {
-          "funding_apr": 10.95,
-          "interval_hours": 8.0,
-          "funding_rate": 0.0001,
-          "interval_basis": "assumed"
-        }
-      }
-    },
-    {
-      "symbol": "TRX",
-      "price": 0.338274,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 0.0001,
-      "interval_hours": 8.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 72.82,
-      "price_chg_24h": 1.6,
-      "venue": "gateio",
-      "venues_n": 5,
-      "apr_spread": 14.7915,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 2343770.91,
-      "severity": 0.0,
-      "apr_trail": 4.3612,
+      "apr_trail": 6.433,
       "score_modifier_trail": 1.0,
       "trail_n": 7,
       "pos_share": 0.857,
@@ -1081,9 +1056,9 @@
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": 14.7915,
+          "funding_apr": 32.8907,
           "interval_hours": 1.0,
-          "funding_rate": 1.6885301074597753e-05,
+          "funding_rate": 3.7546435786933736e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
@@ -1093,116 +1068,78 @@
           "interval_basis": "protocol"
         },
         "hyperliquid": {
-          "funding_apr": 10.95,
+          "funding_apr": 87.782,
           "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "xoomar": {
-          "funding_apr": 10.95,
-          "interval_hours": 8.0,
-          "funding_rate": 0.0001,
-          "interval_basis": "assumed"
-        }
-      }
-    },
-    {
-      "symbol": "CAP",
-      "price": 0.066122,
-      "funding_rate_8h": -0.000616,
-      "funding_rate_raw": -0.000308,
-      "interval_hours": 4.0,
-      "funding_apr": -67.452,
-      "regime": "SHORT_SQUEEZE_RISK",
-      "score_modifier": 1.0,
-      "modifier_reason": "shorts paying -67% APR, but no 7d RSI to separate a squeeze from a downtrend \u2014 the boost is withheld, not reduced",
-      "rsi7": null,
-      "price_chg_24h": -5.5,
-      "venue": "gateio",
-      "venues_n": 1,
-      "apr_spread": null,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 441838.66,
-      "severity": 0.9898,
-      "apr_trail": -71.1379,
-      "score_modifier_trail": 1.0,
-      "trail_n": 5,
-      "pos_share": 0.2,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": -67.452,
-          "interval_hours": 4.0,
-          "funding_rate": -0.000308,
-          "interval_basis": "reported"
-        }
-      }
-    },
-    {
-      "symbol": "ADA",
-      "price": 0.208361,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 0.0001,
-      "interval_hours": 8.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 76.9,
-      "price_chg_24h": 13.1,
-      "venue": "gateio",
-      "venues_n": 6,
-      "apr_spread": 20.7728,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 37373204.12,
-      "severity": 0.0,
-      "apr_trail": 6.1822,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 0.714,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 8.0,
-          "funding_rate": 0.0001,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": 20.7728,
-          "interval_hours": 1.0,
-          "funding_rate": 2.3713200028508173e-05,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
+          "funding_rate": 0.0001002078,
           "interval_basis": "protocol"
         },
         "coinbase": {
-          "funding_apr": 2.628,
+          "funding_apr": 23.652,
           "interval_hours": 1.0,
-          "funding_rate": 3e-06,
+          "funding_rate": 2.7e-05,
           "interval_basis": "protocol"
         },
         "xoomar": {
-          "funding_apr": 10.95,
+          "funding_apr": 41.0953,
           "interval_hours": 8.0,
-          "funding_rate": 0.0001,
+          "funding_rate": 0.0003753,
           "interval_basis": "assumed"
         }
       }
     },
     {
-      "symbol": "GRAM",
-      "price": 1.46,
+      "symbol": "XMR",
+      "price": 438.76,
+      "funding_rate_8h": 0.002128,
+      "funding_rate_raw": 0.002128,
+      "interval_hours": 8.0,
+      "funding_apr": 233.016,
+      "regime": "OVERHEATED_LONG",
+      "score_modifier": 0.889,
+      "modifier_reason": "longs paying 233% APR, on a +4.8% 24h move \u2014 severity 1.00, confirmation 0.74",
+      "rsi7": 80.88,
+      "price_chg_24h": 4.8,
+      "venue": "gateio",
+      "venues_n": 4,
+      "apr_spread": 303.1147,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 393049.48,
+      "severity": -0.9997,
+      "apr_trail": 9.3857,
+      "score_modifier_trail": 1.0,
+      "trail_n": 7,
+      "pos_share": 0.857,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 233.016,
+          "interval_hours": 8.0,
+          "funding_rate": 0.002128,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 222.2944,
+          "interval_hours": 1.0,
+          "funding_rate": 0.00025376073370567744,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 303.1147,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0003460213,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "POL",
+      "price": 0.112297,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 5e-05,
       "interval_hours": 4.0,
@@ -1211,13 +1148,13 @@
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
       "rsi7": null,
-      "price_chg_24h": 8.0,
+      "price_chg_24h": 33.1,
       "venue": "gateio",
-      "venues_n": 2,
-      "apr_spread": 19.9089,
+      "venues_n": 5,
+      "apr_spread": 119.0453,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 1474025.67,
+      "oi_usd": 1172771.41,
       "severity": 0.0,
       "apr_trail": null,
       "score_modifier_trail": 1.0,
@@ -1230,17 +1167,35 @@
           "funding_rate": 5e-05,
           "interval_basis": "reported"
         },
-        "hyperliquid": {
-          "funding_apr": 30.8589,
+        "kraken": {
+          "funding_apr": 0.2255,
           "interval_hours": 1.0,
-          "funding_rate": 3.5227e-05,
+          "funding_rate": 2.573929086217635e-07,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 119.0453,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0001358965,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 21.9,
+          "interval_hours": 1.0,
+          "funding_rate": 2.5e-05,
           "interval_basis": "protocol"
         }
       }
     },
     {
       "symbol": "LIT",
-      "price": 2.72,
+      "price": 3.06,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 5e-05,
       "interval_hours": 4.0,
@@ -1248,124 +1203,131 @@
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 63.57,
-      "price_chg_24h": -4.4,
+      "rsi7": 74.22,
+      "price_chg_24h": 11.4,
       "venue": "gateio",
       "venues_n": 4,
-      "apr_spread": 103.0803,
+      "apr_spread": 17.082,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 830384.41,
+      "oi_usd": 1147876.86,
       "severity": 0.0,
-      "apr_trail": 6.2415,
+      "apr_trail": 6.9141,
+      "score_modifier_trail": 1.0,
+      "trail_n": 7,
+      "pos_share": 0.857,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 10.95,
+          "interval_hours": 1.0,
+          "funding_rate": 1.25e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": -6.132,
+          "interval_hours": 1.0,
+          "funding_rate": -7e-06,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "DASH",
+      "price": 41.18,
+      "funding_rate_8h": 0.0002,
+      "funding_rate_raw": 0.0002,
+      "interval_hours": 8.0,
+      "funding_apr": 21.9,
+      "regime": "ELEVATED",
+      "score_modifier": 0.9712,
+      "modifier_reason": "longs paying 22% APR, on a +21.8% 24h move \u2014 severity 0.19, confirmation 1.00",
+      "rsi7": null,
+      "price_chg_24h": 21.8,
+      "venue": "gateio",
+      "venues_n": 4,
+      "apr_spread": 202.5762,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 490172.12,
+      "severity": -0.1918,
+      "apr_trail": null,
+      "score_modifier_trail": 1.0,
+      "trail_n": null,
+      "pos_share": null,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 21.9,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0002,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": -65.9202,
+          "interval_hours": 1.0,
+          "funding_rate": -7.525135534820796e-05,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 75.7228,
+          "interval_hours": 1.0,
+          "funding_rate": 8.64416e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 136.656,
+          "interval_hours": 1.0,
+          "funding_rate": 0.000156,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "CAP",
+      "price": 0.072095,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": null,
+      "price_chg_24h": 9.8,
+      "venue": "gateio",
+      "venues_n": 1,
+      "apr_spread": null,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 424374.84,
+      "severity": 0.0,
+      "apr_trail": -70.5236,
       "score_modifier_trail": 1.0,
       "trail_n": 6,
-      "pos_share": 0.833,
+      "pos_share": 0.167,
       "by_venue": {
         "gateio": {
           "funding_apr": 10.95,
           "interval_hours": 4.0,
           "funding_rate": 5e-05,
           "interval_basis": "reported"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 103.0803,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0001176716,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 2.628,
-          "interval_hours": 1.0,
-          "funding_rate": 3e-06,
-          "interval_basis": "protocol"
         }
       }
     },
     {
-      "symbol": "PENGU",
-      "price": 0.00746556,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 5e-05,
-      "interval_hours": 4.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 77.56,
-      "price_chg_24h": 15.6,
-      "venue": "gateio",
-      "venues_n": 4,
-      "apr_spread": 161.184,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 1270752.26,
-      "severity": 0.0,
-      "apr_trail": 2.3187,
-      "score_modifier_trail": 1.0,
-      "trail_n": 2,
-      "pos_share": 0.5,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 4.0,
-          "funding_rate": 5e-05,
-          "interval_basis": "reported"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 28.0079,
-          "interval_hours": 1.0,
-          "funding_rate": 3.19725e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 161.184,
-          "interval_hours": 1.0,
-          "funding_rate": 0.000184,
-          "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "FIGR_HELOC",
-      "price": 1.026,
-      "funding_rate_8h": null,
-      "funding_rate_raw": null,
-      "interval_hours": null,
-      "funding_apr": null,
-      "regime": null,
-      "score_modifier": 1.0,
-      "modifier_reason": "no funding feed",
-      "rsi7": 53.38,
-      "price_chg_24h": -1.6,
-      "venue": null,
-      "venues_n": null,
-      "apr_spread": null,
-      "interval_basis": null,
-      "gap_filled": false,
-      "oi_usd": null,
-      "severity": 0.0,
-      "apr_trail": 0.0,
-      "score_modifier_trail": 1.0,
-      "trail_n": 4,
-      "pos_share": 0.0,
-      "by_venue": {}
-    },
-    {
-      "symbol": "BCH",
-      "price": 255.83,
+      "symbol": "PEPE",
+      "price": 4.13e-06,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 0.0001,
       "interval_hours": 8.0,
@@ -1373,19 +1335,63 @@
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 88.24,
-      "price_chg_24h": 18.1,
+      "rsi7": 93.85,
+      "price_chg_24h": 22.0,
       "venue": "gateio",
-      "venues_n": 5,
-      "apr_spread": 80.8114,
+      "venues_n": 3,
+      "apr_spread": 10.95,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 5321156.37,
+      "oi_usd": 51024516.9,
       "severity": 0.0,
-      "apr_trail": -4.7983,
+      "apr_trail": 9.271,
+      "score_modifier_trail": 1.0,
+      "trail_n": 3,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 63.7706,
+          "interval_hours": 8.0,
+          "funding_rate": 0.00058238,
+          "interval_basis": "assumed"
+        }
+      }
+    },
+    {
+      "symbol": "TRX",
+      "price": 0.345531,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 83.34,
+      "price_chg_24h": 2.2,
+      "venue": "gateio",
+      "venues_n": 5,
+      "apr_spread": 121.7662,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 3275088.35,
+      "severity": 0.0,
+      "apr_trail": 5.0637,
       "score_modifier_trail": 1.0,
       "trail_n": 7,
-      "pos_share": 0.429,
+      "pos_share": 0.857,
       "by_venue": {
         "gateio": {
           "funding_apr": 10.95,
@@ -1394,9 +1400,9 @@
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": 39.8602,
+          "funding_apr": 16.3352,
           "interval_hours": 1.0,
-          "funding_rate": 4.550246055946511e-05,
+          "funding_rate": 1.8647504166666666e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
@@ -1406,22 +1412,22 @@
           "interval_basis": "protocol"
         },
         "hyperliquid": {
-          "funding_apr": 80.8114,
+          "funding_apr": 121.7662,
           "interval_hours": 1.0,
-          "funding_rate": 9.22505e-05,
+          "funding_rate": 0.0001390025,
           "interval_basis": "protocol"
         },
-        "coinbase": {
-          "funding_apr": 59.568,
-          "interval_hours": 1.0,
-          "funding_rate": 6.8e-05,
-          "interval_basis": "protocol"
+        "xoomar": {
+          "funding_apr": 23.4976,
+          "interval_hours": 8.0,
+          "funding_rate": 0.00021459,
+          "interval_basis": "assumed"
         }
       }
     },
     {
       "symbol": "ETHFI",
-      "price": 0.555634,
+      "price": 0.579342,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 5e-05,
       "interval_hours": 4.0,
@@ -1429,16 +1435,16 @@
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 91.48,
-      "price_chg_24h": 8.6,
+      "rsi7": 92.72,
+      "price_chg_24h": 5.1,
       "venue": "gateio",
       "venues_n": 5,
-      "apr_spread": 174.91,
+      "apr_spread": 125.3127,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 497096.88,
+      "oi_usd": 648055.26,
       "severity": 0.0,
-      "apr_trail": 2.3479,
+      "apr_trail": 3.13,
       "score_modifier_trail": 1.0,
       "trail_n": 7,
       "pos_share": 0.714,
@@ -1450,9 +1456,9 @@
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": -41.8414,
+          "funding_apr": 28.0767,
           "interval_hours": 1.0,
-          "funding_rate": -4.776413385022217e-05,
+          "funding_rate": 3.20510029491837e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
@@ -1462,706 +1468,22 @@
           "interval_basis": "protocol"
         },
         "hyperliquid": {
-          "funding_apr": 97.822,
+          "funding_apr": 20.9716,
           "interval_hours": 1.0,
-          "funding_rate": 0.000111669,
+          "funding_rate": 2.39402e-05,
           "interval_basis": "protocol"
         },
         "coinbase": {
-          "funding_apr": -77.088,
+          "funding_apr": -97.236,
           "interval_hours": 1.0,
-          "funding_rate": -8.8e-05,
+          "funding_rate": -0.000111,
           "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "LEO",
-      "price": 9.27,
-      "funding_rate_8h": null,
-      "funding_rate_raw": null,
-      "interval_hours": null,
-      "funding_apr": null,
-      "regime": null,
-      "score_modifier": 1.0,
-      "modifier_reason": "no funding feed",
-      "rsi7": 43.76,
-      "price_chg_24h": -1.0,
-      "venue": null,
-      "venues_n": null,
-      "apr_spread": null,
-      "interval_basis": null,
-      "gap_filled": false,
-      "oi_usd": null,
-      "severity": 0.0,
-      "apr_trail": 0.0,
-      "score_modifier_trail": 1.0,
-      "trail_n": 4,
-      "pos_share": 0.0,
-      "by_venue": {}
-    },
-    {
-      "symbol": "NEAR",
-      "price": 1.85,
-      "funding_rate_8h": 5.2e-05,
-      "funding_rate_raw": 5.2e-05,
-      "interval_hours": 8.0,
-      "funding_apr": 5.694,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 6% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 81.57,
-      "price_chg_24h": 6.9,
-      "venue": "gateio",
-      "venues_n": 6,
-      "apr_spread": 85.0614,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 5032458.86,
-      "severity": 0.0,
-      "apr_trail": 9.9864,
-      "score_modifier_trail": 1.0,
-      "trail_n": 5,
-      "pos_share": 1.0,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 5.694,
-          "interval_hours": 8.0,
-          "funding_rate": 5.2e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": -1.5954,
-          "interval_hours": 1.0,
-          "funding_rate": -1.8211787261739271e-06,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 83.466,
-          "interval_hours": 1.0,
-          "funding_rate": 9.52808e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 12.264,
-          "interval_hours": 1.0,
-          "funding_rate": 1.4e-05,
-          "interval_basis": "protocol"
-        },
-        "xoomar": {
-          "funding_apr": 10.95,
-          "interval_hours": 8.0,
-          "funding_rate": 0.0001,
-          "interval_basis": "assumed"
-        }
-      }
-    },
-    {
-      "symbol": "FARTCOIN",
-      "price": 0.172292,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 5e-05,
-      "interval_hours": 4.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": null,
-      "price_chg_24h": 16.0,
-      "venue": "gateio",
-      "venues_n": 4,
-      "apr_spread": 131.838,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 6517519.85,
-      "severity": 0.0,
-      "apr_trail": null,
-      "score_modifier_trail": 1.0,
-      "trail_n": null,
-      "pos_share": null,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 4.0,
-          "funding_rate": 5e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": 105.0046,
-          "interval_hours": 1.0,
-          "funding_rate": 0.00011986828154710145,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 118.3631,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0001351177,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 142.788,
-          "interval_hours": 1.0,
-          "funding_rate": 0.000163,
-          "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "BCAP",
-      "price": 105.87,
-      "funding_rate_8h": null,
-      "funding_rate_raw": null,
-      "interval_hours": null,
-      "funding_apr": null,
-      "regime": null,
-      "score_modifier": 1.0,
-      "modifier_reason": "no funding feed",
-      "rsi7": 0.0,
-      "price_chg_24h": 0.0,
-      "venue": null,
-      "venues_n": null,
-      "apr_spread": null,
-      "interval_basis": null,
-      "gap_filled": false,
-      "oi_usd": null,
-      "severity": 0.0,
-      "apr_trail": 0.0,
-      "score_modifier_trail": 1.0,
-      "trail_n": 4,
-      "pos_share": 0.0,
-      "by_venue": {}
-    },
-    {
-      "symbol": "MET",
-      "price": 0.220949,
-      "funding_rate_8h": -8e-06,
-      "funding_rate_raw": -4e-06,
-      "interval_hours": 4.0,
-      "funding_apr": -0.876,
-      "regime": "MILD_INVERSION",
-      "score_modifier": 1.0,
-      "modifier_reason": "mild inversion carry at -1% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": null,
-      "price_chg_24h": 3.5,
-      "venue": "gateio",
-      "venues_n": 2,
-      "apr_spread": 11.826,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 145151.62,
-      "severity": 0.0,
-      "apr_trail": 10.95,
-      "score_modifier_trail": 1.0,
-      "trail_n": 2,
-      "pos_share": 1.0,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": -0.876,
-          "interval_hours": 4.0,
-          "funding_rate": -4e-06,
-          "interval_basis": "reported"
-        },
-        "hyperliquid": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "BTW",
-      "price": 0.482399,
-      "funding_rate_8h": 0.000336,
-      "funding_rate_raw": 0.000168,
-      "interval_hours": 4.0,
-      "funding_apr": 36.792,
-      "regime": "ELEVATED",
-      "score_modifier": 0.9323,
-      "modifier_reason": "longs paying 37% APR, on a +22.0% 24h move \u2014 severity 0.45, confirmation 1.00",
-      "rsi7": 81.01,
-      "price_chg_24h": 22.0,
-      "venue": "gateio",
-      "venues_n": 1,
-      "apr_spread": null,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 1513970.93,
-      "severity": -0.4513,
-      "apr_trail": 23.214,
-      "score_modifier_trail": 0.968,
-      "trail_n": 7,
-      "pos_share": 0.429,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 36.792,
-          "interval_hours": 4.0,
-          "funding_rate": 0.000168,
-          "interval_basis": "reported"
-        }
-      }
-    },
-    {
-      "symbol": "VVV",
-      "price": 15.81,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 5e-05,
-      "interval_hours": 4.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 85.69,
-      "price_chg_24h": 12.4,
-      "venue": "gateio",
-      "venues_n": 4,
-      "apr_spread": 107.2974,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 1409492.92,
-      "severity": 0.0,
-      "apr_trail": 9.3857,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 1.0,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 4.0,
-          "funding_rate": 5e-05,
-          "interval_basis": "reported"
-        },
-        "dydx": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 118.2474,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0001349856,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 48.18,
-          "interval_hours": 1.0,
-          "funding_rate": 5.5e-05,
-          "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "CASHCAT",
-      "price": 0.126803,
-      "funding_rate_8h": 0.00048384,
-      "funding_rate_raw": 6.04801e-05,
-      "interval_hours": 1.0,
-      "funding_apr": 52.9806,
-      "regime": "OVERHEATED_LONG",
-      "score_modifier": 0.9016,
-      "modifier_reason": "longs paying 53% APR, on a +9.7% 24h move \u2014 severity 0.67, confirmation 0.98",
-      "rsi7": 51.96,
-      "price_chg_24h": 9.7,
-      "venue": "hyperliquid",
-      "venues_n": 1,
-      "apr_spread": null,
-      "interval_basis": "protocol",
-      "gap_filled": false,
-      "oi_usd": 18210634.43,
-      "severity": -0.6662,
-      "apr_trail": 18.0561,
-      "score_modifier_trail": 0.983,
-      "trail_n": 6,
-      "pos_share": 0.667,
-      "by_venue": {
-        "hyperliquid": {
-          "funding_apr": 52.9806,
-          "interval_hours": 1.0,
-          "funding_rate": 6.04801e-05,
-          "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "\u5e01\u5b89\u4eba\u751f",
-      "price": 0.50705,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 0.0001,
-      "interval_hours": 8.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 58.39,
-      "price_chg_24h": 13.7,
-      "venue": "gateio",
-      "venues_n": 1,
-      "apr_spread": null,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 197888.39,
-      "severity": 0.0,
-      "apr_trail": 3.6865,
-      "score_modifier_trail": 1.0,
-      "trail_n": 3,
-      "pos_share": 0.667,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 8.0,
-          "funding_rate": 0.0001,
-          "interval_basis": "reported"
-        }
-      }
-    },
-    {
-      "symbol": "PYTH",
-      "price": 0.04874894,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 5e-05,
-      "interval_hours": 4.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": null,
-      "price_chg_24h": 15.1,
-      "venue": "gateio",
-      "venues_n": 5,
-      "apr_spread": 1428.0023,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 408950.95,
-      "severity": 0.0,
-      "apr_trail": null,
-      "score_modifier_trail": 1.0,
-      "trail_n": null,
-      "pos_share": null,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 4.0,
-          "funding_rate": 5e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": -1413.9863,
-          "interval_hours": 1.0,
-          "funding_rate": -0.0016141395786288576,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 14.016,
-          "interval_hours": 1.0,
-          "funding_rate": 1.6e-05,
-          "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "MORPHO",
-      "price": 2.27,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 5e-05,
-      "interval_hours": 4.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 92.79,
-      "price_chg_24h": 3.0,
-      "venue": "gateio",
-      "venues_n": 5,
-      "apr_spread": 1525.9552,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 237590.48,
-      "severity": 0.0,
-      "apr_trail": 8.7913,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 1.0,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 4.0,
-          "funding_rate": 5e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": 1525.9552,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0017419580323480587,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 113.88,
-          "interval_hours": 1.0,
-          "funding_rate": 0.00013,
-          "interval_basis": "protocol"
-        }
-      }
-    },
-    {
-      "symbol": "INJ",
-      "price": 4.84,
-      "funding_rate_8h": 7e-05,
-      "funding_rate_raw": 7e-05,
-      "interval_hours": 8.0,
-      "funding_apr": 7.665,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 8% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 47.36,
-      "price_chg_24h": 3.9,
-      "venue": "gateio",
-      "venues_n": 6,
-      "apr_spread": 25.2704,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 569194.7,
-      "severity": 0.0,
-      "apr_trail": -14.6707,
-      "score_modifier_trail": 1.0,
-      "trail_n": 4,
-      "pos_share": 0.25,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 7.665,
-          "interval_hours": 8.0,
-          "funding_rate": 7e-05,
-          "interval_basis": "reported"
-        },
-        "kraken": {
-          "funding_apr": -14.3204,
-          "interval_hours": 1.0,
-          "funding_rate": -1.6347528635440304e-05,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
-        "hyperliquid": {
-          "funding_apr": 10.95,
-          "interval_hours": 1.0,
-          "funding_rate": 1.25e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 10.512,
-          "interval_hours": 1.0,
-          "funding_rate": 1.2e-05,
-          "interval_basis": "protocol"
-        },
-        "xoomar": {
-          "funding_apr": 10.95,
-          "interval_hours": 8.0,
-          "funding_rate": 0.0001,
-          "interval_basis": "assumed"
-        }
-      }
-    },
-    {
-      "symbol": "VELVET",
-      "price": 0.672439,
-      "funding_rate_8h": 0.0001,
-      "funding_rate_raw": 5e-05,
-      "interval_hours": 4.0,
-      "funding_apr": 10.95,
-      "regime": "NEUTRAL",
-      "score_modifier": 1.0,
-      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 50.28,
-      "price_chg_24h": -0.4,
-      "venue": "gateio",
-      "venues_n": 1,
-      "apr_spread": null,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 1530566.55,
-      "severity": 0.0,
-      "apr_trail": 1.9084,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 0.286,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": 10.95,
-          "interval_hours": 4.0,
-          "funding_rate": 5e-05,
-          "interval_basis": "reported"
-        }
-      }
-    },
-    {
-      "symbol": "GEOD",
-      "price": 0.276573,
-      "funding_rate_8h": null,
-      "funding_rate_raw": null,
-      "interval_hours": null,
-      "funding_apr": null,
-      "regime": null,
-      "score_modifier": 1.0,
-      "modifier_reason": "no funding feed",
-      "rsi7": null,
-      "price_chg_24h": 21.1,
-      "venue": null,
-      "venues_n": null,
-      "apr_spread": null,
-      "interval_basis": null,
-      "gap_filled": false,
-      "oi_usd": null,
-      "severity": 0.0,
-      "apr_trail": null,
-      "score_modifier_trail": 1.0,
-      "trail_n": null,
-      "pos_share": null,
-      "by_venue": {}
-    },
-    {
-      "symbol": "ANSEM",
-      "price": 0.272178,
-      "funding_rate_8h": null,
-      "funding_rate_raw": null,
-      "interval_hours": null,
-      "funding_apr": null,
-      "regime": null,
-      "score_modifier": 1.0,
-      "modifier_reason": "no funding feed",
-      "rsi7": null,
-      "price_chg_24h": 18.0,
-      "venue": null,
-      "venues_n": null,
-      "apr_spread": null,
-      "interval_basis": null,
-      "gap_filled": false,
-      "oi_usd": null,
-      "severity": 0.0,
-      "apr_trail": 0.0,
-      "score_modifier_trail": 1.0,
-      "trail_n": 2,
-      "pos_share": 0.0,
-      "by_venue": {}
-    },
-    {
-      "symbol": "DRV",
-      "price": 0.112626,
-      "funding_rate_8h": null,
-      "funding_rate_raw": null,
-      "interval_hours": null,
-      "funding_apr": null,
-      "regime": null,
-      "score_modifier": 1.0,
-      "modifier_reason": "no funding feed",
-      "rsi7": null,
-      "price_chg_24h": 17.1,
-      "venue": null,
-      "venues_n": null,
-      "apr_spread": null,
-      "interval_basis": null,
-      "gap_filled": false,
-      "oi_usd": null,
-      "severity": 0.0,
-      "apr_trail": 0.0,
-      "score_modifier_trail": 1.0,
-      "trail_n": 1,
-      "pos_share": 0.0,
-      "by_venue": {}
-    },
-    {
-      "symbol": "RLUSD",
-      "price": 1.0,
-      "funding_rate_8h": null,
-      "funding_rate_raw": null,
-      "interval_hours": null,
-      "funding_apr": null,
-      "regime": null,
-      "score_modifier": 1.0,
-      "modifier_reason": "no funding feed",
-      "rsi7": 46.53,
-      "price_chg_24h": 0.0,
-      "venue": null,
-      "venues_n": null,
-      "apr_spread": null,
-      "interval_basis": null,
-      "gap_filled": false,
-      "oi_usd": null,
-      "severity": 0.0,
-      "apr_trail": 0.0,
-      "score_modifier_trail": 1.0,
-      "trail_n": 4,
-      "pos_share": 0.0,
-      "by_venue": {}
-    },
-    {
-      "symbol": "JST",
-      "price": 0.106501,
-      "funding_rate_8h": -0.000148,
-      "funding_rate_raw": -7.4e-05,
-      "interval_hours": 4.0,
-      "funding_apr": -16.206,
-      "regime": "SHORT_SQUEEZE_RISK",
-      "score_modifier": 1.0058,
-      "modifier_reason": "shorts paying -16% APR with RSI 54.6 \u2014 squeeze asymmetry, severity 0.06, confirmation 0.64",
-      "rsi7": 54.64,
-      "price_chg_24h": 1.1,
-      "venue": "gateio",
-      "venues_n": 1,
-      "apr_spread": null,
-      "interval_basis": "reported",
-      "gap_filled": false,
-      "oi_usd": 60001.88,
-      "severity": 0.0605,
-      "apr_trail": -1.314,
-      "score_modifier_trail": 1.0,
-      "trail_n": 7,
-      "pos_share": 0.286,
-      "by_venue": {
-        "gateio": {
-          "funding_apr": -16.206,
-          "interval_hours": 4.0,
-          "funding_rate": -7.4e-05,
-          "interval_basis": "reported"
         }
       }
     },
     {
       "symbol": "JTO",
-      "price": 0.579752,
+      "price": 0.625919,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 0.0001,
       "interval_hours": 8.0,
@@ -2169,16 +1491,16 @@
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 52.69,
-      "price_chg_24h": 2.2,
+      "rsi7": 68.32,
+      "price_chg_24h": 8.0,
       "venue": "gateio",
       "venues_n": 5,
-      "apr_spread": 131.6962,
+      "apr_spread": 79.0775,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 227389.98,
+      "oi_usd": 268537.09,
       "severity": 0.0,
-      "apr_trail": 8.2124,
+      "apr_trail": 9.1249,
       "score_modifier_trail": 1.0,
       "trail_n": 6,
       "pos_share": 1.0,
@@ -2190,9 +1512,327 @@
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": 131.6962,
+          "funding_apr": -68.1275,
           "interval_hours": 1.0,
-          "funding_rate": 0.00015033812501433265,
+          "funding_rate": -7.777109588720369e-05,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 10.95,
+          "interval_hours": 1.0,
+          "funding_rate": 1.25e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": -37.668,
+          "interval_hours": 1.0,
+          "funding_rate": -4.3e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "MON",
+      "price": 0.0268953,
+      "funding_rate_8h": -0.000296,
+      "funding_rate_raw": -0.000148,
+      "interval_hours": 4.0,
+      "funding_apr": -32.412,
+      "regime": "SHORT_SQUEEZE_RISK",
+      "score_modifier": 1.0,
+      "modifier_reason": "shorts paying -32% APR, but no 7d RSI to separate a squeeze from a downtrend \u2014 the boost is withheld, not reduced",
+      "rsi7": null,
+      "price_chg_24h": -1.2,
+      "venue": "gateio",
+      "venues_n": 5,
+      "apr_spread": 76.212,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 344784.85,
+      "severity": 0.7038,
+      "apr_trail": 4.672,
+      "score_modifier_trail": 1.0,
+      "trail_n": 3,
+      "pos_share": 0.667,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": -32.412,
+          "interval_hours": 4.0,
+          "funding_rate": -0.000148,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": -2.8979,
+          "interval_hours": 1.0,
+          "funding_rate": -3.308117875695733e-06,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 10.95,
+          "interval_hours": 1.0,
+          "funding_rate": 1.25e-05,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 10.95,
+          "interval_hours": 1.0,
+          "funding_rate": 1.25e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 43.8,
+          "interval_hours": 1.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "CC",
+      "price": 0.121261,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": null,
+      "price_chg_24h": 18.7,
+      "venue": "gateio",
+      "venues_n": 2,
+      "apr_spread": 0.0,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 153446.05,
+      "severity": 0.0,
+      "apr_trail": null,
+      "score_modifier_trail": 1.0,
+      "trail_n": null,
+      "pos_share": null,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        },
+        "hyperliquid": {
+          "funding_apr": 10.95,
+          "interval_hours": 1.0,
+          "funding_rate": 1.25e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "LTC",
+      "price": 51.99,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": null,
+      "price_chg_24h": 7.0,
+      "venue": "gateio",
+      "venues_n": 6,
+      "apr_spread": 78.9731,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 4870798.86,
+      "severity": 0.0,
+      "apr_trail": null,
+      "score_modifier_trail": 1.0,
+      "trail_n": null,
+      "pos_share": null,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 26.3092,
+          "interval_hours": 1.0,
+          "funding_rate": 3.0033356981241573e-05,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 78.9731,
+          "interval_hours": 1.0,
+          "funding_rate": 9.01519e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 21.9,
+          "interval_hours": 1.0,
+          "funding_rate": 2.5e-05,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "assumed"
+        }
+      }
+    },
+    {
+      "symbol": "MELANIA",
+      "price": 0.120939,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": null,
+      "price_chg_24h": 47.1,
+      "venue": "gateio",
+      "venues_n": 3,
+      "apr_spread": 160.5511,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 196058.51,
+      "severity": 0.0,
+      "apr_trail": null,
+      "score_modifier_trail": 1.0,
+      "trail_n": null,
+      "pos_share": null,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": -149.6011,
+          "interval_hours": 1.0,
+          "funding_rate": -0.0001707775124123942,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": -62.0572,
+          "interval_hours": 1.0,
+          "funding_rate": -7.08415e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "SUI",
+      "price": 0.864365,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": null,
+      "price_chg_24h": 11.9,
+      "venue": "gateio",
+      "venues_n": 6,
+      "apr_spread": 53.1201,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 54809489.27,
+      "severity": 0.0,
+      "apr_trail": null,
+      "score_modifier_trail": 1.0,
+      "trail_n": null,
+      "pos_share": null,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 9.3133,
+          "interval_hours": 1.0,
+          "funding_rate": 1.0631631296586272e-05,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 53.1201,
+          "interval_hours": 1.0,
+          "funding_rate": 6.06394e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 25.404,
+          "interval_hours": 1.0,
+          "funding_rate": 2.9e-05,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "assumed"
+        }
+      }
+    },
+    {
+      "symbol": "WLD",
+      "price": 0.417591,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 78.91,
+      "price_chg_24h": 11.5,
+      "venue": "gateio",
+      "venues_n": 5,
+      "apr_spread": 65.2296,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 3133680.08,
+      "severity": 0.0,
+      "apr_trail": 2.7014,
+      "score_modifier_trail": 1.0,
+      "trail_n": 6,
+      "pos_share": 0.833,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": -54.2796,
+          "interval_hours": 1.0,
+          "funding_rate": -6.19630392374794e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
@@ -2216,8 +1856,358 @@
       }
     },
     {
-      "symbol": "AVAX",
-      "price": 7.38,
+      "symbol": "FARTCOIN",
+      "price": 0.18769,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": null,
+      "price_chg_24h": 9.8,
+      "venue": "gateio",
+      "venues_n": 4,
+      "apr_spread": 125.9156,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 7316861.55,
+      "severity": 0.0,
+      "apr_trail": 10.95,
+      "score_modifier_trail": 1.0,
+      "trail_n": 1,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 136.8656,
+          "interval_hours": 1.0,
+          "funding_rate": 0.00015623932156452988,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 70.2979,
+          "interval_hours": 1.0,
+          "funding_rate": 8.02487e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 50.808,
+          "interval_hours": 1.0,
+          "funding_rate": 5.8e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "PENGU",
+      "price": 0.00859516,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 85.75,
+      "price_chg_24h": 14.2,
+      "venue": "gateio",
+      "venues_n": 4,
+      "apr_spread": 143.664,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 1480642.78,
+      "severity": 0.0,
+      "apr_trail": 10.95,
+      "score_modifier_trail": 1.0,
+      "trail_n": 2,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 44.3768,
+          "interval_hours": 1.0,
+          "funding_rate": 5.06585e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 143.664,
+          "interval_hours": 1.0,
+          "funding_rate": 0.000164,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "ZAMA",
+      "price": 0.057852,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": null,
+      "price_chg_24h": 26.9,
+      "venue": "gateio",
+      "venues_n": 1,
+      "apr_spread": null,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 264675.47,
+      "severity": 0.0,
+      "apr_trail": null,
+      "score_modifier_trail": 1.0,
+      "trail_n": null,
+      "pos_share": null,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        }
+      }
+    },
+    {
+      "symbol": "ENA",
+      "price": 0.15303,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 96.68,
+      "price_chg_24h": 18.7,
+      "venue": "gateio",
+      "venues_n": 5,
+      "apr_spread": 140.16,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 4699464.55,
+      "severity": 0.0,
+      "apr_trail": 10.95,
+      "score_modifier_trail": 1.0,
+      "trail_n": 2,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 72.0158,
+          "interval_hours": 1.0,
+          "funding_rate": 8.220978466814347e-05,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 126.7324,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0001446717,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 140.16,
+          "interval_hours": 1.0,
+          "funding_rate": 0.00016,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "INJ",
+      "price": 4.97,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 53.44,
+      "price_chg_24h": 3.2,
+      "venue": "gateio",
+      "venues_n": 6,
+      "apr_spread": 116.0992,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 690080.23,
+      "severity": 0.0,
+      "apr_trail": -11.8079,
+      "score_modifier_trail": 1.0,
+      "trail_n": 4,
+      "pos_share": 0.5,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": -32.3247,
+          "interval_hours": 1.0,
+          "funding_rate": -3.690030889248952e-05,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 83.7745,
+          "interval_hours": 1.0,
+          "funding_rate": 9.5633e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 20.148,
+          "interval_hours": 1.0,
+          "funding_rate": 2.3e-05,
+          "interval_basis": "protocol"
+        },
+        "xoomar": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "assumed"
+        }
+      }
+    },
+    {
+      "symbol": "ENS",
+      "price": 5.93,
+      "funding_rate_8h": -2e-05,
+      "funding_rate_raw": -2e-05,
+      "interval_hours": 8.0,
+      "funding_apr": -2.19,
+      "regime": "MILD_INVERSION",
+      "score_modifier": 1.0,
+      "modifier_reason": "mild inversion carry at -2% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": null,
+      "price_chg_24h": 25.4,
+      "venue": "gateio",
+      "venues_n": 3,
+      "apr_spread": 292.9105,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 345193.37,
+      "severity": 0.0,
+      "apr_trail": null,
+      "score_modifier_trail": 1.0,
+      "trail_n": null,
+      "pos_share": null,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": -2.19,
+          "interval_hours": 8.0,
+          "funding_rate": -2e-05,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": -253.1157,
+          "interval_hours": 1.0,
+          "funding_rate": -0.0002889449137475587,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 39.7948,
+          "interval_hours": 1.0,
+          "funding_rate": 4.54279e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "TAO",
+      "price": 231.21,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 81.39,
+      "price_chg_24h": 5.7,
+      "venue": "gateio",
+      "venues_n": 5,
+      "apr_spread": 53.1925,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 4074770.81,
+      "severity": 0.0,
+      "apr_trail": 14.9749,
+      "score_modifier_trail": 0.993,
+      "trail_n": 3,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 53.1925,
+          "interval_hours": 1.0,
+          "funding_rate": 6.072207772391451e-05,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 37.467,
+          "interval_hours": 1.0,
+          "funding_rate": 4.27705e-05,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 43.8,
+          "interval_hours": 1.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "ARB",
+      "price": 0.099887,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 0.0001,
       "interval_hours": 8.0,
@@ -2226,13 +2216,13 @@
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
       "rsi7": null,
-      "price_chg_24h": 9.2,
+      "price_chg_24h": 8.3,
       "venue": "gateio",
       "venues_n": 6,
-      "apr_spread": 18.5273,
+      "apr_spread": 81.1788,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 4204767.42,
+      "oi_usd": 958497.75,
       "severity": 0.0,
       "apr_trail": 10.95,
       "score_modifier_trail": 1.0,
@@ -2246,9 +2236,9 @@
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": -1.0073,
+          "funding_apr": 81.1788,
           "interval_hours": 1.0,
-          "funding_rate": -1.1498313091695971e-06,
+          "funding_rate": 9.266989328451465e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
@@ -2264,9 +2254,9 @@
           "interval_basis": "protocol"
         },
         "coinbase": {
-          "funding_apr": 17.52,
+          "funding_apr": 8.76,
           "interval_hours": 1.0,
-          "funding_rate": 2e-05,
+          "funding_rate": 1e-05,
           "interval_basis": "protocol"
         },
         "xoomar": {
@@ -2278,8 +2268,90 @@
       }
     },
     {
-      "symbol": "TIBBIR",
-      "price": 0.242021,
+      "symbol": "STX",
+      "price": 0.196596,
+      "funding_rate_8h": -0.000493,
+      "funding_rate_raw": -0.000493,
+      "interval_hours": 8.0,
+      "funding_apr": -53.9835,
+      "regime": "SHORT_SQUEEZE_RISK",
+      "score_modifier": 1.0,
+      "modifier_reason": "shorts paying -54% APR, but no 7d RSI to separate a squeeze from a downtrend \u2014 the boost is withheld, not reduced",
+      "rsi7": null,
+      "price_chg_24h": 25.0,
+      "venue": "gateio",
+      "venues_n": 4,
+      "apr_spread": 112.2486,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 263990.92,
+      "severity": 0.961,
+      "apr_trail": null,
+      "score_modifier_trail": 1.0,
+      "trail_n": null,
+      "pos_share": null,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": -53.9835,
+          "interval_hours": 8.0,
+          "funding_rate": -0.000493,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": -101.2986,
+          "interval_hours": 1.0,
+          "funding_rate": -0.00011563763228015012,
+          "interval_basis": "protocol"
+        },
+        "dydx": {
+          "funding_apr": 0.0,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 10.95,
+          "interval_hours": 1.0,
+          "funding_rate": 1.25e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "FLOKI",
+      "price": 2.838e-05,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 0.0001,
+      "interval_hours": 8.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": null,
+      "price_chg_24h": 15.7,
+      "venue": "gateio",
+      "venues_n": 1,
+      "apr_spread": null,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 355184.32,
+      "severity": 0.0,
+      "apr_trail": null,
+      "score_modifier_trail": 1.0,
+      "trail_n": null,
+      "pos_share": null,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 8.0,
+          "funding_rate": 0.0001,
+          "interval_basis": "reported"
+        }
+      }
+    },
+    {
+      "symbol": "ANSEM",
+      "price": 0.301396,
       "funding_rate_8h": null,
       "funding_rate_raw": null,
       "interval_hours": null,
@@ -2288,7 +2360,7 @@
       "score_modifier": 1.0,
       "modifier_reason": "no funding feed",
       "rsi7": null,
-      "price_chg_24h": 5.6,
+      "price_chg_24h": 16.0,
       "venue": null,
       "venues_n": null,
       "apr_spread": null,
@@ -2303,8 +2375,65 @@
       "by_venue": {}
     },
     {
-      "symbol": "TAO",
-      "price": 219.32,
+      "symbol": "CASHCAT",
+      "price": 0.11179,
+      "funding_rate_8h": 0.00173262,
+      "funding_rate_raw": 0.0002165781,
+      "interval_hours": 1.0,
+      "funding_apr": 189.7224,
+      "regime": "OVERHEATED_LONG",
+      "score_modifier": 0.9251,
+      "modifier_reason": "longs paying 190% APR, price not extended (-13.3% 24h) \u2014 severity 1.00, confirmation 0.50",
+      "rsi7": 42.06,
+      "price_chg_24h": -13.3,
+      "venue": "hyperliquid",
+      "venues_n": 1,
+      "apr_spread": null,
+      "interval_basis": "protocol",
+      "gap_filled": false,
+      "oi_usd": 11445941.62,
+      "severity": -0.9981,
+      "apr_trail": 26.8863,
+      "score_modifier_trail": 0.979,
+      "trail_n": 6,
+      "pos_share": 0.833,
+      "by_venue": {
+        "hyperliquid": {
+          "funding_apr": 189.7224,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0002165781,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "LEO",
+      "price": 9.4,
+      "funding_rate_8h": null,
+      "funding_rate_raw": null,
+      "interval_hours": null,
+      "funding_apr": null,
+      "regime": null,
+      "score_modifier": 1.0,
+      "modifier_reason": "no funding feed",
+      "rsi7": 51.61,
+      "price_chg_24h": 1.3,
+      "venue": null,
+      "venues_n": null,
+      "apr_spread": null,
+      "interval_basis": null,
+      "gap_filled": false,
+      "oi_usd": null,
+      "severity": 0.0,
+      "apr_trail": 0.0,
+      "score_modifier_trail": 1.0,
+      "trail_n": 3,
+      "pos_share": 0.0,
+      "by_venue": {}
+    },
+    {
+      "symbol": "GRAM",
+      "price": 1.47,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 5e-05,
       "interval_hours": 4.0,
@@ -2313,17 +2442,17 @@
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
       "rsi7": null,
-      "price_chg_24h": 6.9,
+      "price_chg_24h": 0.4,
       "venue": "gateio",
-      "venues_n": 5,
-      "apr_spread": 73.6877,
+      "venues_n": 2,
+      "apr_spread": 0.0,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 3609088.67,
+      "oi_usd": 1365692.99,
       "severity": 0.0,
-      "apr_trail": 14.9749,
-      "score_modifier_trail": 0.993,
-      "trail_n": 3,
+      "apr_trail": 10.95,
+      "score_modifier_trail": 1.0,
+      "trail_n": 1,
       "pos_share": 1.0,
       "by_venue": {
         "gateio": {
@@ -2332,35 +2461,17 @@
           "funding_rate": 5e-05,
           "interval_basis": "reported"
         },
-        "kraken": {
-          "funding_apr": 38.0562,
-          "interval_hours": 1.0,
-          "funding_rate": 4.344317492340287e-05,
-          "interval_basis": "protocol"
-        },
-        "dydx": {
-          "funding_apr": 0.0,
-          "interval_hours": 1.0,
-          "funding_rate": 0.0,
-          "interval_basis": "protocol"
-        },
         "hyperliquid": {
-          "funding_apr": 73.6877,
+          "funding_apr": 10.95,
           "interval_hours": 1.0,
-          "funding_rate": 8.41184e-05,
-          "interval_basis": "protocol"
-        },
-        "coinbase": {
-          "funding_apr": 13.14,
-          "interval_hours": 1.0,
-          "funding_rate": 1.5e-05,
+          "funding_rate": 1.25e-05,
           "interval_basis": "protocol"
         }
       }
     },
     {
-      "symbol": "AAVE",
-      "price": 100.56,
+      "symbol": "UNI",
+      "price": 4.18,
       "funding_rate_8h": 0.0001,
       "funding_rate_raw": 0.0001,
       "interval_hours": 8.0,
@@ -2368,18 +2479,18 @@
       "regime": "NEUTRAL",
       "score_modifier": 1.0,
       "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
-      "rsi7": 78.16,
-      "price_chg_24h": 4.6,
+      "rsi7": 57.24,
+      "price_chg_24h": 8.9,
       "venue": "gateio",
       "venues_n": 6,
-      "apr_spread": 55.7972,
+      "apr_spread": 24.528,
       "interval_basis": "reported",
       "gap_filled": false,
-      "oi_usd": 2865222.48,
+      "oi_usd": 4628752.37,
       "severity": 0.0,
-      "apr_trail": 8.6505,
+      "apr_trail": 10.95,
       "score_modifier_trail": 1.0,
-      "trail_n": 3,
+      "trail_n": 1,
       "pos_share": 1.0,
       "by_venue": {
         "gateio": {
@@ -2389,9 +2500,9 @@
           "interval_basis": "reported"
         },
         "kraken": {
-          "funding_apr": 5.9037,
+          "funding_apr": 16.0655,
           "interval_hours": 1.0,
-          "funding_rate": 6.739341710155089e-06,
+          "funding_rate": 1.8339646168041747e-05,
           "interval_basis": "protocol"
         },
         "dydx": {
@@ -2401,15 +2512,15 @@
           "interval_basis": "protocol"
         },
         "hyperliquid": {
-          "funding_apr": 55.7972,
+          "funding_apr": 10.95,
           "interval_hours": 1.0,
-          "funding_rate": 6.36954e-05,
+          "funding_rate": 1.25e-05,
           "interval_basis": "protocol"
         },
         "coinbase": {
-          "funding_apr": 26.28,
+          "funding_apr": 24.528,
           "interval_hours": 1.0,
-          "funding_rate": 3e-05,
+          "funding_rate": 2.8e-05,
           "interval_basis": "protocol"
         },
         "xoomar": {
@@ -2419,22 +2530,136 @@
           "interval_basis": "assumed"
         }
       }
+    },
+    {
+      "symbol": "VVV",
+      "price": 15.41,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": 77.34,
+      "price_chg_24h": 1.1,
+      "venue": "gateio",
+      "venues_n": 4,
+      "apr_spread": 95.2817,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 1339650.68,
+      "severity": 0.0,
+      "apr_trail": 10.1679,
+      "score_modifier_trail": 1.0,
+      "trail_n": 7,
+      "pos_share": 1.0,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        },
+        "dydx": {
+          "funding_apr": 10.95,
+          "interval_hours": 1.0,
+          "funding_rate": 1.25e-05,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 106.2317,
+          "interval_hours": 1.0,
+          "funding_rate": 0.0001212691,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 67.452,
+          "interval_hours": 1.0,
+          "funding_rate": 7.7e-05,
+          "interval_basis": "protocol"
+        }
+      }
+    },
+    {
+      "symbol": "VIRTUAL",
+      "price": 0.702063,
+      "funding_rate_8h": 0.0001,
+      "funding_rate_raw": 5e-05,
+      "interval_hours": 4.0,
+      "funding_apr": 10.95,
+      "regime": "NEUTRAL",
+      "score_modifier": 1.0,
+      "modifier_reason": "neutral carry at 11% APR \u2014 inside the band that earns no adjustment",
+      "rsi7": null,
+      "price_chg_24h": 6.6,
+      "venue": "gateio",
+      "venues_n": 4,
+      "apr_spread": 98.2728,
+      "interval_basis": "reported",
+      "gap_filled": false,
+      "oi_usd": 629672.75,
+      "severity": 0.0,
+      "apr_trail": null,
+      "score_modifier_trail": 1.0,
+      "trail_n": null,
+      "pos_share": null,
+      "by_venue": {
+        "gateio": {
+          "funding_apr": 10.95,
+          "interval_hours": 4.0,
+          "funding_rate": 5e-05,
+          "interval_basis": "reported"
+        },
+        "kraken": {
+          "funding_apr": 3.3704,
+          "interval_hours": 1.0,
+          "funding_rate": 3.847537544904654e-06,
+          "interval_basis": "protocol"
+        },
+        "hyperliquid": {
+          "funding_apr": 101.6432,
+          "interval_hours": 1.0,
+          "funding_rate": 0.000116031,
+          "interval_basis": "protocol"
+        },
+        "coinbase": {
+          "funding_apr": 39.42,
+          "interval_hours": 1.0,
+          "funding_rate": 4.5e-05,
+          "interval_basis": "protocol"
+        }
+      }
     }
   ],
   "carry_screen": [
     {
       "symbol": "CASHCAT",
       "venue": "hyperliquid",
-      "funding_apr": 52.9806,
+      "funding_apr": 189.7224,
       "interval_hours": 1.0,
       "regime": "OVERHEATED_LONG",
-      "oi_usd": 18210634.43,
+      "oi_usd": 11445941.62,
       "oi_known": true,
       "apr_spread": null,
-      "net_apr": 49.8173,
+      "net_apr": 186.5591,
       "fee_drag_apr": 3.1633,
       "roundtrip_cost_pct": 0.26,
-      "breakeven_days": 1.79
+      "breakeven_days": 0.5
+    },
+    {
+      "symbol": "ZEC",
+      "venue": "gateio",
+      "funding_apr": 12.1545,
+      "interval_hours": 8.0,
+      "regime": "ELEVATED",
+      "oi_usd": 22550256.95,
+      "oi_known": true,
+      "apr_spread": 206.0221,
+      "net_apr": 8.9912,
+      "fee_drag_apr": 3.1633,
+      "roundtrip_cost_pct": 0.26,
+      "breakeven_days": 7.81
     },
     {
       "symbol": "ADA",
@@ -2442,9 +2667,9 @@
       "funding_apr": 10.95,
       "interval_hours": 8.0,
       "regime": "NEUTRAL",
-      "oi_usd": 37373204.12,
+      "oi_usd": 44086051.56,
       "oi_known": true,
-      "apr_spread": 20.7728,
+      "apr_spread": 42.8497,
       "net_apr": 7.7867,
       "fee_drag_apr": 3.1633,
       "roundtrip_cost_pct": 0.26,
@@ -2456,9 +2681,65 @@
       "funding_apr": 10.95,
       "interval_hours": 8.0,
       "regime": "NEUTRAL",
-      "oi_usd": 5321156.37,
+      "oi_usd": 5149789.42,
       "oi_known": true,
-      "apr_spread": 80.8114,
+      "apr_spread": 38.544,
+      "net_apr": 7.7867,
+      "fee_drag_apr": 3.1633,
+      "roundtrip_cost_pct": 0.26,
+      "breakeven_days": 8.67
+    },
+    {
+      "symbol": "BNB",
+      "venue": "gateio",
+      "funding_apr": 10.95,
+      "interval_hours": 8.0,
+      "regime": "NEUTRAL",
+      "oi_usd": 15626889.2,
+      "oi_known": true,
+      "apr_spread": 87.782,
+      "net_apr": 7.7867,
+      "fee_drag_apr": 3.1633,
+      "roundtrip_cost_pct": 0.26,
+      "breakeven_days": 8.67
+    },
+    {
+      "symbol": "BTC",
+      "venue": "gateio",
+      "funding_apr": 10.95,
+      "interval_hours": 8.0,
+      "regime": "NEUTRAL",
+      "oi_usd": 2224138813.77,
+      "oi_known": true,
+      "apr_spread": 15.1364,
+      "net_apr": 7.7867,
+      "fee_drag_apr": 3.1633,
+      "roundtrip_cost_pct": 0.26,
+      "breakeven_days": 8.67
+    },
+    {
+      "symbol": "DOGE",
+      "venue": "gateio",
+      "funding_apr": 10.95,
+      "interval_hours": 8.0,
+      "regime": "NEUTRAL",
+      "oi_usd": 137313770.76,
+      "oi_known": true,
+      "apr_spread": 45.7208,
+      "net_apr": 7.7867,
+      "fee_drag_apr": 3.1633,
+      "roundtrip_cost_pct": 0.26,
+      "breakeven_days": 8.67
+    },
+    {
+      "symbol": "ETH",
+      "venue": "gateio",
+      "funding_apr": 10.95,
+      "interval_hours": 8.0,
+      "regime": "NEUTRAL",
+      "oi_usd": 1279576567.67,
+      "oi_known": true,
+      "apr_spread": 10.95,
       "net_apr": 7.7867,
       "fee_drag_apr": 3.1633,
       "roundtrip_cost_pct": 0.26,
@@ -2470,9 +2751,9 @@
       "funding_apr": 10.95,
       "interval_hours": 4.0,
       "regime": "NEUTRAL",
-      "oi_usd": 6517519.85,
+      "oi_usd": 7316861.55,
       "oi_known": true,
-      "apr_spread": 131.838,
+      "apr_spread": 125.9156,
       "net_apr": 7.7867,
       "fee_drag_apr": 3.1633,
       "roundtrip_cost_pct": 0.26,
@@ -2484,9 +2765,37 @@
       "funding_apr": 10.95,
       "interval_hours": 4.0,
       "regime": "NEUTRAL",
-      "oi_usd": 19079172.35,
+      "oi_usd": 20921881.98,
       "oi_known": true,
-      "apr_spread": 61.931,
+      "apr_spread": 111.9839,
+      "net_apr": 7.7867,
+      "fee_drag_apr": 3.1633,
+      "roundtrip_cost_pct": 0.26,
+      "breakeven_days": 8.67
+    },
+    {
+      "symbol": "LINK",
+      "venue": "gateio",
+      "funding_apr": 10.95,
+      "interval_hours": 8.0,
+      "regime": "NEUTRAL",
+      "oi_usd": 62773760.78,
+      "oi_known": true,
+      "apr_spread": 50.6205,
+      "net_apr": 7.7867,
+      "fee_drag_apr": 3.1633,
+      "roundtrip_cost_pct": 0.26,
+      "breakeven_days": 8.67
+    },
+    {
+      "symbol": "NEAR",
+      "venue": "gateio",
+      "funding_apr": 10.95,
+      "interval_hours": 8.0,
+      "regime": "NEUTRAL",
+      "oi_usd": 5273439.59,
+      "oi_known": true,
+      "apr_spread": 131.1028,
       "net_apr": 7.7867,
       "fee_drag_apr": 3.1633,
       "roundtrip_cost_pct": 0.26,
@@ -2498,7 +2807,7 @@
       "funding_apr": 10.95,
       "interval_hours": 8.0,
       "regime": "NEUTRAL",
-      "oi_usd": 38604034.8,
+      "oi_usd": 51024516.9,
       "oi_known": true,
       "apr_spread": 10.95,
       "net_apr": 7.7867,
@@ -2512,9 +2821,9 @@
       "funding_apr": 10.95,
       "interval_hours": 8.0,
       "regime": "NEUTRAL",
-      "oi_usd": 363755657.74,
+      "oi_usd": 423196129.84,
       "oi_known": true,
-      "apr_spread": 12.7691,
+      "apr_spread": 25.5768,
       "net_apr": 7.7867,
       "fee_drag_apr": 3.1633,
       "roundtrip_cost_pct": 0.26,
@@ -2526,111 +2835,27 @@
       "funding_apr": 10.95,
       "interval_hours": 8.0,
       "regime": "NEUTRAL",
-      "oi_usd": 43197346.83,
+      "oi_usd": 54809489.27,
       "oi_known": true,
-      "apr_spread": 43.0538,
+      "apr_spread": 53.1201,
       "net_apr": 7.7867,
       "fee_drag_apr": 3.1633,
       "roundtrip_cost_pct": 0.26,
       "breakeven_days": 8.67
-    },
-    {
-      "symbol": "ZEC",
-      "venue": "gateio",
-      "funding_apr": 10.95,
-      "interval_hours": 8.0,
-      "regime": "NEUTRAL",
-      "oi_usd": 12703137.1,
-      "oi_known": true,
-      "apr_spread": 144.6326,
-      "net_apr": 7.7867,
-      "fee_drag_apr": 3.1633,
-      "roundtrip_cost_pct": 0.26,
-      "breakeven_days": 8.67
-    },
-    {
-      "symbol": "BNB",
-      "venue": "gateio",
-      "funding_apr": 10.8405,
-      "interval_hours": 8.0,
-      "regime": "NEUTRAL",
-      "oi_usd": 15693970.75,
-      "oi_known": true,
-      "apr_spread": 13.2112,
-      "net_apr": 7.6772,
-      "fee_drag_apr": 3.1633,
-      "roundtrip_cost_pct": 0.26,
-      "breakeven_days": 8.75
-    },
-    {
-      "symbol": "ETH",
-      "venue": "gateio",
-      "funding_apr": 9.198,
-      "interval_hours": 8.0,
-      "regime": "NEUTRAL",
-      "oi_usd": 1315238673.18,
-      "oi_known": true,
-      "apr_spread": 25.0268,
-      "net_apr": 6.0347,
-      "fee_drag_apr": 3.1633,
-      "roundtrip_cost_pct": 0.26,
-      "breakeven_days": 10.32
     },
     {
       "symbol": "XRP",
       "venue": "gateio",
-      "funding_apr": 7.3365,
+      "funding_apr": 10.95,
       "interval_hours": 8.0,
       "regime": "NEUTRAL",
-      "oi_usd": 144455214.33,
+      "oi_usd": 163072665.0,
       "oi_known": true,
-      "apr_spread": 629.7256,
-      "net_apr": 4.1732,
+      "apr_spread": 1770.8712,
+      "net_apr": 7.7867,
       "fee_drag_apr": 3.1633,
       "roundtrip_cost_pct": 0.26,
-      "breakeven_days": 12.94
-    },
-    {
-      "symbol": "BTC",
-      "venue": "gateio",
-      "funding_apr": 7.227,
-      "interval_hours": 8.0,
-      "regime": "NEUTRAL",
-      "oi_usd": 2324878973.21,
-      "oi_known": true,
-      "apr_spread": 43.0092,
-      "net_apr": 4.0637,
-      "fee_drag_apr": 3.1633,
-      "roundtrip_cost_pct": 0.26,
-      "breakeven_days": 13.13
-    },
-    {
-      "symbol": "NEAR",
-      "venue": "gateio",
-      "funding_apr": 5.694,
-      "interval_hours": 8.0,
-      "regime": "NEUTRAL",
-      "oi_usd": 5032458.86,
-      "oi_known": true,
-      "apr_spread": 85.0614,
-      "net_apr": 2.5307,
-      "fee_drag_apr": 3.1633,
-      "roundtrip_cost_pct": 0.26,
-      "breakeven_days": 16.67
-    },
-    {
-      "symbol": "LINK",
-      "venue": "gateio",
-      "funding_apr": 4.9275,
-      "interval_hours": 8.0,
-      "regime": "NEUTRAL",
-      "oi_usd": 55107636.96,
-      "oi_known": true,
-      "apr_spread": 66.9018,
-      "net_apr": 1.7642,
-      "fee_drag_apr": 3.1633,
-      "roundtrip_cost_pct": 0.26,
-      "breakeven_days": 19.26
+      "breakeven_days": 8.67
     }
   ]
 }
