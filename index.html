@@ -195,6 +195,13 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
   padding:7px 9px;font-size:10px;line-height:1.5;box-shadow:0 6px 22px rgba(0,0,0,.55);
   pointer-events:none;white-space:normal}
 .tip-pop[hidden]{display:none}
+/* Column notes in the drawer: the row's own explanations, verbatim, on a surface a tap
+   and a keypress can both reach. */
+.rt-note{display:grid;grid-template-columns:64px 1fr;gap:6px;padding:3px 0;
+  border-bottom:1px solid var(--grid);font-size:9px;line-height:1.45}
+.rt-note b{color:var(--sec);font-size:8px;letter-spacing:.4px;text-transform:uppercase}
+.rt-note span{color:var(--tert)}
+tr.row:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
 /* An explanation nobody can see is an explanation nobody reads. Dotted underline on the
    things that carry one, and a real focus ring, since they are focusable now. */
 .has-tip{cursor:help}
@@ -231,6 +238,11 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 .pp-unknown{font-size:10px;line-height:1.55;color:var(--sec);border-left:2px solid var(--amber);
   padding:6px 0 6px 8px;background:rgba(224,179,114,.06)}
 .pp-unknown b{color:var(--amber)}
+/* A figure derived from a number the reader typed is not the same object as one derived
+   from a verified contract size, and it must not be able to look like one. */
+.pp-unverified{font-size:9px;line-height:1.5;color:var(--amber);font-weight:600;
+  border:1px solid rgba(224,179,114,.45);border-radius:3px;padding:5px 7px;margin:5px 0 3px;
+  background:rgba(224,179,114,.09);letter-spacing:.2px}
 /* Panel prose, collapsed by default. The explanation of how a modifier is composed is
    worth having and is not worth eight lines above the data every time the page loads —
    that is the text-heaviness this board is already prone to, and a panel that explains
@@ -1031,7 +1043,12 @@ async function loadLedger(){
   Object.keys(latest).forEach(sy=>{ const r=latest[sy];
     if(r.strategy) STRAT[sy]={strategy:r.strategy, basis:strategyBasis(r),
                               confidence:(n(r,"adx")!=null)?"confirmed":"partial"};
-    const a=n(r,"atr14"); if(a!=null) ATR14[sy]=a;
+    // The value AND the night it was recorded on, with the bar count behind it. An ATR
+    // detached from its observation date is a number with no shelf life: a stop derived
+    // from a reading four nights stale is a different object from one derived from
+    // tonight's, and nothing on screen would have distinguished them.
+    const a=n(r,"atr14");
+    if(a!=null) ATR14[sy]={v:a, date:r.date||null, bars:n(r,"adx_bars")};
     const z=n(r,"turnover_z"); if(z!=null) TURN_Z[sy]=z; });
   buildMarginal();
 }
@@ -1299,10 +1316,10 @@ function spark(el, data, w, h, color, chg){
    coefficient is indistinguishable from zero, and inventing one to fill the field is
    how the old +11% got there. */
 function copyTrade(t){
-  const k=szInputs().stopK, inv=invalidation(t.sym, t.price, k);
+  const k=szInputs().stopK, inv=atrStop(t.sym, t.price, k);
   const parts=[`BUY ${t.sym} @ ${fmtPrice(t.price)}`];
   parts.push(inv.price!=null
-    ? `STOP ${fmtPrice(inv.price)} (${k}xATR14)`
+    ? `STOP ${fmtPrice(inv.price)} (${k}xATR14${inv.obs&&inv.obs.date?" rec "+inv.obs.date:""})`
     : `STOP none (${inv.why})`);
   parts.push(`CONV ${t.conv} (${t.sig[0]})`);
   const block=parts.join(" | ");
@@ -2219,17 +2236,22 @@ function openDrawer(sym){
   // RISK, in the drawer as well as the sizing panel, because the drawer is where a
   // single name gets looked at properly and "at what price was I wrong" belongs beside
   // "what is this". Same rule, same k, same refusal when ATR14 is absent.
-  const _k=szInputs().stopK, _inv=invalidation(t.sym, t.price, _k);
+  const _k=szInputs().stopK, _inv=atrStop(t.sym, t.price, _k);
   const risk=`<div class="factor-attr">
-    <div class="fa-h">RISK · invalidation</div>
+    <div class="fa-h">ATR STOP · rule-based risk threshold</div>
     ${_inv.price!=null
-      ? `<div class="fa-bar"><span class="fa-l">Invalid below</span><span class="fa-v">${fmtPrice(_inv.price)}</span></div>
+      ? `<div class="fa-bar"><span class="fa-l">Stop level</span><span class="fa-v">${fmtPrice(_inv.price)}</span></div>
          <div class="fa-bar"><span class="fa-l">Rule</span><span class="fa-v">entry − ${_k}×ATR14</span></div>
          <div class="fa-bar"><span class="fa-l">ATR14</span><span class="fa-v">${fmtPrice(_inv.atr)}</span></div>
+         <div class="fa-bar"><span class="fa-l">Recorded</span><span class="fa-v">${
+            _inv.obs&&_inv.obs.date?esc0(_inv.obs.date)+(_inv.obs.bars!=null?" · "+_inv.obs.bars+" bars":""):"—"}</span></div>
          <div class="fa-bar"><span class="fa-l">Stop distance</span><span class="fa-v">−${(_inv.frac*100).toFixed(1)}%</span></div>
-         <div class="note" style="margin-top:4px">A stop distance is a risk budget, not a
-           prediction. It states how much of this line you are prepared to lose before the
-           reason for holding it is gone, and nothing about whether that will happen.</div>`
+         <div class="note" style="margin-top:4px">A distance in units of recent range, not
+           an invalidation level. This board does not know the thesis behind a position and
+           cannot derive the price at which it stops being true: conviction is built from
+           depth, relative strength, liquidity fit, supply overhang and funding, and none of
+           those name such a price. Read it as a stated stop rule, and as stop-loss exposure
+           rather than a risk budget, since nothing here constrains the line to a limit.</div>`
       : `<div class="note sz-nostop" style="margin-top:2px">${_inv.why}. No invalidation
            price is shown for this name. The 24h range is not substituted: a stop derived
            from one day of range is a different object from one derived from fourteen, and
@@ -2261,7 +2283,7 @@ function openDrawer(sym){
     <div class="kv"><span>LAVL Perp</span><b id="dw-perp" class="${perpCls}">${perpTxt}</b></div>
     ${perpBlock(t)}
     <div style="margin-top:14px" class="muted">${led}</div>
-    <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>${risk}${attr}`;
+    <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>${risk}${attr}${rowTipNotes(t.sym)}`;
   $("#drawer").classList.add("open");
 }
 function closeDrawer(){document.getElementById("drawer").classList.remove("open");}
@@ -2306,16 +2328,25 @@ function szInputs(){
           marginPct: isFinite(mg) && mg > 0 ? Math.min(mg, 100) : null};
 }
 
-/* ---------- invalidation ----------
-   The board answered "what do I own and how much" and stopped. It never answered "at
-   what price was I wrong", which for a leveraged book is the question that decides
-   whether the account survives a bad week. ATR14 was already loaded and used for nothing
-   but the impact estimate, so the input for a defensible stop was sitting there unused.
+/* ---------- the ATR stop ----------
+   A rule-based risk threshold, and deliberately NOT called an invalidation level.
+   Invalidation is a claim about a thesis: the price at which the reason for holding a
+   position has stopped being true. Nothing here knows the thesis. conviction() is built
+   from depth, relative strength, liquidity fit, supply overhang and funding, and none of
+   those derive a price at which the case is refuted. What this computes is a distance in
+   units of recent range, which is a smaller and different claim, and calling it
+   invalidation would borrow authority the arithmetic does not have.
+
+   The board answered "what do I own and how much" and stopped. ATR14 was already loaded
+   and used for nothing but the impact estimate, so the input for a stated stop rule was
+   sitting there unused.
 
    The rule is stated rather than tuned: entry minus k x ATR14, k being the reader's
-   input. There is no claim that this is the right stop for any particular trade. It is a
-   risk budget with an arithmetic behind it that can be read off the screen and disagreed
-   with, which is the whole of what is being offered.
+   input. There is no claim that this is the right stop for any particular trade. It is
+   stop-loss exposure with an arithmetic behind it that can be read off the screen and
+   disagreed with, which is the whole of what is being offered. It is NOT a risk budget:
+   a budget is a constraint enforced before sizing, and this is measured after conviction
+   has already sized the line.
 
    It REFUSES to fall back to the 24h range when ATR14 is missing, and this is the part
    worth not softening later. dailySigma() does take that fallback, correctly, because an
@@ -2325,16 +2356,18 @@ function szInputs(){
    tighter in a quiet week and systematically wider after a single gap, and it would be
    presented in the same typeface as the real one. */
 function usd0(v){ return v==null?"—":"$"+Math.round(v).toLocaleString(); }
-function invalidation(sym, price, stopK){
-  const atr = ATR14[sym];
+function atrStop(sym, price, stopK){
+  const rec = ATR14[sym];
+  const atr = rec ? rec.v : null;
   if(atr == null || !(atr > 0) || !(price > 0))
-    return {price: null, dist: null, frac: null,
+    return {price: null, dist: null, frac: null, obs: null,
             why: "no ATR14 recorded, no stop derivable"};
   const dist = stopK * atr;
   // A stop below zero is not a stop. It means k x ATR exceeds the entire price, which is
   // a statement that the name's own daily range is the size of the position's thesis.
   const stop = price - dist;
   return {price: stop > 0 ? stop : null, dist, frac: dist / price, atr,
+          obs: {date: rec.date, bars: rec.bars},
           why: stop > 0 ? null : `${stopK}x ATR is wider than the price itself`};
 }
 
@@ -2352,7 +2385,8 @@ const IMPACT_COEFF = 1.0, SPREAD_BPS = 5.0;
    impact estimate with no volatility scale would be a number no input supports, so the
    sizer reports the spread as a FLOOR instead of inventing the rest. */
 function dailySigma(t){
-  const a=(ATR14[t.sym]!=null&&t.price>0)?ATR14[t.sym]/t.price:null;
+  const rec=ATR14[t.sym];
+  const a=(rec!=null&&rec.v>0&&t.price>0)?rec.v/t.price:null;
   if(a!=null&&a>0) return a;
   if(t.high24>0&&t.low24>0&&t.price>0) return (t.high24-t.low24)/t.price;
   return null;
@@ -2409,7 +2443,7 @@ function sizeBook(state, notional, participation, stopK){
                   : sized < wanted - 0.01 ? "ADV cap"
                   : reasons.length ? reasons.join(" + ") : "conviction";
     const drag = execDrag(sized, adv, dailySigma(t));
-    const inv = invalidation(t.sym, t.price, stopK);
+    const inv = atrStop(t.sym, t.price, stopK);
     // Damage if this stop fills, in dollars. Null propagates: a line with no derivable
     // stop contributes an unknown to the book total, not a zero.
     const riskUsd = (inv.frac != null && sized > 0) ? sized * inv.frac : null;
@@ -2459,22 +2493,29 @@ function sizeBook(state, notional, participation, stopK){
 function contractLine(r){
   if(r.sized <= 0) return "";
   const spec = smallestSpec(r.sym);
-  if(!spec) return `<div class="sz-line"><span class="k">spot only · no listed contract</span></div>`;
+  // The wording is about THIS TABLE, never about the venue. Saying a line is spot-only,
+  // or that the exchange lists no contract for it, would be inventing a fact about
+  // Coinbase out of a gap in a local file: the table is a dated snapshot and the
+  // exchange has listed contracts on assets absent from it.
+  if(!spec) return `<div class="sz-line"><span class="k">no verified contract mapping</span></div>`;
   const per = spec.multiplier * r.price;
   if(!(per > 0)) return "";
   const n = Math.floor(r.sized / per);
   const residual = r.sized - n * per;
   if(n < 1) return `<div class="sz-line"><span class="k">under one contract:</span>
-    <b>${usd0(per)}</b> <span class="k">buys the smallest ${esc0(spec.symbol)} contract
-    (${fmtMult(spec.multiplier)} ${esc0(spec.unit)}), against a ${usd0(r.sized)} target</span></div>`;
-  return `<div class="sz-line"><b>${n}</b> <span class="k">x ${esc0(spec.product)}
-    (${fmtMult(spec.multiplier)} ${esc0(spec.unit)}, ${usd0(per)} each) ·</span>
+    <b>${usd0(per)}</b> <span class="k">buys the smallest verified ${esc0(spec.symbol)} contract
+    (${esc0(spec.code)}, ${fmtMult(spec.multiplier)} ${esc0(spec.unit)}), against a
+    ${usd0(r.sized)} target</span></div>`;
+  return `<div class="sz-line"><b>${n}</b> <span class="k">x ${esc0(spec.code)}
+    ${esc0(spec.product)} (${fmtMult(spec.multiplier)} ${esc0(spec.unit)}, ${usd0(per)} each,
+    ${esc0(spec.instrument_type)}) ·</span>
     <b>${usd0(residual)}</b> <span class="k">unallocated to rounding</span></div>`;
 }
 
-/* Per-line invalidation. The rule is printed with the number, every time. A stop level
-   with no rule beside it is a price someone will eventually assume was derived from
-   something more than an ATR multiple. */
+/* Per-line ATR stop. The rule and the reading's own date are printed with the number,
+   every time. A stop level with no rule beside it is a price someone will eventually
+   assume was derived from something more than an ATR multiple, and one carrying no date
+   is a number whose staleness is invisible. */
 function riskLine(r, book, marginPct, stopK){
   if(r.sized <= 0) return "";
   if(r.inv.price == null)
@@ -2482,19 +2523,23 @@ function riskLine(r, book, marginPct, stopK){
   const pctBook = book > 0 ? r.riskUsd / book * 100 : null;
   let lev = "";
   if(marginPct != null){
-    // Posted margin, not maintenance margin. The exchange liquidates at the latter,
-    // which is lower and which this board has never been told, so the honest claim is
-    // the bound: liquidation happens no later than this, and in practice sooner.
-    const marginDist = marginPct / 100;
-    const first = marginDist < r.inv.frac ? "the exchange" : "the stop";
-    lev = ` <span class="k">· ${(100/marginPct).toFixed(1)}x implied, margin gone at
-      −${(marginDist*100).toFixed(1)}% · <b>${first} gets there first</b></span>`;
+    // Implied leverage ONLY. Which of the two arrives first is not computable from
+    // initial margin: the exchange liquidates at MAINTENANCE margin, which is lower, and
+    // at a liquidation price this board has never been told. Comparing the stop against
+    // the initial-margin distance and naming a winner was an ordering claim resting on
+    // the one input that does not determine it.
+    lev = ` <span class="k">· ${(100/marginPct).toFixed(1)}x implied leverage ·
+      <b>liquidation ordering unknown without maintenance margin or exchange liquidation
+      price</b></span>`;
   }
-  return `<div class="sz-line"><span class="k">invalid below</span>
+  const obs = r.inv.obs && r.inv.obs.date
+    ? ` <span class="k">· ATR recorded ${esc0(r.inv.obs.date)}${
+        r.inv.obs.bars!=null?`, ${r.inv.obs.bars} bars`:""}</span>` : "";
+  return `<div class="sz-line"><span class="k">ATR stop</span>
     <b>${fmtPrice(r.inv.price)}</b>
     <span class="k">(entry ${fmtPrice(r.price)} − ${stopK}×ATR14 ${fmtPrice(r.inv.atr)}
-      = −${(r.inv.frac*100).toFixed(1)}%) · risk</span>
-    <b>${usd0(r.riskUsd)}</b>${pctBook!=null?` <span class="k">= ${pctBook.toFixed(2)}% of book</span>`:""}${lev}</div>`;
+      = −${(r.inv.frac*100).toFixed(1)}%) · stop-loss exposure</span>
+    <b>${usd0(r.riskUsd)}</b>${pctBook!=null?` <span class="k">= ${pctBook.toFixed(2)}% of book</span>`:""}${obs}${lev}</div>`;
 }
 
 /* The number that should be impossible to avoid seeing, so it renders above the rows. */
@@ -2505,7 +2550,7 @@ function bookRiskBlock(b, notional, marginPct){
   const pct = b.riskPct;
   const tone = pct==null ? "var(--sec)" : pct>=10 ? "var(--red)" : pct>=5 ? "var(--amber)" : "var(--green)";
   return `<div class="sz-risk">
-    <div class="lbl">If every stop fills</div>
+    <div class="lbl">Stop-loss exposure · if every ATR stop fills</div>
     <div class="big" style="color:${tone}">${known?usd0(b.riskUsd):"—"}${
       known&&pct!=null?` <span class="muted" style="font-size:10px;font-weight:400">${pct.toFixed(2)}% of the ${usd0(notional)} book</span>`:""}</div>
     <div class="rule">Every line stopped at entry − <b>${b.stopK}× ATR14</b>, simultaneously.
@@ -2515,11 +2560,15 @@ function bookRiskBlock(b, notional, marginPct){
       range is deliberately not substituted for those: a stop derived from one day of range
       is a different object from one derived from fourteen, and it would print in the same
       typeface as the real thing.`:""}
-      This is a risk budget, not a prediction: it bounds the damage if the rule fires
-      everywhere at once, and says nothing about whether it will. Contract counts under
+      This is <b>stop-loss exposure, not a risk budget</b>: it reports what these lines
+      would lose if the rule fired everywhere at once, measured after conviction has
+      already sized them. Nothing here constrains a line to a limit, so no budget is
+      being enforced and calling it one would name a control that does not exist. Contract counts under
       each line are the smallest Coinbase Derivatives contract for that symbol, rounded
-      down; lines marked <span class="k">spot only</span> have no contract in the pinned
-      table and are a spot or off-venue trade.</div>
+      down. Lines marked <span class="k">no verified contract mapping</span> are absent
+      from this board's contract table, which is the product list as it stood on
+      ${CONTRACT_SPECS.as_of}; the exchange has listed contracts since, so that is a gap
+      here and not a statement that none exists.</div>
   </div>`;
 }
 
@@ -2568,7 +2617,9 @@ function renderSizing(){
       book into whatever happened to be liquid and present that as the same portfolio.
       There is no expected return to size against.
       <br><br><b style="color:var(--amber)">The stop rule is a convention, not a
-      measurement</b>: entry minus k x ATR14, k being whatever you typed. Nothing here
+      measurement, and an ATR threshold rather than an invalidation level</b>: entry
+      minus k x ATR14, k being whatever you typed. This board does not know the thesis
+      behind a position, so it cannot name the price at which that thesis fails. Nothing here
       has calibrated k against outcomes, and the same status as <code>IMPACT_COEFF</code>
       applies: the shape is defensible, the constant is a choice. What the risk total buys
       you is not accuracy, it is that the number exists and is arithmetic you can read.
@@ -2769,7 +2820,9 @@ function renderEdge(){
       <span class="${d.bp<0?"neg":"pos"}">${d.bp>0?"+":""}${d.bp}</span></div>`;
     html+=`<div style="padding:6px 12px 2px;border-top:1px solid var(--grid);margin-top:4px">
       <div class="muted" style="margin-bottom:4px">Where the ${a.total_bp} bp gap came
-        from <span style="color:var(--amber)">— arithmetic, not evidence</span></div>
+        from <span style="color:var(--amber)">· arithmetic, not evidence</span>
+        <span class="fd-clamp" data-tip="Carino-linked. Per-leg contributions sum to that leg's active return exactly, and the legs are linked by k_t/K so the linked parts sum to the geometrically chained gap rather than approximately to it. An unlinked sum is a sum of arithmetic pieces set against a difference of geometric wholes: it was out by a quarter of the gap at twenty legs before this was fixed. Residual now ${a.residual_bp} bp.">${
+          a.linking==="carino"?"Carino-linked":"unlinked"}</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
         <div><div class="cf-h neg">▼ COST</div>${a.detractors.slice(0,5).map(row).join("")}</div>
         <div><div class="cf-h pos">▲ HELPED</div>${a.contributors.slice(0,5).map(row).join("")}</div>
@@ -2777,7 +2830,9 @@ function renderEdge(){
       <div class="muted" style="font-size:9px;margin-top:4px">“held” = overweight and it
         fell, a selection error. “missed” = underweight and it rose, an omission. Over
         ${a.legs} legs this ordering is mostly sampling noise and is not a list of names
-        to act on.</div>
+        to act on. The parts reconcile to the chained gap of ${a.reconciles_to_bp} bp with
+        a residual of ${a.residual_bp} bp.${a.legs_without_benchmark?` ${a.legs_without_benchmark}
+        leg(s) had no equal-weight reading and are excluded from this decomposition.`:""}</div>
     </div>`;
   }
   html+=`<div class="muted" style="padding:6px 12px 10px;font-size:9px">${e.basis}</div>`;
@@ -3056,43 +3111,78 @@ function renderCarry(){
    terminal and fails if the two disagree. Same reasoning as the MODEL PORT gate, and the
    same failure it exists to prevent: a table edited in one place and read from the
    other is two tables that happen to agree until they do not. */
-const CONTRACT_SPECS = {"as_of":"2026-08-25","exchange":"Coinbase Derivatives, LLC (CDE)","products":[{"id":"BIT","multiplier":0.01,"note":"Reported as 1/100th the size of Bitcoin.","product":"Nano Bitcoin Futures","sources":["https://www.coinbase.com/blog/coinbase-derivatives-exchange-to-add-nano-ether-futures-contract","https://info.tradovate.com/coinbase-derivatives-nano-bitcoin"],"symbol":"BTC","unit":"BTC","verification":"secondary","verified_on":null},{"id":"BTI","multiplier":1,"note":"Launched 2023-06-05 alongside ETI.","product":"Bitcoin Futures (institutional)","sources":["https://www.coinbase.com/blog/coinbase-derivatives-exchange-will-launch-institutional-sized-bitcoin-and","https://www.theblock.co/post/232990/coinbase-institutional-bitcoin-ether-futures-contracts"],"symbol":"BTC","unit":"BTC","verification":"secondary","verified_on":null},{"id":"ET","multiplier":0.1,"note":"Reported as 1/10th the size of Ether.","product":"Nano Ether Futures","sources":["https://www.coinbase.com/blog/coinbase-derivatives-exchange-to-add-nano-ether-futures-contract","https://info.tradovate.com/coinbase-derivatives-nano-bitcoin"],"symbol":"ETH","unit":"ETH","verification":"secondary","verified_on":null},{"id":"ETI","multiplier":10,"note":"Launched 2023-06-05 alongside BTI.","product":"Ether Futures (institutional)","sources":["https://www.coinbase.com/blog/coinbase-derivatives-exchange-will-launch-institutional-sized-bitcoin-and","https://www.theblock.co/post/232990/coinbase-institutional-bitcoin-ether-futures-contracts"],"symbol":"ETH","unit":"ETH","verification":"secondary","verified_on":null},{"id":null,"multiplier":5,"note":"Exchange product code not corroborated; recorded as null rather than guessed.","product":"Nano Solana Futures","sources":["https://crypto.news/coinbase-expands-futures-lineup-with-solana-hedera-eurc-usdc-pairs/","https://cryptonews.com/news/coinbase-adds-cftc-regulated-solana-hedera/"],"symbol":"SOL","unit":"SOL","verification":"secondary","verified_on":null},{"id":null,"multiplier":100,"note":"Exchange product code not corroborated; recorded as null rather than guessed.","product":"Solana Futures","sources":["https://crypto.news/coinbase-expands-futures-lineup-with-solana-hedera-eurc-usdc-pairs/","https://cryptonews.com/news/coinbase-adds-cftc-regulated-solana-hedera/"],"symbol":"SOL","unit":"SOL","verification":"secondary","verified_on":null},{"id":null,"multiplier":5000,"note":"No nano Hedera contract was found in any source. The review that prompted this file called the 5,000 HBAR contract a nano; the multiplier is the same either way, the product name is not, and the name here is the one the sources actually use.","product":"Hedera Futures","sources":["https://cryptonews.com/news/coinbase-adds-cftc-regulated-solana-hedera/","https://coincentral.com/coinbase-expands-derivatives-offering-with-new-solana-and-hedera-futures-contracts/"],"symbol":"HBAR","unit":"HBAR","verification":"secondary","verified_on":null},{"id":null,"multiplier":500,"note":"The CFTC filing (ptc04032518912.pdf) is a scanned image and could not be read as text; 500 XRP is corroborated across two independent secondary sources instead.","product":"Nano XRP Futures","sources":["https://lpfutures.com/nano-xrp-futures-contract/","https://www.theblock.co/post/349591/coinbase-xrp-futures-filings"],"symbol":"XRP","unit":"XRP","verification":"secondary","verified_on":null},{"id":null,"multiplier":10000,"note":"Single source. Kept because omitting it would leave the nano row implying it is the only XRP contract, but a single-sourced row is the weakest evidence in this file.","product":"XRP Futures","sources":["https://www.theblock.co/post/349591/coinbase-xrp-futures-filings"],"symbol":"XRP","unit":"XRP","verification":"secondary","verified_on":null}]};
+const CONTRACT_SPECS = {"as_of":"2026-08-25","exchange":"Coinbase Derivatives, LLC (CDE)","notes":{"excluded":"Non-crypto contracts in the same filing (GOL, SLR, NGS, NOL, MC) are omitted: this board scores crypto only.","parser_rule":"Only rows with instrument_type=='perpetual' AND funding_bearing AND verification=='primary' may appear in the funding parser.","sizing_rule":"Automatic contract counts use only rows with verification=='primary'; a perpetual is preferred over a dated contract of the same size."},"products":[{"active_as_of":"2025-11-26","code":"BIP","funding_bearing":true,"instrument_type":"perpetual","multiplier":0.01,"product":"nano Bitcoin Perp Style Futures","sources":["https://assets.ctfassets.net/7ca8qfn907uv/36uUBfnoAFKfWNAgfZDepf/a802f97a4feeb9a85fe0845ec07102d3/nano_Bitcoin_Perp_Style_Spec.pdf","https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"BTC","unit":"BTC","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"ETP","funding_bearing":true,"instrument_type":"perpetual","multiplier":0.1,"product":"nano Ether Perp Style Futures","sources":["https://assets.ctfassets.net/7ca8qfn907uv/1rsuwIgOFcofkdd0gKgeCS/4bf41b164aba229d8cded67f7c25393b/nano_Ether_Perp_Style_Spec.pdf","https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"ETH","unit":"ETH","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"SLP","funding_bearing":true,"instrument_type":"perpetual","multiplier":5,"product":"nano Solana Perp Style Futures","sources":["https://assets.ctfassets.net/k3n74unfin40/4jzw23zD73o7o3VSqvzYHA/faa20d819344ae820e4404537f5ec4f1/nano_Solana_Perps_Spec.pdf","https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"SOL","unit":"SOL","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"XPP","funding_bearing":true,"instrument_type":"perpetual","multiplier":500,"product":"nano XRP Perp Style Futures","sources":["https://assets.ctfassets.net/k3n74unfin40/doQ2ycXfKQ05mqN1lvoHI/5392b405093cb76eb5b49736a8656664/nano_XRP_Perps_Spec.pdf","https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"XRP","unit":"XRP","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"HEP","funding_bearing":true,"instrument_type":"perpetual","multiplier":5000,"product":"Hedera Perp Style Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"HBAR","unit":"HBAR","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"BIT","funding_bearing":false,"instrument_type":"dated","multiplier":0.01,"product":"nano Bitcoin Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"BTC","unit":"BTC","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"BTI","funding_bearing":false,"instrument_type":"dated","multiplier":1,"product":"Bitcoin Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"BTC","unit":"BTC","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"ET","funding_bearing":false,"instrument_type":"dated","multiplier":0.1,"product":"nano Ether Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"ETH","unit":"ETH","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"ETI","funding_bearing":false,"instrument_type":"dated","multiplier":10,"product":"Ether Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"ETH","unit":"ETH","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"SOL","funding_bearing":false,"instrument_type":"dated","multiplier":5,"product":"nano Solana Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"SOL","unit":"SOL","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"SLC","funding_bearing":false,"instrument_type":"dated","multiplier":100,"product":"Solana Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"SOL","unit":"SOL","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"XRP","funding_bearing":false,"instrument_type":"dated","multiplier":500,"product":"nano XRP Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"XRP","unit":"XRP","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"XRL","funding_bearing":false,"instrument_type":"dated","multiplier":10000,"product":"XRP Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"XRP","unit":"XRP","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"HED","funding_bearing":false,"instrument_type":"dated","multiplier":5000,"product":"Hedera Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"HBAR","unit":"HBAR","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"BCH","funding_bearing":false,"instrument_type":"dated","multiplier":1,"product":"Bitcoin Cash Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"BCH","unit":"BCH","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"LC","funding_bearing":false,"instrument_type":"dated","multiplier":5,"product":"Litecoin Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"LTC","unit":"LTC","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"DOG","funding_bearing":false,"instrument_type":"dated","multiplier":5000,"product":"Dogecoin Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"DOGE","unit":"DOGE","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"XLM","funding_bearing":false,"instrument_type":"dated","multiplier":5000,"product":"Stellar Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"XLM","unit":"XLM","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"AVA","funding_bearing":false,"instrument_type":"dated","multiplier":10,"product":"Avalanche Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"AVAX","unit":"AVAX","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"LNK","funding_bearing":false,"instrument_type":"dated","multiplier":50,"product":"Chainlink Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"LINK","unit":"LINK","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"DOT","funding_bearing":false,"instrument_type":"dated","multiplier":100,"product":"Polkadot Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"DOT","unit":"DOT","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"SHB","funding_bearing":false,"instrument_type":"dated","multiplier":10000000,"product":"1k Shib Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"SHIB","unit":"SHIB","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"ADA","funding_bearing":false,"instrument_type":"dated","multiplier":1000,"product":"Cardano Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"ADA","unit":"ADA","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"SUI","funding_bearing":false,"instrument_type":"dated","multiplier":500,"product":"SUI Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"SUI","unit":"SUI","verification":"primary","verified_on":"2026-08-25"}],"source_documents":[{"date":"2025-11-26","id":"cftc-2025-70","title":"2025-70 Listing of the Hedera Perp Style Futures (product table, all listed contracts)","url":"https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"},{"date":"2026-08-25","id":"cde-perp-specs","title":"Coinbase Derivatives published perpetual-style contract specification sheets","url":"https://assets.ctfassets.net/"}]};
 /* END CONTRACT SPECS */
 
-/* Contracts for one symbol, smallest first. The smallest is what the sizer quotes in,
-   because it is the one that makes a dollar target reachable without a large residual. */
-function specsFor(sym){
-  sym=(sym||"").toUpperCase();
-  return CONTRACT_SPECS.products.filter(p=>p.symbol===sym)
-                       .sort((a,b)=>a.multiplier-b.multiplier);
+/* Which rows may be used for what, enforced here rather than left to the call sites.
+
+   PERPETUAL IS NOT DATED, and the parser cares about the difference more than anything
+   else in this file. It recovers an annualised funding rate from a dollar accrual, and
+   only a perpetual-style contract has funding: BIP, ETP, SLP, XPP and HEP debit and
+   credit open positions via a funding rate, while BIT, ET, SOL, HED and the rest are
+   dated futures that expire and pay none. The multipliers coincide in two cases, which
+   is exactly the trap: ET and ETP are both 0.1 ETH, and only one of them has a rate to
+   recover. Feeding a dated contract to the parser produces a confident APR for a cash
+   flow the instrument cannot generate.
+
+   `verification` is part of the gate, not decoration. A row that has not been read off
+   a primary source cannot be selected for either purpose. */
+function parserSpecs(){
+  return CONTRACT_SPECS.products
+    .filter(p => p.instrument_type === "perpetual"
+              && p.funding_bearing === true
+              && p.verification === "primary")
+    .sort((a, b) => a.symbol.localeCompare(b.symbol));
 }
-function smallestSpec(sym){ return specsFor(sym)[0]||null; }
+/* Rows usable for automatic contract conversion in the sizer. Dated contracts are
+   allowed HERE, because converting a dollar target into a contract count is arithmetic
+   over a contract size and does not depend on funding. Still primary-only. */
+function sizingSpecs(sym){
+  sym = (sym || "").toUpperCase();
+  return CONTRACT_SPECS.products
+    .filter(p => p.symbol === sym && p.verification === "primary")
+    // Smallest first: the finest granularity leaves the least stranded to rounding. A
+    // perpetual wins a tie, because this board is a funding monitor and the perp is the
+    // instrument the rest of it is about.
+    .sort((a, b) => a.multiplier - b.multiplier
+                 || (b.funding_bearing === true) - (a.funding_bearing === true));
+}
+function smallestSpec(sym){ return sizingSpecs(sym)[0] || null; }
+function specsFor(sym){ return sizingSpecs(sym); }
 /* How far the pinned table is from having been read off the exchange. Rendered wherever
    a multiplier is, because "5,000 HBAR per contract" sourced from press coverage and
    "5,000 HBAR per contract" read from the venue are not the same claim, and the number
    on screen looks identical either way. */
 function specProvenance(p){
   if(!p) return "";
-  return p.verification==="exchange" && p.verified_on
-    ? `confirmed against Coinbase on ${p.verified_on}`
-    : `pinned ${CONTRACT_SPECS.as_of}, not yet confirmed against Coinbase`;
+  if(p.verification === "primary")
+    return `${esc0(p.code)} · ${p.instrument_type}${p.funding_bearing?", funding-bearing":", no funding"}`
+         + ` · listed as of ${esc0(p.active_as_of)}, primary source verified ${esc0(p.verified_on)}`;
+  return `${esc0(p.code)} · NOT PRIMARY-VERIFIED (${esc0(p.verification)})`;
 }
 function populateContractSelect(){
   const sel=$("#pp-contract"); if(!sel) return;
-  const opts=CONTRACT_SPECS.products.map((p,i)=>
-    `<option value="${i}">${p.symbol} · ${p.product} · ${fmtMult(p.multiplier)} ${p.unit}</option>`);
-  // Last, and never the default. A reader who does not find their contract has to choose
+  const ps=parserSpecs();
+  const opts=ps.map(p=>
+    `<option value="${esc0(p.code)}">${esc0(p.code)} · ${esc0(p.product)} · ${fmtMult(p.multiplier)} ${esc0(p.unit)}</option>`);
+  // Last, and never the default. A reader whose contract is not listed has to choose
   // this deliberately, and choosing it stops the parser rather than guessing for them.
-  opts.push(`<option value="none">Other / not in the table: multiplier unknown</option>`);
+  opts.push(`<option value="none">Other / no verified perpetual mapping</option>`);
   sel.innerHTML=opts.join("");
-  const et=CONTRACT_SPECS.products.findIndex(p=>p.id==="ET");
-  sel.value=String(et>=0?et:0);
+  // Default to a verified PERPETUAL. It used to default to ET, a dated nano Ether
+  // future, in a panel whose only purpose is recovering a funding rate: an instrument
+  // that pays no funding, preselected in the funding parser.
+  const etp=ps.find(p=>p.code==="ETP") || ps[0];
+  if(etp) sel.value=etp.code;
 }
 function fmtMult(m){ return m>=1?m.toLocaleString():String(m); }
 function selectedSpec(){
   const v=$("#pp-contract")?.value;
   if(v==null||v==="none") return null;
-  return CONTRACT_SPECS.products[Number(v)]||null;
+  // Looked up by contract code rather than by array index: an index is a position in a
+  // list whose ordering is a rendering decision, and a reordered table would silently
+  // repoint a selection at a different instrument.
+  return parserSpecs().find(p=>p.code===v) || null;
 }
 
 /* The position parser. Mirrors funding.position_apr — see that docstring for the sign
@@ -3117,12 +3207,17 @@ function renderParser(){
   // product on this exchange, so assuming it would not be a conservative fallback, it
   // would be a wrong answer wearing the same typography as a right one.
   if(mult==null||mult<=0){
-    host.innerHTML=`<div class="pp-unknown"><b>Multiplier unknown.</b> This contract is not
-      in the pinned specification table, so the size of one contract is not something this
-      board knows. Enter the contract unit from the exchange's product page and the rest
-      follows; leave it blank and nothing is computed, because a notional guessed at 1
-      unit per contract is how the APR below would come out wrong by the multiplier and
-      look exactly as confident as a correct one.</div>`; return; }
+    host.innerHTML=`<div class="pp-unknown"><b>Contract specification not mapped.</b> This
+      board has no primary-verified perpetual mapping for that contract, so the size of one
+      contract is not something it knows. That is a gap in this table, <b>not</b> a claim
+      that no such contract exists: the table is the product list as it stood on
+      ${esc0(CONTRACT_SPECS.as_of)} and the exchange has listed contracts since.
+      Enter the contract unit from the exchange's product page and the arithmetic follows,
+      labelled unverified. Leave it blank and nothing is computed, because a notional
+      guessed at 1 unit per contract would be wrong by the multiplier and would look
+      exactly as confident as a correct one. Note that 1 <i>is</i> a real contract size
+      here (BTI is 1 BTC, BCH is 1 BCH), which is why the old silent default was
+      dangerous rather than merely wrong.</div>`; return; }
   if(contracts==null||price==null||accrued==null||hours==null){
     host.innerHTML=`<div class="muted">Enter the figures from the exchange.</div>`; return; }
   const notional=contracts*mult*price;
@@ -3136,7 +3231,9 @@ function renderParser(){
   const marketApr = -holderApr*dir;                    // comparable to the board
   const reg=classifyRegimeJs(marketApr), m=REGIME_LABEL[reg];
   const paid = holderApr>=0;
-  const overridden = spec && Math.abs(mult-spec.multiplier)>1e-12;
+  // Unverified whenever the number on screen is not the one this board verified: either
+  // no contract is selected at all, or the reader has typed over the verified size.
+  const unverified = !spec || Math.abs(mult-spec.multiplier)>1e-12;
   const usdN = notional.toLocaleString(undefined,{maximumFractionDigits:0});
   host.innerHTML=`
     <div class="pp-hero ${paid?"pos":"neg"}">${paid?"+":""}${holderApr.toFixed(2)}%
@@ -3146,14 +3243,19 @@ function renderParser(){
         every figure below. If it does not match the position value your exchange shows, the
         multiplier is wrong and nothing below this line is trustworthy.">$${usdN}
       <span class="muted" style="font-size:9px">notional · ${contracts} x ${fmtMult(mult)} x $${price}</span></div>
+    ${unverified?`<div class="pp-unverified">USER-ENTERED MULTIPLIER · UNVERIFIED.
+      Every figure below is derived from ${fmtMult(mult)} ${spec?esc0(spec.unit):"units"} per
+      contract, which this board has not verified against a primary source${
+        spec?` (the verified size for ${esc0(spec.code)} is ${fmtMult(spec.multiplier)})`:""}.
+      Treat the APR, the 8h equivalent, the hourly rate and the regime as illustrative.</div>`:""}
     <div class="muted" style="margin:2px 0 7px">${paid?"received":"paid"}
       $${Math.abs(accrued).toFixed(2)} over ${hours}h${
-        spec?` · ${esc0(spec.product)}, ${fmtMult(spec.multiplier)} ${esc0(spec.unit)} per contract <span class="pp-prov">${specProvenance(spec)}</span>`:""}${
-        overridden?` <span class="pp-prov warn">multiplier overridden to ${fmtMult(mult)}</span>`:""}</div>
+        spec?` · ${esc0(spec.product)}, ${fmtMult(spec.multiplier)} ${esc0(spec.unit)} per contract <span class="pp-prov">${specProvenance(spec)}</span>`:""}</div>
     <div class="kv"><span>Market rate</span><b>${aprCell(Math.round(marketApr*1e4)/1e4)}</b></div>
     <div class="kv"><span>8h equivalent</span><b class="num">${(marketApr/(3*365)).toFixed(4)}%</b></div>
     <div class="kv"><span>Hourly</span><b class="num">${(marketApr/8760).toFixed(6)}%</b></div>
-    <div class="kv"><span>Regime</span><b>${m?`<span class="badge ${m[1]}">${m[0]}</span>`:'<span class="muted">—</span>'}</b></div>
+    <div class="kv"><span>Regime</span><b>${m?`<span class="badge ${m[1]}">${m[0]}</span>${
+      unverified?' <span class="pp-prov warn">unverified</span>':""}`:'<span class="muted">—</span>'}</b></div>
     <div class="kv"><span>Position P&amp;L</span><b class="num ${paid?"pos":"neg"}">${paid?"+":"−"}$${Math.abs(accrued).toFixed(2)}</b></div>
     <div class="muted" style="margin-top:7px;line-height:1.5">Your APR is the cash flow to
       this position. The market rate is the same trade seen from the board and carries the
@@ -3328,51 +3430,99 @@ function tipHide(){
    already focusable, or that sit inside a focusable control, are left alone. */
 function tipUpgrade(root){
   const scope = root && root.querySelectorAll ? root : document;
-  const nodes = scope.querySelectorAll("[title]");
-  nodes.forEach(n=>{
-    const t=n.getAttribute("title");
+  // 1. Native title becomes data-tip. Moved, not copied, or desktop shows two tooltips.
+  const moveTitle = n => {
+    const t = n.getAttribute && n.getAttribute("title");
     if(t==null || t==="") return;
     n.setAttribute("data-tip", t);
     n.removeAttribute("title");
+  };
+  scope.querySelectorAll("[title]").forEach(moveTitle);
+  if(root && root.getAttribute) moveTitle(root);
+
+  // 2. Every explained node is made reachable, whether its text arrived as a `title` or
+  //    was authored as data-tip directly.
+  //
+  //    This second sweep is the whole fix for a class of orphan the first pass created
+  //    and could not see. The panels written since the popover landed author data-tip in
+  //    their markup rather than title, which is the better way round and is exactly why
+  //    they were skipped: the upgrade only ever looked at [title], so nineteen
+  //    explanations - including every row of the sizing panel, one of the four surfaces
+  //    this primitive exists to serve - had a tip that no keyboard and no tap could open.
+  //    Counting upgraded nodes would never have found it; only asking whether each node
+  //    has a route does.
+  const makeReachable = n => {
+    if(!n.getAttribute || !n.getAttribute("data-tip")) return;
     n.classList.add("has-tip");
-    const focusable = n.matches("a,button,input,select,textarea,[tabindex]")
-                   || n.closest("a,button,input,select,textarea,[tabindex]");
-    // tr.row is clickable but not focusable, and giving every one of 233 rows a tab stop
-    // would make the table unnavigable by keyboard. The drawer is the accessible route
-    // into a row, and it already is one.
+    if(n.hasAttribute("tabindex")) return;
+    const focusable = n.matches("a[href],button,input,select,textarea");
+    // A tip inside tr.row is reached through the row's drawer instead: giving 233 rows
+    // several tab stops each would make the table unnavigable, and the drawer reproduces
+    // every one of these texts verbatim. See rowTipNotes().
     if(!focusable && !n.closest("tr.row")) n.setAttribute("tabindex","0");
-  });
-  if(root && root.getAttribute && root.getAttribute("title")) tipUpgrade({querySelectorAll:()=>[root]});
-  tipRoving(scope);
+  };
+  scope.querySelectorAll("[data-tip]").forEach(makeReachable);
+  if(root && root.getAttribute) makeReachable(root);
+
+  scheduleRoving();
 }
 
-/* Roving tabindex for dense grids.
+/* Grouping has to see siblings, so it runs over the document rather than the subtree that
+   changed, and is coalesced to once per frame: the board rewrites its panels on every
+   keystroke in the sizing inputs, and regrouping per mutation would walk a thousand
+   nodes per character typed. */
+let ROVING_QUEUED = false;
+function scheduleRoving(){
+  if(ROVING_QUEUED) return;
+  ROVING_QUEUED = true;
+  requestAnimationFrame(()=>{ ROVING_QUEUED = false; tipRoving(document); });
+}
+
+/* Roving tabindex for dense groups.
 
    Making every explained element a tab stop is the obvious reading of "reachable by
    keyboard" and it is wrong at this density: the first pass produced 318 tab stops, 196
-   of them cells of the correlation matrix. A keyboard user reaching the sizing panel
+   of them cells of one correlation matrix. A keyboard user reaching the sizing panel
    would have pressed Tab two hundred times, which is reachable in the same sense that a
    phone book is searchable.
 
-   So a container holding eight or more explained children becomes one tab stop, and the
-   arrow keys walk inside it, the pattern a grid is supposed to use, and the same one
-   the canvases already use for their points. The threshold is deliberately about
-   repetition rather than a list of class names: it stays right when a new dense panel is
-   added, and it leaves ordinary panels of two or three explained figures alone. */
+   So a container holding eight or more explained children becomes one tab stop and the
+   arrow keys walk inside it, which is the pattern a grid is supposed to use and the same
+   one the canvases already use for their points. The threshold is about repetition
+   rather than a list of class names: it stays right when a new dense panel is added, and
+   leaves ordinary panels of two or three explained figures alone. */
+/* The managed set of a group: its DIRECT explained children, and only those.
+
+   Assignment and navigation have to agree on this. They did not: tabindex was assigned
+   to direct children while the arrow handler queried every descendant, so an arrow key
+   could move focus onto a nested element the group was not managing, leaving two members
+   at tabindex 0 and the container contributing several tab stops while claiming one. */
+function groupItems(p){
+  return [...p.children].filter(n => n.matches("[data-tip][tabindex]"));
+}
 function tipRoving(scope){
   const groups=new Map();
   (scope.querySelectorAll?scope:document).querySelectorAll('[data-tip][tabindex]').forEach(n=>{
+    if(n.closest("tr.row")) return;          // rows route through the drawer
     const p=n.parentNode; if(!p||p.nodeType!==1) return;
     if(!groups.has(p)) groups.set(p,[]);
     groups.get(p).push(n);
   });
   groups.forEach((kids,p)=>{
-    if(kids.length<8) return;
-    kids.forEach((n,i)=>n.setAttribute("tabindex", i===0?"0":"-1"));
+    if(kids.length<8){
+      // A group that has shrunk below the threshold must give its members their tab
+      // stops back, or a re-render leaves them permanently at -1 and unreachable.
+      if(p.dataset.tipGroup){ delete p.dataset.tipGroup;
+        kids.forEach(n=>n.setAttribute("tabindex","0")); }
+      return;
+    }
+    const focused = kids.findIndex(n=>n.getAttribute("tabindex")==="0");
+    const keep = focused >= 0 ? focused : 0;
+    kids.forEach((n,i)=>n.setAttribute("tabindex", i===keep?"0":"-1"));
     if(p.dataset.tipGroup) return;
     p.dataset.tipGroup="1";
     p.addEventListener("keydown", e=>{
-      const items=[...p.querySelectorAll('[data-tip][tabindex]')];
+      const items=groupItems(p);
       const i=items.indexOf(document.activeElement); if(i<0) return;
       let j=null;
       if(e.key==="ArrowRight"||e.key==="ArrowDown") j=(i+1)%items.length;
@@ -3386,16 +3536,93 @@ function tipRoving(scope){
     });
   });
 }
+
+/* The matrix rows, as one keyboard-navigable grid.
+
+   A row's cells carry explanations that are deliberately NOT individual tab stops, so
+   the row itself has to be reachable and has to be able to open the drawer that
+   reproduces them. Tap already did this. Keyboard did not: 233 rows were clickable and
+   none was focusable, so the entire per-row explanation layer had no keyboard route at
+   all and the popover's accessibility claim was true only of the parts outside the
+   table. One tab stop for the table, arrow keys between rows, Enter or Space to open. */
+function wireMatrixRows(){
+  document.querySelectorAll("tbody").forEach(tb=>{
+    const rows=[...tb.querySelectorAll("tr.row")];
+    if(!rows.length) return;
+    const focused=rows.findIndex(r=>r.getAttribute("tabindex")==="0");
+    const keep=focused>=0?focused:0;
+    rows.forEach((r,i)=>{
+      r.setAttribute("tabindex", i===keep?"0":"-1");
+      if(!r.getAttribute("role")) r.setAttribute("role","button");
+      if(!r.getAttribute("aria-label") && r.dataset.sym)
+        r.setAttribute("aria-label", `${r.dataset.sym}: open detail, including every column note for this row`);
+    });
+    if(tb.dataset.rowNav) return;
+    tb.dataset.rowNav="1";
+    tb.addEventListener("keydown", e=>{
+      const rs=[...tb.querySelectorAll("tr.row")];
+      const i=rs.indexOf(document.activeElement.closest?.("tr.row"));
+      if(i<0) return;
+      if(e.key==="Enter"||e.key===" "){
+        e.preventDefault();
+        const sym=rs[i].dataset.sym; if(sym) select(sym);
+        return; }
+      let j=null;
+      if(e.key==="ArrowDown") j=Math.min(rs.length-1,i+1);
+      else if(e.key==="ArrowUp") j=Math.max(0,i-1);
+      else if(e.key==="Home") j=0;
+      else if(e.key==="End") j=rs.length-1;
+      else return;
+      e.preventDefault();
+      rs.forEach((r,k)=>r.setAttribute("tabindex", k===j?"0":"-1"));
+      rs[j].focus();
+    });
+  });
+}
+
+/* Every explanation inside a row, verbatim, for the drawer.
+
+   This is what makes the row's cells reachable rather than merely excused. The texts are
+   read off the row's own cells at open time rather than re-authored here, so they cannot
+   drift from what a mouse user sees on hover: it is the same string, moved to a surface
+   that a tap and a keypress can both reach. */
+function rowTipNotes(sym){
+  const row=document.querySelector(`tr.row[data-sym="${CSS.escape(sym)}"]`);
+  if(!row) return "";
+  const table=row.closest("table");
+  const heads=table?[...table.querySelectorAll("thead th")].map(th=>(th.textContent||"").trim()):[];
+  const items=[];
+  [...row.children].forEach((cell,i)=>{
+    const nodes=[...(cell.matches("[data-tip]")?[cell]:[]), ...cell.querySelectorAll("[data-tip]")];
+    nodes.forEach(n=>{
+      const txt=(n.getAttribute("data-tip")||"").trim();
+      if(txt) items.push([heads[i]||`Column ${i+1}`, txt]);
+    });
+  });
+  if(!items.length) return "";
+  return `<div class="factor-attr"><div class="fa-h">COLUMN NOTES · this row</div>`
+    + items.map(([h,t])=>`<div class="rt-note"><b>${esc0(h)}</b><span>${esc0(t)}</span></div>`).join("")
+    + `<div class="note" style="margin-top:4px">Every explanation attached to this row's
+        cells, reproduced in full. On a phone the cells themselves are not individually
+        tappable, so this is where their notes live.</div></div>`;
+}
+
 function initTips(){
   tipUpgrade(document);
   // The board rebuilds its tables, panels and charts on load, on rewind and on every
   // input, so a one-time sweep would cover the first paint and nothing after it.
+  let ROWS_QUEUED=false;
+  const queueRows=()=>{ if(ROWS_QUEUED) return; ROWS_QUEUED=true;
+    requestAnimationFrame(()=>{ ROWS_QUEUED=false; wireMatrixRows(); }); };
   new MutationObserver(muts=>{
     for(const m of muts){
       m.addedNodes.forEach(n=>{ if(n.nodeType===1) tipUpgrade(n); });
       if(m.type==="attributes" && m.target.nodeType===1) tipUpgrade(m.target.parentNode||document);
     }
-  }).observe(document.body, {childList:true, subtree:true, attributeFilter:["title"]});
+    queueRows();
+  }).observe(document.body, {childList:true, subtree:true,
+                             attributeFilter:["title","data-tip"]});
+  queueRows();
 
   document.addEventListener("mouseover", e=>{
     if(TIP_STICKY) return;                     // a tap is holding this one open

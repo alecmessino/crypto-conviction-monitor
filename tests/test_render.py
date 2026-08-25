@@ -204,45 +204,198 @@ def run_checks() -> tuple:
             "no ATR14 recorded" in no_atr and "24h range is deliberately not substituted" in no_atr,
             "the sizer did not say why it has no stop, or substituted the 24h range"))
         with_atr = page.evaluate("""() => {
-            STATE.forEach(t => { ATR14[t.sym] = t.price * 0.045; });
+            STATE.forEach(t => { ATR14[t.sym] = {v: t.price * 0.045, date: '2026-08-25', bars: 15}; });
             document.querySelector('#sz-margin').value = '10';
             renderSizing();
             return document.querySelector('#sz-out').innerText; }""")
-        check("a derivable stop is shown with its rule", lambda: _assert(
-            "invalid below" in with_atr and "ATR14" in with_atr and "of book" in with_atr,
-            "no invalidation price, rule or per-line risk rendered"))
         low = with_atr.lower()
-        check("the book-level risk total renders above the rows", lambda: _assert(
-            "if every stop fills" in low and "invalid below" in low
-            and low.index("if every stop fills") < low.index("invalid below"),
-            "the book risk total is missing or below the line items it summarises"))
-        check("implied leverage appears once a margin is supplied", lambda: _assert(
-            "implied" in with_atr and "gets there first" in with_atr,
-            "leverage and liquidation distance are absent despite a margin input"))
+        check("a derivable stop is shown with its rule", lambda: _assert(
+            "atr stop" in low and "atr14" in low and "of book" in low,
+            "no ATR stop, rule or per-line exposure rendered"))
+        check("the reading keeps its observation date and bar count", lambda: _assert(
+            "atr recorded 2026-08-25" in low and "15 bars" in low,
+            "the ATR value is shown detached from the night it was recorded"))
+        check("the book-level exposure renders above the rows", lambda: _assert(
+            "stop-loss exposure" in low and "atr stop" in low
+            and low.index("stop-loss exposure") < low.index("atr stop"),
+            "the book exposure total is missing or below the line items it summarises"))
+        check("implied leverage appears without a liquidation-ordering claim", lambda: _assert(
+            "implied leverage" in low
+            and "liquidation ordering unknown" in low
+            and "gets there first" not in low,
+            "leverage is absent, or the panel still claims to know which of the stop and "
+            "the exchange arrives first, which initial margin cannot determine"))
+        check("nothing calls the ATR threshold an invalidation level", lambda: _assert(
+            "invalid below" not in low and "invalidation" not in low,
+            "the sizer calls a range multiple an invalidation level"))
+        check("nothing calls the exposure a risk budget", lambda: _assert(
+            "risk budget" not in low or "not a risk budget" in low,
+            "the panel describes a risk budget, which is a control the sizer does not enforce"))
+
+        # --- the parser takes perpetuals only -----------------------------------
+        parser_opts = page.evaluate("""() => [...document.querySelectorAll('#pp-contract option')]
+            .map(o => ({value: o.value, text: o.textContent}))""")
+        codes = [o["value"] for o in parser_opts if o["value"] != "none"]
+        check("a dated future cannot be selected in the funding parser", lambda: _assert(
+            "ET" not in codes and "BIT" not in codes and "SOL" not in codes and "HED" not in codes,
+            f"a dated contract is offered in the funding parser: {codes}"))
+        check("the funding-bearing perpetuals are offered", lambda: _assert(
+            {"BIP", "ETP", "SLP", "XPP", "HEP"} <= set(codes),
+            f"a verified perpetual is missing from the parser: {codes}"))
+        default_code = page.evaluate("() => document.querySelector('#pp-contract').value")
+        check("the parser defaults to a verified perpetual, not a dated future",
+              lambda: _assert(
+                  default_code in codes and default_code not in ("ET", "BIT", "SOL", "HED"),
+                  f"the parser defaults to {default_code!r}"))
+        check("the default is funding-bearing", lambda: _assert(
+            page.evaluate("() => { const p = selectedSpec(); return !!(p && p.funding_bearing "
+                          "&& p.instrument_type === 'perpetual'); }"),
+            "the preselected contract pays no funding, in a panel that recovers funding"))
 
         # --- the parser is the number the desk would recognise ------------------
         parsed = page.evaluate("""() => {
-          const hbar = CONTRACT_SPECS.products.findIndex(p => p.symbol === 'HBAR');
           const sel = document.querySelector('#pp-contract');
-          sel.value = String(hbar); sel.onchange();
+          sel.value = 'HEP'; sel.onchange();
           document.querySelector('#pp-contracts').value = '12';
           document.querySelector('#pp-price').value = '0.0802';
           renderParser();
           return {out: document.querySelector('#pp-out').innerText,
                   mult: document.querySelector('#pp-mult').value};
         }""")
-        check("12 HBAR contracts at $0.0802 is $4,812 of notional", lambda: _assert(
+        check("12 HEP contracts at $0.0802 is $4,812 of notional", lambda: _assert(
             parsed["mult"] == "5000" and "$4,812" in parsed["out"],
             f"multiplier {parsed['mult']}, output did not show $4,812: {parsed['out'][:200]}"))
+        check("a verified contract is not marked unverified", lambda: _assert(
+            "USER-ENTERED MULTIPLIER" not in parsed["out"],
+            "a primary-verified contract is being reported as unverified"))
+
+        tainted = page.evaluate("""() => {
+          document.querySelector('#pp-mult').value = '1234';
+          renderParser();
+          return document.querySelector('#pp-out').innerText;
+        }""")
+        check("a hand-entered multiplier taints every derived figure", lambda: _assert(
+            "USER-ENTERED MULTIPLIER" in tainted and "UNVERIFIED" in tainted,
+            "typing over a verified contract size produced figures with no unverified mark"))
+
         unknown = page.evaluate("""() => {
           const sel = document.querySelector('#pp-contract');
           sel.value = 'none'; sel.onchange();
           return {out: document.querySelector('#pp-out').innerText,
                   mult: document.querySelector('#pp-mult').value};
         }""")
-        check("an unlisted contract is unknown, never 1", lambda: _assert(
-            unknown["mult"] == "" and "Multiplier unknown" in unknown["out"],
-            "an unlisted contract did not refuse. This is the original bug, a silent default of 1"))
+        check("an unmapped contract refuses, never defaults to 1", lambda: _assert(
+            unknown["mult"] == "" and "not mapped" in unknown["out"].lower(),
+            "an unmapped contract did not refuse. This is the original bug, a silent "
+            "default of 1"))
+        check("refusing does not claim the exchange lists no contract", lambda: _assert(
+            "spot only" not in unknown["out"].lower()
+            and "no listed contract" not in unknown["out"].lower()
+            and "gap in this table" in unknown["out"].lower(),
+            "the refusal asserts something about Coinbase's product list rather than "
+            "about this board's table"))
+        sizer_unmapped = page.evaluate("""() => {
+            renderSizing(); return document.querySelector('#sz-out').innerText; }""")
+        check("the sizer's unmapped wording is about this table, not the venue",
+              lambda: _assert(
+                  "spot only" not in sizer_unmapped.lower()
+                  and "no listed contract" not in sizer_unmapped.lower(),
+                  "the sizer claims Coinbase lists no contract for an unmapped symbol"))
+
+        # --- zero orphaned explanations -----------------------------------------
+        # Counting upgraded [data-tip] nodes proves nothing about reach. Tips inside
+        # tr.row are deliberately neither focusable nor individually tappable, so the
+        # question is not how many were upgraded but whether every one of them has a
+        # route: directly focusable, inside a roving grid, or reproduced verbatim in a
+        # drawer the row can open by touch AND by keyboard.
+        audit = page.evaluate("""() => {
+          const all = [...document.querySelectorAll('[data-tip]')];
+          const orphans = [], byKind = {};
+          all.forEach(n => {
+            const ti = n.getAttribute('tabindex');
+            const direct = (ti !== null && ti !== '-1')
+                        || n.matches('a[href],button,input,select,textarea');
+            const roving = !!n.closest('[data-tip-group]');
+            const inRow  = !!n.closest('tr.row');
+            let kind;
+            if (direct) kind = 'direct';
+            else if (roving) kind = 'roving';
+            else if (inRow) kind = 'row-drawer';
+            else { kind = 'ORPHAN';
+                   orphans.push({tag: n.tagName, cls: String(n.className).slice(0, 40),
+                                 tip: (n.getAttribute('data-tip') || '').slice(0, 70)}); }
+            byKind[kind] = (byKind[kind] || 0) + 1;
+          });
+          return {total: all.length, byKind, orphans: orphans.slice(0, 10)};
+        }""")
+        check("no explanation is unreachable", lambda: _assert(
+            audit["total"] > 500 and not audit["orphans"],
+            f"{len(audit['orphans'])} of {audit['total']} explanations have no touch or "
+            f"keyboard route: {audit['orphans']}"))
+
+        # --- keyboard: focus, description, arrows in a dense group, Escape -------
+        kb = page.evaluate("""() => {
+          const t = document.querySelector('th[data-tip]');
+          t.focus();
+          const shown = !document.getElementById('tip-pop').hidden;
+          const described = t.getAttribute('aria-describedby');
+          const role = document.getElementById('tip-pop').getAttribute('role');
+          return {shown, described, role, tab: t.getAttribute('tabindex')};
+        }""")
+        check("keyboard focus opens the explanation", lambda: _assert(
+            kb["shown"] and kb["described"] == "tip-pop" and kb["role"] == "tooltip",
+            f"focus did not announce the tip: {kb}"))
+        page.keyboard.press("Escape")
+        check("Escape dismisses it", lambda: _assert(
+            page.evaluate("() => document.getElementById('tip-pop').hidden") is True,
+            "the popover survived Escape"))
+
+        rove = page.evaluate("""() => {
+          // A visible group: an element inside a hidden tab pane cannot take focus, so
+          // testing one would report "arrows do not work" about a display rule.
+          const g = [...document.querySelectorAll('[data-tip-group]')]
+                    .find(n => n.offsetParent !== null);
+          if (!g) return {skip: true};
+          // The group's managed set is its DIRECT explained children; nested elements
+          // in sub-containers are other groups' business.
+          const items = [...g.children].filter(n => n.matches('[data-tip][tabindex]'));
+          const stops = items.filter(n => n.getAttribute('tabindex') === '0').length;
+          items[0].focus();
+          const before = document.activeElement;
+          g.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight', bubbles: true}));
+          return {skip: false, size: items.length, stops,
+                  moved: document.activeElement !== before};
+        }""")
+        check("a dense group is one tab stop with arrow movement inside it",
+              lambda: _assert(
+                  rove.get("skip") or (rove["stops"] == 1 and rove["moved"]),
+                  f"roving group is not navigable: {rove}"))
+
+        # --- keyboard: the row drawer, and the notes it has to carry -------------
+        drawer = page.evaluate("""() => {
+          const row = document.querySelector('tr.row');
+          const sym = row.dataset.sym;
+          const tips = [...row.querySelectorAll('[data-tip]')]
+                        .map(n => n.getAttribute('data-tip').trim()).filter(Boolean);
+          row.focus();
+          const focused = document.activeElement === row;
+          const tb = row.closest('tbody');
+          tb.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true}));
+          const body = document.querySelector('#dw-body').innerText;
+          return {sym, focused, tabindex: row.getAttribute('tabindex'),
+                  open: document.querySelector('#drawer').classList.contains('open'),
+                  nTips: tips.length,
+                  missing: tips.filter(x => !body.includes(x.slice(0, 60))).length};
+        }""")
+        check("a matrix row is keyboard focusable", lambda: _assert(
+            drawer["focused"] and drawer["tabindex"] is not None,
+            f"matrix rows take no keyboard focus: {drawer}"))
+        check("Enter on a focused row opens its drawer", lambda: _assert(
+            drawer["open"], "the drawer cannot be opened from the keyboard"))
+        check("the drawer reproduces every row explanation verbatim", lambda: _assert(
+            drawer["nTips"] > 0 and drawer["missing"] == 0,
+            f"{drawer['missing']} of {drawer['nTips']} row explanations are missing from "
+            f"the drawer that is supposed to carry them"))
 
         # --- the phone -----------------------------------------------------------
         iphone = pw.devices["iPhone 13"]
@@ -256,21 +409,51 @@ def run_checks() -> tuple:
         mob.wait_for_timeout(2500)
         check("no uncaught errors on a phone",
               lambda: _assert(not mob_errors, "; ".join(mob_errors)))
+
+        # A DYNAMIC row-cell caveat, not a static column header: the header is in the
+        # source and would pass even if nothing the board renders were reachable.
+        dyn = mob.query_selector("#sz-out [data-tip]") or mob.query_selector("tbody [data-tip]")
+        check("there is a rendered, non-static explanation to reach",
+              lambda: _assert(dyn is not None, "no dynamically rendered explanation found"))
+        if dyn:
+            in_row = mob.evaluate("(el) => !!el.closest('tr.row')", dyn)
+            if in_row:
+                # Its route is the drawer, so that is what must open on tap.
+                mob.evaluate("(el) => el.closest('tr.row').scrollIntoView()", dyn)
+                dyn.tap()
+                mob.wait_for_timeout(400)
+                reached = mob.evaluate("""(el) => {
+                    const txt = (el.getAttribute('data-tip') || '').slice(0, 60);
+                    const body = document.querySelector('#dw-body').innerText;
+                    return document.querySelector('#drawer').classList.contains('open')
+                        && body.includes(txt); }""", dyn)
+                check("tapping a row cell reaches its explanation through the drawer",
+                      lambda: _assert(reached,
+                                      "a row cell's caveat is unreachable by tap on a phone"))
+            else:
+                mob.evaluate("(el) => el.scrollIntoView()", dyn)
+                dyn.tap()
+                mob.wait_for_timeout(400)
+                shown = mob.evaluate("""() => { const e = document.getElementById('tip-pop');
+                    return {hidden: e ? e.hidden : true, len: e ? e.textContent.length : 0}; }""")
+                check("tapping a rendered explanation opens it", lambda: _assert(
+                    shown["hidden"] is False and shown["len"] > 20,
+                    "tapping a dynamically rendered explanation on a phone showed nothing"))
+
+        # And a static header too, since that is the densest surface on the board.
         target = mob.query_selector("th[data-tip]")
-        check("there is something to tap", lambda: _assert(target is not None,
-                                                           "no explained column header on the phone"))
         if target:
             target.tap()
             mob.wait_for_timeout(300)
             shown = mob.evaluate("""() => { const e = document.getElementById('tip-pop');
                 return {hidden: e ? e.hidden : true, len: e ? e.textContent.length : 0}; }""")
-            check("a tap opens the explanation", lambda: _assert(
+            check("tapping a column header opens its explanation", lambda: _assert(
                 shown["hidden"] is False and shown["len"] > 20,
-                "tapping an explained element on a phone showed nothing. This is the bug "
-                "the popover exists to fix"))
+                "tapping an explained column header on a phone showed nothing. This is "
+                "the bug the popover exists to fix"))
             mob.keyboard.press("Escape")
             mob.wait_for_timeout(150)
-            check("Escape dismisses it", lambda: _assert(
+            check("Escape dismisses it on the phone too", lambda: _assert(
                 mob.evaluate("() => document.getElementById('tip-pop').hidden") is True,
                 "the popover cannot be dismissed"))
         check("the phone does not scroll sideways", lambda: _assert(

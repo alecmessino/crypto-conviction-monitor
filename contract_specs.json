@@ -1,158 +1,423 @@
 {
   "_comment": [
-    "Coinbase Derivatives contract sizes, pinned rather than fetched.",
+    "Coinbase Derivatives contract specifications.",
     "",
-    "WHY PINNED: the funding parser computed notional as contracts * price, which is",
-    "correct only for a contract whose unit is one unit of the underlying. No Coinbase",
-    "Derivatives contract is. Twelve HBAR contracts at $0.0802 is $4,812 of notional,",
-    "not $0.96, and every field the parser derived from that number - APR, the 8h",
-    "equivalent, the hourly rate, the regime classification - was wrong by the",
-    "multiplier, which for HBAR is 5,000x.",
+    "WHY THIS FILE EXISTS: the funding parser computed notional as contracts * price,",
+    "which is the identity only for a contract whose unit is one unit of the underlying.",
+    "Twelve HEP contracts at $0.0802 is $4,812 of notional, not $0.96, and every figure",
+    "downstream inherited the 5,000x error at full confidence.",
     "",
-    "WHY NOT FETCHED AT BUILD TIME: coinbase.com returns 403 to every automated agent,",
-    "and the CFTC product-certification filings that would be the primary source are",
-    "scanned images with no extractable text. Every multiplier below therefore comes",
-    "from secondary reporting, corroborated across independent outlets, and every one",
-    "of them carries its sources so the claim can be checked rather than trusted.",
+    "PERPETUAL IS NOT DATED. The parser recovers a funding rate, and only a",
+    "perpetual-style contract has funding. BIP/ETP/SLP/XPP/HEP debit and credit open",
+    "positions via a funding rate; BIT/ET/SOL/HED and the rest are dated futures that",
+    "expire and pay no funding. A matching multiplier does not make them the same",
+    "instrument: ET and ETP are both 0.1 ETH and only one of them has a rate to recover.",
+    "The dated rows are here for contract conversion only and are excluded from the",
+    "parser in code, not by convention.",
     "",
-    "STATUS IS PART OF THE DATA. `verification` is 'secondary' on every row here and",
-    "nothing in this repository has yet read a number off the exchange itself. Running",
-    "scripts/check_contract_specs.py against a session that can reach Coinbase is what",
-    "promotes a row to 'exchange' and stamps `verified_on`. Until then the terminal",
-    "says so on screen: a pinned multiplier is labelled pinned, not confirmed.",
+    "SOURCES ARE PRIMARY. Every row is read off the product table in the CFTC",
+    "self-certification filing cited in source_documents, which lists product name,",
+    "contract code and contract size together. The five perpetuals additionally carry",
+    "Coinbase's own published specification sheet, which states the funding mechanism",
+    "in terms. Nothing here comes from press coverage.",
     "",
-    "A SYMBOL THAT IS NOT IN THIS FILE HAS AN UNKNOWN MULTIPLIER, NOT A MULTIPLIER OF 1.",
-    "Defaulting to 1 is what produced the original error. The parser refuses to compute",
-    "a notional it cannot justify, in the same way the sizer refuses to size an asset",
-    "with no recorded volume."
+    "THIS TABLE IS A SNAPSHOT, NOT A CENSUS. It is the product list as it stood in the",
+    "filing dated 2025-11-26. Coinbase has listed contracts since, and lists many assets",
+    "this board scores that are absent here. An absent symbol therefore means NO VERIFIED",
+    "CONTRACT MAPPING, which is not the same claim as no contract existing, and the",
+    "terminal is required to say the former. Saying the latter would be inventing a fact",
+    "about the exchange out of a gap in this file.",
+    "",
+    "A SYMBOL ABSENT FROM THIS FILE HAS AN UNKNOWN MULTIPLIER, NOT A MULTIPLIER OF 1.",
+    "Note that 1 is a real contract size here: BTI is 1 BTC and BCH is 1 BCH. That is",
+    "exactly why the silent default was dangerous rather than merely wrong, and why a",
+    "user-entered multiplier marks every figure it produces as unverified."
   ],
   "as_of": "2026-08-25",
   "exchange": "Coinbase Derivatives, LLC (CDE)",
+  "source_documents": [
+    {
+      "id": "cftc-2025-70",
+      "date": "2025-11-26",
+      "title": "2025-70 Listing of the Hedera Perp Style Futures (product table, all listed contracts)",
+      "url": "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+    },
+    {
+      "id": "cde-perp-specs",
+      "date": "2026-08-25",
+      "title": "Coinbase Derivatives published perpetual-style contract specification sheets",
+      "url": "https://assets.ctfassets.net/"
+    }
+  ],
+  "notes": {
+    "excluded": "Non-crypto contracts in the same filing (GOL, SLR, NGS, NOL, MC) are omitted: this board scores crypto only.",
+    "parser_rule": "Only rows with instrument_type=='perpetual' AND funding_bearing AND verification=='primary' may appear in the funding parser.",
+    "sizing_rule": "Automatic contract counts use only rows with verification=='primary'; a perpetual is preferred over a dated contract of the same size."
+  },
   "products": [
     {
-      "id": "BIT",
+      "code": "BIP",
       "symbol": "BTC",
-      "product": "Nano Bitcoin Futures",
+      "product": "nano Bitcoin Perp Style Futures",
+      "instrument_type": "perpetual",
+      "funding_bearing": true,
       "multiplier": 0.01,
       "unit": "BTC",
-      "verification": "secondary",
-      "verified_on": null,
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
       "sources": [
-        "https://www.coinbase.com/blog/coinbase-derivatives-exchange-to-add-nano-ether-futures-contract",
-        "https://info.tradovate.com/coinbase-derivatives-nano-bitcoin"
-      ],
-      "note": "Reported as 1/100th the size of Bitcoin."
+        "https://assets.ctfassets.net/7ca8qfn907uv/36uUBfnoAFKfWNAgfZDepf/a802f97a4feeb9a85fe0845ec07102d3/nano_Bitcoin_Perp_Style_Spec.pdf",
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
     },
     {
-      "id": "BTI",
-      "symbol": "BTC",
-      "product": "Bitcoin Futures (institutional)",
-      "multiplier": 1,
-      "unit": "BTC",
-      "verification": "secondary",
-      "verified_on": null,
-      "sources": [
-        "https://www.coinbase.com/blog/coinbase-derivatives-exchange-will-launch-institutional-sized-bitcoin-and",
-        "https://www.theblock.co/post/232990/coinbase-institutional-bitcoin-ether-futures-contracts"
-      ],
-      "note": "Launched 2023-06-05 alongside ETI."
-    },
-    {
-      "id": "ET",
+      "code": "ETP",
       "symbol": "ETH",
-      "product": "Nano Ether Futures",
+      "product": "nano Ether Perp Style Futures",
+      "instrument_type": "perpetual",
+      "funding_bearing": true,
       "multiplier": 0.1,
       "unit": "ETH",
-      "verification": "secondary",
-      "verified_on": null,
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
       "sources": [
-        "https://www.coinbase.com/blog/coinbase-derivatives-exchange-to-add-nano-ether-futures-contract",
-        "https://info.tradovate.com/coinbase-derivatives-nano-bitcoin"
-      ],
-      "note": "Reported as 1/10th the size of Ether."
+        "https://assets.ctfassets.net/7ca8qfn907uv/1rsuwIgOFcofkdd0gKgeCS/4bf41b164aba229d8cded67f7c25393b/nano_Ether_Perp_Style_Spec.pdf",
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
     },
     {
-      "id": "ETI",
-      "symbol": "ETH",
-      "product": "Ether Futures (institutional)",
-      "multiplier": 10,
-      "unit": "ETH",
-      "verification": "secondary",
-      "verified_on": null,
-      "sources": [
-        "https://www.coinbase.com/blog/coinbase-derivatives-exchange-will-launch-institutional-sized-bitcoin-and",
-        "https://www.theblock.co/post/232990/coinbase-institutional-bitcoin-ether-futures-contracts"
-      ],
-      "note": "Launched 2023-06-05 alongside BTI."
-    },
-    {
-      "id": null,
+      "code": "SLP",
       "symbol": "SOL",
-      "product": "Nano Solana Futures",
+      "product": "nano Solana Perp Style Futures",
+      "instrument_type": "perpetual",
+      "funding_bearing": true,
       "multiplier": 5,
       "unit": "SOL",
-      "verification": "secondary",
-      "verified_on": null,
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
       "sources": [
-        "https://crypto.news/coinbase-expands-futures-lineup-with-solana-hedera-eurc-usdc-pairs/",
-        "https://cryptonews.com/news/coinbase-adds-cftc-regulated-solana-hedera/"
-      ],
-      "note": "Exchange product code not corroborated; recorded as null rather than guessed."
+        "https://assets.ctfassets.net/k3n74unfin40/4jzw23zD73o7o3VSqvzYHA/faa20d819344ae820e4404537f5ec4f1/nano_Solana_Perps_Spec.pdf",
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
     },
     {
-      "id": null,
-      "symbol": "SOL",
-      "product": "Solana Futures",
-      "multiplier": 100,
-      "unit": "SOL",
-      "verification": "secondary",
-      "verified_on": null,
-      "sources": [
-        "https://crypto.news/coinbase-expands-futures-lineup-with-solana-hedera-eurc-usdc-pairs/",
-        "https://cryptonews.com/news/coinbase-adds-cftc-regulated-solana-hedera/"
-      ],
-      "note": "Exchange product code not corroborated; recorded as null rather than guessed."
-    },
-    {
-      "id": null,
-      "symbol": "HBAR",
-      "product": "Hedera Futures",
-      "multiplier": 5000,
-      "unit": "HBAR",
-      "verification": "secondary",
-      "verified_on": null,
-      "sources": [
-        "https://cryptonews.com/news/coinbase-adds-cftc-regulated-solana-hedera/",
-        "https://coincentral.com/coinbase-expands-derivatives-offering-with-new-solana-and-hedera-futures-contracts/"
-      ],
-      "note": "No nano Hedera contract was found in any source. The review that prompted this file called the 5,000 HBAR contract a nano; the multiplier is the same either way, the product name is not, and the name here is the one the sources actually use."
-    },
-    {
-      "id": null,
+      "code": "XPP",
       "symbol": "XRP",
-      "product": "Nano XRP Futures",
+      "product": "nano XRP Perp Style Futures",
+      "instrument_type": "perpetual",
+      "funding_bearing": true,
       "multiplier": 500,
       "unit": "XRP",
-      "verification": "secondary",
-      "verified_on": null,
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
       "sources": [
-        "https://lpfutures.com/nano-xrp-futures-contract/",
-        "https://www.theblock.co/post/349591/coinbase-xrp-futures-filings"
-      ],
-      "note": "The CFTC filing (ptc04032518912.pdf) is a scanned image and could not be read as text; 500 XRP is corroborated across two independent secondary sources instead."
+        "https://assets.ctfassets.net/k3n74unfin40/doQ2ycXfKQ05mqN1lvoHI/5392b405093cb76eb5b49736a8656664/nano_XRP_Perps_Spec.pdf",
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
     },
     {
-      "id": null,
+      "code": "HEP",
+      "symbol": "HBAR",
+      "product": "Hedera Perp Style Futures",
+      "instrument_type": "perpetual",
+      "funding_bearing": true,
+      "multiplier": 5000,
+      "unit": "HBAR",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "BIT",
+      "symbol": "BTC",
+      "product": "nano Bitcoin Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 0.01,
+      "unit": "BTC",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "BTI",
+      "symbol": "BTC",
+      "product": "Bitcoin Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 1,
+      "unit": "BTC",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "ET",
+      "symbol": "ETH",
+      "product": "nano Ether Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 0.1,
+      "unit": "ETH",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "ETI",
+      "symbol": "ETH",
+      "product": "Ether Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 10,
+      "unit": "ETH",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "SOL",
+      "symbol": "SOL",
+      "product": "nano Solana Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 5,
+      "unit": "SOL",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "SLC",
+      "symbol": "SOL",
+      "product": "Solana Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 100,
+      "unit": "SOL",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "XRP",
+      "symbol": "XRP",
+      "product": "nano XRP Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 500,
+      "unit": "XRP",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "XRL",
       "symbol": "XRP",
       "product": "XRP Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
       "multiplier": 10000,
       "unit": "XRP",
-      "verification": "secondary",
-      "verified_on": null,
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
       "sources": [
-        "https://www.theblock.co/post/349591/coinbase-xrp-futures-filings"
-      ],
-      "note": "Single source. Kept because omitting it would leave the nano row implying it is the only XRP contract, but a single-sourced row is the weakest evidence in this file."
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "HED",
+      "symbol": "HBAR",
+      "product": "Hedera Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 5000,
+      "unit": "HBAR",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "BCH",
+      "symbol": "BCH",
+      "product": "Bitcoin Cash Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 1,
+      "unit": "BCH",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "LC",
+      "symbol": "LTC",
+      "product": "Litecoin Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 5,
+      "unit": "LTC",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "DOG",
+      "symbol": "DOGE",
+      "product": "Dogecoin Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 5000,
+      "unit": "DOGE",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "XLM",
+      "symbol": "XLM",
+      "product": "Stellar Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 5000,
+      "unit": "XLM",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "AVA",
+      "symbol": "AVAX",
+      "product": "Avalanche Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 10,
+      "unit": "AVAX",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "LNK",
+      "symbol": "LINK",
+      "product": "Chainlink Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 50,
+      "unit": "LINK",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "DOT",
+      "symbol": "DOT",
+      "product": "Polkadot Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 100,
+      "unit": "DOT",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "SHB",
+      "symbol": "SHIB",
+      "product": "1k Shib Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 10000000,
+      "unit": "SHIB",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "ADA",
+      "symbol": "ADA",
+      "product": "Cardano Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 1000,
+      "unit": "ADA",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
+    },
+    {
+      "code": "SUI",
+      "symbol": "SUI",
+      "product": "SUI Futures",
+      "instrument_type": "dated",
+      "funding_bearing": false,
+      "multiplier": 500,
+      "unit": "SUI",
+      "active_as_of": "2025-11-26",
+      "verification": "primary",
+      "verified_on": "2026-08-25",
+      "sources": [
+        "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
+      ]
     }
   ]
 }

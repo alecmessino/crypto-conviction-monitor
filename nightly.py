@@ -1330,59 +1330,142 @@ def _edge_legs(by_date: dict, boundary: str | None) -> list[dict]:
     return out
 
 
-def _active_contributions(by_date: dict, boundary: str | None, limit: int = 8) -> dict:
+_ATTRIB_BASIS = (
+    "Arithmetic, not evidence. Contribution = active weight x (return - equal-weight "
+    "return) per leg, linked across legs by the Carino method so the parts sum to the "
+    "chained gap exactly rather than approximately. An unlinked sum does not: it is a "
+    "sum of arithmetic pieces set against a difference of geometric wholes, and the "
+    "error grows with the number of legs. Over this many legs the ordering is still "
+    "mostly sampling noise, so it is a description of what happened and not a list of "
+    "names to act on. An overweight name that fell is a selection error; an underweight "
+    "name that rose is an omission."
+)
+
+
+def _carino_k(p: float, b: float) -> float:
+    """Carino's per-period linking coefficient.
+
+    k = [ln(1+p) - ln(1+b)] / (p - b), which is the slope of ln(1+x) averaged over the
+    interval between the two returns. As p approaches b the expression is 0/0 and the
+    limit is the derivative at that point, 1/(1+p). Computed by the limit rather than by
+    a nudge, because a leg where the book exactly matched the benchmark is an ordinary
+    outcome, not a degenerate one, and an epsilon there would put a small fabricated
+    number into every contribution on that day.
+    """
+    if p <= -1.0 or b <= -1.0:
+        # Total loss. ln(0) is undefined and no linking coefficient exists; the caller
+        # reports the leg rather than substituting a number for it.
+        raise ValueError(f"return of -100% or worse cannot be log-linked (p={p}, b={b})")
+    if abs(p - b) < 1e-12:
+        return 1.0 / (1.0 + p)
+    return (math.log1p(p) - math.log1p(b)) / (p - b)
+
+
+def _active_contributions(usable_legs: list, limit: int = 8) -> dict:
     """Where the basket-minus-equal-weight gap came from, name by name.
 
-    Pure accounting: contribution = active weight x (return - universe mean), summed
-    over legs. It always adds up to the realised gap, which is exactly why it is
-    seductive and exactly why it is labelled. Over six legs the ranking is dominated by
-    sampling noise, and treating it as a list of names to drop is how a model gets
-    fitted to its own error.
+    **Carino-linked, and this is the correction that matters.** The previous version
+    summed single-period active contributions arithmetically and claimed to reconcile to
+    the realised gap "by construction". That claim is true for one leg and false for
+    every leg after it: the gap it reconciles to is chained geometrically, and a sum of
+    arithmetic parts does not equal a difference of geometric wholes. On twenty legs the
+    residual had reached 312.9bp against a gap of -1266.0bp, 24.7% of the number it was
+    said to explain, while the panel went on calling itself exact.
 
-    Split by whether the position was over- or under-weight, because the two are
-    different mistakes: an overweight name that fell is a selection error, an
-    underweight name that rose is an omission, and they have different remedies.
+    The arithmetic, per leg t:
+
+        p_t = book return, b_t = equal-weight return, a_t = p_t - b_t
+        c_i,t = active_i,t x (r_i,t - b_t),  and  sum_i c_i,t = a_t exactly
+        k_t   = [ln(1+p_t) - ln(1+b_t)] / (p_t - b_t)
+        K     = [ln(1+P)   - ln(1+B)]   / (P - B)          over the chained totals
+        C_i   = sum_t c_i,t x k_t / K
+
+    Then sum_i C_i = sum_t a_t k_t / K = [ln(1+P) - ln(1+B)] / K = P - B, exactly, which
+    is what "reconciles" has to mean if the word is going to appear beside the number.
+
+    `active_i,t` is the leg's own weight arithmetic, not a re-derivation of it: the book
+    weight is w_i / kept over the names that stayed priceable, and the benchmark weight
+    is 1/|shared| over the names present on both nights. Those two sets are not the same
+    set, and the difference is exactly why this is computed from the leg rather than
+    from the dates the leg covers.
+
+    Still arithmetic, not evidence. Over this many legs the ordering is dominated by
+    sampling noise, and treating it as a list of names to drop is how a model gets
+    fitted to its own error. Split by stance because the two mistakes differ: an
+    overweight name that fell is a selection error, an underweight name that rose is an
+    omission, and they have different remedies.
     """
-    dates = sorted(by_date)
-    contrib: dict[str, float] = {}
+    # A leg with no equal-weight reading has no active return to decompose. It is
+    # excluded here AND reported, because the performance curve chains `book` through
+    # such a leg while `equal_weight` skips it, so a silent exclusion would leave the
+    # attribution reconciling to a gap built over a different set of days.
+    legs = [l for l in usable_legs if l.get("equal_weight") is not None]
+    skipped = len(usable_legs) - len(legs)
+
+    per_leg = []          # [{k, contrib:{sym: c}}]
     held: dict[str, float] = {}
-    legs = 0
-    for a, b in zip(dates, dates[1:]):
-        if boundary and a < boundary:
-            continue
-        prev, curr = by_date[a], by_date[b]
+    book_chain = eq_chain = 1.0
+    for l in legs:
+        p_t, b_t = l["book"], l["equal_weight"]
+        weights, kept, shared = l["weights"], l["kept"], l["shared"]
+        prev, curr = l["_prev"], l["_curr"]
         rets = {}
-        for sym, row in prev.items():
-            nxt = curr.get(sym)
-            p0 = _mon_float(row, "price")
-            p1 = _mon_float(nxt, "price") if nxt else None
+        for sym in set(list(weights) + list(shared)):
+            p0 = (prev.get(sym) or {}).get("price")
+            p1 = (curr.get(sym) or {}).get("price")
             if p0 and p1:
                 rets[sym] = p1 / p0 - 1.0
-        if len(rets) < EDGE_MIN_NAMES:
-            continue
-        legs += 1
-        w = _perf_weights(prev)
-        tw = sum(v for s, v in w.items() if s in rets) or 1.0
-        mean_r = sum(rets.values()) / len(rets)
+        n_shared = len(shared) or 1
+        contrib = {}
         for sym, r in rets.items():
-            active = (w.get(sym, 0.0) / tw) - 1.0 / len(rets)
-            contrib[sym] = contrib.get(sym, 0.0) + active * (r - mean_r)
+            # The book's weight on this name, renormalised over what stayed priceable,
+            # minus the benchmark's. Zero on either side where the name is absent there.
+            wb = (weights.get(sym, 0.0) / kept) if (sym in weights and kept) else 0.0
+            wq = (1.0 / n_shared) if sym in shared else 0.0
+            active = wb - wq
+            if active == 0.0:
+                continue
+            contrib[sym] = active * (r - b_t)
             held[sym] = held.get(sym, 0.0) + active
+        per_leg.append({"k": _carino_k(p_t, b_t), "contrib": contrib,
+                        "a": p_t - b_t, "from": l["from"], "to": l["to"]})
+        book_chain *= (1.0 + p_t)
+        eq_chain *= (1.0 + b_t)
+
+    P, B = book_chain - 1.0, eq_chain - 1.0
+    if not per_leg:
+        return {"legs": 0, "total_bp": 0.0, "detractors": [], "contributors": [],
+                "linking": "carino", "reconciles_to_bp": 0.0, "residual_bp": 0.0,
+                "legs_without_benchmark": skipped,
+                "basis": _ATTRIB_BASIS}
+    K = _carino_k(P, B)
+
+    contrib: dict[str, float] = {}
+    for leg in per_leg:
+        scale = leg["k"] / K
+        for sym, c in leg["contrib"].items():
+            contrib[sym] = contrib.get(sym, 0.0) + c * scale
+
+    total = sum(contrib.values())
+    target = P - B
     ranked = sorted(contrib.items(), key=lambda kv: kv[1])
+
     def row(sym, v):
         return {"symbol": sym, "bp": round(v * 1e4, 1),
                 "stance": "overweight" if held.get(sym, 0.0) > 0 else "underweight"}
+
     return {
-        "legs": legs,
-        "total_bp": round(sum(contrib.values()) * 1e4, 1),
+        "legs": len(per_leg),
+        "legs_without_benchmark": skipped,
+        "linking": "carino",
+        "total_bp": round(total * 1e4, 1),
+        # The gap this decomposition is a decomposition OF, carried beside the sum so
+        # the two can be compared without recomputing either.
+        "reconciles_to_bp": round(target * 1e4, 1),
+        "residual_bp": round((total - target) * 1e4, 6),
         "detractors": [row(s, v) for s, v in ranked[:limit]],
         "contributors": [row(s, v) for s, v in ranked[-limit:][::-1]],
-        "basis": ("Arithmetic, not evidence. Contribution = active weight x (return - "
-                  "universe mean), summed over legs; it reconciles to the realised gap "
-                  "by construction. Over this many legs the ordering is mostly sampling "
-                  "noise, so it is a description of what happened and not a list of "
-                  "names to act on. An overweight name that fell is a selection error; "
-                  "an underweight name that rose is an omission."),
+        "basis": _ATTRIB_BASIS,
     }
 
 
@@ -1397,7 +1480,11 @@ def _compute_edge() -> dict:
     perf = _compute_performance()
     boundary = perf.get("spec_boundary")
     legs = _edge_legs(by_date, boundary)
-    attribution = _active_contributions(by_date, boundary)
+    # The attribution decomposes the SAME legs the performance curve chains, handed over
+    # rather than rebuilt from the dates: rebuilding is what let the two drift apart
+    # under different filters while both reported twenty legs.
+    _, usable_legs, _, _ = _perf_legs(by_date, sorted(by_date))
+    attribution = _active_contributions(usable_legs)
     ics = [l["ic"] for l in legs if l["ic"] is not None]
     spreads = [l["spread_bp"] for l in legs]
     base = {"legs": len(legs), "min_legs": EDGE_MIN_LEGS, "boundary": boundary,
@@ -1493,32 +1580,19 @@ def _perf_weights(day: dict) -> dict:
     return {sym: v["conviction"] / total for sym, v in ranked if v["conviction"] > 0}
 
 
-def _compute_performance() -> dict:
-    """Paper return of the published basket, chained across recorded days.
+def _perf_legs(by_date: dict, dates: list) -> tuple:
+    """The legs the performance curve is chained from. One definition, two consumers.
 
-    The same three rules as the equity terminal, for the same reasons:
+    Extracted because the attribution used to build its own leg set from the same dates
+    under *different* filters: the curve dropped a leg that lost more than
+    PERF_MAX_WEIGHT_LOSS of its book, the attribution did not, and the attribution
+    applied an EDGE_MIN_NAMES floor the curve did not. On the ledger as it stands both
+    happen to land on twenty legs, which is a coincidence and not a coupling. An
+    attribution that reconciles to a curve built from a different set of days is not an
+    attribution of that curve, and nothing in the output would have said so.
 
-    * **Weights from the earlier night, prices from both.** Using tonight's weights
-      against tonight's prices prints alpha every day forever and looks entirely
-      plausible doing it.
-    * **Only recorded dates.** No back-fill. A day that was not recorded is gone.
-    * **A missing benchmark is a gap, not a flat segment.** Flat reads as "the market
-      did not move" where the truth is "it was not recorded".
-
-    Deliberately NOT built on ledger/index.json. That file's row series is unusable: its
-    header declares seven columns while eight of ten rows carry thirteen, so a DictReader
-    silently files the alpha figure under n_holdings and a dollar amount under
-    rebalanced; several dates repeat; and benchmark_return is identically 0.0 on every
-    row, which makes its "alpha" the raw return under another name. signals.csv is
-    structurally sound and is the source here.
+    Returns ``(all_legs, usable_after_boundary, boundary, dropped_pre_break)``.
     """
-    by_date, collapsed = _perf_by_date()
-    dates = sorted(by_date)
-    if len(dates) < 2:
-        return {"days": len(dates), "legs": 0, "min_days": PERF_MIN_DAYS,
-                "renderable": False, "series": [], "duplicates_collapsed": collapsed,
-                "benchmark": PERF_BENCHMARK}
-
     legs = []
     for a, b in zip(dates, dates[1:]):
         prev, curr = by_date[a], by_date[b]
@@ -1550,13 +1624,18 @@ def _compute_performance() -> dict:
             "names": names,
             "weight_lost": missing / held,
             "usable": (missing / held) <= PERF_MAX_WEIGHT_LOSS,
+            # Carried so the attribution can reproduce this leg's arithmetic exactly
+            # rather than approximating it from the same dates. Underscored keys are
+            # in-memory only: nothing here is serialised into the ledger.
+            "kept": kept, "weights": weights, "shared": shared,
+            "_prev": prev, "_curr": curr,
         })
 
     usable = [l for l in legs if l["usable"]]
 
     # Start after the most recent specification boundary. A leg that straddles one
     # chains a book chosen by one model onto returns scored by another, and averaging
-    # across that is not a track record for either — it is a number about a model that
+    # across that is not a track record for either, it is a number about a model that
     # never existed. The legs before the boundary are still real measurements of the
     # model that produced them; they are excluded from *this* curve, not deleted, and
     # the count is reported so the exclusion is visible rather than implied.
@@ -1564,9 +1643,38 @@ def _compute_performance() -> dict:
     boundary = breaks[-1] if breaks else None
     dropped_pre_break = 0
     if boundary:
-        before = [l for l in usable if l["from"] < boundary]
-        dropped_pre_break = len(before)
+        dropped_pre_break = len([l for l in usable if l["from"] < boundary])
         usable = [l for l in usable if l["from"] >= boundary]
+    return legs, usable, boundary, dropped_pre_break
+
+
+def _compute_performance() -> dict:
+    """Paper return of the published basket, chained across recorded days.
+
+    The same three rules as the equity terminal, for the same reasons:
+
+    * **Weights from the earlier night, prices from both.** Using tonight's weights
+      against tonight's prices prints alpha every day forever and looks entirely
+      plausible doing it.
+    * **Only recorded dates.** No back-fill. A day that was not recorded is gone.
+    * **A missing benchmark is a gap, not a flat segment.** Flat reads as "the market
+      did not move" where the truth is "it was not recorded".
+
+    Deliberately NOT built on ledger/index.json. That file's row series is unusable: its
+    header declares seven columns while eight of ten rows carry thirteen, so a DictReader
+    silently files the alpha figure under n_holdings and a dollar amount under
+    rebalanced; several dates repeat; and benchmark_return is identically 0.0 on every
+    row, which makes its "alpha" the raw return under another name. signals.csv is
+    structurally sound and is the source here.
+    """
+    by_date, collapsed = _perf_by_date()
+    dates = sorted(by_date)
+    if len(dates) < 2:
+        return {"days": len(dates), "legs": 0, "min_days": PERF_MIN_DAYS,
+                "renderable": False, "series": [], "duplicates_collapsed": collapsed,
+                "benchmark": PERF_BENCHMARK}
+
+    legs, usable, boundary, dropped_pre_break = _perf_legs(by_date, dates)
 
     series, book, bench, eqc = [], 1.0, 1.0, 1.0
     bench_live = False
@@ -1599,7 +1707,8 @@ def _compute_performance() -> dict:
     # onto returns scored by another. Reported rather than hidden, exactly as the equity
     # terminal reports a curve spanning two spec hashes: it is two series drawn end to
     # end, and the reader has to know which.
-    crossed = sorted({l["to"] for l in usable if l["to"] in set(breaks)})
+    breaks = set(b["to"] for b in _spec_breaks())
+    crossed = sorted({l["to"] for l in usable if l["to"] in breaks})
 
     return {
         "days": len(dates),

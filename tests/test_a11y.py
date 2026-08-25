@@ -60,9 +60,48 @@ def check_it_can_be_dismissed():
 def check_title_is_moved_rather_than_copied():
     """Copying leaves the native tooltip in place, so desktop shows two."""
     up = SCRIPT[SCRIPT.index("function tipUpgrade("):]
-    up = up[:up.index("\n}")]
+    up = up[:up.index("\nfunction ")]
     assert 'setAttribute("data-tip"' in up and 'removeAttribute("title")' in up, \
         "title is not moved to data-tip"
+
+
+def check_authored_data_tips_are_upgraded_too():
+    """The orphan class the first pass created and could not see.
+
+    Panels written since the popover landed author `data-tip` in their markup rather than
+    `title`, which is the better way round. The upgrade only swept `[title]`, so those
+    were never made focusable: nineteen explanations had no keyboard and no touch route,
+    including every row of the sizing panel. Counting upgraded nodes cannot detect this;
+    only asking whether each node has a route can.
+    """
+    up = SCRIPT[SCRIPT.index("function tipUpgrade("):]
+    up = up[:up.index("\nfunction ")]
+    assert 'scope.querySelectorAll("[data-tip]")' in up, \
+        "the upgrade only sweeps [title], so elements authored with data-tip stay orphaned"
+    assert "makeReachable" in up, "no second pass makes explained elements reachable"
+
+
+def check_matrix_rows_are_keyboard_reachable():
+    """A row's cells are not individual tab stops, so the row itself has to open the
+    drawer that carries them, from the keyboard as well as from a tap."""
+    assert "function wireMatrixRows(" in SCRIPT, "matrix rows take no keyboard focus"
+    fn = SCRIPT[SCRIPT.index("function wireMatrixRows("):]
+    fn = fn[:fn.index("\n}\n")] if "\n}\n" in fn else fn[:4000]
+    assert 'e.key==="Enter"' in fn and "select(sym)" in fn, \
+        "Enter on a focused row does not open its drawer"
+    assert "ArrowDown" in fn and "ArrowUp" in fn, "rows cannot be walked by arrow key"
+
+
+def check_the_drawer_reproduces_row_explanations_verbatim():
+    """Excusing a tip from focus is only legitimate if its text is reachable elsewhere."""
+    assert "function rowTipNotes(" in SCRIPT, \
+        "row explanations are excused from focus but reproduced nowhere"
+    fn = SCRIPT[SCRIPT.index("function rowTipNotes("):]
+    fn = fn[:fn.index("\n}\n")] if "\n}\n" in fn else fn[:3000]
+    assert 'getAttribute("data-tip")' in fn, \
+        "the drawer re-authors the notes instead of reading the row's own text, which " \
+        "is how the two drift apart"
+    assert "rowTipNotes(t.sym)" in SCRIPT, "the drawer never renders the row's notes"
 
 
 def check_late_rendered_content_is_upgraded_too():
@@ -81,9 +120,12 @@ def check_dense_grids_do_not_become_two_hundred_tab_stops():
     """
     assert "function tipRoving(" in SCRIPT, "no roving tabindex for dense grids"
     rov = SCRIPT[SCRIPT.index("function tipRoving("):]
-    rov = rov[:rov.index("\n}\n")] if "\n}\n" in rov else rov[:4000]
-    assert 'tabindex", i===0?"0":"-1"' in rov.replace('"tabindex"', 'tabindex"'), \
+    rov = rov[:rov.index("\n/* The matrix rows")] if "\n/* The matrix rows" in rov else rov[:5000]
+    assert 'i===keep?"0":"-1"' in rov, \
         "the group does not collapse to a single tab stop"
+    assert "function groupItems(" in SCRIPT, \
+        "assignment and arrow navigation do not share one definition of the group's " \
+        "members, which is how a group ends up with several tab stops while claiming one"
     assert "ArrowRight" in rov and "ArrowLeft" in rov, \
         "the group is one tab stop with no way to move inside it, which is worse than many"
 
@@ -110,6 +152,9 @@ _CHECKS = [
     check_it_serves_hover_focus_and_touch,
     check_it_can_be_dismissed,
     check_title_is_moved_rather_than_copied,
+    check_authored_data_tips_are_upgraded_too,
+    check_matrix_rows_are_keyboard_reachable,
+    check_the_drawer_reproduces_row_explanations_verbatim,
     check_late_rendered_content_is_upgraded_too,
     check_dense_grids_do_not_become_two_hundred_tab_stops,
     check_the_canvases_have_a_representation_that_is_not_pixels,
@@ -144,6 +189,15 @@ else:
 
     def test_title_moved_not_copied():
         check_title_is_moved_rather_than_copied()
+
+    def test_authored_data_tips_upgraded():
+        check_authored_data_tips_are_upgraded_too()
+
+    def test_matrix_rows_keyboard_reachable():
+        check_matrix_rows_are_keyboard_reachable()
+
+    def test_drawer_reproduces_row_notes():
+        check_the_drawer_reproduces_row_explanations_verbatim()
 
     def test_late_content_upgraded():
         check_late_rendered_content_is_upgraded_too()
