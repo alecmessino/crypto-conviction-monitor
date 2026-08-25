@@ -120,7 +120,11 @@ def _find_browser(pw):
         if not root or not os.path.isdir(root):
             continue
         for entry in sorted(os.listdir(root), reverse=True):
-            for rel in ("chrome-linux/chrome", "chrome-linux/headless_shell", "chrome"):
+            # headless_shell FIRST: it is what `playwright install chromium` gives CI,
+            # and it differs from full Chromium in ways that matter here. A local run
+            # against full Chromium once passed a roving-tabindex assertion that CI
+            # failed, because rAF fires in one and not the other.
+            for rel in ("chrome-linux/headless_shell", "chrome-linux/chrome", "chrome"):
                 cand = os.path.join(root, entry, rel)
                 if os.path.exists(cand):
                     try:
@@ -370,6 +374,37 @@ def run_checks() -> tuple:
               lambda: _assert(
                   rove.get("skip") or (rove["stops"] == 1 and rove["moved"]),
                   f"roving group is not navigable: {rove}"))
+
+        # The invariant has to hold in the window between a re-render and the queued
+        # roving pass, not merely once things have settled. CI caught a ten-member group
+        # reporting ten tab stops here, because makeReachable handed every re-rendered
+        # member tabindex 0 and left the collapse to a scheduled pass that had not run
+        # yet. A local run missed it purely on timing. Sampling after the MutationObserver
+        # (a microtask) but before the setTimeout(0) grouping pass (a macrotask) puts the
+        # test inside that window deterministically instead of racing for it.
+        window = page.evaluate("""async () => {
+          const sample = () => {
+            const g = [...document.querySelectorAll('[data-tip-group]')]
+                      .find(n => n.offsetParent !== null);
+            if (!g) return null;
+            const items = [...g.children].filter(n => n.matches('[data-tip][tabindex]'));
+            return {size: items.length,
+                    stops: items.filter(n => n.getAttribute('tabindex') === '0').length};
+          };
+          const out = [];
+          for (let i = 0; i < 3; i++) {
+            renderSizing();
+            await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+            out.push(sample());
+          }
+          return out;
+        }""")
+        offenders = [s for s in window if s and s["size"] > 0 and s["stops"] != 1]
+        check("a group stays one tab stop across a re-render", lambda: _assert(
+            any(s and s["size"] > 0 for s in window) and not offenders,
+            f"between a re-render and the grouping pass the group exposes several tab "
+            f"stops: {offenders}. The collapse must be decided when the member is wired, "
+            f"not left to a scheduled pass."))
 
         # --- keyboard: the row drawer, and the notes it has to carry -------------
         drawer = page.evaluate("""() => {

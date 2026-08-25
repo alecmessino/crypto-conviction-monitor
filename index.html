@@ -3459,7 +3459,23 @@ function tipUpgrade(root){
     // A tip inside tr.row is reached through the row's drawer instead: giving 233 rows
     // several tab stops each would make the table unnavigable, and the drawer reproduces
     // every one of these texts verbatim. See rowTipNotes().
-    if(!focusable && !n.closest("tr.row")) n.setAttribute("tabindex","0");
+    if(focusable || n.closest("tr.row")) return;
+    // Joining an existing roving group takes -1, decided HERE rather than left to the
+    // next grouping pass. This is a correctness fix, not a tidy-up: assigning 0 and
+    // waiting to be collapsed leaves the group at N tab stops for the whole window
+    // between a re-render and the next pass, and the board re-renders these panels on
+    // every keystroke. CI caught it as a ten-member group reporting ten tab stops; the
+    // scheduler only narrows that window, it never closes it. The invariant now holds
+    // synchronously, whatever the scheduler does.
+    const p = n.parentNode;
+    if(p && p.nodeType === 1 && p.dataset && p.dataset.tipGroup){
+      const claimed = [...p.children].some(
+        c => c !== n && c.getAttribute && c.getAttribute("tabindex") === "0"
+                     && c.hasAttribute("data-tip"));
+      n.setAttribute("tabindex", claimed ? "-1" : "0");
+      return;
+    }
+    n.setAttribute("tabindex","0");
   };
   scope.querySelectorAll("[data-tip]").forEach(makeReachable);
   if(root && root.getAttribute) makeReachable(root);
@@ -3468,14 +3484,21 @@ function tipUpgrade(root){
 }
 
 /* Grouping has to see siblings, so it runs over the document rather than the subtree that
-   changed, and is coalesced to once per frame: the board rewrites its panels on every
-   keystroke in the sizing inputs, and regrouping per mutation would walk a thousand
-   nodes per character typed. */
+   changed, and is coalesced: the board rewrites its panels on every keystroke in the
+   sizing inputs, and regrouping per mutation would walk a thousand nodes per character
+   typed.
+
+   Coalesced with setTimeout, NOT requestAnimationFrame. rAF only fires when the page is
+   producing frames, and a browser that is not compositing may never call it: under
+   chrome-headless-shell every explained element in a group kept the tabindex 0 that
+   makeReachable had just given it, so a ten-member group contributed ten tab stops while
+   the code believed it had collapsed them to one. Correctness of the accessibility
+   wiring must not depend on the compositor being awake. */
 let ROVING_QUEUED = false;
 function scheduleRoving(){
   if(ROVING_QUEUED) return;
   ROVING_QUEUED = true;
-  requestAnimationFrame(()=>{ ROVING_QUEUED = false; tipRoving(document); });
+  setTimeout(()=>{ ROVING_QUEUED = false; tipRoving(document); }, 0);
 }
 
 /* Roving tabindex for dense groups.
@@ -3611,9 +3634,12 @@ function initTips(){
   tipUpgrade(document);
   // The board rebuilds its tables, panels and charts on load, on rewind and on every
   // input, so a one-time sweep would cover the first paint and nothing after it.
+  // setTimeout, not requestAnimationFrame, for the same reason as scheduleRoving: a
+  // browser that is not compositing may never run an rAF callback, and the rows would
+  // then never become keyboard reachable at all.
   let ROWS_QUEUED=false;
   const queueRows=()=>{ if(ROWS_QUEUED) return; ROWS_QUEUED=true;
-    requestAnimationFrame(()=>{ ROWS_QUEUED=false; wireMatrixRows(); }); };
+    setTimeout(()=>{ ROWS_QUEUED=false; wireMatrixRows(); }, 0); };
   new MutationObserver(muts=>{
     for(const m of muts){
       m.addedNodes.forEach(n=>{ if(n.nodeType===1) tipUpgrade(n); });
