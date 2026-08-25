@@ -1,0 +1,158 @@
+{
+  "_comment": [
+    "Coinbase Derivatives contract sizes, pinned rather than fetched.",
+    "",
+    "WHY PINNED: the funding parser computed notional as contracts * price, which is",
+    "correct only for a contract whose unit is one unit of the underlying. No Coinbase",
+    "Derivatives contract is. Twelve HBAR contracts at $0.0802 is $4,812 of notional,",
+    "not $0.96, and every field the parser derived from that number - APR, the 8h",
+    "equivalent, the hourly rate, the regime classification - was wrong by the",
+    "multiplier, which for HBAR is 5,000x.",
+    "",
+    "WHY NOT FETCHED AT BUILD TIME: coinbase.com returns 403 to every automated agent,",
+    "and the CFTC product-certification filings that would be the primary source are",
+    "scanned images with no extractable text. Every multiplier below therefore comes",
+    "from secondary reporting, corroborated across independent outlets, and every one",
+    "of them carries its sources so the claim can be checked rather than trusted.",
+    "",
+    "STATUS IS PART OF THE DATA. `verification` is 'secondary' on every row here and",
+    "nothing in this repository has yet read a number off the exchange itself. Running",
+    "scripts/check_contract_specs.py against a session that can reach Coinbase is what",
+    "promotes a row to 'exchange' and stamps `verified_on`. Until then the terminal",
+    "says so on screen: a pinned multiplier is labelled pinned, not confirmed.",
+    "",
+    "A SYMBOL THAT IS NOT IN THIS FILE HAS AN UNKNOWN MULTIPLIER, NOT A MULTIPLIER OF 1.",
+    "Defaulting to 1 is what produced the original error. The parser refuses to compute",
+    "a notional it cannot justify, in the same way the sizer refuses to size an asset",
+    "with no recorded volume."
+  ],
+  "as_of": "2026-08-25",
+  "exchange": "Coinbase Derivatives, LLC (CDE)",
+  "products": [
+    {
+      "id": "BIT",
+      "symbol": "BTC",
+      "product": "Nano Bitcoin Futures",
+      "multiplier": 0.01,
+      "unit": "BTC",
+      "verification": "secondary",
+      "verified_on": null,
+      "sources": [
+        "https://www.coinbase.com/blog/coinbase-derivatives-exchange-to-add-nano-ether-futures-contract",
+        "https://info.tradovate.com/coinbase-derivatives-nano-bitcoin"
+      ],
+      "note": "Reported as 1/100th the size of Bitcoin."
+    },
+    {
+      "id": "BTI",
+      "symbol": "BTC",
+      "product": "Bitcoin Futures (institutional)",
+      "multiplier": 1,
+      "unit": "BTC",
+      "verification": "secondary",
+      "verified_on": null,
+      "sources": [
+        "https://www.coinbase.com/blog/coinbase-derivatives-exchange-will-launch-institutional-sized-bitcoin-and",
+        "https://www.theblock.co/post/232990/coinbase-institutional-bitcoin-ether-futures-contracts"
+      ],
+      "note": "Launched 2023-06-05 alongside ETI."
+    },
+    {
+      "id": "ET",
+      "symbol": "ETH",
+      "product": "Nano Ether Futures",
+      "multiplier": 0.1,
+      "unit": "ETH",
+      "verification": "secondary",
+      "verified_on": null,
+      "sources": [
+        "https://www.coinbase.com/blog/coinbase-derivatives-exchange-to-add-nano-ether-futures-contract",
+        "https://info.tradovate.com/coinbase-derivatives-nano-bitcoin"
+      ],
+      "note": "Reported as 1/10th the size of Ether."
+    },
+    {
+      "id": "ETI",
+      "symbol": "ETH",
+      "product": "Ether Futures (institutional)",
+      "multiplier": 10,
+      "unit": "ETH",
+      "verification": "secondary",
+      "verified_on": null,
+      "sources": [
+        "https://www.coinbase.com/blog/coinbase-derivatives-exchange-will-launch-institutional-sized-bitcoin-and",
+        "https://www.theblock.co/post/232990/coinbase-institutional-bitcoin-ether-futures-contracts"
+      ],
+      "note": "Launched 2023-06-05 alongside BTI."
+    },
+    {
+      "id": null,
+      "symbol": "SOL",
+      "product": "Nano Solana Futures",
+      "multiplier": 5,
+      "unit": "SOL",
+      "verification": "secondary",
+      "verified_on": null,
+      "sources": [
+        "https://crypto.news/coinbase-expands-futures-lineup-with-solana-hedera-eurc-usdc-pairs/",
+        "https://cryptonews.com/news/coinbase-adds-cftc-regulated-solana-hedera/"
+      ],
+      "note": "Exchange product code not corroborated; recorded as null rather than guessed."
+    },
+    {
+      "id": null,
+      "symbol": "SOL",
+      "product": "Solana Futures",
+      "multiplier": 100,
+      "unit": "SOL",
+      "verification": "secondary",
+      "verified_on": null,
+      "sources": [
+        "https://crypto.news/coinbase-expands-futures-lineup-with-solana-hedera-eurc-usdc-pairs/",
+        "https://cryptonews.com/news/coinbase-adds-cftc-regulated-solana-hedera/"
+      ],
+      "note": "Exchange product code not corroborated; recorded as null rather than guessed."
+    },
+    {
+      "id": null,
+      "symbol": "HBAR",
+      "product": "Hedera Futures",
+      "multiplier": 5000,
+      "unit": "HBAR",
+      "verification": "secondary",
+      "verified_on": null,
+      "sources": [
+        "https://cryptonews.com/news/coinbase-adds-cftc-regulated-solana-hedera/",
+        "https://coincentral.com/coinbase-expands-derivatives-offering-with-new-solana-and-hedera-futures-contracts/"
+      ],
+      "note": "No nano Hedera contract was found in any source. The review that prompted this file called the 5,000 HBAR contract a nano; the multiplier is the same either way, the product name is not, and the name here is the one the sources actually use."
+    },
+    {
+      "id": null,
+      "symbol": "XRP",
+      "product": "Nano XRP Futures",
+      "multiplier": 500,
+      "unit": "XRP",
+      "verification": "secondary",
+      "verified_on": null,
+      "sources": [
+        "https://lpfutures.com/nano-xrp-futures-contract/",
+        "https://www.theblock.co/post/349591/coinbase-xrp-futures-filings"
+      ],
+      "note": "The CFTC filing (ptc04032518912.pdf) is a scanned image and could not be read as text; 500 XRP is corroborated across two independent secondary sources instead."
+    },
+    {
+      "id": null,
+      "symbol": "XRP",
+      "product": "XRP Futures",
+      "multiplier": 10000,
+      "unit": "XRP",
+      "verification": "secondary",
+      "verified_on": null,
+      "sources": [
+        "https://www.theblock.co/post/349591/coinbase-xrp-futures-filings"
+      ],
+      "note": "Single source. Kept because omitting it would leave the nano row implying it is the only XRP contract, but a single-sourced row is the weakest evidence in this file."
+    }
+  ]
+}

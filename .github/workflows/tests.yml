@@ -39,6 +39,22 @@ jobs:
       - name: Install pytest
         run: python -m pip install --quiet pytest
 
+      # tests/test_render.py drives a real browser. It is the only gate that can answer
+      # the two questions the source-reading gates cannot: whether the factor
+      # decomposition reconstructs the published score for every row on the board rather
+      # than for the rows someone checked, and whether a tap on a phone actually opens an
+      # explanation. The second of those caught a real bug that reads correctly in the
+      # source - browsers replay a synthetic mouseout after every tap, which dismissed the
+      # popover before it could be read.
+      #
+      # continue-on-error is deliberately NOT set: a render failure is a broken board.
+      # The test skips itself when playwright or a browser is missing, so an environment
+      # without one reports a skip rather than a pass it did not earn.
+      - name: Install playwright
+        run: |
+          python -m pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+
       - name: Run the suite
         run: python -m pytest tests/ -q
 
@@ -53,3 +69,18 @@ jobs:
         # entrypoint and its own failure semantics, and a green pytest run does not
         # prove the standalone one still works.
         run: python tests/test_parity.py
+
+      - name: Contract specification gate, standalone
+        # The multiplier table is inlined in index.html and lives on disk in
+        # contract_specs.json. Generated copies are only safe when a drift between them
+        # is a test failure rather than a discovery six months later.
+        run: python tests/test_contract_specs.py
+
+      - name: Contrast gate, standalone
+        # Walks the real delta ramp under node and fails below 4.5:1. The ramp it
+        # replaced rendered every negative value on the board below AA while large
+        # positives cleared it threefold, which on a risk tool is a thumb on the scale.
+        run: python tests/test_contrast.py
+
+      - name: Explanation-layer gate, standalone
+        run: python tests/test_a11y.py
