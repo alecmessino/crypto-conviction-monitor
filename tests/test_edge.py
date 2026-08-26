@@ -115,19 +115,47 @@ def test_too_few_legs_measures_nothing_at_all():
 # attribution is arithmetic, not evidence
 # ---------------------------------------------------------------------------
 def test_the_attribution_reconciles_to_the_realised_gap():
-    """It adds up by construction, which is exactly why it is seductive and exactly why
-    it carries a label.
+    """It adds up exactly, and "exactly" now means to floating point.
 
-    Relative, not absolute. The residual is the difference between chaining returns and
-    summing per-name contributions, so it grows with the number of legs — a fixed +/-15bp
-    bound passed at six legs and failed at twelve for no reason but the passage of time,
-    which makes it a clock rather than a check. The claim worth holding is that the
-    decomposition explains the gap to within a few percent of its own size.
+    This bound used to be 8% relative with a 15bp floor, and it was loosened once
+    already when a fixed band started failing as legs accumulated. That was treating the
+    symptom. The cause was that per-name contributions were summed arithmetically while
+    book_total and equal_weight_total are chained geometrically, so the residual grew
+    with the number of legs by construction: 312.9bp against a -1266.0bp gap at twenty
+    legs, a quarter of the number the panel claimed to explain, while calling itself
+    exact "by construction".
+
+    With Carino linking the identity is exact, so the tolerance is floating point rather
+    than a percentage. If this test starts failing again, the linking is wrong; do not
+    widen the band.
     """
     e = nightly._compute_edge()
     a = e["attribution"]
     gap = (e["book_total"] or 0) - (e["equal_weight_total"] or 0)
-    assert a["total_bp"] == pytest.approx(gap * 100, rel=0.08, abs=15)
+    # residual_bp is computed from the unrounded chain inside the attribution itself,
+    # so it is the honest measure of whether the identity holds.
+    assert a["residual_bp"] == pytest.approx(0.0, abs=1e-6)
+    assert a["linking"] == "carino"
+    # And against the published, rounded fields: book_total and equal_weight_total are
+    # rounded to 4dp and total_bp to 1dp, so 0.2bp is the display granularity and not a
+    # tolerance for error.
+    assert a["total_bp"] == pytest.approx(gap * 100, abs=0.2)
+
+
+def test_the_attribution_decomposes_the_same_legs_the_curve_chains():
+    """An attribution of a different set of days is not an attribution of that curve.
+
+    The two used to build their own leg sets from the same dates under different
+    filters: the curve dropped legs losing more than PERF_MAX_WEIGHT_LOSS of the book,
+    the attribution did not, and the attribution applied an EDGE_MIN_NAMES floor the
+    curve did not. Both happened to report twenty legs on the ledger as it stood, which
+    is a coincidence that would have hidden the divergence indefinitely.
+    """
+    perf = nightly._compute_performance()
+    e = nightly._compute_edge()
+    a = e["attribution"]
+    assert a["legs"] + a["legs_without_benchmark"] == perf["legs"], (
+        f"attribution decomposes {a['legs']} legs, the curve chains {perf['legs']}")
 
 
 def test_attribution_separates_a_selection_error_from_an_omission():

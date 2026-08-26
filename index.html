@@ -12,7 +12,14 @@
 :root{
   --bg:#0B0F19; --panel:rgba(20,28,44,0.55); --panel-solid:#111827;
   --border:#1E293B; --grid:#162032;
-  --txt:#FFFFFF; --sec:#94A3B8; --tert:#475569;
+  --txt:#FFFFFF; --sec:#94A3B8;
+  /* --tert was #475569, which is 2.53:1 against --bg. It is not a decorative token: it
+     colours .muted, .fb-note, .note, th and every provenance caption on the board, which
+     is to say it colours the reasoning that makes this thing worth reading. At 2.53:1 the
+     best part of the build was the least legible part of it. #7C8AA3 is 5.49:1, still
+     clearly recessive against --sec and --txt, and above the AA floor for small text.
+     --grid remains the token for things that are genuinely decoration. */
+  --tert:#7C8AA3;
   --green:#7BC9A0; --red:#E8917F; --amber:#E0B372; --blue:#3B82F6;
   --violet:#A78BFA;
 }
@@ -26,6 +33,16 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 .wrap{display:grid;grid-template-columns:240px 1fr 400px;gap:10px;padding:10px;max-width:1680px;margin:0 auto;align-items:start}
 /* minmax(0,1fr) rather than 1fr, for the same reason as .rail above: plain `1fr`
    floors the track at min-content and the dense tables then set the page width. */
+/* There was no reduced-motion block at all. The live dot pulses indefinitely, the drawer
+   slides, and every bar animates its width - none of which is load-bearing, and a
+   perpetual animation in the corner of a screen someone reads for an hour is the exact
+   case the media query exists for. Transitions are cut to a value rather than to `none`
+   so nothing that relies on transitionend can hang. */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+    transition-duration:.001ms!important;scroll-behavior:auto!important}
+  .live::before{animation:none!important;opacity:1}
+}
 @media(max-width:1100px){.wrap{grid-template-columns:minmax(0,1fr)}}
 
 /* Top ribbon */
@@ -169,7 +186,65 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 .fin input:focus,.fin select:focus{outline:none;border-color:var(--blue)}
 .fin .wide{grid-column:1/-1}
 .pp-out{margin-top:8px;border-top:1px solid var(--grid);padding-top:7px}
+/* ---- the tooltip popover ----
+   Replaces native `title`, which does not render on touch at all. Sized for reading a
+   paragraph of provenance rather than a label, and capped so it never introduces the
+   horizontal scroll the layout rules forbid. */
+.tip-pop{position:fixed;z-index:200;max-width:min(340px,calc(100vw - 24px));
+  background:#111A2B;color:var(--txt);border:1px solid var(--border);border-radius:4px;
+  padding:7px 9px;font-size:10px;line-height:1.5;box-shadow:0 6px 22px rgba(0,0,0,.55);
+  pointer-events:none;white-space:normal}
+.tip-pop[hidden]{display:none}
+/* Column notes in the drawer: the row's own explanations, verbatim, on a surface a tap
+   and a keypress can both reach. */
+.rt-note{display:grid;grid-template-columns:64px 1fr;gap:6px;padding:3px 0;
+  border-bottom:1px solid var(--grid);font-size:9px;line-height:1.45}
+.rt-note b{color:var(--sec);font-size:8px;letter-spacing:.4px;text-transform:uppercase}
+.rt-note span{color:var(--tert)}
+tr.row:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+/* An explanation nobody can see is an explanation nobody reads. Dotted underline on the
+   things that carry one, and a real focus ring, since they are focusable now. */
+.has-tip{cursor:help}
+.has-tip:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:2px}
+[data-tip-group]:focus-within{outline:1px dashed var(--border);outline-offset:3px}
+/* Visually hidden, still in the accessibility tree. The canvas data tables live here. */
+.vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+  clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;border:0}
+/* ---- sizing inputs and the risk block ---- */
+.sz-in{display:flex;gap:6px;align-items:center;margin-bottom:6px}
+.sz-in label{font-size:10px;white-space:nowrap}
+.sz-in input{background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;
+  font-family:inherit;font-size:10px;padding:4px 6px}
+.sz-in input:focus{outline:none;border-color:var(--blue)}
+/* The book-level risk total. Above the rows, because the question it answers - how much
+   of the book is on the table if every stop fills - is the one you want to have seen
+   before you read a single line item. */
+.sz-risk{border:1px solid var(--border);border-left:2px solid var(--amber);border-radius:3px;
+  padding:6px 8px;margin-bottom:7px;background:rgba(224,179,114,.05)}
+.sz-risk .big{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--txt)}
+.sz-risk .lbl{font-size:8px;letter-spacing:1px;text-transform:uppercase;color:var(--tert)}
+.sz-risk .rule{font-size:9px;color:var(--sec);line-height:1.5;margin-top:3px}
+.sz-line{font-size:9px;color:var(--sec);padding:1px 0 3px 2px;line-height:1.45}
+.sz-line .k{color:var(--tert)}
+.sz-line b{font-variant-numeric:tabular-nums}
+.sz-nostop{color:var(--amber)}
 .pp-hero{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+/* The derived notional. Deliberately the second-largest number in the panel: it is the
+   check that catches a wrong multiplier, and a check nobody reads is not a check. */
+.pp-notional{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.2;
+  color:var(--txt);margin-top:3px;border-left:2px solid var(--blue);padding-left:7px}
+.pp-prov{font-size:8.5px;color:var(--amber);border-bottom:1px dotted var(--amber)}
+.pp-prov.warn{color:var(--amber);font-weight:600}
+.pp-unknown{font-size:10px;line-height:1.55;color:var(--sec);border-left:2px solid var(--amber);
+  padding:6px 0 6px 8px;background:rgba(224,179,114,.06)}
+.pp-unknown b{color:var(--amber)}
+/* A figure derived from a number the reader typed is not the same object as one derived
+   from a verified contract size, and it must not be able to look like one. */
+.spec-snap{font-size:8px;color:var(--tert);letter-spacing:.2px;line-height:1.5;margin:-2px 0 2px}
+.spec-snap .spec-neq{display:block;color:var(--amber)}
+.pp-unverified{font-size:9px;line-height:1.5;color:var(--amber);font-weight:600;
+  border:1px solid rgba(224,179,114,.45);border-radius:3px;padding:5px 7px;margin:5px 0 3px;
+  background:rgba(224,179,114,.09);letter-spacing:.2px}
 /* Panel prose, collapsed by default. The explanation of how a modifier is composed is
    worth having and is not worth eight lines above the data every time the page loads —
    that is the text-heaviness this board is already prone to, and a panel that explains
@@ -200,7 +275,10 @@ a.exec{color:inherit;text-decoration:none;border-bottom:1px dotted transparent}
 a.exec:hover{border-bottom-color:var(--blue);color:var(--blue)}
 .bar{height:6px;background:#0c1320;border-radius:3px;position:relative;overflow:hidden;min-width:70px;display:inline-block;vertical-align:middle;width:100%}
 .bar>i{position:absolute;left:0;top:0;bottom:0;background:rgba(59,130,246,0.45);border-radius:3px}
-.dbar{display:inline-block;height:4px;border-radius:2px;margin-left:5px;vertical-align:middle;opacity:.85}
+.dbar{display:inline-block;height:4px;border-radius:2px;margin-left:5px;vertical-align:middle;opacity:.95;min-width:2px}
+/* The sign as a glyph. Small, ahead of the number, and the reason the column does not
+   depend on telling two hues apart. */
+.dsign{font-size:7px;margin-right:2px;vertical-align:middle;opacity:.9}
 .copy{margin-left:6px;color:var(--sec);cursor:pointer;font-size:11px}
 .copy:hover{color:var(--blue)}
 tr.div{background:rgba(224,179,114,0.06)}
@@ -214,15 +292,35 @@ tr.f-hot{background:rgba(232,145,127,0.055);box-shadow:inset 2px 0 0 rgba(232,14
 tr.f-cold{background:rgba(123,201,160,0.055);box-shadow:inset 2px 0 0 rgba(123,201,160,.55)}
 tr.div:hover{background:rgba(224,179,114,0.12)}
 tr.held{background:rgba(59,130,246,0.14);box-shadow:inset 3px 0 0 var(--blue)}
-tr.gated{box-shadow:inset 3px 0 0 #00FF66;background:rgba(0,255,102,0.05)}
-tr.gated:hover{background:rgba(0,255,102,0.10)}
+tr.gated{box-shadow:inset 3px 0 0 var(--green);background:rgba(123,201,160,0.06)}
+tr.gated:hover{background:rgba(123,201,160,0.12)}
 .fb-wrap{padding:10px 12px}
-.fb-row{display:grid;grid-template-columns:64px 1fr 30px;align-items:center;gap:6px;margin-bottom:7px}
+.fb-row{display:grid;grid-template-columns:64px 1fr 44px 40px;align-items:center;gap:6px;margin-bottom:7px}
 .fb-name{font-size:10px;color:var(--sec);letter-spacing:0.5px}
 .fb-bar{height:9px;background:#1E293B;border-radius:2px;overflow:hidden}
 .fb-fill{height:100%;border-radius:2px;transition:width .25s ease}
 .fb-val{font-size:11px;text-align:right;color:var(--txt)}
-.fb-note{grid-column:2 / 4;font-size:9px;margin-top:-3px}
+.fb-note{grid-column:2 / 5;font-size:9px;margin-top:-3px}
+/* ---- factor decomposition ----
+   A centred axis, because the contributions are logs and their SIGN is the point: left
+   of centre the factor is taking score away, right of centre it is adding. Everything
+   but funding sits left, which is itself the honest picture of a model built from
+   haircuts. */
+.fd-h{font-size:8px;letter-spacing:.6px;text-transform:uppercase;color:var(--tert);
+  margin:0 0 7px;padding-bottom:4px;border-bottom:1px solid var(--grid)}
+.fd-axis{position:relative;height:9px;background:#1E293B;border-radius:2px}
+.fd-zero{position:absolute;left:50%;top:-1px;bottom:-1px;width:1px;background:#334155}
+.fd-fill{position:absolute;top:0;height:100%;border-radius:2px;transition:width .25s ease,left .25s ease}
+.fd-run{font-size:10px;text-align:right;color:var(--sec);font-variant-numeric:tabular-nums}
+.fd-start .fd-run{color:var(--txt)}
+.fd-total{margin-top:2px;padding:5px 8px;font-size:11px;color:var(--txt);
+  background:rgba(123,201,160,.08);border-left:2px solid var(--green);border-radius:2px}
+.fd-total.bad{background:rgba(232,145,127,.10);border-left-color:var(--red)}
+.fd-total b{font-size:14px;font-variant-numeric:tabular-nums}
+.fd-clamp{font-size:9px;color:var(--amber);border-bottom:1px dotted var(--amber)}
+.fd-obs{margin-top:10px;padding-top:7px;border-top:1px dashed var(--grid)}
+.fd-obs-h{font-size:8px;letter-spacing:.6px;text-transform:uppercase;color:var(--amber);margin-bottom:6px}
+.fd-obs-n{font-size:9px;color:var(--sec);line-height:1.5;margin-top:2px}
 .fb-verdict{margin-top:8px;padding:6px 8px;font-size:10px;color:var(--amber);background:rgba(224,179,114,0.08);border-left:2px solid var(--amber);border-radius:2px}
 .alloc{padding:6px 12px}
 .alloc-row{display:grid;grid-template-columns:54px 44px 1fr;align-items:center;gap:6px;padding:3px 0;border-bottom:1px solid #162032}
@@ -478,13 +576,17 @@ canvas:focus-visible{outline:2px solid var(--blue)}
     <div class="glass">
       <div class="card-h">POSITION SIZING <span class="muted" id="sz-sub">liquidity-constrained</span></div>
       <div class="card-b">
-        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
-          <label class="muted" style="font-size:10px">Book $</label>
-          <input id="sz-notional" type="number" min="0" step="1000" value="100000"
-                 style="flex:1;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:4px 6px">
-          <label class="muted" style="font-size:10px" title="Share of 24h volume you are willing to be. Above a few percent your own order is the price.">ADV %</label>
-          <input id="sz-participation" type="number" min="0.1" max="25" step="0.5" value="2"
-                 style="width:52px;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:4px 6px">
+        <div class="sz-in">
+          <label class="muted">Book $</label>
+          <input id="sz-notional" type="number" min="0" step="1000" value="100000" style="flex:1">
+          <label class="muted" data-tip="Share of 24h volume you are willing to be. Above a few percent your own order is the price.">ADV %</label>
+          <input id="sz-participation" type="number" min="0.1" max="25" step="0.5" value="2" style="width:52px">
+        </div>
+        <div class="sz-in">
+          <label class="muted" data-tip="Stop distance in multiples of the recorded 14-bar ATR. 2 is a convention, not a measurement: it is wide enough that ordinary daily range does not take you out and narrow enough to bound the loss. Change it and every risk figure below moves with it.">Stop ATR x</label>
+          <input id="sz-stopk" type="number" min="0.25" max="10" step="0.25" value="2" style="width:52px">
+          <label class="muted" data-tip="Initial margin as a percent of notional, from your exchange. Optional: supply it and the panel reports implied leverage and how far an adverse move can travel before the posted margin is gone. Leave it blank and those two lines are absent rather than assumed.">Margin %</label>
+          <input id="sz-margin" type="number" min="0" max="100" step="0.5" placeholder="—" style="width:52px">
         </div>
         <div id="sz-out"></div>
       </div>
@@ -498,11 +600,16 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       <div class="card-h">POSITION FUNDING PARSER <span class="muted">$ accrual → APR</span></div>
       <div class="card-b">
         <div class="fin">
-          <label>Contracts
+          <label class="wide" data-tip="Every Coinbase Derivatives contract is a fixed quantity of the underlying, not one unit of it. Only perpetual-style contracts pay funding, so only those are listed here. Pick the contract and the multiplier fills itself in. Pick 'no verified perpetual mapping' and the parser refuses to compute rather than assuming 1.">Contract
+            <select id="pp-contract"></select></label>
+          <div class="wide spec-snap" id="pp-snapshot"></div>
+          <label data-tip="Units of the underlying per contract. Autofilled from the pinned specification table; editable, because a table that cannot be overridden is a table that is wrong in exactly the case you needed it.">Multiplier
+            <input id="pp-mult" type="number" min="0" step="any" value="0.1"></label>
+          <label data-tip="The contract count as the exchange reports it, not a quantity of the underlying.">Contracts
             <input id="pp-contracts" type="number" min="0" step="any" value="10"></label>
           <label>Mark price $
             <input id="pp-price" type="number" min="0" step="any" value="3000"></label>
-          <label title="Copy the accumulated funding figure straight from the exchange. Sign matters: a negative value on a LONG means the position received funding.">Accrued $
+          <label data-tip="Copy the accumulated funding figure straight from the exchange. Sign matters: a negative value on a LONG means the position received funding.">Accrued $
             <input id="pp-accrued" type="number" step="any" value="-40"></label>
           <label>Over (hours)
             <input id="pp-hours" type="number" min="0" step="any" value="24"></label>
@@ -539,7 +646,7 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       <div class="card-h">CONVICTION MATRIX <span id="cm-note" class="muted">top 10 · scroll · click a row</span></div>
       <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--sec);cursor:pointer;user-select:none">
-          <input type="checkbox" id="hide-nq" style="accent-color:#00FF66;cursor:pointer"> <b style="color:#00FF66">HIDE NON-QUALIFIED</b>
+          <input type="checkbox" id="hide-nq" style="accent-color:#7BC9A0;cursor:pointer"> <b style="color:var(--green)">HIDE NON-QUALIFIED</b>
         </label>
         <input id="screen-filter" type="search" placeholder="filter  ( / )" autocomplete="off"
                title="Filter by ticker, name, signal tier or regime. Press / to focus, Esc to clear.">
@@ -732,12 +839,12 @@ canvas:focus-visible{outline:2px solid var(--blue)}
   <aside class="rail">
     <div class="glass">
       <div class="card-h">LIQUIDITY × VOLUME QUADRANT</div>
-      <div class="chart-box"><canvas id="quad" height="200" style="height:200px"></canvas>
+      <div class="chart-box"><canvas id="quad" aria-label="Conviction against relative strength versus BTC" height="200" style="height:200px"></canvas>
         <div class="muted" id="quad-legend">X: Turnover % · Y: 24H Vol (log) · bubble: mkt cap</div></div>
     </div>
     <div class="glass">
       <div class="card-h">CONVICTION × 7D ALPHA MAP</div>
-      <div class="chart-box"><canvas id="alpha" height="210" style="height:210px"></canvas>
+      <div class="chart-box"><canvas id="alpha" aria-label="Basket alpha against benchmark, by night" height="210" style="height:210px"></canvas>
         <div class="muted" id="alpha-legend">X: 7D return % · Y: Conviction (0–100) · color: MVRV Z · size: dilution</div></div>
     </div>
     <!-- The four-quadrant factor map. Distinct from the alpha map above it, which plots
@@ -747,7 +854,7 @@ canvas:focus-visible{outline:2px solid var(--blue)}
          legend, because a quadrant chart whose quadrants are unnamed is a scatter plot. -->
     <div class="glass">
       <div class="card-h">FACTOR QUADRANT <span class="muted" id="fq-note">quality × momentum</span></div>
-      <div class="chart-box"><canvas id="fquad" height="230" style="height:230px"></canvas>
+      <div class="chart-box"><canvas id="fquad" aria-label="Factor quadrant: momentum against quality" height="230" style="height:230px"></canvas>
         <div class="muted" id="fquad-legend">X: confirmation (blended RS vs BTC) · Y: quality × liquidity · size: mkt cap</div></div>
       <details class="why"><summary>Why this panel exists</summary><div class="note">Both axes are the score's own components, not restatements of price. <b>Y</b> is
         structural quality — log-market-cap depth, times the liquidity-fit haircut, times the Module F supply
@@ -939,7 +1046,12 @@ async function loadLedger(){
   Object.keys(latest).forEach(sy=>{ const r=latest[sy];
     if(r.strategy) STRAT[sy]={strategy:r.strategy, basis:strategyBasis(r),
                               confidence:(n(r,"adx")!=null)?"confirmed":"partial"};
-    const a=n(r,"atr14"); if(a!=null) ATR14[sy]=a;
+    // The value AND the night it was recorded on, with the bar count behind it. An ATR
+    // detached from its observation date is a number with no shelf life: a stop derived
+    // from a reading four nights stale is a different object from one derived from
+    // tonight's, and nothing on screen would have distinguished them.
+    const a=n(r,"atr14");
+    if(a!=null) ATR14[sy]={v:a, date:r.date||null, bars:n(r,"adx_bars")};
     const z=n(r,"turnover_z"); if(z!=null) TURN_Z[sy]=z; });
   buildMarginal();
 }
@@ -1094,7 +1206,11 @@ function build(raw){
       chg1h:t.price_change_percentage_1h_in_currency,
       chg30d:t.price_change_percentage_30d_in_currency,
       rs7:Math.round(rs7*10)/10, rs14:Math.round(rs14*10)/10, rs30:Math.round(rs30*10)/10,
-      rs200:Math.round(rs200*10)/10, rsBlend:Math.round(rsBlend*10)/10, comp};
+      rs200:Math.round(rs200*10)/10, rsBlend:Math.round(rsBlend*10)/10,
+      // Unrounded, for the factor decomposition only. Everything user-facing reads
+      // rsBlend; this exists so the panel reconstructs the published score exactly
+      // rather than to within the display rounding.
+      rsBlendRaw:rsBlend, comp};
   }).sort((a,b)=>b.conv-a.conv).map(t=>{
     // Module B proxy ERA from real payload: structural dilution vs 24h volume interest.
     // PROXY ERA = ((FDV/MC) - 1) / (24h volume %). Null when FDV missing or vol% ~ 0.
@@ -1113,12 +1229,37 @@ function build(raw){
   });
 }
 
-// gradient color for a signed percentage (neon green -> deep crimson)
+/* Colour for a signed percentage.
+
+   The ramp this replaces ran neon green to deep crimson and was measurably biased. Every
+   negative value on the board failed WCAG AA for 12px text against #0B0F19 - rgb(124,48,58)
+   at 2.13:1, rgb(156,37,44) at 2.48:1, against a floor of 4.5:1 - while large positives
+   cleared it threefold, rgb(0,255,0) at 13.96:1. The interface faded losses and brightened
+   gains. Whatever the intent, on a tool used to size risk that is a thumb on the scale, and
+   it is the one kind of bias that is invisible to the person it is acting on.
+
+   This ramp holds lightness roughly constant and varies chroma instead, interpolating from
+   --sec (the neutral, 7.47:1) out to --red (8.01:1) or --green (9.76:1). The whole range
+   sits between 7.4:1 and 9.8:1, so magnitude still reads and no step is harder to see than
+   any other. tests/test_contrast.py walks the ramp and fails below 4.5:1, because a floor
+   that is asserted and not measured is a floor that drifts.
+
+   Magnitude is NOT carried by colour alone. The .dbar beside each value is proportional to
+   it and the sign is a glyph, so the column survives a red-green colour vision deficiency,
+   which around eight percent of men have. The bar was already there; it is now the part
+   doing the work rather than a decoration on top of a hue that was doing it. */
+const _RAMP_NEU=[148,163,184], _RAMP_POS=[123,201,160], _RAMP_NEG=[232,145,127];
 function deltaColor(pct){
-  const c=Math.max(-1,Math.min(1,pct/8)); // saturate at ±8%
-  if(c>=0){ const g=Math.round(120+135*c); return `rgb(${Math.round(40*(1-c))},${g},${Math.round(90*(1-c))})`; }
-  const r=Math.round(120+135*(-c)); return `rgb(${r},${Math.round(50*(1+c))},${Math.round(60*(1+c))})`;
+  const c=Math.max(-1,Math.min(1,(pct||0)/8));   // saturate at ±8%
+  // Chroma rises faster than magnitude so a 0.5% move is still distinguishable from flat.
+  // Linear here would leave the middle of the board a single undifferentiated grey.
+  const t=Math.pow(Math.abs(c),0.6), to=c>=0?_RAMP_POS:_RAMP_NEG;
+  const m=i=>Math.round(_RAMP_NEU[i]+(to[i]-_RAMP_NEU[i])*t);
+  return `rgb(${m(0)},${m(1)},${m(2)})`;
 }
+// The sign as a shape, so it survives being printed, screenshotted or read by someone who
+// cannot separate the two hues.
+function deltaGlyph(pct){ return pct>0?"▲":pct<0?"▼":"·"; }
 
 // ---- LAVL: Liquidity-Adjusted Velocity & Leverage (honest, real-field proxies) ----
 const L_W1=0.6, L_W2=0.4, L_LAMBDA=1.0, L_DEPTH_BASE=5e6;
@@ -1162,12 +1303,31 @@ function spark(el, data, w, h, color, chg){
   el.appendChild(c);
 }
 
-// click-to-copy trade block
+/* click-to-copy trade block.
+
+   This used to read `const sl=(t.price*0.95), tp=(t.price*1.11)` and put both on the
+   clipboard as STOP and TARGET. Neither number came from anything. Minus five percent
+   was not derived from the asset's volatility, plus eleven percent was not derived from
+   anything at all, and the pair went into an order block formatted exactly like the
+   fields around them that ARE measurements. That is the failure the rest of this
+   codebase is built to refuse, sitting inside a clipboard helper where it was least
+   likely to be read.
+
+   The stop is now the same ATR14 rule the sizing panel prints, at the same k, and it is
+   omitted entirely when ATR14 is absent rather than approximated. There is no TARGET
+   line any more: a price objective needs an expected return, the measured information
+   coefficient is indistinguishable from zero, and inventing one to fill the field is
+   how the old +11% got there. */
 function copyTrade(t){
-  const sl=(t.price*0.95), tp=(t.price*1.11);
-  const block=`BUY ${t.sym} @ ${fmtPrice(t.price)} | STOP ${fmtPrice(sl)} | TARGET ${fmtPrice(tp)} | CONV ${t.conv} (${t.sig[0]})`;
+  const k=szInputs().stopK, inv=atrStop(t.sym, t.price, k);
+  const parts=[`BUY ${t.sym} @ ${fmtPrice(t.price)}`];
+  parts.push(inv.price!=null
+    ? `STOP ${fmtPrice(inv.price)} (${k}xATR14${inv.obs&&inv.obs.date?" rec "+inv.obs.date:""})`
+    : `STOP none (${inv.why})`);
+  parts.push(`CONV ${t.conv} (${t.sig[0]})`);
+  const block=parts.join(" | ");
   navigator.clipboard?.writeText(block);
-  flash(t.sym+" order copied");
+  flash(t.sym+(inv.price!=null?" order copied":" copied, no stop derivable"));
 }
 let flashT;
 function flash(msg){ const s=$("#status"); const old=s.textContent; s.textContent=msg; s.className="live";
@@ -1189,7 +1349,7 @@ function rowConv(t,i,gated){
     ${(()=>{ const d=tfDelta(t);
        return d==null
          ? `<td class="num muted" title="No free source for the ${TF} window on this asset — absent rather than approximated from a neighbouring one.">—</td>`
-         : `<td class="num" style="color:${deltaColor(d)}">${sgn(d)}<span class="dbar" style="background:${deltaColor(d)};width:${Math.min(28,Math.abs(d)*3)}px"></span></td>`;})()}
+         : `<td class="num" style="color:${deltaColor(d)}"><span class="dsign">${deltaGlyph(d)}</span>${sgn(d)}<span class="dbar" style="background:${deltaColor(d)};width:${Math.min(28,Math.abs(d)*3)}px"></span></td>`;})()}
     <td><span class="spark" data-spark></span></td>
     <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
     <td><span class="bar"><i style="width:${Math.min(100,t.mc/2e10*100)}%"></i></span></td>
@@ -1570,9 +1730,9 @@ function quad(){
     const cx=px(t.turn), cy=py(lv);
     const gated=t.gated, r=4+Math.sqrt(t.mc/1e9)/6;
     if(gated){
-      x.beginPath(); x.arc(cx,cy,9,0,7); x.fillStyle="#00FF66";
-      x.shadowColor="#00FF66"; x.shadowBlur=8; x.fill(); x.shadowBlur=0;
-      x.lineWidth=2; x.strokeStyle="#00FF66"; x.stroke();
+      x.beginPath(); x.arc(cx,cy,9,0,7); x.fillStyle="#7BC9A0";
+      x.shadowColor="#7BC9A0"; x.shadowBlur=8; x.fill(); x.shadowBlur=0;
+      x.lineWidth=2; x.strokeStyle="#7BC9A0"; x.stroke();
     } else {
       x.beginPath(); x.arc(cx,cy,Math.max(2,r*0.45),0,7);
       x.fillStyle=t.sym===SEL?"rgba(59,130,246,.6)":"rgba(40,52,71,0.25)";
@@ -1593,7 +1753,7 @@ function quad(){
   const out=placeLabels(budgeted, rect, meas, 12,
                         reserved.concat(budgeted.map(markerRect)));
   out.placed.forEach(L=>{
-    x.font=L.gated?BOLD:FONT; x.fillStyle=L.gated?"#00FF66":"#94A3B8";
+    x.font=L.gated?BOLD:FONT; x.fillStyle=L.gated?"#7BC9A0":"#94A3B8";
     x.textAlign=L.align; x.textBaseline=L.base;
     x.fillText(L.text,L.tx,L.ty);
   });
@@ -1675,12 +1835,12 @@ function alphaMap(){
       return;
     }
     const z=t.z;
-    const col = z==null ? "#94A3B8" : z<0 ? "#00FF66" : z<2 ? "#E0B372" : "#E8917F";
+    const col = z==null ? "#94A3B8" : z<0 ? "#7BC9A0" : z<2 ? "#E0B372" : "#E8917F";
     const dil = t.dilution==null?1:t.dilution;
     const r = 3 + Math.min(9, (dil-1)*6);
-    if(t.gated){ x.beginPath(); x.arc(cx,cy,r+2,0,7); x.strokeStyle="#00FF66"; x.lineWidth=2; x.stroke(); }
+    if(t.gated){ x.beginPath(); x.arc(cx,cy,r+2,0,7); x.strokeStyle="#7BC9A0"; x.lineWidth=2; x.stroke(); }
     x.beginPath(); x.arc(cx,cy,r,0,7);
-    x.fillStyle = t.sym===SEL ? "#3B82F6" : (t.gated? "rgba(0,255,102,0.55)" : col+"66");
+    x.fillStyle = t.sym===SEL ? "#3B82F6" : (t.gated? "rgba(123,201,160,0.65)" : col+"66");
     x.fill();
     pts.push({x:cx,y:cy,r:r+2,sym:t.sym,lines:[
       `conviction ${t.conv}`,
@@ -1699,7 +1859,7 @@ function alphaMap(){
   const out=placeLabels(aCands, rect, meas, 10,
                         reserved.concat(aCands.map(markerRect)));
   out.placed.forEach(L=>{
-    x.font=FONT; x.fillStyle=L.gated?"#00FF66":"#94A3B8";
+    x.font=FONT; x.fillStyle=L.gated?"#7BC9A0":"#94A3B8";
     x.textAlign=L.align; x.textBaseline=L.base;
     x.fillText(L.text,L.tx,L.ty);
   });
@@ -1897,14 +2057,14 @@ function renderIndex(){
     };
     line("equal_weight","#334155",1.2,[3,3]);
     line("benchmark","#475569",1.4);
-    line("book","#00FF66",1.6);
+    line("book","#7BC9A0",1.6);
     const last=s[s.length-1];
     x.font="7px monospace";
     if(last.benchmark!=null){
       x.fillStyle="#475569";
       x.fillText(`${PF.benchmark} ${mPct>=0?"+":""}${mPct.toFixed(1)}%`,px(s.length-1)-36,py(last.benchmark)-3);
     }
-    x.fillStyle="#00FF66";
+    x.fillStyle="#7BC9A0";
     x.fillText(`basket ${bPct>=0?"+":""}${bPct.toFixed(1)}%`,px(s.length-1)-50,py(last.book)+9);
     const eq=PF.equal_weight_total;
     note.innerHTML=`${PF.legs} night${PF.legs===1?"":"s"} measured, ${PF.from} to ${PF.to}`
@@ -1931,31 +2091,120 @@ function renderIndex(){
         : `<div class="alloc-foot">Return figures appear once ${(PF&&PF.min_days)||5} days are on file. The exec-adjusted and total-return fields in index.json are not shown: that row series is malformed.</div>`);
   } else { wrap.innerHTML='<div class="muted" style="padding:8px 12px">Basket empty.</div>'; }
 }
+/* ---------- factor decomposition ----------
+   This panel used to render SIZE, VALUE, QUALITY, MOMENTUM and LIQUIDITY as five bars
+   and call itself a factor breakdown. Two of those five reached the score nowhere.
+   VALUE was a z against the all-time range and entered conviction() not at all;
+   MOMENTUM was momentum(t.chg), a 24h reading, while the model's confirmation term is a
+   tanh over a 7/14/30/200-day relative strength blend versus BTC. So on any mean-
+   reverting day the panel and the ranking pointed in opposite directions and nothing on
+   screen said which one had ordered the board. Meanwhile `perp`, the single input that
+   can move a name several tiers in a night, did not appear at all.
+
+   What renders now is a decomposition of the product the model actually computes:
+
+       conviction = 100 x depth x cm x a_frac x emissionMult x perp
+
+   Contributions are shown as logs, not as 0-100 bars, because the model is
+   multiplicative. In a product the factor that moves the result most is the one furthest
+   from 1.0, and a linear bar chart hides exactly that: a factor at 0.42 and a factor at
+   0.95 look like 42 and 95, two thirds apart, when one of them is halving the score and
+   the other is trimming it by a twentieth. The running product beside each row lets the
+   reader watch 100 become the published number.
+
+   The factors are recomputed here from the same inputs and the same functions the port
+   uses, rather than read back out of `comp`, whose fields are rounded for display and
+   would reconstruct the score only to within that rounding. conviction() itself is not
+   touched: this is a rendering of the model, and it does not move the spec hash.
+
+   VALUE and MOMENTUM are kept, because they are useful context, and moved to a block
+   labelled observational, matching how Regime is already handled in the matrix. */
+function convictionFactors(t){
+  const turn = t.vol/t.mc;
+  const depth = Math.max(0, Math.min(1, (Math.log10(t.mc||1)-6)/4));
+  const rs = (t.rsBlendRaw!=null?t.rsBlendRaw:(t.rsBlend||0));
+  const cm = 0.10 + 0.90*((Math.tanh(rs/25)+1)/2);
+  const a_frac = depth >= 0.90 ? 1.0 : Math.max(0.4, liquidityFit(turn)/30);
+  const em = emissionMult(t.fdv, t.mc);
+  const perp = PERP[t.sym] || 1;
+  const raw = 100*depth*cm*a_frac*em*perp;
+  return {depth, cm, a_frac, em, perp, rs, turn, raw,
+          // The published score is Math.round then clamped to [0,100]. Both steps are
+          // recorded so a saturated name can say so instead of quietly failing to
+          // reconstruct.
+          rounded: Math.round(raw),
+          clamped: Math.max(0, Math.min(100, Math.round(raw)))};
+}
 function factorBreakdown(sym){
   const t=STATE.find(s=>s.sym===sym)||STATE[0];
   $("#fb-sym").textContent=t?("· "+t.sym):"";
   const wrap=$("#fb");
   if(!t){ wrap.innerHTML='<div class="muted" style="padding:30px 12px">Select a token to see its factor tilt.</div>'; return; }
-  // 5 normalized factors (0-100) from REAL payload fields.
-  const size=Math.round(Math.max(0,Math.min(1,(Math.log10(t.mc||1)-6)/4))*100);
-  const value=Math.max(0,Math.min(100,Math.round(50 - t.z*30)));
-  const quality=t.dilution==null?null:Math.round(Math.max(0,Math.min(100,100-(t.dilution-1)*35)));
-  const mom=momentum(t.chg);
-  const liq=Math.round(Math.min(100, liquidityFit(t.turn/100)/30*100));
-  const F=[
-    ["SIZE",    size,  "#3B82F6", t.mc>=1e9?"large-cap weighted":"small/mid tilt"],
-    ["VALUE",   value, value>=60?"#00FF66":value>=40?"#7BC9A0":"#E8917F", t.z<-0.3?"below trend = value":"near/above trend"],
-    ["QUALITY", quality==null?0:quality, quality==null?"#475569":quality>=60?"#00FF66":quality>=40?"#7BC9A0":"#E8917F", t.dilution==null?"FDV n/a":("dil "+t.dilution.toFixed(2)+"x")],
-    ["MOMENTUM",mom,   mom>=60?"#00FF66":mom>=40?"#7BC9A0":"#E8917F", (t.chg>0?"+":"")+t.chg.toFixed(1)+"% 24h"],
-    ["LIQUIDITY",liq,  liq>=60?"#00FF66":liq>=40?"#7BC9A0":"#E8917F", t.turn.toFixed(1)+"% turn"],
+  const F=convictionFactors(t);
+  const perpNote = !PERP_LOADED
+    ? "no derivatives feed tonight: neutral by absence, not by reading"
+    : (PERP[t.sym]==null ? "no perp recorded for this name"
+       : F.perp<1 ? "overheated longs" : F.perp>1 ? "short capitulation" : "inside the inert band");
+  const rows=[
+    ["DEPTH", F.depth, `log10 mcap ${fmtUsd(t.mc)}`],
+    ["CONFIRM", F.cm, `tanh(RS blend ${F.rs.toFixed(1)} / 25) vs BTC, 7/14/30/200d`],
+    ["LIQUIDITY", F.a_frac, F.depth>=0.90 ? "blue-chip depth, uncapped"
+                                          : `turnover ${(F.turn*100).toFixed(1)}%`],
+    ["SUPPLY", F.em, t.fdv>0&&t.mc>0 ? `FDV/MC ${(t.fdv/t.mc).toFixed(2)}x` : "FDV unpublished, no haircut"],
+    ["FUNDING", F.perp, perpNote],
   ];
-  // factor-tilt verdict
-  const hi=F.filter(f=>f[1]>=60).map(f=>f[0]); const lo=F.filter(f=>f[1]<40).map(f=>f[0]);
-  let verdict = hi.length>=3 ? "Strong multi-factor tilt" : (hi.includes("VALUE")&&hi.includes("QUALITY")&&lo.includes("MOMENTUM"))?"Deep value (low momentum)":"Mixed / selective";
-  wrap.innerHTML=F.map(([name,v,col,note])=>{
-    const pct=Math.max(0,Math.min(100,v||0));
-    return `<div class="fb-row"><div class="fb-name">${name}</div><div class="fb-bar"><div class="fb-fill" style="width:${pct}%;background:${col}"></div></div><div class="fb-val num">${v==null?"N/A":v}</div><div class="fb-note muted">${note}</div></div>`;
-  }).join("") + `<div class="fb-verdict">${verdict}</div>`;
+  // Scale bars against the largest absolute log in the set, so the row that is doing the
+  // most work is full width and the rest are honestly proportional to it.
+  const logs=rows.map(r=>Math.log(r[1]>0?r[1]:1e-9));
+  const span=Math.max(...logs.map(Math.abs), 1e-6);
+  let running=100;
+  const body=rows.map(([name,v,note],i)=>{
+    const lg=logs[i];
+    const w=Math.min(50, Math.abs(lg)/span*50);
+    running*=v;
+    const lift=lg>1e-9, flat=Math.abs(lg)<=1e-9;
+    const col=flat?"var(--tert)":lift?"var(--green)":"var(--red)";
+    return `<div class="fb-row">
+      <div class="fb-name">${name}</div>
+      <div class="fd-axis" data-tip="${name} multiplies the score by ${v.toFixed(4)}. Log contribution ${lg>=0?"+":""}${lg.toFixed(3)}: the further a factor sits from 1.0, the more of the score it is moving.">
+        <div class="fd-zero"></div>
+        <div class="fd-fill" style="${lift?"left:50%":`left:${50-w}%`};width:${w}%;background:${col}"></div>
+      </div>
+      <div class="fb-val num" style="color:${col}">x${v.toFixed(3)}</div>
+      <div class="fd-run num">${running.toFixed(1)}</div>
+      <div class="fb-note muted">${note}</div>
+    </div>`;}).join("");
+  const saturated = F.rounded > 100;
+  const reconstructs = F.clamped === t.conv;
+  wrap.innerHTML =
+    `<div class="fd-h">100 × depth × confirm × liquidity × supply × funding</div>`
+    + `<div class="fb-row fd-start"><div class="fb-name">START</div><div class="fd-axis"></div>
+        <div class="fb-val num"></div><div class="fd-run num">100.0</div>
+        <div class="fb-note muted">every name begins here</div></div>`
+    + body
+    + `<div class="fd-total ${reconstructs?"":"bad"}">
+        ${F.raw.toFixed(1)} → = <b>${F.clamped}</b> published${
+          saturated?` <span class="fd-clamp" data-tip="The score is clamped to 100. This name's factors multiply out to ${F.rounded}, so the distance between it and anything else at the ceiling is real and is not being shown by the published number. The sizer allocates on the clamped value, which is why two saturated names receive identical targets.">clamped from ${F.rounded}</span>`:""}${
+          reconstructs?"":` <span class="fd-clamp">does not reconstruct: board says ${t.conv}</span>`}
+       </div>`
+    + `<div class="fd-obs">
+        <div class="fd-obs-h">OBSERVATIONAL · not in the score</div>
+        <div class="fb-row"><div class="fb-name">VALUE</div>
+          <div class="fb-bar"><div class="fb-fill" style="width:${Math.max(0,Math.min(100,Math.round(50-t.z*30)))}%;background:var(--blue)"></div></div>
+          <div class="fb-val num">${Math.max(0,Math.min(100,Math.round(50-t.z*30)))}</div>
+          <div class="fd-run num"></div>
+          <div class="fb-note muted">z ${t.z} vs all-time range${t.z<-0.3?", below trend":""}</div></div>
+        <div class="fb-row"><div class="fb-name">MOM 24H</div>
+          <div class="fb-bar"><div class="fb-fill" style="width:${Math.max(0,Math.min(100,momentum(t.chg)))}%;background:var(--blue)"></div></div>
+          <div class="fb-val num">${Math.round(momentum(t.chg)*10)/10}</div>
+          <div class="fd-run num"></div>
+          <div class="fb-note muted">${(t.chg>0?"+":"")+t.chg.toFixed(1)}% over 24h</div></div>
+        <div class="fd-obs-n">Neither reaches conviction. They are here because they are worth
+          knowing, and separated because the panel above them used to show them as drivers.
+          Note in particular that CONFIRM above is a 7-to-200 day relative strength blend
+          while MOM 24H is one day: on a reversal they point opposite ways, and the ranking
+          followed CONFIRM.</div>
+       </div>`;
 }
 function vpvrNote(){} // VPVR replaced by Factor Breakdown
 
@@ -1987,6 +2236,30 @@ function openDrawer(sym){
     perpTxt = (p<1 ? "OVERHEATED LONGS" : p>1 ? "SHORT CAPITULATION" : "NEUTRAL")
             + " ("+p.toFixed(2)+")";
   }
+  // RISK, in the drawer as well as the sizing panel, because the drawer is where a
+  // single name gets looked at properly and "at what price was I wrong" belongs beside
+  // "what is this". Same rule, same k, same refusal when ATR14 is absent.
+  const _k=szInputs().stopK, _inv=atrStop(t.sym, t.price, _k);
+  const risk=`<div class="factor-attr">
+    <div class="fa-h">ATR STOP · rule-based risk threshold</div>
+    ${_inv.price!=null
+      ? `<div class="fa-bar"><span class="fa-l">Stop level</span><span class="fa-v">${fmtPrice(_inv.price)}</span></div>
+         <div class="fa-bar"><span class="fa-l">Rule</span><span class="fa-v">entry − ${_k}×ATR14</span></div>
+         <div class="fa-bar"><span class="fa-l">ATR14</span><span class="fa-v">${fmtPrice(_inv.atr)}</span></div>
+         <div class="fa-bar"><span class="fa-l">Recorded</span><span class="fa-v">${
+            _inv.obs&&_inv.obs.date?esc0(_inv.obs.date)+(_inv.obs.bars!=null?" · "+_inv.obs.bars+" bars":""):"—"}</span></div>
+         <div class="fa-bar"><span class="fa-l">Stop distance</span><span class="fa-v">−${(_inv.frac*100).toFixed(1)}%</span></div>
+         <div class="note" style="margin-top:4px">A distance in units of recent range, not
+           an invalidation level. This board does not know the thesis behind a position and
+           cannot derive the price at which it stops being true: conviction is built from
+           depth, relative strength, liquidity fit, supply overhang and funding, and none of
+           those name such a price. Read it as a stated stop rule, and as stop-loss exposure
+           rather than a risk budget, since nothing here constrains the line to a limit.</div>`
+      : `<div class="note sz-nostop" style="margin-top:2px">${_inv.why}. No invalidation
+           price is shown for this name. The 24h range is not substituted: a stop derived
+           from one day of range is a different object from one derived from fourteen, and
+           it would render in the same typeface as the real thing.</div>`}
+  </div>`;
   const led="<a href='ledger/signals.json' target='_blank' style='color:#3B82F6'>view nightly ledger ↗</a>";
   const comp=t.comp||{};
   const attr=`<div class="factor-attr">
@@ -2013,7 +2286,7 @@ function openDrawer(sym){
     <div class="kv"><span>LAVL Perp</span><b id="dw-perp" class="${perpCls}">${perpTxt}</b></div>
     ${perpBlock(t)}
     <div style="margin-top:14px" class="muted">${led}</div>
-    <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>${attr}`;
+    <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>${risk}${attr}${rowTipNotes(t.sym)}`;
   $("#drawer").classList.add("open");
 }
 function closeDrawer(){document.getElementById("drawer").classList.remove("open");}
@@ -2048,8 +2321,57 @@ const SZ_HAIRCUT = {wash: 0.5, chop: 0.75};
 function szInputs(){
   const n = parseFloat($("#sz-notional")?.value);
   const p = parseFloat($("#sz-participation")?.value);
+  const k = parseFloat($("#sz-stopk")?.value);
+  const mg = parseFloat($("#sz-margin")?.value);
   return {notional: isFinite(n) && n > 0 ? n : 0,
-          participation: isFinite(p) && p > 0 ? Math.min(p, 25) / 100 : 0.02};
+          participation: isFinite(p) && p > 0 ? Math.min(p, 25) / 100 : 0.02,
+          stopK: isFinite(k) && k > 0 ? Math.min(k, 10) : 2,
+          // Blank is null, not a default. An implied leverage computed from a margin
+          // nobody entered is a claim about an account this board has never seen.
+          marginPct: isFinite(mg) && mg > 0 ? Math.min(mg, 100) : null};
+}
+
+/* ---------- the ATR stop ----------
+   A rule-based risk threshold, and deliberately NOT called an invalidation level.
+   Invalidation is a claim about a thesis: the price at which the reason for holding a
+   position has stopped being true. Nothing here knows the thesis. conviction() is built
+   from depth, relative strength, liquidity fit, supply overhang and funding, and none of
+   those derive a price at which the case is refuted. What this computes is a distance in
+   units of recent range, which is a smaller and different claim, and calling it
+   invalidation would borrow authority the arithmetic does not have.
+
+   The board answered "what do I own and how much" and stopped. ATR14 was already loaded
+   and used for nothing but the impact estimate, so the input for a stated stop rule was
+   sitting there unused.
+
+   The rule is stated rather than tuned: entry minus k x ATR14, k being the reader's
+   input. There is no claim that this is the right stop for any particular trade. It is
+   stop-loss exposure with an arithmetic behind it that can be read off the screen and
+   disagreed with, which is the whole of what is being offered. It is NOT a risk budget:
+   a budget is a constraint enforced before sizing, and this is measured after conviction
+   has already sized the line.
+
+   It REFUSES to fall back to the 24h range when ATR14 is missing, and this is the part
+   worth not softening later. dailySigma() does take that fallback, correctly, because an
+   impact estimate degrades gracefully - a slightly wrong volatility scale gives a
+   slightly wrong cost. A stop does not degrade gracefully. A stop derived from one day
+   of range is a different object from one derived from fourteen: it is systematically
+   tighter in a quiet week and systematically wider after a single gap, and it would be
+   presented in the same typeface as the real one. */
+function usd0(v){ return v==null?"—":"$"+Math.round(v).toLocaleString(); }
+function atrStop(sym, price, stopK){
+  const rec = ATR14[sym];
+  const atr = rec ? rec.v : null;
+  if(atr == null || !(atr > 0) || !(price > 0))
+    return {price: null, dist: null, frac: null, obs: null,
+            why: "no ATR14 recorded, no stop derivable"};
+  const dist = stopK * atr;
+  // A stop below zero is not a stop. It means k x ATR exceeds the entire price, which is
+  // a statement that the name's own daily range is the size of the position's thesis.
+  const stop = price - dist;
+  return {price: stop > 0 ? stop : null, dist, frac: dist / price, atr,
+          obs: {date: rec.date, bars: rec.bars},
+          why: stop > 0 ? null : `${stopK}x ATR is wider than the price itself`};
 }
 
 /* Square-root market impact, mirroring quant.execution_drag. The coefficient is the one
@@ -2066,7 +2388,8 @@ const IMPACT_COEFF = 1.0, SPREAD_BPS = 5.0;
    impact estimate with no volatility scale would be a number no input supports, so the
    sizer reports the spread as a FLOOR instead of inventing the rest. */
 function dailySigma(t){
-  const a=(ATR14[t.sym]!=null&&t.price>0)?ATR14[t.sym]/t.price:null;
+  const rec=ATR14[t.sym];
+  const a=(rec!=null&&rec.v>0&&t.price>0)?rec.v/t.price:null;
   if(a!=null&&a>0) return a;
   if(t.high24>0&&t.low24>0&&t.price>0) return (t.high24-t.low24)/t.price;
   return null;
@@ -2082,7 +2405,8 @@ function execDrag(notional, adv, sigma){
     basis:`sqrt-impact on ${(part*100).toFixed(2)}% of ADV at sigma ${(sigma*100).toFixed(1)}%/day, plus ${SPREAD_BPS}bp spread`};
 }
 
-function sizeBook(state, notional, participation){
+function sizeBook(state, notional, participation, stopK){
+  stopK = stopK || 2;
   const held = state.filter(t => t.conv > 0).slice(0, SZ_TOP_N);
   const totalConv = held.reduce((s, t) => s + t.conv, 0) || 1;
   // Correlation cluster cap. A book of fifteen names that are 0.9 correlated is not
@@ -2122,8 +2446,12 @@ function sizeBook(state, notional, participation){
                   : sized < wanted - 0.01 ? "ADV cap"
                   : reasons.length ? reasons.join(" + ") : "conviction";
     const drag = execDrag(sized, adv, dailySigma(t));
+    const inv = atrStop(t.sym, t.price, stopK);
+    // Damage if this stop fills, in dollars. Null propagates: a line with no derivable
+    // stop contributes an unknown to the book total, not a zero.
+    const riskUsd = (inv.frac != null && sized > 0) ? sized * inv.frac : null;
     return {sym: t.sym, conv: t.conv, target, wanted, cap, adv, sized, binding,
-            reasons, turn: t.turn, regime, drag,
+            reasons, turn: t.turn, regime, drag, price: t.price, inv, riskUsd,
             // Days to exit at the same participation rate — the number that decides
             // whether a position is a position or a trap.
             exitDays: adv > 0 && sized > 0 ? sized / (adv * participation) : null};
@@ -2137,33 +2465,141 @@ function sizeBook(state, notional, participation){
   rows.forEach(r=>{ if(r.sized<=0) return;
     if(r.drag.total==null){ dmissing++; return; }
     dw+=r.sized; dsum+=r.drag.total*r.sized; });
+  // Book-level risk. Lines with no derivable stop are COUNTED, not zeroed: a total that
+  // silently omits them reads as "this is what is at stake" when the honest statement is
+  // "this is what is at stake across the lines that have a stop, and three others have
+  // none". Same discipline the drag average already uses one block up.
+  let riskUsd = 0, riskUnknown = 0, riskUnknownUsd = 0;
+  rows.forEach(r => { if(r.sized <= 0) return;
+    if(r.riskUsd == null){ riskUnknown++; riskUnknownUsd += r.sized; return; }
+    riskUsd += r.riskUsd; });
   return {rows, allocated, unallocated: Math.max(0, notional - allocated),
           capped: rows.filter(r => r.binding === "ADV cap").length,
           refused: rows.filter(r => r.sized <= 0).length,
           dragBps: dw>0 ? dsum/dw : null, dragMissing: dmissing,
+          stopK, riskUsd, riskUnknown, riskUnknownUsd,
+          riskPct: notional > 0 ? riskUsd / notional * 100 : null,
           effectiveN: ((INTEL&&INTEL.correlation)||{}).effective_n};
+}
+
+/* ---------- the last mile ----------
+   The board links to spot, the sizer emits dollars, and the desk trades contracts, so
+   the step from "$13k of HBAR" to an order ticket was a division done by hand at the
+   moment of execution, which is the worst available moment for arithmetic. Where a
+   Coinbase Derivatives contract exists, the count is printed beside the dollar target,
+   rounded DOWN, with the residual named. Rounding up would quietly breach the ADV cap
+   the line above just finished computing.
+
+   Where no contract exists, it says so rather than staying silent: an absent line and a
+   line that does not apply look identical, and only one of them means "trade this
+   somewhere else". */
+function contractLine(r){
+  if(r.sized <= 0) return "";
+  const spec = smallestSpec(r.sym);
+  // The wording is about THIS TABLE, never about the venue. Saying a line is spot-only,
+  // or that the exchange lists no contract for it, would be inventing a fact about
+  // Coinbase out of a gap in a local file: the table is a dated snapshot and the
+  // exchange has listed contracts on assets absent from it.
+  if(!spec) return `<div class="sz-line"><span class="k has-tip" data-tip="${specBoundaryTip()}"
+    >no verified contract mapping</span></div>`;
+  const per = spec.multiplier * r.price;
+  if(!(per > 0)) return "";
+  const n = Math.floor(r.sized / per);
+  const residual = r.sized - n * per;
+  if(n < 1) return `<div class="sz-line"><span class="k">under one contract:</span>
+    <b>${usd0(per)}</b> <span class="k">buys the smallest verified ${esc0(spec.symbol)} contract
+    (${esc0(spec.code)}, ${fmtMult(spec.multiplier)} ${esc0(spec.unit)}), against a
+    ${usd0(r.sized)} target</span></div>`;
+  return `<div class="sz-line"><b>${n}</b> <span class="k">x ${esc0(spec.code)}
+    ${esc0(spec.product)} (${fmtMult(spec.multiplier)} ${esc0(spec.unit)}, ${usd0(per)} each,
+    ${esc0(spec.instrument_type)}) ·</span>
+    <b>${usd0(residual)}</b> <span class="k">unallocated to rounding</span></div>`;
+}
+
+/* Per-line ATR stop. The rule and the reading's own date are printed with the number,
+   every time. A stop level with no rule beside it is a price someone will eventually
+   assume was derived from something more than an ATR multiple, and one carrying no date
+   is a number whose staleness is invisible. */
+function riskLine(r, book, marginPct, stopK){
+  if(r.sized <= 0) return "";
+  if(r.inv.price == null)
+    return `<div class="sz-line sz-nostop">${r.inv.why}</div>`;
+  const pctBook = book > 0 ? r.riskUsd / book * 100 : null;
+  let lev = "";
+  if(marginPct != null){
+    // Implied leverage ONLY. Which of the two arrives first is not computable from
+    // initial margin: the exchange liquidates at MAINTENANCE margin, which is lower, and
+    // at a liquidation price this board has never been told. Comparing the stop against
+    // the initial-margin distance and naming a winner was an ordering claim resting on
+    // the one input that does not determine it.
+    lev = ` <span class="k">· ${(100/marginPct).toFixed(1)}x implied leverage ·
+      <b>liquidation ordering unknown without maintenance margin or exchange liquidation
+      price</b></span>`;
+  }
+  const obs = r.inv.obs && r.inv.obs.date
+    ? ` <span class="k">· ATR recorded ${esc0(r.inv.obs.date)}${
+        r.inv.obs.bars!=null?`, ${r.inv.obs.bars} bars`:""}</span>` : "";
+  return `<div class="sz-line"><span class="k">ATR stop</span>
+    <b>${fmtPrice(r.inv.price)}</b>
+    <span class="k">(entry ${fmtPrice(r.price)} − ${stopK}×ATR14 ${fmtPrice(r.inv.atr)}
+      = −${(r.inv.frac*100).toFixed(1)}%) · stop-loss exposure</span>
+    <b>${usd0(r.riskUsd)}</b>${pctBook!=null?` <span class="k">= ${pctBook.toFixed(2)}% of book</span>`:""}${obs}${lev}</div>`;
+}
+
+/* The number that should be impossible to avoid seeing, so it renders above the rows. */
+function bookRiskBlock(b, notional, marginPct){
+  const known = b.rows.filter(r=>r.sized>0 && r.riskUsd!=null).length;
+  const total = b.rows.filter(r=>r.sized>0).length;
+  if(!total) return "";
+  const pct = b.riskPct;
+  const tone = pct==null ? "var(--sec)" : pct>=10 ? "var(--red)" : pct>=5 ? "var(--amber)" : "var(--green)";
+  return `<div class="sz-risk">
+    <div class="lbl">Stop-loss exposure · if every ATR stop fills</div>
+    <div class="big" style="color:${tone}">${known?usd0(b.riskUsd):"—"}${
+      known&&pct!=null?` <span class="muted" style="font-size:10px;font-weight:400">${pct.toFixed(2)}% of the ${usd0(notional)} book</span>`:""}</div>
+    <div class="rule">Every line stopped at entry − <b>${b.stopK}× ATR14</b>, simultaneously.
+      ${known} of ${total} sized lines have a recorded ATR14 and therefore a derivable stop.${
+      b.riskUnknown?` <b class="sz-nostop">${b.riskUnknown} do not</b>, holding ${usd0(b.riskUnknownUsd)}
+      of the book whose downside this figure does not include. Unknown, not zero. The 24h
+      range is deliberately not substituted for those: a stop derived from one day of range
+      is a different object from one derived from fourteen, and it would print in the same
+      typeface as the real thing.`:""}
+      This is <b>stop-loss exposure, not a risk budget</b>: it reports what these lines
+      would lose if the rule fired everywhere at once, measured after conviction has
+      already sized them. Nothing here constrains a line to a limit, so no budget is
+      being enforced and calling it one would name a control that does not exist. Contract counts under
+      each line are the smallest Coinbase Derivatives contract for that symbol, rounded
+      down. <b>${specSnapshotLine()}.</b> Lines marked
+      <span class="k">no verified contract mapping</span> are absent from that snapshot:
+      <b>${specUnmappedMeaning()}.</b> The exchange has listed contracts since the
+      filing, including on assets this board scores, so an unmapped line is a gap here
+      and never a statement about what Coinbase offers.</div>
+  </div>`;
 }
 
 function renderSizing(){
   const host=$("#sz-out"); if(!host) return;
   if(!STATE.length){ host.innerHTML=`<div class="muted">Awaiting the live board.</div>`; return; }
-  const {notional, participation} = szInputs();
+  const {notional, participation, stopK, marginPct} = szInputs();
   if(!notional){ host.innerHTML=`<div class="muted">Enter a book size to see suggested lines.</div>`; return; }
-  const b = sizeBook(STATE, notional, participation);
+  const b = sizeBook(STATE, notional, participation, stopK);
   const usd = v => v>=1e6 ? "$"+(v/1e6).toFixed(2)+"M" : v>=1e3 ? "$"+(v/1e3).toFixed(0)+"k" : "$"+v.toFixed(0);
   const sub=$("#sz-sub");
   if(sub) sub.textContent = `${(participation*100).toFixed(1)}% of ADV · ${b.capped} capped`;
   const rows = b.rows.map(r=>{
     const tone = r.sized<=0 ? "var(--red)" : r.binding==="ADV cap" ? "var(--amber)" : "var(--sec)";
-    return `<div class="cf-row" title="target ${usd(r.target)} from conviction ${r.conv}${
+    return `<div class="cf-row" data-tip="target ${usd(r.target)} from conviction ${r.conv}${
         r.reasons.length?" · haircut: "+r.reasons.join(", "):""} · ADV ${usd(r.adv)} · cap ${usd(r.cap)}${
         r.exitDays!=null?` · ~${r.exitDays.toFixed(1)}d to exit`:""} · entry cost ${
         r.drag.total!=null?r.drag.total.toFixed(0)+"bp":"unknown"} (${r.drag.basis})">
       <b style="min-width:56px">${r.sym}</b>
       <span class="num" style="min-width:52px;text-align:right">${r.sized>0?usd(r.sized):"—"}</span>
       <span class="muted" style="font-size:9px;color:${tone};flex:1;text-align:right">${r.binding}</span>
-    </div>`;}).join("");
-  host.innerHTML = rows + `
+    </div>`
+      + contractLine(r)
+      + riskLine(r, notional, marginPct, b.stopK);
+    }).join("");
+  host.innerHTML = bookRiskBlock(b, notional, marginPct) + rows + `
     <div class="kv" style="border-top:1px solid var(--grid);margin-top:6px;padding-top:6px">
       <span>Allocated</span><b class="num">${usd(b.allocated)}</b></div>
     <div class="kv"><span>Unallocated</span>
@@ -2184,7 +2620,16 @@ function renderSizing(){
       turnover collapse against the name's own baseline each set a ceiling. Money the
       caps refuse stays unallocated — pushing it into the next name would concentrate the
       book into whatever happened to be liquid and present that as the same portfolio.
-      There is no expected return to size against.</div></details>`;
+      There is no expected return to size against.
+      <br><br><b style="color:var(--amber)">The stop rule is a convention, not a
+      measurement, and an ATR threshold rather than an invalidation level</b>: entry
+      minus k x ATR14, k being whatever you typed. This board does not know the thesis
+      behind a position, so it cannot name the price at which that thesis fails. Nothing here
+      has calibrated k against outcomes, and the same status as <code>IMPACT_COEFF</code>
+      applies: the shape is defensible, the constant is a choice. What the risk total buys
+      you is not accuracy, it is that the number exists and is arithmetic you can read.
+      Lines with no recorded ATR14 are excluded from it and counted, never entered as
+      zero.</div></details>`;
 }
 
 /* ---------- model health ribbon ----------
@@ -2280,8 +2725,8 @@ function convColor(c){
   if(c==null) return null;
   // Same breakpoints as the signal tiers, so the grid and the table agree on what a
   // number means rather than introducing a second colour language.
-  if(c>=80) return "rgba(0,255,102,.85)";
-  if(c>=70) return "rgba(0,255,102,.5)";
+  if(c>=80) return "rgba(123,201,160,.95)";
+  if(c>=70) return "rgba(123,201,160,.6)";
   if(c>=55) return "rgba(160,180,210,.45)";
   if(c>=40) return "rgba(245,158,11,.45)";
   return "rgba(239,68,68,.4)";
@@ -2380,7 +2825,9 @@ function renderEdge(){
       <span class="${d.bp<0?"neg":"pos"}">${d.bp>0?"+":""}${d.bp}</span></div>`;
     html+=`<div style="padding:6px 12px 2px;border-top:1px solid var(--grid);margin-top:4px">
       <div class="muted" style="margin-bottom:4px">Where the ${a.total_bp} bp gap came
-        from <span style="color:var(--amber)">— arithmetic, not evidence</span></div>
+        from <span style="color:var(--amber)">· arithmetic, not evidence</span>
+        <span class="fd-clamp" data-tip="Carino-linked. Per-leg contributions sum to that leg's active return exactly, and the legs are linked by k_t/K so the linked parts sum to the geometrically chained gap rather than approximately to it. An unlinked sum is a sum of arithmetic pieces set against a difference of geometric wholes: it was out by a quarter of the gap at twenty legs before this was fixed. Residual now ${a.residual_bp} bp.">${
+          a.linking==="carino"?"Carino-linked":"unlinked"}</span></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
         <div><div class="cf-h neg">▼ COST</div>${a.detractors.slice(0,5).map(row).join("")}</div>
         <div><div class="cf-h pos">▲ HELPED</div>${a.contributors.slice(0,5).map(row).join("")}</div>
@@ -2388,7 +2835,9 @@ function renderEdge(){
       <div class="muted" style="font-size:9px;margin-top:4px">“held” = overweight and it
         fell, a selection error. “missed” = underweight and it rose, an omission. Over
         ${a.legs} legs this ordering is mostly sampling noise and is not a list of names
-        to act on.</div>
+        to act on. The parts reconcile to the chained gap of ${a.reconciles_to_bp} bp with
+        a residual of ${a.residual_bp} bp.${a.legs_without_benchmark?` ${a.legs_without_benchmark}
+        leg(s) had no equal-weight reading and are excluded from this decomposition.`:""}</div>
     </div>`;
   }
   html+=`<div class="muted" style="padding:6px 12px 10px;font-size:9px">${e.basis}</div>`;
@@ -2662,19 +3111,153 @@ function renderCarry(){
     requirements, and the risk that funding flips before the position is unwound.`;
 }
 
+/* CONTRACT SPECS, generated from contract_specs.json. Do not hand-edit: the source of
+   truth is that file, tests/test_contract_specs.py parses this literal back out of the
+   terminal and fails if the two disagree. Same reasoning as the MODEL PORT gate, and the
+   same failure it exists to prevent: a table edited in one place and read from the
+   other is two tables that happen to agree until they do not. */
+const CONTRACT_SPECS = {"as_of":"2026-08-25","audit":{"network_limitation":"coinbase.com and help.coinbase.com return 403 from the egress proxy in the environment this file was assembled in, so the exchange's own product pages could not be read here. That limitation was recorded rather than routed around. The rows are grounded in two other primary sources that WERE machine-verifiable: the CFTC self-certification filing, and Coinbase's published perpetual specification sheets on its asset CDN. scripts/check_contract_specs.py re-reads both and returns 2, not 0, whenever a source cannot be read or a row cannot be seen.","snapshot_scope":"This file is the Coinbase Derivatives product list as it stood in the CFTC self-certification filing dated 2025-11-26. It is NOT an enumeration of every contract the exchange offers today. Assets this board scores that have no row here (AAVE, ENA and HYPE among them), and products listed after that filing, are UNMAPPED. Unmapped means this repository has not verified a mapping; it is not a claim that no contract exists. No code or multiplier may be inferred: a row is added only when a primary source states product name, contract code, instrument type and contract size together."},"exchange":"Coinbase Derivatives, LLC (CDE)","notes":{"excluded":"Non-crypto contracts in the same filing (GOL, SLR, NGS, NOL, MC) are omitted: this board scores crypto only.","parser_rule":"Only rows with instrument_type=='perpetual' AND funding_bearing AND verification=='primary' may appear in the funding parser.","sizing_rule":"Automatic contract counts use only rows with verification=='primary'; a perpetual is preferred over a dated contract of the same size."},"products":[{"active_as_of":"2025-11-26","code":"BIP","funding_bearing":true,"instrument_type":"perpetual","multiplier":0.01,"product":"nano Bitcoin Perp Style Futures","sources":["https://assets.ctfassets.net/7ca8qfn907uv/36uUBfnoAFKfWNAgfZDepf/a802f97a4feeb9a85fe0845ec07102d3/nano_Bitcoin_Perp_Style_Spec.pdf","https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"BTC","unit":"BTC","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"ETP","funding_bearing":true,"instrument_type":"perpetual","multiplier":0.1,"product":"nano Ether Perp Style Futures","sources":["https://assets.ctfassets.net/7ca8qfn907uv/1rsuwIgOFcofkdd0gKgeCS/4bf41b164aba229d8cded67f7c25393b/nano_Ether_Perp_Style_Spec.pdf","https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"ETH","unit":"ETH","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"SLP","funding_bearing":true,"instrument_type":"perpetual","multiplier":5,"product":"nano Solana Perp Style Futures","sources":["https://assets.ctfassets.net/k3n74unfin40/4jzw23zD73o7o3VSqvzYHA/faa20d819344ae820e4404537f5ec4f1/nano_Solana_Perps_Spec.pdf","https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"SOL","unit":"SOL","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"XPP","funding_bearing":true,"instrument_type":"perpetual","multiplier":500,"product":"nano XRP Perp Style Futures","sources":["https://assets.ctfassets.net/k3n74unfin40/doQ2ycXfKQ05mqN1lvoHI/5392b405093cb76eb5b49736a8656664/nano_XRP_Perps_Spec.pdf","https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"XRP","unit":"XRP","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"HEP","funding_bearing":true,"instrument_type":"perpetual","multiplier":5000,"product":"Hedera Perp Style Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"HBAR","unit":"HBAR","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"BIT","funding_bearing":false,"instrument_type":"dated","multiplier":0.01,"product":"nano Bitcoin Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"BTC","unit":"BTC","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"BTI","funding_bearing":false,"instrument_type":"dated","multiplier":1,"product":"Bitcoin Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"BTC","unit":"BTC","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"ET","funding_bearing":false,"instrument_type":"dated","multiplier":0.1,"product":"nano Ether Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"ETH","unit":"ETH","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"ETI","funding_bearing":false,"instrument_type":"dated","multiplier":10,"product":"Ether Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"ETH","unit":"ETH","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"SOL","funding_bearing":false,"instrument_type":"dated","multiplier":5,"product":"nano Solana Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"SOL","unit":"SOL","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"SLC","funding_bearing":false,"instrument_type":"dated","multiplier":100,"product":"Solana Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"SOL","unit":"SOL","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"XRP","funding_bearing":false,"instrument_type":"dated","multiplier":500,"product":"nano XRP Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"XRP","unit":"XRP","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"XRL","funding_bearing":false,"instrument_type":"dated","multiplier":10000,"product":"XRP Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"XRP","unit":"XRP","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"HED","funding_bearing":false,"instrument_type":"dated","multiplier":5000,"product":"Hedera Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"HBAR","unit":"HBAR","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"BCH","funding_bearing":false,"instrument_type":"dated","multiplier":1,"product":"Bitcoin Cash Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"BCH","unit":"BCH","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"LC","funding_bearing":false,"instrument_type":"dated","multiplier":5,"product":"Litecoin Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"LTC","unit":"LTC","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"DOG","funding_bearing":false,"instrument_type":"dated","multiplier":5000,"product":"Dogecoin Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"DOGE","unit":"DOGE","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"XLM","funding_bearing":false,"instrument_type":"dated","multiplier":5000,"product":"Stellar Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"XLM","unit":"XLM","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"AVA","funding_bearing":false,"instrument_type":"dated","multiplier":10,"product":"Avalanche Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"AVAX","unit":"AVAX","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"LNK","funding_bearing":false,"instrument_type":"dated","multiplier":50,"product":"Chainlink Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"LINK","unit":"LINK","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"DOT","funding_bearing":false,"instrument_type":"dated","multiplier":100,"product":"Polkadot Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"DOT","unit":"DOT","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"SHB","funding_bearing":false,"instrument_type":"dated","multiplier":10000000,"product":"1k Shib Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"SHIB","unit":"SHIB","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"ADA","funding_bearing":false,"instrument_type":"dated","multiplier":1000,"product":"Cardano Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"ADA","unit":"ADA","verification":"primary","verified_on":"2026-08-25"},{"active_as_of":"2025-11-26","code":"SUI","funding_bearing":false,"instrument_type":"dated","multiplier":500,"product":"SUI Futures","sources":["https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"],"symbol":"SUI","unit":"SUI","verification":"primary","verified_on":"2026-08-25"}],"snapshot_date":"2025-11-26","snapshot_label":"Verified contract mapping snapshot: 2025-11-26","source_documents":[{"date":"2025-11-26","id":"cftc-2025-70","title":"2025-70 Listing of the Hedera Perp Style Futures (product table, all listed contracts)","url":"https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"},{"date":"2026-08-25","id":"cde-perp-specs","title":"Coinbase Derivatives published perpetual-style contract specification sheets","url":"https://assets.ctfassets.net/"}],"unmapped_meaning":"No verified contract mapping is not the same as: contract does not exist"};
+/* END CONTRACT SPECS */
+
+/* Which rows may be used for what, enforced here rather than left to the call sites.
+
+   PERPETUAL IS NOT DATED, and the parser cares about the difference more than anything
+   else in this file. It recovers an annualised funding rate from a dollar accrual, and
+   only a perpetual-style contract has funding: BIP, ETP, SLP, XPP and HEP debit and
+   credit open positions via a funding rate, while BIT, ET, SOL, HED and the rest are
+   dated futures that expire and pay none. The multipliers coincide in two cases, which
+   is exactly the trap: ET and ETP are both 0.1 ETH, and only one of them has a rate to
+   recover. Feeding a dated contract to the parser produces a confident APR for a cash
+   flow the instrument cannot generate.
+
+   `verification` is part of the gate, not decoration. A row that has not been read off
+   a primary source cannot be selected for either purpose. */
+function parserSpecs(){
+  return CONTRACT_SPECS.products
+    .filter(p => p.instrument_type === "perpetual"
+              && p.funding_bearing === true
+              && p.verification === "primary")
+    .sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
+/* Rows usable for automatic contract conversion in the sizer. Dated contracts are
+   allowed HERE, because converting a dollar target into a contract count is arithmetic
+   over a contract size and does not depend on funding. Still primary-only. */
+function sizingSpecs(sym){
+  sym = (sym || "").toUpperCase();
+  return CONTRACT_SPECS.products
+    .filter(p => p.symbol === sym && p.verification === "primary")
+    // Smallest first: the finest granularity leaves the least stranded to rounding. A
+    // perpetual wins a tie, because this board is a funding monitor and the perp is the
+    // instrument the rest of it is about.
+    .sort((a, b) => a.multiplier - b.multiplier
+                 || (b.funding_bearing === true) - (a.funding_bearing === true));
+}
+function smallestSpec(sym){ return sizingSpecs(sym)[0] || null; }
+function specsFor(sym){ return sizingSpecs(sym); }
+/* How far the pinned table is from having been read off the exchange. Rendered wherever
+   a multiplier is, because "5,000 HBAR per contract" sourced from press coverage and
+   "5,000 HBAR per contract" read from the venue are not the same claim, and the number
+   on screen looks identical either way. */
+function specProvenance(p){
+  if(!p) return "";
+  if(p.verification === "primary")
+    return `${esc0(p.code)} · ${p.instrument_type}${p.funding_bearing?", funding-bearing":", no funding"}`
+         + ` · ${specSnapshotLine()}, primary source verified ${esc0(p.verified_on)}`;
+  return `${esc0(p.code)} · NOT PRIMARY-VERIFIED (${esc0(p.verification)})`;
+}
+function populateContractSelect(){
+  const sel=$("#pp-contract"); if(!sel) return;
+  const ps=parserSpecs();
+  const opts=ps.map(p=>
+    `<option value="${esc0(p.code)}">${esc0(p.code)} · ${esc0(p.product)} · ${fmtMult(p.multiplier)} ${esc0(p.unit)}</option>`);
+  // Last, and never the default. A reader whose contract is not listed has to choose
+  // this deliberately, and choosing it stops the parser rather than guessing for them.
+  opts.push(`<option value="none">Other / no verified perpetual mapping</option>`);
+  sel.innerHTML=opts.join("");
+  // Default to a verified PERPETUAL. It used to default to ET, a dated nano Ether
+  // future, in a panel whose only purpose is recovering a funding rate: an instrument
+  // that pays no funding, preselected in the funding parser.
+  const etp=ps.find(p=>p.code==="ETP") || ps[0];
+  if(etp) sel.value=etp.code;
+  const snap=$("#pp-snapshot");
+  if(snap) snap.innerHTML=`<span data-tip="${specBoundaryTip()}">${specSnapshotLine()}</span>
+    <span class="spec-neq">${specUnmappedMeaning()}</span>`;
+}
+function fmtMult(m){ return m>=1?m.toLocaleString():String(m); }
+
+/* The snapshot boundary, rendered wherever a contract mapping is surfaced.
+
+   The table is the exchange's product list as it stood on one dated filing. It is not an
+   enumeration of what Coinbase offers today, and the difference is not a footnote: a
+   reader who takes an absent row as "no such contract" has been misled by this board
+   into a fact about the venue that this board never established. Coinbase lists
+   contracts on assets scored here that have no row, AAVE, ENA and HYPE among them.
+
+   So the date travels with every mapping, and the distinction is stated rather than
+   implied. One function, so the two can never drift between the four surfaces that show
+   contract mappings. */
+function specSnapshotLine(){
+  return `Verified contract mapping snapshot: ${esc0(CONTRACT_SPECS.snapshot_date)}`;
+}
+function specUnmappedMeaning(){
+  return "No verified contract mapping \u2260 contract does not exist";
+}
+const SPEC_BOUNDARY_TIP = "This board's contract table is the Coinbase Derivatives "
+  + "product list as it stood in the CFTC filing dated " + "%SNAP%" + ". It is not an "
+  + "enumeration of what the exchange offers today: Coinbase has listed contracts since, "
+  + "including on assets this board scores. A symbol with no row here is UNMAPPED, which "
+  + "means this repository has not verified a mapping for it, not that no contract "
+  + "exists. Nothing is inferred: a row is added only when a primary source states "
+  + "product name, code, instrument type and contract size together.";
+function specBoundaryTip(){
+  return SPEC_BOUNDARY_TIP.replace("%SNAP%", CONTRACT_SPECS.snapshot_date);
+}
+function selectedSpec(){
+  const v=$("#pp-contract")?.value;
+  if(v==null||v==="none") return null;
+  // Looked up by contract code rather than by array index: an index is a position in a
+  // list whose ordering is a rendering decision, and a reordered table would silently
+  // repoint a selection at a different instrument.
+  return parserSpecs().find(p=>p.code===v) || null;
+}
+
 /* The position parser. Mirrors funding.position_apr — see that docstring for the sign
    convention, which is the part that is easy to get wrong: the exchange reports the
    cash flow, not the market's rate, so a negative accrual on a LONG means the position
-   was paid and the market rate is negative. */
+   was paid and the market rate is negative.
+
+   Notional is contracts x MULTIPLIER x price. It used to be contracts x price, which is
+   the identity only for a contract whose unit is one unit of the underlying, and no
+   Coinbase Derivatives contract is one. Twelve HBAR contracts at $0.0802 is $4,812, not
+   $0.96, and the APR, the 8h equivalent, the hourly rate and the regime badge all
+   inherited the 5,000x error at full confidence. The derived notional is now the second
+   thing on screen, because it is the figure that makes such an error obvious. */
 function renderParser(){
   const host=$("#pp-out"); if(!host) return;
   const num=id=>{ const v=parseFloat($(id)?.value); return isNaN(v)?null:v; };
   const contracts=num("#pp-contracts"), price=num("#pp-price"),
         accrued=num("#pp-accrued"), hours=num("#pp-hours");
   const side=($("#pp-side")?.value)||"LONG";
+  const spec=selectedSpec(), mult=num("#pp-mult");
+  // Refused, not defaulted. A multiplier of 1 is a real contract specification for no
+  // product on this exchange, so assuming it would not be a conservative fallback, it
+  // would be a wrong answer wearing the same typography as a right one.
+  if(mult==null||mult<=0){
+    host.innerHTML=`<div class="pp-unknown"><b>Contract specification not mapped.</b> This
+      board has no primary-verified perpetual mapping for that contract, so the size of one
+      contract is not something it knows. That is a gap in this table, <b>not</b> a claim
+      that no such contract exists. <b>${specSnapshotLine()}.</b>
+      <b>${specUnmappedMeaning()}.</b> The exchange has listed contracts since that
+      filing, including on assets this board scores.
+      Enter the contract unit from the exchange's product page and the arithmetic follows,
+      labelled unverified. Leave it blank and nothing is computed, because a notional
+      guessed at 1 unit per contract would be wrong by the multiplier and would look
+      exactly as confident as a correct one. Note that 1 <i>is</i> a real contract size
+      here (BTI is 1 BTC, BCH is 1 BCH), which is why the old silent default was
+      dangerous rather than merely wrong.</div>`; return; }
   if(contracts==null||price==null||accrued==null||hours==null){
-    host.innerHTML=`<div class="muted">Enter the four figures from the exchange.</div>`; return; }
-  const notional=contracts*price;
+    host.innerHTML=`<div class="muted">Enter the figures from the exchange.</div>`; return; }
+  const notional=contracts*mult*price;
   if(notional<=0||hours<=0){
     host.innerHTML=`<div class="muted">A position with no size or no elapsed time has no
       rate to recover — dividing anyway produces an infinity that renders as a very
@@ -2685,15 +3268,31 @@ function renderParser(){
   const marketApr = -holderApr*dir;                    // comparable to the board
   const reg=classifyRegimeJs(marketApr), m=REGIME_LABEL[reg];
   const paid = holderApr>=0;
+  // Unverified whenever the number on screen is not the one this board verified: either
+  // no contract is selected at all, or the reader has typed over the verified size.
+  const unverified = !spec || Math.abs(mult-spec.multiplier)>1e-12;
+  const usdN = notional.toLocaleString(undefined,{maximumFractionDigits:0});
   host.innerHTML=`
     <div class="pp-hero ${paid?"pos":"neg"}">${paid?"+":""}${holderApr.toFixed(2)}%
       <span class="muted" style="font-size:9px">your APR</span></div>
+    <div class="pp-notional" data-tip="${contracts} contract(s) x ${fmtMult(mult)} ${
+        spec?spec.unit:"units"} per contract x $${price} mark. This is the denominator under
+        every figure below. If it does not match the position value your exchange shows, the
+        multiplier is wrong and nothing below this line is trustworthy.">$${usdN}
+      <span class="muted" style="font-size:9px">notional · ${contracts} x ${fmtMult(mult)} x $${price}</span></div>
+    ${unverified?`<div class="pp-unverified">USER-ENTERED MULTIPLIER · UNVERIFIED.
+      Every figure below is derived from ${fmtMult(mult)} ${spec?esc0(spec.unit):"units"} per
+      contract, which this board has not verified against a primary source${
+        spec?` (the verified size for ${esc0(spec.code)} is ${fmtMult(spec.multiplier)})`:""}.
+      Treat the APR, the 8h equivalent, the hourly rate and the regime as illustrative.</div>`:""}
     <div class="muted" style="margin:2px 0 7px">${paid?"received":"paid"}
-      $${Math.abs(accrued).toFixed(2)} over ${hours}h on $${notional.toLocaleString(undefined,{maximumFractionDigits:0})} of notional</div>
+      $${Math.abs(accrued).toFixed(2)} over ${hours}h${
+        spec?` · ${esc0(spec.product)}, ${fmtMult(spec.multiplier)} ${esc0(spec.unit)} per contract <span class="pp-prov">${specProvenance(spec)}</span>`:""}</div>
     <div class="kv"><span>Market rate</span><b>${aprCell(Math.round(marketApr*1e4)/1e4)}</b></div>
     <div class="kv"><span>8h equivalent</span><b class="num">${(marketApr/(3*365)).toFixed(4)}%</b></div>
     <div class="kv"><span>Hourly</span><b class="num">${(marketApr/8760).toFixed(6)}%</b></div>
-    <div class="kv"><span>Regime</span><b>${m?`<span class="badge ${m[1]}">${m[0]}</span>`:'<span class="muted">—</span>'}</b></div>
+    <div class="kv"><span>Regime</span><b>${m?`<span class="badge ${m[1]}">${m[0]}</span>${
+      unverified?' <span class="pp-prov warn">unverified</span>':""}`:'<span class="muted">—</span>'}</b></div>
     <div class="kv"><span>Position P&amp;L</span><b class="num ${paid?"pos":"neg"}">${paid?"+":"−"}$${Math.abs(accrued).toFixed(2)}</b></div>
     <div class="muted" style="margin-top:7px;line-height:1.5">Your APR is the cash flow to
       this position. The market rate is the same trade seen from the board and carries the
@@ -2762,20 +3361,28 @@ function applyHoldings(){
 }
 document.getElementById("pf-btn").onclick=applyHoldings;
 // Sizing recomputes live: the whole point is one input away from a decision.
-["#sz-notional","#sz-participation"].forEach(sel=>{ const el=$(sel);
+["#sz-notional","#sz-participation","#sz-stopk","#sz-margin"].forEach(sel=>{ const el=$(sel);
   if(el) el.oninput=()=>{ try{ localStorage.setItem("sz"+sel, el.value); }catch(e){}
                          renderSizing(); }; });
 // Restore the last book size, so it is not retyped every visit.
-try{ ["#sz-notional","#sz-participation"].forEach(sel=>{ const v=localStorage.getItem("sz"+sel);
+try{ ["#sz-notional","#sz-participation","#sz-stopk","#sz-margin"].forEach(sel=>{ const v=localStorage.getItem("sz"+sel);
   const el=$(sel); if(v!=null && el) el.value=v; }); }catch(e){}
 
 // The parser recomputes on every keystroke: it exists to be typed into while reading
 // numbers off an exchange tab, and a submit button would put a click between the figure
 // and the answer. Nothing here is persisted — the inputs describe one open position and
 // restoring last week's would be a stale claim about a position that may be closed.
-["#pp-contracts","#pp-price","#pp-accrued","#pp-hours"].forEach(sel=>{
+["#pp-contracts","#pp-price","#pp-accrued","#pp-hours","#pp-mult"].forEach(sel=>{
   const el=$(sel); if(el) el.oninput=renderParser; });
 const ppSide=$("#pp-side"); if(ppSide) ppSide.onchange=renderParser;
+populateContractSelect();
+const ppContract=$("#pp-contract");
+if(ppContract) ppContract.onchange=()=>{
+  const p=selectedSpec(), mi=$("#pp-mult");
+  // "Not listed" empties the field rather than leaving the previous contract's number
+  // sitting under a different contract's name, which would be the worst of both.
+  if(mi) mi.value = p ? String(p.multiplier) : "";
+  renderParser(); };
 renderParser();
 // The carry screen's holding period is the reader's input, and the drag is recomputed
 // from it — the nightly can only publish one horizon.
@@ -2783,6 +3390,376 @@ const ccHold=$("#cc-hold"); if(ccHold) ccHold.oninput=renderCarry;
 
 
 // ---- load ----
+/* ---------- the explanation layer, on every device ----------
+
+   The board carried its reasoning in `title` attributes: 1,107 of them in the rendered
+   DOM against 10 aria attributes. Native `title` does not render on iOS or Android at
+   all, so on a phone this board degraded into an unexplained grid of numbers and the
+   provenance, the window and the caveats - the part that makes it trustworthy, and the
+   best thing about the build - were simply absent. Not hidden behind a gesture. Absent.
+
+   The fix is one primitive rather than 1,107 edits. Authoring stays `title="..."`, which
+   is what every call site already writes; on mount each one is MOVED to `data-tip` (moved,
+   not copied, or desktop shows two tooltips) and this popover serves it on hover, on
+   focus and on tap. A MutationObserver catches the ones rendered later, which is most of
+   them: the matrix, the sizing rows and the funding cells are all rebuilt on every load
+   and every rewind.
+
+   `title` survives as the fallback exactly where it should - in the source, and on any
+   node this script never reaches, where the browser's own tooltip is better than nothing.
+
+   Tap needs one rule to not fight the board: a tip inside `tr.row` is not opened on touch,
+   because the row's own tap opens the drawer, and the drawer says more than the tip does.
+   Everywhere else - column headers, health pills, sizing rows, funding cells, which is
+   where the density is - tap toggles the popover. */
+const TIP_ID = "tip-pop";
+let TIP_TARGET = null, TIP_TIMER = null;
+/* Opened by a tap, and therefore not to be closed by the mouse events the browser
+   synthesises immediately afterwards.
+
+   A tap on a touch screen does not produce only pointer events. Browsers replay a
+   compatibility sequence for pages written before touch existed - mouseover, then click,
+   then mouseout - and the mouseout arrives a few milliseconds after the tap on the very
+   element that was tapped. Without this flag the popover opened on pointerdown and was
+   dismissed by that synthetic mouseout before a reader could look at it, which on a phone
+   is indistinguishable from the popover never having worked at all. It is exactly the
+   failure this whole primitive exists to fix, reintroduced one layer down, and it is only
+   visible in a real browser: the source reads correctly. */
+let TIP_STICKY = false;
+
+function tipEl(){
+  let el=document.getElementById(TIP_ID);
+  if(!el){
+    el=document.createElement("div");
+    el.id=TIP_ID; el.className="tip-pop"; el.setAttribute("role","tooltip");
+    el.hidden=true;
+    document.body.appendChild(el);
+  }
+  return el;
+}
+function tipShow(target){
+  const text=target.getAttribute("data-tip"); if(!text) return;
+  const el=tipEl();
+  el.textContent=text;           // textContent, not innerHTML: tips carry symbol names
+  el.hidden=false;
+  const r=target.getBoundingClientRect(), t=el.getBoundingClientRect();
+  // Prefer below, flip above when it would leave the viewport. Clamped horizontally so a
+  // tip on a right-edge column can never introduce the horizontal scroll the layout
+  // rules forbid.
+  let top = r.bottom+6;
+  if(top+t.height > window.innerHeight-6) top = Math.max(6, r.top-t.height-6);
+  let left = r.left;
+  if(left+t.width > window.innerWidth-6) left = Math.max(6, window.innerWidth-t.width-6);
+  el.style.left=Math.max(6,left)+"px"; el.style.top=top+"px";
+  target.setAttribute("aria-describedby", TIP_ID);
+  TIP_TARGET=target;
+}
+function tipHide(){
+  const el=document.getElementById(TIP_ID); if(el) el.hidden=true;
+  if(TIP_TARGET) TIP_TARGET.removeAttribute("aria-describedby");
+  TIP_TARGET=null; TIP_STICKY=false;
+  clearTimeout(TIP_TIMER);
+}
+/* Move `title` to `data-tip`, and make the element reachable.
+
+   Anything carrying an explanation has to be focusable, or the popover is mouse-and-touch
+   only and the keyboard reader is back where the phone user was. Elements that are
+   already focusable, or that sit inside a focusable control, are left alone. */
+function tipUpgrade(root){
+  const scope = root && root.querySelectorAll ? root : document;
+  // 1. Native title becomes data-tip. Moved, not copied, or desktop shows two tooltips.
+  const moveTitle = n => {
+    const t = n.getAttribute && n.getAttribute("title");
+    if(t==null || t==="") return;
+    n.setAttribute("data-tip", t);
+    n.removeAttribute("title");
+  };
+  scope.querySelectorAll("[title]").forEach(moveTitle);
+  if(root && root.getAttribute) moveTitle(root);
+
+  // 2. Every explained node is made reachable, whether its text arrived as a `title` or
+  //    was authored as data-tip directly.
+  //
+  //    This second sweep is the whole fix for a class of orphan the first pass created
+  //    and could not see. The panels written since the popover landed author data-tip in
+  //    their markup rather than title, which is the better way round and is exactly why
+  //    they were skipped: the upgrade only ever looked at [title], so nineteen
+  //    explanations - including every row of the sizing panel, one of the four surfaces
+  //    this primitive exists to serve - had a tip that no keyboard and no tap could open.
+  //    Counting upgraded nodes would never have found it; only asking whether each node
+  //    has a route does.
+  const makeReachable = n => {
+    if(!n.getAttribute || !n.getAttribute("data-tip")) return;
+    n.classList.add("has-tip");
+    if(n.hasAttribute("tabindex")) return;
+    const focusable = n.matches("a[href],button,input,select,textarea");
+    // A tip inside tr.row is reached through the row's drawer instead: giving 233 rows
+    // several tab stops each would make the table unnavigable, and the drawer reproduces
+    // every one of these texts verbatim. See rowTipNotes().
+    if(focusable || n.closest("tr.row")) return;
+    // Joining an existing roving group takes -1, decided HERE rather than left to the
+    // next grouping pass. This is a correctness fix, not a tidy-up: assigning 0 and
+    // waiting to be collapsed leaves the group at N tab stops for the whole window
+    // between a re-render and the next pass, and the board re-renders these panels on
+    // every keystroke. CI caught it as a ten-member group reporting ten tab stops; the
+    // scheduler only narrows that window, it never closes it. The invariant now holds
+    // synchronously, whatever the scheduler does.
+    const p = n.parentNode;
+    if(p && p.nodeType === 1 && p.dataset && p.dataset.tipGroup){
+      const claimed = [...p.children].some(
+        c => c !== n && c.getAttribute && c.getAttribute("tabindex") === "0"
+                     && c.hasAttribute("data-tip"));
+      n.setAttribute("tabindex", claimed ? "-1" : "0");
+      return;
+    }
+    n.setAttribute("tabindex","0");
+  };
+  scope.querySelectorAll("[data-tip]").forEach(makeReachable);
+  if(root && root.getAttribute) makeReachable(root);
+
+  scheduleRoving();
+}
+
+/* Grouping has to see siblings, so it runs over the document rather than the subtree that
+   changed, and is coalesced: the board rewrites its panels on every keystroke in the
+   sizing inputs, and regrouping per mutation would walk a thousand nodes per character
+   typed.
+
+   Coalesced with setTimeout, NOT requestAnimationFrame. rAF only fires when the page is
+   producing frames, and a browser that is not compositing may never call it: under
+   chrome-headless-shell every explained element in a group kept the tabindex 0 that
+   makeReachable had just given it, so a ten-member group contributed ten tab stops while
+   the code believed it had collapsed them to one. Correctness of the accessibility
+   wiring must not depend on the compositor being awake. */
+let ROVING_QUEUED = false;
+function scheduleRoving(){
+  if(ROVING_QUEUED) return;
+  ROVING_QUEUED = true;
+  setTimeout(()=>{ ROVING_QUEUED = false; tipRoving(document); }, 0);
+}
+
+/* Roving tabindex for dense groups.
+
+   Making every explained element a tab stop is the obvious reading of "reachable by
+   keyboard" and it is wrong at this density: the first pass produced 318 tab stops, 196
+   of them cells of one correlation matrix. A keyboard user reaching the sizing panel
+   would have pressed Tab two hundred times, which is reachable in the same sense that a
+   phone book is searchable.
+
+   So a container holding eight or more explained children becomes one tab stop and the
+   arrow keys walk inside it, which is the pattern a grid is supposed to use and the same
+   one the canvases already use for their points. The threshold is about repetition
+   rather than a list of class names: it stays right when a new dense panel is added, and
+   leaves ordinary panels of two or three explained figures alone. */
+/* The managed set of a group: its DIRECT explained children, and only those.
+
+   Assignment and navigation have to agree on this. They did not: tabindex was assigned
+   to direct children while the arrow handler queried every descendant, so an arrow key
+   could move focus onto a nested element the group was not managing, leaving two members
+   at tabindex 0 and the container contributing several tab stops while claiming one. */
+function groupItems(p){
+  return [...p.children].filter(n => n.matches("[data-tip][tabindex]"));
+}
+function tipRoving(scope){
+  const groups=new Map();
+  (scope.querySelectorAll?scope:document).querySelectorAll('[data-tip][tabindex]').forEach(n=>{
+    if(n.closest("tr.row")) return;          // rows route through the drawer
+    const p=n.parentNode; if(!p||p.nodeType!==1) return;
+    if(!groups.has(p)) groups.set(p,[]);
+    groups.get(p).push(n);
+  });
+  groups.forEach((kids,p)=>{
+    if(kids.length<8){
+      // A group that has shrunk below the threshold must give its members their tab
+      // stops back, or a re-render leaves them permanently at -1 and unreachable.
+      if(p.dataset.tipGroup){ delete p.dataset.tipGroup;
+        kids.forEach(n=>n.setAttribute("tabindex","0")); }
+      return;
+    }
+    const focused = kids.findIndex(n=>n.getAttribute("tabindex")==="0");
+    const keep = focused >= 0 ? focused : 0;
+    kids.forEach((n,i)=>n.setAttribute("tabindex", i===keep?"0":"-1"));
+    if(p.dataset.tipGroup) return;
+    p.dataset.tipGroup="1";
+    p.addEventListener("keydown", e=>{
+      const items=groupItems(p);
+      const i=items.indexOf(document.activeElement); if(i<0) return;
+      let j=null;
+      if(e.key==="ArrowRight"||e.key==="ArrowDown") j=(i+1)%items.length;
+      else if(e.key==="ArrowLeft"||e.key==="ArrowUp") j=(i-1+items.length)%items.length;
+      else if(e.key==="Home") j=0;
+      else if(e.key==="End") j=items.length-1;
+      else return;
+      e.preventDefault();
+      items.forEach((n,k)=>n.setAttribute("tabindex", k===j?"0":"-1"));
+      items[j].focus();
+    });
+  });
+}
+
+/* The matrix rows, as one keyboard-navigable grid.
+
+   A row's cells carry explanations that are deliberately NOT individual tab stops, so
+   the row itself has to be reachable and has to be able to open the drawer that
+   reproduces them. Tap already did this. Keyboard did not: 233 rows were clickable and
+   none was focusable, so the entire per-row explanation layer had no keyboard route at
+   all and the popover's accessibility claim was true only of the parts outside the
+   table. One tab stop for the table, arrow keys between rows, Enter or Space to open. */
+function wireMatrixRows(){
+  document.querySelectorAll("tbody").forEach(tb=>{
+    const rows=[...tb.querySelectorAll("tr.row")];
+    if(!rows.length) return;
+    const focused=rows.findIndex(r=>r.getAttribute("tabindex")==="0");
+    const keep=focused>=0?focused:0;
+    rows.forEach((r,i)=>{
+      r.setAttribute("tabindex", i===keep?"0":"-1");
+      if(!r.getAttribute("role")) r.setAttribute("role","button");
+      if(!r.getAttribute("aria-label") && r.dataset.sym)
+        r.setAttribute("aria-label", `${r.dataset.sym}: open detail, including every column note for this row`);
+    });
+    if(tb.dataset.rowNav) return;
+    tb.dataset.rowNav="1";
+    tb.addEventListener("keydown", e=>{
+      const rs=[...tb.querySelectorAll("tr.row")];
+      const i=rs.indexOf(document.activeElement.closest?.("tr.row"));
+      if(i<0) return;
+      if(e.key==="Enter"||e.key===" "){
+        e.preventDefault();
+        const sym=rs[i].dataset.sym; if(sym) select(sym);
+        return; }
+      let j=null;
+      if(e.key==="ArrowDown") j=Math.min(rs.length-1,i+1);
+      else if(e.key==="ArrowUp") j=Math.max(0,i-1);
+      else if(e.key==="Home") j=0;
+      else if(e.key==="End") j=rs.length-1;
+      else return;
+      e.preventDefault();
+      rs.forEach((r,k)=>r.setAttribute("tabindex", k===j?"0":"-1"));
+      rs[j].focus();
+    });
+  });
+}
+
+/* Every explanation inside a row, verbatim, for the drawer.
+
+   This is what makes the row's cells reachable rather than merely excused. The texts are
+   read off the row's own cells at open time rather than re-authored here, so they cannot
+   drift from what a mouse user sees on hover: it is the same string, moved to a surface
+   that a tap and a keypress can both reach. */
+function rowTipNotes(sym){
+  const row=document.querySelector(`tr.row[data-sym="${CSS.escape(sym)}"]`);
+  if(!row) return "";
+  const table=row.closest("table");
+  const heads=table?[...table.querySelectorAll("thead th")].map(th=>(th.textContent||"").trim()):[];
+  const items=[];
+  [...row.children].forEach((cell,i)=>{
+    const nodes=[...(cell.matches("[data-tip]")?[cell]:[]), ...cell.querySelectorAll("[data-tip]")];
+    nodes.forEach(n=>{
+      const txt=(n.getAttribute("data-tip")||"").trim();
+      if(txt) items.push([heads[i]||`Column ${i+1}`, txt]);
+    });
+  });
+  if(!items.length) return "";
+  return `<div class="factor-attr"><div class="fa-h">COLUMN NOTES · this row</div>`
+    + items.map(([h,t])=>`<div class="rt-note"><b>${esc0(h)}</b><span>${esc0(t)}</span></div>`).join("")
+    + `<div class="note" style="margin-top:4px">Every explanation attached to this row's
+        cells, reproduced in full. On a phone the cells themselves are not individually
+        tappable, so this is where their notes live.</div></div>`;
+}
+
+function initTips(){
+  tipUpgrade(document);
+  // The board rebuilds its tables, panels and charts on load, on rewind and on every
+  // input, so a one-time sweep would cover the first paint and nothing after it.
+  // setTimeout, not requestAnimationFrame, for the same reason as scheduleRoving: a
+  // browser that is not compositing may never run an rAF callback, and the rows would
+  // then never become keyboard reachable at all.
+  let ROWS_QUEUED=false;
+  const queueRows=()=>{ if(ROWS_QUEUED) return; ROWS_QUEUED=true;
+    setTimeout(()=>{ ROWS_QUEUED=false; wireMatrixRows(); }, 0); };
+  new MutationObserver(muts=>{
+    for(const m of muts){
+      m.addedNodes.forEach(n=>{ if(n.nodeType===1) tipUpgrade(n); });
+      if(m.type==="attributes" && m.target.nodeType===1) tipUpgrade(m.target.parentNode||document);
+    }
+    queueRows();
+  }).observe(document.body, {childList:true, subtree:true,
+                             attributeFilter:["title","data-tip"]});
+  queueRows();
+
+  document.addEventListener("mouseover", e=>{
+    if(TIP_STICKY) return;                     // a tap is holding this one open
+    const t=e.target.closest?.("[data-tip]"); if(!t) return;
+    clearTimeout(TIP_TIMER);
+    TIP_TIMER=setTimeout(()=>tipShow(t), 90);   // not instant: a scan across the matrix should not strobe
+  });
+  document.addEventListener("mouseout", e=>{
+    if(TIP_STICKY) return;                     // see TIP_STICKY: this fires after every tap
+    const t=e.target.closest?.("[data-tip]"); if(!t) return;
+    if(e.relatedTarget && t.contains(e.relatedTarget)) return;
+    tipHide();
+  });
+  document.addEventListener("focusin", e=>{
+    if(TIP_STICKY) return;
+    const t=e.target.closest?.("[data-tip]"); if(t) tipShow(t); else tipHide();
+  });
+  document.addEventListener("focusout", e=>{
+    if(TIP_STICKY) return;
+    if(e.target.closest?.("[data-tip]")) tipHide();
+  });
+  // Touch. pointerdown rather than click so the tip is up before any scroll momentum,
+  // and only where the element has no competing action of its own.
+  document.addEventListener("pointerdown", e=>{
+    if(e.pointerType==="mouse") return;
+    const t=e.target.closest?.("[data-tip]");
+    if(!t || t.closest("tr.row") || t.closest("a,button,input,select,textarea")){
+      if(!e.target.closest?.("#"+TIP_ID)) tipHide();
+      return; }
+    if(TIP_TARGET===t){ tipHide(); return; }
+    tipShow(t);
+    TIP_STICKY=true;        // survive the synthetic mouseout the tap is about to produce
+    e.preventDefault();     // the tap explained the cell; it does not also activate it
+  }, {passive:false});
+  // Dismissal: Escape, and a tap or click anywhere that is not the tip or its target.
+  document.addEventListener("keydown", e=>{ if(e.key==="Escape") tipHide(); });
+  document.addEventListener("click", e=>{
+    // The click that the tapped element itself synthesises is not an outside click.
+    if(TIP_TARGET && !TIP_TARGET.contains(e.target) && !e.target.closest?.("#"+TIP_ID)) tipHide();
+  }, true);
+  window.addEventListener("scroll", tipHide, {passive:true, capture:true});
+  window.addEventListener("resize", tipHide, {passive:true});
+}
+
+/* ---------- charts, as data ----------
+   Each canvas already registers the points it drew, for hit-testing and for the arrow-key
+   walk. That is a complete description of the chart sitting in memory with no accessible
+   representation attached to it, so the same array is published as a visually-hidden
+   table and the canvas points at it with aria-describedby. Nothing is duplicated and
+   nothing is authored twice: if the chart changes, the table changes with it. */
+function syncChartTable(id){
+  const cv=document.getElementById(id); if(!cv) return;
+  const pts=CHART_POINTS[id]||[];
+  const tid=id+"-table";
+  let tbl=document.getElementById(tid);
+  if(!tbl){
+    tbl=document.createElement("div"); tbl.id=tid; tbl.className="vh";
+    cv.parentNode.insertBefore(tbl, cv.nextSibling);
+  }
+  const label=(cv.getAttribute("aria-label")||id)+"";
+  if(!pts.length){
+    tbl.innerHTML=`<p>${esc0(label)}: no points plotted. The live price feed returned
+      nothing, so there is nothing to describe.</p>`;
+    cv.setAttribute("aria-describedby", tid);
+    return;
+  }
+  const rows=pts.map(p=>`<tr><th scope="row">${esc0(p.sym)}</th><td>${
+    (p.lines||[]).map(esc0).join("; ")}</td></tr>`).join("");
+  tbl.innerHTML=`<table><caption>${esc0(label)}: ${pts.length} plotted points, in the
+    order the arrow keys walk them.</caption><thead><tr><th scope="col">Symbol</th>
+    <th scope="col">Values</th></tr></thead><tbody>${rows}</tbody></table>`;
+  cv.setAttribute("aria-describedby", tid);
+}
+
 /* Chart hit-testing and the tooltip that carries every unlabelled point.
 
    A budgeted label set is only honest if the names it drops are still reachable. Canvas
@@ -2830,7 +3807,11 @@ function nearestPoint(id, cx, cy, maxDist){
 }
 
 function attachChartInteraction(id){
-  const cv=document.getElementById(id); if(!cv || cv.dataset.wired) return;
+  const cv=document.getElementById(id); if(!cv) return;
+  // The table is refreshed on every draw; the listeners are attached once. Guarding both
+  // together, as this used to, meant the accessible description froze at the first paint.
+  syncChartTable(id);
+  if(cv.dataset.wired) return;
   cv.dataset.wired="1";
   cv.setAttribute("tabindex","0");
   cv.setAttribute("role","application");
@@ -3718,6 +4699,9 @@ document.addEventListener("click",e=>{
   const chip=e.target.closest&&e.target.closest(".tier");
   if(chip && chip.dataset.filter!=null){ e.stopPropagation(); setFilter(chip.textContent.trim()); }
 });
+// Before the first load, so the static markup's explanations are upgraded even if the
+// price fetch never returns. The observer then picks up everything the board renders.
+initTips();
 load(); setInterval(load,120000);
 </script>
 </body>

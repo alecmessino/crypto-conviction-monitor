@@ -717,14 +717,27 @@ def execution_drag(notional: float, adv_usd, daily_vol_pct=None,
     }
 
 
-def atr(bars: list, period: int = 14) -> float | None:
+ATR_PERIOD = 14
+
+
+def atr_min_bars(period: int = ATR_PERIOD) -> int:
+    """Bars needed before an ATR exists at all.
+
+    Named rather than left implicit as ``period + 1`` at three call sites, because the
+    eligibility gate has to ask this question of the recorded series without restating
+    the window. One true range consumes two bars, so a fourteen-period ATR needs fifteen.
+    """
+    return period + 1
+
+
+def atr(bars: list, period: int = ATR_PERIOD) -> float | None:
     """Average True Range over recorded bars. None below ``period + 1`` of them.
 
     Used by the sizer for volatility parity, which is why it is here rather than folded
     into the ADX computation that also needs true ranges: they take different windows,
     and sharing the intermediate would tie the sizer's window to the trend indicator's.
     """
-    if len(bars) < period + 1:
+    if len(bars) < atr_min_bars(period):
         return None
     trs = []
     for prev, cur in zip(bars, bars[1:]):

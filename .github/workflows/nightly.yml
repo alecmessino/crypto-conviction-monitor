@@ -95,6 +95,23 @@ jobs:
         # it.
         run: python scripts/validate_ledger.py
 
+      - name: ATR eligibility gate
+        # Sits with the other pre-commit gates, over the ledger this run just wrote.
+        #
+        # ATR14 is null for the whole universe today, because the recorded series is one
+        # bar short of the window quant.atr needs. That is correct, and this asserts it
+        # rather than assuming it. The night any symbol reaches the window, the same
+        # check starts asserting the value instead: at least one eligible row must carry
+        # a finite ATR14, no ineligible row may carry one at all, and every ATR14 must
+        # reach the ledger with its observation date and bar count. Nothing in it names a
+        # symbol or a date, so it needs no edit when the data arrives.
+        #
+        # Blocking, and before the commit, for the same reason as the integrity gate: a
+        # ledger whose stop inputs are manufactured or silently missing is worse than no
+        # ledger, and the failure mode is numbers rather than exceptions. Standalone, so
+        # a missing package can never skip it.
+        run: python tests/test_atr_eligibility.py
+
       - name: Commit ledger
         run: |
           git config user.name "conviction-bot"

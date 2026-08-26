@@ -869,8 +869,18 @@ def test_the_status_expand_can_be_dismissed_without_the_button():
     assert "function setStatusOpen(" in SCRIPT
     assert 'if(statusIsOpen()){ setStatusOpen(false);' in SCRIPT, \
         "Escape no longer closes the Status expand"
-    outside = SCRIPT[SCRIPT.index('document.addEventListener("pointerdown"'):]
-    outside = outside[:outside.index("});") + 3]
+    # Located by content, not by being the first pointerdown listener on the page. It was
+    # the only one until the tooltip primitive added its own for touch, at which point
+    # "the first one" silently became a different handler and this test failed on a
+    # change that had nothing to do with the Status expand.
+    marker = 'document.addEventListener("pointerdown"'
+    starts = [i for i in range(len(SCRIPT)) if SCRIPT.startswith(marker, i)]
+    cands = []
+    for i in starts:
+        body = SCRIPT[i:]
+        cands.append(body[:body.index("});") + 3])
+    outside = next((c for c in cands if "status-detail" in c), "")
+    assert outside, "no pointerdown listener references #status-detail at all"
     assert 'closest("#status-detail")' in outside and 'closest("#status-toggle")' in outside, \
         "the outside-click handler will close the panel on the press that opened it"
 
