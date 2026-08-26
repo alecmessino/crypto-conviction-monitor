@@ -84,3 +84,11 @@ jobs:
 
       - name: Explanation-layer gate, standalone
         run: python tests/test_a11y.py
+
+      - name: ATR eligibility gate, standalone
+        # Runs here as well as in the nightly, because it guards two things that change
+        # in different places: the recorded ledger (nightly) and the code that reads and
+        # renders it (here). A pull request that drops the observation date from the
+        # rendered stop breaks the provenance half of the invariant without touching any
+        # data at all.
+        run: python tests/test_atr_eligibility.py

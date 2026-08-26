@@ -300,6 +300,30 @@ def run_checks() -> tuple:
             "about this board's table"))
         sizer_unmapped = page.evaluate("""() => {
             renderSizing(); return document.querySelector('#sz-out').innerText; }""")
+        SNAP = "Verified contract mapping snapshot: 2025-11-26"
+        NEQ = "No verified contract mapping \u2260 contract does not exist"
+        boundary = page.evaluate("""() => {
+          renderSizing();
+          const sel = document.querySelector('#pp-contract');
+          sel.value = 'HEP'; sel.onchange();
+          const mapped = document.querySelector('#pp-out').innerText;
+          sel.value = 'none'; sel.onchange();
+          const unmapped = document.querySelector('#pp-out').innerText;
+          sel.value = 'HEP'; sel.onchange();
+          return {strip: (document.querySelector('#pp-snapshot')||{}).innerText || '',
+                  mapped, unmapped,
+                  sizer: document.querySelector('#sz-out').innerText};
+        }""")
+        check("the snapshot date is shown wherever a mapping is surfaced",
+              lambda: _assert(
+                  all(SNAP in boundary[k] for k in ("strip", "mapped", "unmapped", "sizer")),
+                  "a contract-mapping surface does not state which dated snapshot it is "
+                  f"reading: { {k: (SNAP in v) for k, v in boundary.items()} }"))
+        check("unmapped is distinguished from nonexistent", lambda: _assert(
+            all(NEQ in boundary[k] for k in ("strip", "unmapped", "sizer")),
+            "the board does not state that an unmapped symbol is a gap in this table "
+            "rather than a claim about the exchange"))
+
         check("the sizer's unmapped wording is about this table, not the venue",
               lambda: _assert(
                   "spot only" not in sizer_unmapped.lower()

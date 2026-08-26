@@ -166,6 +166,53 @@ def check_the_wording_never_claims_the_exchange_has_no_contract():
         "the parser no longer states the honest version of an unmapped contract"
 
 
+def check_the_snapshot_boundary_is_stated_and_dated():
+    """The table is a dated snapshot, and every mapping surface has to say so.
+
+    A reader who takes an absent row as "no such contract" has been misled by this board
+    into a fact about the exchange that this board never established. Coinbase lists
+    contracts on assets scored here that have no row: AAVE, ENA and HYPE among them.
+    """
+    disk = load_file_specs()
+    assert disk.get("snapshot_date"), "no snapshot_date: the table's boundary is undated"
+    assert disk["snapshot_date"] != disk["as_of"], (
+        "snapshot_date equals as_of. The date the product list was true and the date this "
+        "file was assembled are different facts, and conflating them is what lets a stale "
+        "snapshot read as a census.")
+    for p in disk["products"]:
+        assert p["active_as_of"] == disk["snapshot_date"], (
+            f"{p['code']}: active_as_of does not match the snapshot it was read from")
+
+    audit = disk.get("audit") or {}
+    assert audit.get("snapshot_scope"), "no audit note bounding what this file enumerates"
+    assert "not" in audit["snapshot_scope"].lower(), "the scope note does not state a limit"
+    net = audit.get("network_limitation", "")
+    assert "coinbase.com" in net and "403" in net, (
+        "the audit note does not record that the exchange's own pages were unreachable. "
+        "That limitation is recorded, not routed around.")
+
+    html = terminal_html()
+    assert "function specSnapshotLine(" in html, "no single definition of the snapshot line"
+    assert "Verified contract mapping snapshot:" in html, \
+        "the snapshot label is not rendered anywhere"
+    assert "\\u2260 contract does not exist" in html or "≠ contract does not exist" in html, \
+        "the unmapped-is-not-absent distinction is not stated"
+    # Surfaced at each place a mapping appears, via the shared helper rather than by
+    # four copies that can drift.
+    for surface in ("pp-snapshot", "specBoundaryTip()"):
+        assert surface in html, f"the boundary is missing from a mapping surface: {surface}"
+
+
+def check_unmapped_symbols_stay_unmapped():
+    """No code or multiplier is inferred for an asset without a primary-source row."""
+    disk = load_file_specs()
+    symbols = {p["symbol"] for p in disk["products"]}
+    for sym in ("AAVE", "ENA", "HYPE"):
+        assert sym not in symbols, (
+            f"{sym} has acquired a contract row. It may only be added when a primary "
+            f"source states product name, code, instrument type and size together.")
+
+
 def check_a_user_entered_multiplier_taints_every_derived_figure():
     html = terminal_html()
     assert "USER-ENTERED MULTIPLIER" in html, \
@@ -250,6 +297,8 @@ _CHECKS = [
     check_perpetuals_and_dated_futures_are_distinguished,
     check_the_terminal_gates_the_parser_on_funding,
     check_the_wording_never_claims_the_exchange_has_no_contract,
+    check_the_snapshot_boundary_is_stated_and_dated,
+    check_unmapped_symbols_stay_unmapped,
     check_a_user_entered_multiplier_taints_every_derived_figure,
     check_hep_notional_is_the_number_the_desk_would_recognise,
     check_the_lookups_behave,
@@ -291,6 +340,12 @@ else:
 
     def test_wording_does_not_overclaim():
         check_the_wording_never_claims_the_exchange_has_no_contract()
+
+    def test_snapshot_boundary_stated():
+        check_the_snapshot_boundary_is_stated_and_dated()
+
+    def test_unmapped_stay_unmapped():
+        check_unmapped_symbols_stay_unmapped()
 
     def test_user_entered_multiplier_is_marked():
         check_a_user_entered_multiplier_taints_every_derived_figure()

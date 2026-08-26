@@ -34,6 +34,9 @@
     "user-entered multiplier marks every figure it produces as unverified."
   ],
   "as_of": "2026-08-25",
+  "snapshot_date": "2025-11-26",
+  "snapshot_label": "Verified contract mapping snapshot: 2025-11-26",
+  "unmapped_meaning": "No verified contract mapping is not the same as: contract does not exist",
   "exchange": "Coinbase Derivatives, LLC (CDE)",
   "source_documents": [
     {
@@ -419,5 +422,9 @@
         "https://www.cftc.gov/sites/default/files/filings/ptc/25/11/ptc11262533668.pdf"
       ]
     }
-  ]
+  ],
+  "audit": {
+    "snapshot_scope": "This file is the Coinbase Derivatives product list as it stood in the CFTC self-certification filing dated 2025-11-26. It is NOT an enumeration of every contract the exchange offers today. Assets this board scores that have no row here (AAVE, ENA and HYPE among them), and products listed after that filing, are UNMAPPED. Unmapped means this repository has not verified a mapping; it is not a claim that no contract exists. No code or multiplier may be inferred: a row is added only when a primary source states product name, contract code, instrument type and contract size together.",
+    "network_limitation": "coinbase.com and help.coinbase.com return 403 from the egress proxy in the environment this file was assembled in, so the exchange's own product pages could not be read here. That limitation was recorded rather than routed around. The rows are grounded in two other primary sources that WERE machine-verifiable: the CFTC self-certification filing, and Coinbase's published perpetual specification sheets on its asset CDN. scripts/check_contract_specs.py re-reads both and returns 2, not 0, whenever a source cannot be read or a row cannot be seen."
+  }
 }
