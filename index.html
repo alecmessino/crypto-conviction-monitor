@@ -1080,12 +1080,33 @@ const $ = s=>document.querySelector(s);
 // Magnitude chosen on the ABSOLUTE value, so a negative flow does not fall through
 // every branch and render in raw dollars. The trillions branch exists because the macro
 // ribbon carries total market cap, which the B branch rendered as "$2474.5B".
-const fmtUsd = n=>{ if(n==null||isNaN(n))return "—";
+/* One numeric boundary for the formatters, because `isNaN` is a coercive guard and the
+   values reaching these come off a CSV.
+
+   `isNaN("2.8")` is FALSE, so a numeric string walked straight past the old guard. Every
+   magnitude branch below then coerced it back to a number through arithmetic and worked
+   — except the last one, which calls `.toFixed` on the value itself. So fmtUsd("5000")
+   returned "$5.0K" and fmtUsd("2.8") threw, and the failure was invisible until a value
+   under a thousand arrived. Every unlocks_usd in the ledger is under a thousand.
+
+   Number() alone is not the fix either: Number("") and Number("   ") are 0, which would
+   turn a blank ledger cell into a confident $0.00. The gap between "no reading" and
+   "zero" is the whole reason these fields are nullable. */
+const numOrNull = v=>{
+  if(v==null) return null;
+  if(typeof v==="number") return Number.isFinite(v) ? v : null;   // rejects NaN, ±Infinity
+  if(typeof v!=="string") return null;                            // booleans are not data
+  const t=v.trim();
+  if(t===""||t==="None") return null;                             // never a fabricated zero
+  const n=Number(t);
+  return Number.isFinite(n) ? n : null;                           // "abc", "Infinity" -> null
+};
+const fmtUsd = v=>{ const n=numOrNull(v); if(n==null)return "—";
   const a=Math.abs(n);
   if(a>=1e12)return "$"+(n/1e12).toFixed(2)+"T";
   if(a>=1e9)return "$"+(n/1e9).toFixed(1)+"B"; if(a>=1e6)return "$"+(n/1e6).toFixed(1)+"M";
   if(a>=1e3)return "$"+(n/1e3).toFixed(1)+"K"; return "$"+n.toFixed(2);};
-const fmtPrice = n=>{ if(n==null||isNaN(n))return "—";
+const fmtPrice = v=>{ const n=numOrNull(v); if(n==null)return "—";
   if(n>=1000)return "$"+n.toLocaleString(undefined,{maximumFractionDigits:0});
   if(n>=1)return "$"+n.toFixed(2); if(n>=0.01)return "$"+n.toFixed(4); return "$"+n.toPrecision(3);};
 const cls = v=>v>0?"pos":v<0?"neg":"neu";
@@ -2211,26 +2232,50 @@ function vpvrNote(){} // VPVR replaced by Factor Breakdown
 let SEL=null;
 function select(sym){ SEL=sym; document.querySelectorAll("tr.row").forEach(r=>r.classList.toggle("sel",r.dataset.sym===sym));
   factorBreakdown(sym); openDrawer(sym); }
-function openDrawer(sym){
+
+/* The night the board on screen belongs to: the scrubbed date when rewound, otherwise
+   the most recent published snapshot. Nightly readings are facts about a night, so the
+   drawer needs to know WHICH night it is being asked about before it looks anything up. */
+function currentSnapshotDate(){
+  // A plain read, not a typeof guard: REWIND_DATE is a `let` initialised at the top of
+  // this script, and `typeof` on a let still in its temporal dead zone throws rather
+  // than returning "undefined", so the guard would have been the opposite of safe.
+  if(REWIND_DATE) return REWIND_DATE;
+  return REWIND_DATES.length ? REWIND_DATES[REWIND_DATES.length-1] : null;
+}
+function openDrawer(sym, date){
   const t=STATE.find(s=>s.sym===sym); if(!t)return;
   $("#dw-sym").textContent=t.sym+" · "+t.name;
-  const lb=LEDGER.find(r=>r.symbol===sym);
+  /* Exact symbol AND exact observation date. The old lookup was symbol-only over a
+     ledger pre-filtered to the rows that HAVE an ERA — four rows, all recorded on
+     2026-08-03 — so clicking HBAR on any later board silently attached a three-week-old
+     unlock reading to tonight's row and presented it as current. There is deliberately
+     no fall back to the latest earlier observation: "most recent ERA for this symbol" is
+     a different question from "ERA for this snapshot", and answering the second with the
+     first is the bug. A latest-prior mode would need its own visible observation date
+     and staleness treatment, and is not this. */
+  const obsDate = date || currentSnapshotDate();
+  const lb = obsDate ? ALL_ROWS.find(r=>r.symbol===sym && r.date===obsDate) : null;
   // These two are computed as values here and written into the markup below, rather
   // than queried and mutated. They used to be looked up as #dw-era / #dw-perp *before*
   // the innerHTML that creates them — so the lookups returned null, assigning to them
   // threw, and the assignment never ran. The drawer had been failing on every click:
   // the header rendered, the body did not, and nothing surfaced because the throw was
   // inside a click handler. Deriving the strings first removes the ordering entirely.
-  let eraCls="neu", eraTxt="null (Dune off)";
-  if(lb && lb.era!=null && lb.era!=="None" && lb.era!==""){
-    const e=parseFloat(lb.era);
+  let eraCls="neu", eraTxt="No ERA observation recorded for this snapshot";
+  const eraVal = lb ? numOrNull(lb.era) : null;
+  if(eraVal!=null){
+    const e=eraVal;
     eraCls = e<1?"pos":e<2?"neu":"neg";
+    const unlocks = numOrNull(lb.unlocks_usd);
     eraTxt = (e<1?"BULLISH":e<2?"NEUTRAL":"BEARISH") + " ("+e.toFixed(2)+")"
-           + (lb.unlocks_usd!=null && lb.unlocks_usd!=="" ? ` · unlocks $${fmtUsd(lb.unlocks_usd)}` : "");
+           + (unlocks!=null ? ` · unlocks ${fmtUsd(unlocks)}` : "")
+           + ` · observed ${esc0(obsDate)}`;
   }
   let perpCls="neu", perpTxt="null (perp off)";
-  if(lb && lb.perp_mult!=null && lb.perp_mult!=="None" && lb.perp_mult!==""){
-    const p=parseFloat(lb.perp_mult);
+  const perpVal = lb ? numOrNull(lb.perp_mult) : null;
+  if(perpVal!=null){
+    const p=perpVal;
     // 0.85 penalized (overheated longs), 1.15 rewarded (short capitulation), 1.0 neutral
     perpCls = p<1 ? "neg" : p>1 ? "pos" : "neu";
     perpTxt = (p<1 ? "OVERHEATED LONGS" : p>1 ? "SHORT CAPITULATION" : "NEUTRAL")
