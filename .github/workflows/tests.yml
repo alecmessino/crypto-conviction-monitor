@@ -85,6 +85,14 @@ jobs:
       - name: Explanation-layer gate, standalone
         run: python tests/test_a11y.py
 
+      - name: Drawer gate, standalone
+        # Opens every drawer the board can render, by pointer and by keyboard, on a
+        # desktop and on a phone. It exists because issue #28 came back through a gate
+        # that opened ONE drawer: a throw inside an onclick goes nowhere, so the header
+        # rendered, the body did not, and nothing surfaced. A loop over the first screen
+        # is not a loop over the board.
+        run: python tests/test_drawer.py
+
       - name: ATR eligibility gate, standalone
         # Runs here as well as in the nightly, because it guards two things that change
         # in different places: the recorded ledger (nightly) and the code that reads and
