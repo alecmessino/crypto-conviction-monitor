@@ -29,6 +29,7 @@ all four:
 Runs under pytest, and standalone (`python tests/test_contract_specs.py`) for the
 nightly, which must never depend on pytest being installed.
 """
+from datetime import date
 import json
 import os
 import re
@@ -166,6 +167,17 @@ def check_the_wording_never_claims_the_exchange_has_no_contract():
         "the parser no longer states the honest version of an unmapped contract"
 
 
+def _contract_specs_literal(html: str) -> str:
+    """The inlined CONTRACT_SPECS assignment, so checks can look at the code without it.
+
+    The constant is one very long line of JSON that legitimately contains dates and
+    labels; a scan for hardcoded dates across the whole file would find the data and
+    report it as a rendering defect.
+    """
+    start = html.index("const CONTRACT_SPECS = ")
+    return html[start:html.index("\n", start)]
+
+
 def check_the_snapshot_boundary_is_stated_and_dated():
     """The table is a dated snapshot, and every mapping surface has to say so.
 
@@ -174,14 +186,39 @@ def check_the_snapshot_boundary_is_stated_and_dated():
     contracts on assets scored here that have no row: AAVE, ENA and HYPE among them.
     """
     disk = load_file_specs()
-    assert disk.get("snapshot_date"), "no snapshot_date: the table's boundary is undated"
-    assert disk["snapshot_date"] != disk["as_of"], (
-        "snapshot_date equals as_of. The date the product list was true and the date this "
-        "file was assembled are different facts, and conflating them is what lets a stale "
-        "snapshot read as a census.")
+
+    # Two independently named fields, because they are two different facts: the date the
+    # product list was true, and the date this file was assembled. Conflating them is
+    # what lets a stale snapshot read as a census.
+    #
+    # Their VALUES are not required to differ. Requiring inequality asserts an accident:
+    # a file assembled on the same day a filing lands is correct and would fail, and the
+    # check would then be satisfied by any two unequal dates including a snapshot in the
+    # future. What actually has to hold is that both are real dates, that the snapshot
+    # cannot postdate the assembly that read it, and that everything downstream is
+    # anchored to the snapshot rather than to the assembly date.
+    for field in ("snapshot_date", "as_of"):
+        assert disk.get(field), f"no {field}: the table's boundary is undated"
+    snap, as_of = str(disk["snapshot_date"]), str(disk["as_of"])
+    for label, value in (("snapshot_date", snap), ("as_of", as_of)):
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", value), \
+            f"{label} is {value!r}, which is not an ISO calendar date"
+        try:
+            date.fromisoformat(value)
+        except ValueError as exc:
+            raise AssertionError(f"{label} is {value!r}, not a real date: {exc}") from exc
+    assert date.fromisoformat(snap) <= date.fromisoformat(as_of), (
+        f"snapshot_date {snap} is after as_of {as_of}. The file cannot have been "
+        f"assembled before the filing it claims to have read.")
+
+    # Provenance is anchored to the snapshot, not to the assembly date. A row stamped
+    # with as_of would silently re-date itself every time the file is touched.
     for p in disk["products"]:
-        assert p["active_as_of"] == disk["snapshot_date"], (
-            f"{p['code']}: active_as_of does not match the snapshot it was read from")
+        assert p["active_as_of"] == snap, (
+            f"{p['code']}: active_as_of is {p['active_as_of']!r}, not the snapshot "
+            f"{snap!r} it was read from")
+    assert snap in str(disk.get("snapshot_label", "")), \
+        "snapshot_label does not carry the snapshot date it labels"
 
     audit = disk.get("audit") or {}
     assert audit.get("snapshot_scope"), "no audit note bounding what this file enumerates"
@@ -198,9 +235,38 @@ def check_the_snapshot_boundary_is_stated_and_dated():
     assert "\\u2260 contract does not exist" in html or "≠ contract does not exist" in html, \
         "the unmapped-is-not-absent distinction is not stated"
     # Surfaced at each place a mapping appears, via the shared helper rather than by
-    # four copies that can drift.
+    # copies that can drift.
     for surface in ("pp-snapshot", "specBoundaryTip()"):
         assert surface in html, f"the boundary is missing from a mapping surface: {surface}"
+
+    # The shared definition reads snapshot_date and nothing else. A helper that reached
+    # for as_of would render the assembly date under a label that says "snapshot", and
+    # every surface below would inherit it while still passing a they-differ check.
+    for fn in ("function specSnapshotLine(", "function specBoundaryTip("):
+        body = html[html.index(fn):]
+        body = body[:body.index("\n}") + 2]
+        assert "CONTRACT_SPECS.snapshot_date" in body, \
+            f"{fn.split('(')[0]} does not derive the boundary from snapshot_date"
+        assert "as_of" not in body, (
+            f"{fn.split('(')[0]} reaches for as_of — the snapshot label would show the "
+            f"date the file was assembled, not the date the product list was true")
+
+    # Every mapping surface renders it from that definition rather than restating it.
+    # Counted from the call sites so a fifth surface cannot be added with a copy: the
+    # definition itself accounts for one occurrence, the callers for the rest.
+    calls = html.count("specSnapshotLine()") - 1
+    assert calls >= 4, (
+        f"only {calls} mapping surface(s) render the snapshot boundary from the shared "
+        f"definition; the panel, the sizing line, the parser and the drawer all show a "
+        f"mapping and all four have to state its boundary")
+    # Scoped to the rendering code. The embedded CONTRACT_SPECS literal carries a
+    # `snapshot_label` of its own — that is the data stating its own boundary, checked
+    # against snapshot_date above, not a surface hardcoding a date it should have read.
+    code = html.replace(_contract_specs_literal(html), "")
+    literal = re.findall(r"Verified contract mapping snapshot:\s*\d{4}-\d{2}-\d{2}", code)
+    assert not literal, (
+        f"a mapping surface hardcodes the snapshot date instead of reading it: "
+        f"{literal[:3]}. It would keep rendering the old date after a re-verification.")
 
 
 def check_unmapped_symbols_stay_unmapped():

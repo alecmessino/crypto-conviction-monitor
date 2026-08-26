@@ -730,6 +730,45 @@ def atr_min_bars(period: int = ATR_PERIOD) -> int:
     return period + 1
 
 
+# Why a returned None needs a reason attached to it.
+#
+# Bar COUNT and bar CONTENT are separate questions, and only the first is visible from
+# the ledger. A row can record twenty bars and still produce no ATR, because a true
+# range needs a high, a low and the previous close, and any bar missing one of the three
+# ends the computation. So `adx_bars >= atr_min_bars()` proves the window is long
+# enough; it does not prove the series is computable, and an eligibility gate that
+# treats length as proof will read a genuine input failure as an eligible row that
+# simply declined to produce a number.
+#
+# These three exhaust the reasons an ATR is absent. Anything else is a defect, which is
+# the point: the eligibility gate excuses a missing value only against one of these, so
+# a new failure mode cannot arrive wearing a blank reason.
+ATR_ACCUMULATING = "accumulating"      # fewer bars than the window needs — expected, early
+ATR_COMPUTED = "computed"              # a finite value was produced
+ATR_INPUT_MISSING = "input_missing"    # window satisfied, but a bar lacked high/low/close
+ATR_STATUSES = (ATR_ACCUMULATING, ATR_COMPUTED, ATR_INPUT_MISSING)
+
+
+def atr_with_reason(bars: list, period: int = ATR_PERIOD):
+    """Average True Range, and why it is absent when it is. Returns ``(value, status)``.
+
+    The value half is exactly what ``atr`` returns — ``atr`` delegates here rather than
+    computing alongside, so the number and the reason for its absence can never disagree.
+    """
+    if len(bars) < atr_min_bars(period):
+        return None, ATR_ACCUMULATING
+    trs = []
+    for prev, cur in zip(bars, bars[1:]):
+        h, lo, pc = cur.get("high"), cur.get("low"), prev.get("close")
+        if None in (h, lo, pc):
+            return None, ATR_INPUT_MISSING
+        trs.append(max(h - lo, abs(h - pc), abs(lo - pc)))
+    window = trs[-period:]
+    if not window:
+        return None, ATR_INPUT_MISSING
+    return round(sum(window) / len(window), 10), ATR_COMPUTED
+
+
 def atr(bars: list, period: int = ATR_PERIOD) -> float | None:
     """Average True Range over recorded bars. None below ``period + 1`` of them.
 
@@ -737,16 +776,7 @@ def atr(bars: list, period: int = ATR_PERIOD) -> float | None:
     into the ADX computation that also needs true ranges: they take different windows,
     and sharing the intermediate would tie the sizer's window to the trend indicator's.
     """
-    if len(bars) < atr_min_bars(period):
-        return None
-    trs = []
-    for prev, cur in zip(bars, bars[1:]):
-        h, lo, pc = cur.get("high"), cur.get("low"), prev.get("close")
-        if None in (h, lo, pc):
-            return None
-        trs.append(max(h - lo, abs(h - pc), abs(lo - pc)))
-    window = trs[-period:]
-    return round(sum(window) / len(window), 10) if window else None
+    return atr_with_reason(bars, period)[0]
 
 
 # ---------------------------------------------------------------------------
