@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-08-30T11:57:46.191282+00:00",
+  "generated_at": "2026-08-31T13:56:41.645528+00:00",
   "spec_hash": "6f98778fa627",
-  "observations": 30,
+  "observations": 31,
   "from": "2026-08-01",
-  "to": "2026-08-30",
+  "to": "2026-08-31",
   "health": [
     {
       "name": "Data freshness",
       "status": "pass",
-      "detail": "latest board 2026-08-30 (12h old)",
-      "value": 12.0
+      "detail": "latest board 2026-08-31 (14h old)",
+      "value": 13.9
     },
     {
       "name": "Universe size",
       "status": "pass",
-      "detail": "50 assets scored on 2026-08-30",
+      "detail": "50 assets scored on 2026-08-31",
       "value": 50
     },
     {
@@ -26,8 +26,8 @@
     {
       "name": "Score dispersion",
       "status": "pass",
-      "detail": "sigma = 19.49 across 50 assets",
-      "value": 19.49
+      "detail": "sigma = 18.97 across 50 assets",
+      "value": 18.97
     },
     {
       "name": "Field presence",
@@ -44,19 +44,19 @@
     {
       "name": "Ranking stability",
       "status": "pass",
-      "detail": "rank correlation 0.8045 across 45 names held in common",
-      "value": 0.8045
+      "detail": "rank correlation 0.9204 across 43 names held in common",
+      "value": 0.9204
     },
     {
       "name": "Universe churn",
       "status": "pass",
-      "detail": "5 of 50 assets are new (10%) \u2014 the ranking above is measured only on the rest",
-      "value": 0.1
+      "detail": "7 of 50 assets are new (14%) \u2014 the ranking above is measured only on the rest",
+      "value": 0.14
     },
     {
       "name": "Specification history",
       "status": "warn",
-      "detail": "3 specification(s) across 22 recorded day(s); 8 earlier day(s) unhashed; 1 day(s) carry a superseded digest folded onto its canonical one (instrumentation correction, scoring-equivalent)  \u2014 a series spanning two hashes is two datasets",
+      "detail": "3 specification(s) across 23 recorded day(s); 8 earlier day(s) unhashed; 1 day(s) carry a superseded digest folded onto its canonical one (instrumentation correction, scoring-equivalent)  \u2014 a series spanning two hashes is two datasets",
       "value": 3
     },
     {
@@ -68,8 +68,8 @@
     {
       "name": "Funding feed",
       "status": "pass",
-      "detail": "funding present for 84% of the board, in line with the 80% baseline \u2014 the rest are spot-only, which is not a dropout",
-      "value": 0.84
+      "detail": "funding present for 88% of the board, in line with the 80% baseline \u2014 the rest are spot-only, which is not a dropout",
+      "value": 0.88
     },
     {
       "name": "Ledger integrity",
@@ -79,32 +79,36 @@
     }
   ],
   "stability": {
-    "from": "2026-08-29",
-    "to": "2026-08-30",
-    "shared": 45,
-    "rank_correlation": 0.8045,
-    "mean_abs_move": 4.0,
-    "max_abs_move": 24.0,
+    "from": "2026-08-30",
+    "to": "2026-08-31",
+    "shared": 43,
+    "rank_correlation": 0.9204,
+    "mean_abs_move": 3.07,
+    "max_abs_move": 15.0,
     "entered": [
-      "ANSEM",
-      "CARDS",
-      "CYS",
-      "OKB",
-      "VET"
+      "CAKE",
+      "CRV",
+      "JST",
+      "MON",
+      "PROM",
+      "SAFE",
+      "SKR"
     ],
     "left": [
-      "CAP",
-      "MELANIA",
-      "MON",
-      "NPC",
-      "TAO"
+      "ANSEM",
+      "CARDS",
+      "FARTCOIN",
+      "OKB",
+      "POL",
+      "UB",
+      "VET"
     ],
-    "churn": 0.1,
+    "churn": 0.14,
     "universe_prev": 50,
     "universe_curr": 50
   },
   "dispersion": {
-    "latest": 19.49,
+    "latest": 18.97,
     "series": [
       {
         "date": "2026-08-01",
@@ -255,6 +259,11 @@
         "date": "2026-08-30",
         "dispersion": 19.49,
         "median": 30.0
+      },
+      {
+        "date": "2026-08-31",
+        "dispersion": 18.97,
+        "median": 34.0
       }
     ],
     "warn_below": 8.0
@@ -723,6 +732,21 @@
         "perp_mult": 1.0,
         "high_24h": 1.0,
         "low_24h": 1.0
+      },
+      {
+        "date": "2026-08-31",
+        "n": 50,
+        "price": 1.0,
+        "market_cap": 1.0,
+        "turnover_pct": 1.0,
+        "conviction": 1.0,
+        "rs7": 1.0,
+        "rs14": 1.0,
+        "rs30": 1.0,
+        "rs200": 1.0,
+        "perp_mult": 1.0,
+        "high_24h": 1.0,
+        "low_24h": 1.0
       }
     ],
     "warn_below": 0.9,
@@ -733,14 +757,14 @@
         "unlocks_usd": 0.0,
         "supply_increase_pct": 0.0,
         "addr_growth_pct": 0.02,
-        "funding_rate": 0.84,
-        "oi_usd": 0.84,
+        "funding_rate": 0.88,
+        "oi_usd": 0.88,
         "long_short_ratio": 0.32,
-        "funding_apr": 0.84,
-        "rsi7": 0.92,
+        "funding_apr": 0.88,
+        "rsi7": 0.88,
         "funding_venue": 0.0,
-        "funding_venues_n": 0.84,
-        "funding_apr_spread": 0.68,
+        "funding_venues_n": 0.88,
+        "funding_apr_spread": 0.74,
         "funding_regime": 0.0,
         "liq_longs_usd": 0.0,
         "liq_shorts_usd": 0.0,
@@ -1347,6 +1371,26 @@
           "liq_shorts_usd": 0.0,
           "liq_imbalance": 0.0,
           "funding_interval_basis": 0.0
+        },
+        {
+          "date": "2026-08-31",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.02,
+          "funding_rate": 0.88,
+          "oi_usd": 0.88,
+          "long_short_ratio": 0.32,
+          "funding_apr": 0.88,
+          "rsi7": 0.88,
+          "funding_venue": 0.0,
+          "funding_venues_n": 0.88,
+          "funding_apr_spread": 0.74,
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         }
       ],
       "feed": {
@@ -1392,8 +1436,8 @@
       {
         "spec_hash": "6f98778fa627",
         "from": "2026-08-19",
-        "to": "2026-08-30",
-        "days": 12,
+        "to": "2026-08-31",
+        "days": 13,
         "recorded_as": [
           "2da60f7efd7b",
           "6f98778fa627"
