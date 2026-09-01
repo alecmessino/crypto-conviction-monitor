@@ -1696,6 +1696,17 @@ def test_the_release_workflow_can_only_ever_commit_rwa_ledger_files():
                 if p.startswith("ledger/")}
     ours = added(wf)
     assert ours and all(p.startswith("ledger/rwa") for p in ours), ours
+    # git add is all-or-nothing over its pathspecs. One optional file per `|| true`
+    # line, in both workflows: three on one line staged nothing while the quarantine
+    # file did not exist, and the first release commit (3394528) carried the board
+    # without its raw observation or its manifest row.
+    for text in (wf, nightly):
+        for line in re.findall(r"^\s*git add (.+?)\s*\|\| true\s*$", text, re.M):
+            paths = [p for p in line.replace("2>/dev/null", "").split() if p.startswith("ledger/")]
+            assert len(paths) == 1, f"optional adds must be one per line: {line!r}"
+    # And the release refuses a commit whose manifest row is missing.
+    assert "grep -q '^ledger/rwa_runs.csv$'" in wf
+    assert wf.index("rwa_runs.csv did not record this run") < wf.index("git commit")
     # Exactly the RWA set the nightly commits: the two paths publish the same files.
     assert ours == {p for p in added(nightly) if p.startswith("ledger/rwa")}
     # And no crypto ledger file is so much as named.

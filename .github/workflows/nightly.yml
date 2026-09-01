@@ -199,8 +199,14 @@ jobs:
           # behind it. rwa_quarantine.csv holds the runs that were refused promotion — a
           # ledger that silently drops its failures cannot be audited for the invariant
           # that produced them.
-          git add ledger/rwa_observed.csv ledger/rwa_runs.csv ledger/rwa_quarantine.csv || true
+          #
+          # One optional file per line: git add is all-or-nothing over its pathspecs, so
+          # naming the three together staged nothing while the quarantine file did not
+          # yet exist, and || true hid it. Found on the first RWA release commit.
           git add ledger/rwa_flow.csv ledger/rwa_issuers.csv ledger/rwa_wrappers.csv ledger/rwa.json
+          git add ledger/rwa_observed.csv || true
+          git add ledger/rwa_runs.csv || true
+          git add ledger/rwa_quarantine.csv || true
           git add ledger/index.legacy.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes to commit"

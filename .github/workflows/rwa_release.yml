@@ -67,10 +67,24 @@ jobs:
           git config user.email "bot@noreply.github.com"
           # The same file set the nightly commits for this model, and no other.
           # rwa_observed.csv is the raw observation, rwa_runs.csv the manifest of every
-          # run, rwa_quarantine.csv the runs refused promotion. || true because the
-          # quarantine does not exist until a run has been refused.
-          git add ledger/rwa_observed.csv ledger/rwa_runs.csv ledger/rwa_quarantine.csv || true
+          # run, rwa_quarantine.csv the runs refused promotion.
+          #
+          # ONE optional file per `git add ... || true`. git add is all-or-nothing over
+          # its pathspecs: with the quarantine file absent, a single line naming all
+          # three staged NOTHING and || true hid it, and the first release commit
+          # (3394528) carried the board without its raw observation or its manifest
+          # row. Measured, not hypothetical.
           git add ledger/rwa_flow.csv ledger/rwa_issuers.csv ledger/rwa_wrappers.csv ledger/rwa.json
+          git add ledger/rwa_observed.csv || true
+          git add ledger/rwa_runs.csv || true
+          git add ledger/rwa_quarantine.csv || true
+          # Every run appends a manifest row, so a commit without rwa_runs.csv is a
+          # commit whose provenance is missing. Refuse it.
+          if ! git diff --cached --name-only | grep -q '^ledger/rwa_runs.csv$'; then
+            echo "refusing to commit: rwa_runs.csv did not record this run"
+            git diff --cached --name-only
+            exit 1
+          fi
           # Refuse to commit anything that is not an RWA ledger file. This is the
           # guarantee that makes the workflow safe to dispatch on any branch: it cannot
           # write a crypto ledger row, even by accident.
