@@ -1248,6 +1248,28 @@ def test_every_wrapper_on_the_board_carries_the_basis_the_table_renders():
         "the artifact's wrapper entries carry no basis, so the column is always a dash")
 
 
+def test_wrapper_batches_fit_a_query_string():
+    """Wrapper ids are slugs, not tickers — a mean of 33 characters and a max of 83 — so
+    250 of them is a 9,200-character URI and the server answers `414 Request-URI Too
+    Large` in HTML rather than JSON. That happened: a batch of 250 wrappers vanished from
+    a run that reported itself as merely "partial", and every underlying they belonged to
+    left the board with nothing saying the cause was a URL length."""
+    fx = json.loads(FIXTURE.read_text())
+    ids = [t["id"] for i in fx["issuers"] for t in i["tokens"]]
+    batches = rwa.chunk_ids(ids)
+    assert sum(len(b) for b in batches) == len(ids), "ids were lost in the split"
+    assert all(b for b in batches), "an empty batch would send ids= with no ids"
+    for b in batches:
+        assert len(",".join(b)) <= rwa.WRAPPER_QUERY_BUDGET
+        assert len(b) <= rwa.WRAPPER_CHUNK_MAX
+    # And the naive count-based split is genuinely over the line, so this is not academic.
+    assert len(",".join(ids[:250])) > 4000
+
+
+def test_a_single_oversized_id_still_gets_its_own_batch():
+    assert rwa.chunk_ids(["x" * 5000, "y"]) == [["x" * 5000], ["y"]]
+
+
 # LAST in the file, deliberately. _standalone() reads the module namespace as it stands
 # when it fires, so an entrypoint placed above a later test block runs without it and
 # reports a pass over a smaller suite than exists. That is not hypothetical — it is what

@@ -5450,7 +5450,7 @@ function renderRwaOffhours(r){
     const w=o.window||{};
     return '<div class="wrapline"><div><span class="wl-sym">'+rwEsc((x.symbol||"").toUpperCase())
       +'</span><span class="wl-iss">'+rwEsc(w.kind||"")+' &#183; '+(w.hours_closed||0).toFixed(0)+'h shut'
-      +' &#183; '+(o.wrappers_agree||0)+'/'+(o.wrappers_live||0)+' wrappers agree'
+      +' &#183; '+(o.wrappers_agree||0)+'/'+(o.wrappers_voting!=null?o.wrappers_voting:(o.wrappers_live||0))+' wrappers agree'
       +(o.dispersion_bps!=null?' &#183; disp '+o.dispersion_bps.toFixed(0)+'bp':"")
       +(o.volume_ratio!=null?' &#183; vol '+o.volume_ratio.toFixed(1)+'&#215;':"")
       +'</span></div><div class="num">'+rwSigned(o.offhours_return_pct)+'</div>'

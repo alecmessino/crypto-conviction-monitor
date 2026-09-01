@@ -332,6 +332,35 @@ BOARD_MIN_LIVE_WRAPPERS = 1
 # measured, and the eight that did not wrap underlyings /rwas/list does not carry.
 JOIN_MIN_RESOLUTION_PCT = 97.0
 
+# Wrapper ids go into a query string, and they are SLUGS rather than tickers: a mean of
+# 33 characters and a maximum of 83, so 250 of them is a 9,200-character URI and the
+# server answers `414 Request-URI Too Large` in HTML rather than JSON. That is what it
+# actually did — a whole batch of 250 wrappers vanished from a run that reported itself
+# as merely "partial", and the underlyings they belonged to dropped off the board with
+# no indication that the cause was a URL length rather than a rate limit.
+#
+# So batches are cut by CHARACTER BUDGET, not by count. 3,000 leaves generous room under
+# the 4KB that is the smallest limit in common use, and per_page is derived from the
+# batch that results rather than assumed.
+WRAPPER_QUERY_BUDGET = 3000
+WRAPPER_CHUNK_MAX = 250          # CoinGecko's own per_page ceiling
+
+
+def chunk_ids(ids: list, budget: int = WRAPPER_QUERY_BUDGET,
+              cap: int = WRAPPER_CHUNK_MAX) -> list:
+    """Split ids into batches that fit a query string. Never an empty batch."""
+    out, cur, used = [], [], 0
+    for i in ids:
+        cost = len(i) + 1
+        if cur and (used + cost > budget or len(cur) >= cap):
+            out.append(cur)
+            cur, used = [], 0
+        cur.append(i)
+        used += cost
+    if cur:
+        out.append(cur)
+    return out
+
 # ---------------------------------------------------------------------------
 # labels
 # ---------------------------------------------------------------------------
@@ -697,7 +726,8 @@ def fetch_issuers(session: dict, getter=None, sleep=None) -> dict:
 
 
 def fetch_wrapper_coins(session: dict, coin_ids: list, getter=None, sleep=None,
-                        chunk: int = 250) -> dict:
+                        chunk: int = WRAPPER_CHUNK_MAX,
+                        budget: int = WRAPPER_QUERY_BUDGET) -> dict:
     """``/coins/markets?ids=`` over the wrapper tokens.
 
     This is the call that removes the paid dependency. Every wrapper id returned by
@@ -715,7 +745,7 @@ def fetch_wrapper_coins(session: dict, coin_ids: list, getter=None, sleep=None,
         return cg._report("empty", "no wrapper ids to price", {}, None)
     delay = fetch_delay(session)
     out, failures = {}, []
-    batches = [ids[n:n + chunk] for n in range(0, len(ids), chunk)]
+    batches = chunk_ids(ids, budget, chunk)
 
     def _run(batch, first):
         if not first:
