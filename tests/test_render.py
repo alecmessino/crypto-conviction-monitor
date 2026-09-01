@@ -202,6 +202,15 @@ def run_checks() -> tuple:
             f"chart data tables are missing or empty: {charts}"))
 
         # --- the sizer refuses a stop it cannot derive, and computes one it can --
+        # The sizer, the funding parser and the holdings overlay live in the PORTFOLIO
+        # workspace. Select it, because these checks read innerText and innerText is not
+        # visibility-independent: on a rendered element it omits display:none subtrees,
+        # and on an unrendered one it degrades to textContent and returns them. Reading a
+        # hidden panel therefore passes back the collapsed prose as if it were on screen,
+        # which is how "nothing calls the ATR threshold an invalidation level" fails
+        # against a panel whose visible text says no such thing. Verified, not assumed.
+        page.evaluate("() => switchWorkspace('portfolio', false)")
+        page.wait_for_timeout(150)
         no_atr = page.evaluate("""() => { renderSizing();
             return document.querySelector('#sz-out').innerText; }""")
         check("a missing ATR14 is refused, not approximated", lambda: _assert(
@@ -329,6 +338,12 @@ def run_checks() -> tuple:
                   "spot only" not in sizer_unmapped.lower()
                   and "no listed contract" not in sizer_unmapped.lower(),
                   "the sizer claims Coinbase lists no contract for an unmapped symbol"))
+
+        # Back to the board. Everything below this line is about the crypto workspace,
+        # and leaving another one selected would make the next failure a navigation
+        # artifact rather than a finding.
+        page.evaluate("() => switchWorkspace('crypto', false)")
+        page.wait_for_timeout(150)
 
         # --- zero orphaned explanations -----------------------------------------
         # Counting upgraded [data-tip] nodes proves nothing about reach. Tips inside
@@ -471,7 +486,26 @@ def run_checks() -> tuple:
 
         # A DYNAMIC row-cell caveat, not a static column header: the header is in the
         # source and would pass even if nothing the board renders were reachable.
-        dyn = mob.query_selector("#sz-out [data-tip]") or mob.query_selector("tbody [data-tip]")
+        # #sz-out lives in the PORTFOLIO workspace, which is not the one that opens. A
+        # query_selector still finds a hidden element, and tap() then waits thirty seconds
+        # for a visibility that is never coming — so the workspace is selected first, the
+        # way a reader selects it. That is not a concession: the point of the check is
+        # that a tap reaches the explanation, and a panel nobody has navigated to was
+        # never on screen to be tapped in the first place.
+        #
+        # The handle is re-taken AFTER the switch. switchWorkspace re-renders the panel
+        # it reveals, so a handle taken before it is detached from the DOM, and the tap
+        # fails with a message about attachment rather than about anything real.
+        _pick = lambda: (mob.query_selector("#sz-out [data-tip]")
+                         or mob.query_selector("tbody [data-tip]"))
+        dyn = _pick()
+        if dyn:
+            ws = mob.evaluate("(el) => { const w = el.closest('[data-ws]');"
+                              " return w ? w.dataset.ws : null; }", dyn)
+            if ws:
+                mob.evaluate("(w) => switchWorkspace(w, false)", ws)
+                mob.wait_for_timeout(250)
+                dyn = _pick()
         check("there is a rendered, non-static explanation to reach",
               lambda: _assert(dyn is not None, "no dynamically rendered explanation found"))
         if dyn:
@@ -499,7 +533,11 @@ def run_checks() -> tuple:
                     shown["hidden"] is False and shown["len"] > 20,
                     "tapping a dynamically rendered explanation on a phone showed nothing"))
 
-        # And a static header too, since that is the densest surface on the board.
+        # And a static header too, since that is the densest surface on the board. Back
+        # to the crypto workspace first — the board's headers are there, and the block
+        # above may have navigated away from it.
+        mob.evaluate("() => switchWorkspace('crypto', false)")
+        mob.wait_for_timeout(250)
         target = mob.query_selector("th[data-tip]")
         if target:
             target.tap()

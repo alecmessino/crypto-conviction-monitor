@@ -267,7 +267,97 @@ book exposure = Σ over lines with a recorded ATR14</div>
     <p>The ledger has held a full board per night since 2026-08-01 and nothing could look at one. The scrubber replays the recorded conviction matrix across every night on disk. Two things it deliberately does <i>not</i> do: it does not rewind the live-price panels, which are built from a fetch that has no history, and a rewound row reads the funding and regime <b>its own night recorded</b> rather than joining tonight's artifacts onto a three-week-old board. Columns that did not exist on the night being shown render as a dash — including the range Z, which the ledger does not record and which would otherwise show 0.00 and read as "exactly mid-range". The whole page is bordered while rewound, because a nineteen-day-old board read as this morning's is the worst failure the control can cause.</p>
   </div>
 
-  <h2>7 · Honest Caveats</h2>
+  <h2>7 · Tokenized RWA — a separate model</h2>
+  <div class="glass">
+    <p><b>Nothing in this section touches the conviction score above it, and nothing above it touches this.</b> They share a terminal and a ledger directory; they do not share a number, a threshold, a label or a specification hash. That separation is the product decision, not an implementation detail, and it is enforced rather than asserted: <code>ledger/rwa_flow.csv</code> is validated for the presence of a crypto tier in its label column, and the test suite fails if the two vocabularies ever intersect.</p>
+    <p>The reason is that the crypto model measures things a tokenized share does not have. Turnover against an inflatable float, emission drag against network adoption, perpetual funding as a positioning read — none of them means anything for a token whose entire job is to be worth exactly one share of Nvidia. The crypto model already refuses pegged metals for this reason; XAUT and PAXG are excluded from its scored universe. Extending it to 643 tokenized equities would be extending a refusal.</p>
+  </div>
+
+  <h3>7.1 · The residual is not a factor. It is net issuance.</h3>
+  <div class="glass">
+    <p>CoinGecko publishes a tokenized price and a tokenized market cap per underlying, and no supply series at all. But market cap is price times units outstanding, so:</p>
+    <p style="text-align:center;font-size:14px;margin:16px 0">
+      <code>MC<sub>t</sub> &divide; ( MC<sub>t-1</sub> &times; P<sub>t</sub> / P<sub>t-1</sub> ) = ( U<sub>t</sub>&middot;P<sub>t</sub> ) &divide; ( U<sub>t-1</sub>&middot;P<sub>t-1</sub>&middot;P<sub>t</sub>/P<sub>t-1</sub> ) = U<sub>t</sub> / U<sub>t-1</sub></code></p>
+    <p>The price term cancels completely. What is left is the change in <b>units</b> — mint minus redemption — recovered from two published series neither of which is a supply series. So the residual is not a proxy for tokenization demand and it is not another momentum factor: it <i>is</i> the net minting rate, and it is exact rather than approximate. Every reading falls out of the arithmetic:</p>
+    <table>
+      <thead><tr><th>Observed</th><th>Units</th><th>Reading</th></tr></thead>
+      <tbody>
+        <tr><td>P +5% / MC +5%</td><td>unchanged</td><td><span class="tag b">NEUTRAL</span> repricing, nobody minted or redeemed</td></tr>
+        <tr><td>P +5% / MC +18%</td><td>+12.38%</td><td><span class="tag a">MINTING</span> new units were created into the move</td></tr>
+        <tr><td>P flat / MC +12%</td><td>+12.00%</td><td><span class="tag a">STRONG_ADOPTION</span> supply grew and price did not explain it</td></tr>
+        <tr><td>P +8% / MC &minus;3%</td><td>&minus;10.19%</td><td><span class="tag c">REDEMPTION</span> units left while price rose</td></tr>
+      </tbody>
+    </table>
+    <p><b>Two consequences, both load-bearing.</b> Because it is a supply series it is cumulative and path-dependent, so a missing night breaks the chain: every row records <code>span_days</code>, the supply index compounds the raw residual across whatever gap actually occurred, and the <i>label</i> reads the geometric per-day rate so a pipeline outage cannot manufacture a signal. And because <code>/rwas/{id}/market_chart</code> answers HTTP 401 below CoinGecko's Basic plan, this series has no history anywhere except <code>ledger/rwa_flow.csv</code>. A night that was not recorded is gone — not later, not with a key bought afterwards, not at any price. It is the only artifact in that directory that cannot be rebuilt from a fresh fetch.</p>
+  </div>
+
+  <h3>7.2 · The wrapper graph, and why the join is in the specification hash</h3>
+  <div class="glass">
+    <p>One underlying has many wrappers, from many issuers, on many chains. <code>/rwas/{id}</code> does not return that graph below the Basic plan, so it is rebuilt from the issuer side — <code>/rwas/issuers/{id}</code> carries <code>tokens[]</code> with platforms — and each token is then resolved back to its underlying from <b>two independent sides</b>: its ticker and its id. Where both fire they must agree; where they disagree the edge is kept, marked <code>conflict</code>, and excluded from anything that prices a basis. Flag, never pick.</p>
+    <p>The two-sided design is a correction, and the way the first version was wrong is the point. Measured against two issuers — 262 tokens, deliberately opposite naming conventions — ticker rules alone resolved 260 and every id-based rule failed on a third of the set. Against the live graph of <b>1,073 tokens from 34 issuers</b>, ticker rules alone resolve 460. Ondo is 438 tokens on its own suffix; Anchored is 80 on its own prefix. Nothing raised when the sampled rules met the full graph: the join returned nothing for 613 wrappers, the graph built without them, and every dispersion and integrity score computed afterwards was over whichever issuers happened to match. The combined rules resolve 1,065 of 1,073; the eight that do not wrap underlyings CoinGecko does not carry at all.</p>
+    <p>That is why the join functions are captured in <code>rwa.spec_hash()</code> alongside the scoring functions, which has no equivalent on the crypto side. The join is not a scoring function, but it decides <i>which prices are compared to which</i>. A changed rule silently re-points a wrapper at a different company, and every number downstream then answers a different question while looking entirely normal.</p>
+  </div>
+
+  <h3>7.3 · The trap in the published aggregate</h3>
+  <div class="glass">
+    <p><code>tokenized_market_data.current_price</code> is <b>not a TradFi quote</b>. It is a blend of the tokenized wrappers themselves. For 18 underlyings it equalled a wrapper price to the cent, and where only one wrapper is known it collapses onto that wrapper and reports a 0.00% basis by construction. IBM is the clearest case: the aggregate read 282.91 while both live wrappers sat at 233.43 and 238.57, dragged up by stale members of the blend.</p>
+    <p>So <b>token-versus-equity dislocation cannot be computed from CoinGecko at all</b>, and this system does not pretend to. What it computes instead is wrapper-versus-wrapper: two tokens each redeemable for the same share, priced against the median of the <i>live</i> wrappers on that underlying. That is a real basis between two things a person can hold, and it is the half of the question that does not need a second vendor.</p>
+    <p>It is also <b>not executable</b>, and every row says so. Executable means after spread, depth and cost-to-move, and all three come from <code>/rwas/{id}/tickers</code> — HTTP 401 on this plan. Execution therefore carries <b>zero weight</b> in the model and is declared rather than quietly omitted: a model whose absent inputs are invisible is a model nobody can audit. The ledger validator fails the build if any tape row is ever marked executable.</p>
+  </div>
+
+  <h3>7.4 · Wrappers do not all denominate the same quantity</h3>
+  <div class="glass">
+    <p>This one was found by running the engine and reading what it produced. The first live run reported PAX Gold at <b>+300,311 basis points</b> against gold, at a confidence of 100 — the largest signal on the board, against a market that was working perfectly. Nothing threw. The row looked like every other row.</p>
+    <p>PAXG is one troy ounce and Kinesis Gold is one gram. Their ratio is 31.1035 because that is how many grams are in a troy ounce. CoinGecko publishes <b>no unit metadata anywhere in the RWA endpoints</b>, and the same problem exists in equities: Netflix has a one-share wrapper at $810.92 and tenth-share wrappers at $80.73, and the published "aggregate" of $68.72 describes neither.</p>
+    <table>
+      <thead><tr><th>Token</th><th>Price</th><th>Denominates</th></tr></thead>
+      <tbody>
+        <tr><td>PAXG</td><td>$4,435.90</td><td>one troy ounce</td></tr>
+        <tr><td>XAUM</td><td>$4,430.30</td><td>one troy ounce</td></tr>
+        <tr><td>KAU</td><td>$142.95</td><td>one gram</td></tr>
+        <tr><td>XGZ</td><td>$142.70</td><td>one gram</td></tr>
+        <tr><td>GGBR</td><td>$4.43</td><td>one thousandth of an ounce</td></tr>
+      </tbody>
+    </table>
+    <p>There is no honest way to recover the denominations from price alone, so the engine does not try. Wrappers are compared only against others within a tolerance band of the <b>deepest</b> live wrapper — volume being the only available evidence about which unit the market actually trades, and gold's naive median of $142.95 describing a gram while 99.6% of its dollar volume sat in ounces. Everything outside that band is <i>reported</i> rather than dropped, because a market quoted in both ounces and grams is a real fact about that market.</p>
+    <p>And a gap outside the band is not automatically a unit either — that was the first version of the guard and it was too generous, because a wrapper genuinely 40% off its peg would have been filed as "a different denomination" and vanished from the tape. So a ratio is called a denomination only when a documented convention accounts for it: 31.1035 grams to the ounce, or a decimal split. Anything else is published as an <b>unexplained divergence</b> and says so, which is the truthful answer — from price alone, a 0.7&times; ratio could be a 0.7-unit token or a token 30% off its peg, and nothing CoinGecko publishes separates them.</p>
+  </div>
+
+  <h3>7.5 · RWA Conviction, coverage, and a vocabulary that cannot be confused</h3>
+  <div class="glass">
+    <table>
+      <thead><tr><th>Component</th><th>Weight</th><th>What it measures</th></tr></thead>
+      <tbody>
+        <tr><td>Liquidity</td><td>30</td><td>Tokenized 24h volume on a log scale, and turnover against the float. Rewards the middle: a share turning over its entire float daily is a small float being passed around, not depth.</td></tr>
+        <tr><td>Distribution</td><td>25</td><td>Live wrappers, issuers and chains, discounted by a Herfindahl over wrapper volume. Five wrappers from one issuer on one chain is one point of failure wearing five hats.</td></tr>
+        <tr><td>Impulse</td><td>25</td><td>Cumulative net issuance over the recorded series — adoption, never price momentum.</td></tr>
+        <tr><td>Integrity</td><td>20</td><td>Cross-wrapper price dispersion around the live median, the share of wrappers still publishing, and a penalty per contradicted join.</td></tr>
+        <tr><td>Execution</td><td>0</td><td>Declared and unavailable. Needs per-venue spread and depth.</td></tr>
+      </tbody>
+    </table>
+    <p>The score is a weighted mean over the components that <b>actually produced a value</b>, rescaled to 0–100, and stamped with the share of model weight that was priced. That is what makes the board honest before its history exists: on the first night the impulse component cannot be computed for any row, coverage reads 75% everywhere, and the ranking stays internally comparable. Scoring an absent component as zero would publish a board on which every asset looked equally unadopted — a claim nobody measured. Below 60% coverage the model emits <span class="tag c">UNRATED</span>, which is a refusal to grade and not a grade of zero.</p>
+    <p>The labels are deliberately a different vocabulary. <b>STRONG / BUY / HOLD / WATCH / AVOID</b> is an action ladder: it tells you what to do with a position. This model answers a different question — how healthy, liquid, distributed and coherently priced a tokenized market is — and an answer to that is a description of market structure, not an instruction. Two vocabularies sharing even one word would invite the reading that they share a scale.</p>
+    <table>
+      <thead><tr><th>Label</th><th>Score</th><th>Reading</th></tr></thead>
+      <tbody>
+        <tr><td><span class="tag a">DEEP</span></td><td>&ge; 80</td><td>Many live wrappers, a tight cross-section, real volume</td></tr>
+        <tr><td><span class="tag a">SOUND</span></td><td>&ge; 65</td><td>A working market with room to broaden</td></tr>
+        <tr><td><span class="tag b">THIN</span></td><td>&ge; 50</td><td>Tradeable, concentrated</td></tr>
+        <tr><td><span class="tag c">FRAGILE</span></td><td>&ge; 35</td><td>One venue deep, or a cross-section disagreeing with itself</td></tr>
+        <tr><td><span class="tag c">DORMANT</span></td><td>&lt; 35</td><td>Tokenized in name only</td></tr>
+        <tr><td><span class="tag c">UNRATED</span></td><td>—</td><td>Coverage below the floor. Not a grade.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>7.6 · The off-hours tape, and the gap that is withheld</h3>
+  <div class="glass">
+    <p>The tokenized tape runs 24/7 and the underlying's cash market does not, so between Friday's close and Monday's open the only price discovery that happened anywhere is what this records: the off-hours return, how long the window has been open, how many wrappers agree on its direction, how far apart they are, and how tokenized volume compares to its own accumulated baseline. The session calendar is hand-maintained NYSE, stdlib only, and it <b>declares its own expiry</b> — past the last covered year every reading is withheld rather than measured against an assumed session. The refusal is the maintenance trigger.</p>
+    <p>What is <b>not</b> published is an implied cash-open gap or a confidence in one. Converting a tokenized drift into an expected gap needs the underlying's own equity prints as the other half of the pair, and CoinGecko does not carry them — its "underlying" price is the blend described in 7.3. Publishing a gap from one side of that relationship would be inventing the side that was never measured. The inputs are recorded nightly so the study runs the day an equity feed is connected, rather than starting from zero then.</p>
+    <p>One further honesty: <code>sparkline_in_7d</code> arrives as a bare array with no timestamps, so each point's hour is <b>inferred</b> backwards from <code>last_updated</code>. Every reading built on it says so, and the array length is checked against the band a 7-day hourly series falls in — 168 and 169 points were both observed live on the same day, so an equality check would fire on a feed that is behaving while a cadence change would slip through.</p>
+  </div>
+
+  <h2>8 · Honest Caveats</h2>
   <div class="glass">
     <ul>
       <li><b>Live vs snapshot.</b> The terminal's top-10 leaders are computed live; the Index comes from the 06:17 UTC nightly snapshot. Minor intraday ordering differences are expected. The Index is the authoritative record.</li>
@@ -285,6 +375,13 @@ book exposure = Σ over lines with a recorded ATR14</div>
       <li><b>The correlation window is short.</b> Effective breadth is computed over at most 30 recorded nights and currently far fewer, so it is a reading about the recent regime rather than a structural property of the book. Correlations rise in drawdowns, which is exactly when the number matters most and exactly when a short trailing window will have understated it.</li>
       <li><b>Trending divergence is a disagreement, not a direction.</b> Both labels describe two rankings failing to agree. Nothing in the recorded history yet says which side is right more often — that is a question the accumulating ledger can eventually answer and this page will not pre-empt.</li>
       <li><b>Paper only.</b> A research signal system, not investment advice.</li>
+      <li><b>RWA is a separate model and shares no number with the one above.</b> Its thresholds move <code>rwa.spec_hash()</code> and never <code>SPEC_HASH</code>, and the reverse. A single shared digest would make every edit to either model invalidate the recorded history of both, which is the opposite of what a specification hash is for.</li>
+      <li><b>The RWA board starts with no history, and cannot be given one.</b> <code>/rwas/{id}/market_chart</code> is Basic-plan-and-above, so the net-issuance series exists only from the first night this pipeline recorded. Every flow column reads "accumulating" until it does not, and no night is back-filled to close the gap.</li>
+      <li><b>A cross-wrapper basis is only meaningful within one denomination.</b> Wrappers of the same underlying do not all represent the same quantity of it — ounces and grams for the metals, whole and fractional shares for equities — and CoinGecko publishes no unit metadata. Only the deepest denomination is compared; the others are reported with their ratio, and a ratio no documented convention explains is published as an unexplained divergence rather than being filed as either a unit or a mispricing.</li>
+      <li><b>Wrapper-versus-wrapper is not token-versus-equity.</b> The dislocation tape measures two tokens redeemable for the same share against each other. It says nothing about whether either is priced correctly relative to the actual security, and it cannot: the only "underlying" price available is a blend of those same tokens.</li>
+      <li><b>Nothing on the RWA tape is executable, and the number of venues is unknown.</b> Bid/ask, cost-to-move and per-venue depth are all behind an endpoint this plan cannot call, so the Venues tab shows the <i>chain</i> distribution and says plainly that a chain is not a venue. Execution carries zero weight in RWA Conviction rather than an assumed one.</li>
+      <li><b>The wrapper join is an inference over naming conventions.</b> It resolves 1,065 of 1,073 live tokens from two independent sides that must agree, and the two edges where they disagree are flagged rather than picked. It is still pattern-matching on tickers and slugs: a new issuer with a new convention will be under-resolved until a rule is added, and the nightly smoke test fails below 97% precisely because that failure raises nothing on its own.</li>
+      <li><b>The New-Issuance Radar is deferred, not missing.</b> Nightly diffs of the underlying, wrapper, issuer and chain sets are out of scope for this build. The ledgers it will read are already accumulating, so it starts with history rather than from zero.</li>
       <li><b>v2 multiplicative is now live.</b> conviction = 100·Q·C·R replaces the additive model so a saturated clamp can no longer erase discrimination between thin pumps and blue-chip RS leaders. Log-return / per-timeframe volatility normalization for RS is the remaining deferral.</li>
     </ul>
   </div>

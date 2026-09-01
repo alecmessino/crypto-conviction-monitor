@@ -64,6 +64,22 @@ jobs:
         # cannot leave this green. A missing node is a FAILURE here rather than a skip.
         run: python tests/test_labels.py
 
+      - name: Workspace layout gate, standalone
+        # The four-screen nav wraps the entire existing terminal. The break it guards
+        # against — a wrapper that is not display:contents — collapses the three-column
+        # grid and de-activates every grid-column rule in the file, and it passes every
+        # other source-reading gate here because those read the CSS text rather than the
+        # render.
+        run: python tests/test_workspaces.py
+
+      - name: RWA model gate, standalone
+        # Runs here as well as under pytest above, for the same reason the parity gate
+        # does: this path has its own entrypoint and a green pytest run does not prove
+        # the standalone one still works. The property it holds that nothing else can —
+        # the residual IS the change in units outstanding, exactly — is the one the whole
+        # module rests on, and its failure mode is numbers rather than exceptions.
+        run: python tests/test_rwa.py
+
       - name: Parity gate, standalone
         # Also run the way the nightly runs it, because that path has its own
         # entrypoint and its own failure semantics, and a green pytest run does not

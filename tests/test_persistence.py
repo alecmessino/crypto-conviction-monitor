@@ -298,8 +298,13 @@ def test_changing_a_captured_scoring_function_changes_the_hash(tmp_path):
     import importlib.util
     import shutil
 
-    for f in ("nightly.py", "funding.py", "cryptometer.py", "coingecko.py", "quant.py"):
-        shutil.copy(ROOT / f, tmp_path / f)
+    # A glob rather than a list. The list version broke the day rwa.py was added, and
+    # it broke as a FileNotFoundError inside pathlib rather than as anything naming the
+    # cause — nightly.py loads its siblings by path, so a copy of the tree that is
+    # missing one is a copy that cannot be imported. Copying every module means the next
+    # sibling cannot break this test either.
+    for f in sorted(ROOT.glob("*.py")):
+        shutil.copy(f, tmp_path / f.name)
     target = tmp_path / "nightly.py"
     src = target.read_text(encoding="utf-8")
     needle = 'sig = "STRONG" if total >= 80'
@@ -311,6 +316,22 @@ def test_changing_a_captured_scoring_function_changes_the_hash(tmp_path):
     sp.loader.exec_module(mutated)
     assert mutated.SPEC_HASH != nightly.SPEC_HASH, (
         "moving the STRONG cut inside score() did not move the specification hash")
+
+    # And the other half of the same property: the RWA model has its own thresholds and
+    # its own track record, so moving a CRYPTO threshold must leave its digest exactly
+    # where it was. A shared hash would make every edit to either model invalidate the
+    # history of both, which is the opposite of what a specification hash is for.
+    def _load_rwa(modname, path):
+        sp_ = importlib.util.spec_from_file_location(modname, path)
+        mod = importlib.util.module_from_spec(sp_)
+        sp_.loader.exec_module(mod)
+        return mod
+
+    rwa_here = _load_rwa("rwa_baseline", ROOT / "rwa.py")
+    rwa_there = _load_rwa("rwa_after_crypto_edit", tmp_path / "rwa.py")
+    assert rwa_there.spec_hash() == rwa_here.spec_hash(), (
+        "editing score()'s STRONG cut moved the RWA specification hash — the two models "
+        "must segment independently")
 
 
 def test_the_equivalence_table_covers_only_the_verified_correction():
