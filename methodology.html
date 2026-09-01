@@ -416,6 +416,7 @@ book exposure = Σ over lines with a recorded ATR14</div>
         <tr><td>Idempotent re-runs</td><td>Trailing reads exclude today, so a second run compares against yesterday rather than against itself. Equal completeness replaces; worse is refused.</td></tr>
         <tr><td>Quarantine, not discard</td><td>A refused run is retained in <code>rwa_quarantine.csv</code> and its board in <code>rwa.degraded.json</code>. A ledger that silently drops its failures cannot be audited for the invariant that produced them.</td></tr>
         <tr><td>Degraded rows marked</td><td>Every row from an incomplete peer set carries <code>degraded</code> and <code>peer_set_complete</code>, on the row and on the board.</td></tr>
+        <tr><td>Independent release path</td><td>The nightly commits the RWA files beside the crypto ledger, behind the crypto gates, and the canonical ATR gate refuses a same-day re-run of the crypto pipeline: a keyed RWA snapshot fetched later that day came back COMPLETE and was lost with the runner. <code>rwa.py --snapshot</code>, run by the dispatch-only <i>RWA Release Snapshot</i> workflow, publishes the same files under the same promotion invariant and refuses to commit anything outside <code>ledger/rwa*</code>.</td></tr>
       </tbody>
     </table>
   </div>

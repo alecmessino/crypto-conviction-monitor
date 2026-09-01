@@ -2874,5 +2874,69 @@ def _smoke() -> int:
     return rc
 
 
+def summarize(art: dict) -> list:
+    """The run, in the lines the nightly prints for it. One place, two callers."""
+    lines = []
+    g = art.get("graph") or {}
+    bg = art.get("board_gate") or {}
+    if art.get("status") == "unavailable":
+        lines.append(f"[rwa] unavailable — {art.get('detail')}")
+    else:
+        lines.append(f"[rwa] {art['status']} · {bg.get('ranked', 0)} ranked / "
+                     f"{bg.get('graded', 0)} graded of {g.get('underlyings_ranked', 0)} "
+                     f"underlying(s) · {g.get('wrappers_priced', 0)}/{g.get('wrappers_n', 0)} "
+                     f"wrapper(s) priced · {g.get('unresolved_n', 0)} unresolved "
+                     f"· spec {art.get('spec_hash')}")
+    for name, rep in (art.get("feeds") or {}).items():
+        if rep["status"] not in ("live", "unavailable"):
+            lines.append(f"[rwa] {name}: {rep['status']} — {rep['detail']}")
+    run = art.get("run") or {}
+    if run:
+        lines.append(f"[rwa] run {run.get('status')} · coverage {run.get('coverage_pct')}% · "
+                     f"promoted={run.get('promoted')} · {run.get('note')}")
+        lines.append(f"[rwa] issuers {run.get('issuers_received')}/{run.get('issuers_listed')} "
+                     f"· wrappers {run.get('wrappers_priced')}/{run.get('wrappers_in_graph')} "
+                     f"· universe {run.get('observed_n')}/{run.get('listed_n')}")
+    if art.get("quarantined"):
+        q = art["quarantined"]
+        lines.append(f"[rwa] QUARANTINED — {q.get('reason')}")
+        lines.append(f"[rwa] tonight's canonical rows are unchanged; the attempt is kept in "
+                     f"{q.get('retained_in')}")
+    if art.get("written"):
+        lines.append("[rwa] ledger: " + ", ".join(f"{k} {v} row(s)"
+                                                  for k, v in sorted(art["written"].items())))
+    top = [r for r in (art.get("board") or []) if r.get("conviction") is not None][:5]
+    if top:
+        lines.append("[rwa] " + " | ".join(
+            f"{(r['symbol'] or '').upper()} {r['conviction']:.0f} {r['label']}" for r in top))
+    return lines
+
+
+def _release(snap=None) -> int:
+    """One RWA snapshot on its own, for the dispatchable release workflow.
+
+    The same call the nightly makes, writing the same files under the same promotion
+    invariant, and nothing else. It exists because the nightly's commit step sits behind
+    the crypto gates, and the canonical ATR eligibility gate refuses a same-day re-run of
+    the crypto pipeline — measured on 2026-09-01: the scheduled run committed at 11:43
+    UTC, a 19:21 UTC dispatch failed that gate (22 bars recorded against 21 rebuilt), and
+    the RWA snapshot that had come back COMPLETE in the same job was lost with the
+    runner. An independent model with an independent ledger needs an independent way to
+    publish it, and one that can never touch a crypto file.
+
+    Non-zero only when nothing was written: the universe was unavailable, or the run
+    FAILED. A DEGRADED run that was quarantined exits 0 — the quarantine row and the
+    manifest row ARE the evidence, and they are what the workflow commits.
+    """
+    art = (snap or snapshot)()
+    for line in summarize(art):
+        print(line)
+    if art.get("status") == "unavailable":
+        return 1
+    if (art.get("run") or {}).get("status") == RUN_FAILED:
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    sys.exit(_smoke())
+    sys.exit(_release() if "--snapshot" in sys.argv[1:] else _smoke())

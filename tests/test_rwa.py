@@ -1563,6 +1563,101 @@ def test_the_artifact_publishes_the_definition_and_both_denominators(tmp_path):
     assert row["evidence_weight_declared"] == sum(rwa.DECLARED_WEIGHTS.values())
 
 
+# ---------------------------------------------------------------------------
+# the independent release path
+# ---------------------------------------------------------------------------
+
+
+def _release_artifact(**over):
+    art = {"status": "live", "spec_hash": "abc", "feeds": {"list": {"status": "live"}},
+           "graph": {"underlyings_ranked": 647, "wrappers_priced": 1071, "wrappers_n": 1071,
+                     "unresolved_n": 8},
+           "board_gate": {"ranked": 294, "graded": 294},
+           "run": {"status": rwa.RUN_COMPLETE, "coverage_pct": 100.0, "promoted": True,
+                   "note": "every feed live, every wrapper priced, universe whole",
+                   "issuers_received": 34, "issuers_listed": 34, "wrappers_priced": 1071,
+                   "wrappers_in_graph": 1071, "observed_n": 647, "listed_n": 648},
+           "written": {"rwa_flow.csv": 647}, "quarantined": {},
+           "board": [{"symbol": "googl", "conviction": 95.0, "label": "DEEP"}]}
+    art.update(over)
+    return art
+
+
+def _run_release(art):
+    import contextlib
+    import io
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = rwa._release(snap=lambda: art)
+    return rc, buf.getvalue()
+
+
+def test_the_release_entrypoint_reports_exact_coverage_and_exits_zero_on_a_complete_run():
+    rc, out = _run_release(_release_artifact())
+    assert rc == 0
+    assert f"run {rwa.RUN_COMPLETE} · coverage 100.0% · promoted=True" in out
+    # Exact denominators, every one. A release record that says "complete" without the
+    # numbers is a badge, and this repository has had to remove one of those before.
+    assert "issuers 34/34 · wrappers 1071/1071 · universe 647/648" in out
+    assert "GOOGL 95 DEEP" in out
+
+
+def test_the_release_entrypoint_keeps_a_quarantined_run_and_still_exits_zero():
+    art = _release_artifact(run={**_release_artifact()["run"], "status": rwa.RUN_DEGRADED,
+                                 "coverage_pct": 82.9, "promoted": False},
+                            quarantined={"reason": "thinner than today's canonical rows",
+                                         "retained_in": "rwa_quarantine.csv"},
+                            written={"rwa_runs.csv": 1})
+    rc, out = _run_release(art)
+    # The quarantine row and the manifest row are the evidence, and they must be
+    # committed, so this is not a failure of the workflow.
+    assert rc == 0
+    assert "QUARANTINED" in out and "rwa_quarantine.csv" in out
+
+
+def test_the_release_entrypoint_exits_nonzero_only_when_nothing_was_written():
+    assert _run_release({"status": "unavailable", "detail": "list 503"})[0] == 1
+    failed = _release_artifact(run={**_release_artifact()["run"], "status": rwa.RUN_FAILED,
+                                    "promoted": False}, written={"rwa_runs.csv": 1})
+    assert _run_release(failed)[0] == 1
+
+
+def test_the_release_flag_is_wired_and_the_smoke_is_still_the_default():
+    src = (ROOT / "rwa.py").read_text(encoding="utf-8")
+    tail = src[src.rfind('if __name__ == "__main__":'):]
+    assert "--snapshot" in tail and "_release()" in tail and "_smoke()" in tail
+
+
+def test_the_release_workflow_can_only_ever_commit_rwa_ledger_files():
+    import re
+    wf = (ROOT / ".github" / "workflows" / "rwa_release.yml").read_text(encoding="utf-8")
+    nightly = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+    # Dispatch only. The schedule belongs to the nightly; two schedules would race on
+    # the same files.
+    assert "workflow_dispatch" in wf and "schedule:" not in wf
+    assert "python rwa.py --snapshot" in wf
+    # The gates run BEFORE the push, in the file and not just in spirit.
+    assert wf.index("python tests/test_rwa.py") < wf.index("git push")
+    assert wf.index("scripts/validate_ledger.py") < wf.index("git push")
+
+    def added(text):
+        return {p for line in re.findall(r"^\s*git add (.+)$", text, re.M)
+                for p in line.replace("|| true", "").replace("2>/dev/null", "").split()
+                if p.startswith("ledger/")}
+    ours = added(wf)
+    assert ours and all(p.startswith("ledger/rwa") for p in ours), ours
+    # Exactly the RWA set the nightly commits: the two paths publish the same files.
+    assert ours == {p for p in added(nightly) if p.startswith("ledger/rwa")}
+    # And no crypto ledger file is so much as named.
+    for crypto in ("signals.csv", "signals.json", "index.csv", "index.json", "basket.json",
+                   "funding.json", "market_intel.json", "market_breadth.json",
+                   "monitor.json", "parity.json"):
+        assert crypto not in wf, crypto
+    # The stage guard is present and refuses before the commit.
+    guard = "grep -v '^ledger/rwa'"
+    assert guard in wf and wf.index(guard) < wf.index("git commit")
+
+
 # LAST in the file, deliberately. _standalone() reads the module namespace as it stands
 # when it fires, so an entrypoint placed above a later test block runs without it and
 # reports a pass over a smaller suite than exists. That is not hypothetical — it is what
