@@ -2,10 +2,10 @@
 
 The properties this file exists to hold:
 
-  * The residual IS the net minting rate, exactly. Not approximately, not up to a
-    scaling factor. If that identity ever stops holding, every number this module
-    publishes stops meaning what it says it means, so it is tested against supply
-    directly rather than against a stored expectation.
+  * The residual IS the change in IMPLIED units, exactly. Not approximately, not up to
+    a scaling factor. The arithmetic is what is tested here, against supply directly
+    rather than against a stored expectation — and nothing in this file asserts that the
+    implied change is a real mint, because no available feed could corroborate that.
   * The join is by symbol and the candidate ORDER is load-bearing. 32 underlyings have
     tickers ending in 'x', so a strip-first implementation mis-joins Dinari's BITX to
     'bit' silently and permanently. The ordering is pinned here because nothing else
@@ -50,10 +50,11 @@ def _stamp(hours_ago, now=NOW):
 # ---------------------------------------------------------------------------
 # 1 — the identity
 # ---------------------------------------------------------------------------
-def test_the_residual_is_exactly_the_change_in_units_outstanding():
-    """The whole module rests on this cancellation. Test it against supply, not against
-    a remembered number: market cap is price times units, so dividing out the
-    price-implied cap must leave the unit ratio and nothing else."""
+def test_the_residual_is_exactly_the_change_in_implied_units():
+    """The whole module rests on this cancellation. Test it against supply, not against a
+    remembered number: market cap is price times units, so dividing out the price-implied
+    cap must leave the unit ratio and nothing else. What the test does NOT assert — and
+    what the module must never claim — is that the implied change is an observed mint."""
     for p0, u0, p1, u1 in [(100.0, 1_000.0, 137.5, 1_000.0),
                            (100.0, 1_000.0, 137.5, 1_240.0),
                            (250.0, 8_000.0, 61.25, 7_100.0),
@@ -61,7 +62,7 @@ def test_the_residual_is_exactly_the_change_in_units_outstanding():
         r = rwa.flow_residual(p0, p0 * u0, p1, p1 * u1)
         expected_pct = (u1 / u0 - 1.0) * 100.0
         assert r["residual_pct"] == pytest.approx(expected_pct, rel=1e-9, abs=1e-9), (
-            f"residual must equal the unit change for P {p0}->{p1}, U {u0}->{u1}")
+            f"residual must equal the implied unit change for P {p0}->{p1}, U {u0}->{u1}")
         assert r["residual_usd"] == pytest.approx(p1 * u1 - p1 * u0, rel=1e-9)
 
 
@@ -333,14 +334,38 @@ def test_the_basis_is_measured_against_the_live_median_not_the_aggregate():
         "two legs around a median must sit on opposite sides of it"
 
 
-def test_nothing_this_engine_produces_is_ever_marked_executable():
-    """Executable means after spread, depth and cost-to-move. All three live behind
-    /rwas/{id}/tickers, which answers 401. Every leg must say so."""
+def test_every_row_is_pre_execution_and_says_what_is_missing():
+    """Executable means after bid/ask, depth, cost-to-move and the trust fields. All of
+    them live behind /rwas/{id}/tickers, which answers 401, so no row may be staged past
+    PRE_EXECUTION and none may carry a `confidence` — a confidence beside an absent
+    execution leg reads as confidence in a trade, and it reached 100."""
     d = rwa.dislocations([_priced("a", 100.0), _priced("b", 104.0)], NOW)
+    assert d["kind"] == "wrapper_price_divergence"
+    assert d["stage"] == rwa.DIVERGENCE_STAGE
     assert d["legs"], "a 4% spread must produce legs"
     for leg in d["legs"]:
-        assert leg["executable"] is False
-        assert "tickers" in leg["executable_blocked_by"]
+        assert leg["stage"] == "PRE_EXECUTION"
+        assert leg["execution_evidence"].startswith("UNAVAILABLE")
+        # None, not False: False asserts a friction test ran and failed.
+        assert leg["executable_after_friction"] is None
+        assert "confidence" not in leg and "executable" not in leg
+        assert 0 <= leg["observation_evidence"] <= 100
+
+
+def test_no_score_can_report_complete_coverage_without_execution():
+    """The redistribution guard. An earlier version set execution to weight 0 and left it
+    out of the weight dict, so four priced components reported 100% coverage on a board
+    with no execution evidence at all."""
+    full = rwa.rwa_conviction({"liquidity": 24.0, "distribution": 15.0,
+                               "integrity": 18.0, "impulse": 20.0})
+    assert full["absent"] == ["execution"]
+    assert full["coverage"] < 100.0
+    assert full["coverage"] == full["max_coverage_on_this_plan"]
+    assert "execution" in rwa.DECLARED_WEIGHTS and rwa.W_EXECUTION > 0
+    assert "execution" not in rwa.COMPONENT_WEIGHTS
+    w = rwa.wrapper_score(_priced("a", 100.0), {"total_volume": 1e7, "median_price": 101.0}, {})
+    assert w["coverage"] < 100.0 and w["absent"] == ["execution"]
+    assert w["execution_evidence"].startswith("UNAVAILABLE")
 
 
 def test_a_distrusted_join_is_kept_out_of_the_tape():
@@ -390,7 +415,8 @@ def test_night_one_still_grades_and_states_what_it_could_not_price():
     component as zero would publish a board on which everything looked unadopted."""
     comps = {"liquidity": 24.0, "distribution": 15.0, "integrity": 18.0, "impulse": None}
     got = rwa.rwa_conviction(comps)
-    assert got["coverage"] == 75.0 and got["absent"] == ["impulse"]
+    assert got["absent"] == ["execution", "impulse"]
+    assert got["coverage"] == pytest.approx(100 * 75.0 / 120.0, rel=1e-6)
     assert got["score"] == pytest.approx(100 * 57.0 / 75.0, rel=1e-6)
     assert got["label"] != rwa.RWA_UNRATED
 
@@ -541,11 +567,11 @@ def test_a_live_underlying_is_ranked_scored_and_carries_its_wrappers():
     rec = built["board"][0]
     assert rec["wrappers_live"] == 2 and rec["wrappers_n"] == 2
     assert rec["conviction"] is not None and rec["label"] in rwa.RWA_LABELS
-    assert rec["coverage"] == 75.0 and rec["absent"] == ["impulse"], "night one"
+    assert rec["absent"] == ["execution", "impulse"], "night one, and execution always"
     assert [w["token_id"] for w in rec["wrappers"]][0] == "wrapped-nvidia-xstock", \
         "wrappers are ordered by the volume that makes one of them the real market"
     assert built["tape"], "a 100bp spread between two wrappers is a tape row"
-    assert all(l["executable"] is False for l in built["tape"])
+    assert all(l["stage"] == "PRE_EXECUTION" for l in built["tape"])
 
 
 def test_the_board_is_ranked_and_ungraded_rows_sort_last():
@@ -619,8 +645,10 @@ def test_the_offhours_move_is_measured_from_the_close_and_the_gap_is_withheld():
     assert r["offhours_return_pct"] == pytest.approx(3.8, abs=0.01)
     assert r["wrappers_agree"] == 2 and r["wrappers_live"] == 3
     assert r["dispersion_bps"] == 18.0 and r["volume_ratio"] == 2.4
-    assert r["implied_gap_pct"] is None and r["confidence"] is None
+    assert r["implied_gap_pct"] is None and r["implied_gap_confidence"] is None
+    assert r["implied_gap_state"] == rwa.EQUITY_PENDING
     assert "equity prints" in r["implied_gap_blocked_by"]
+    assert "no vendor is being added" in r["implied_gap_blocked_by"]
 
 
 def test_the_sparkline_hour_mapping_is_declared_an_inference():
@@ -694,8 +722,11 @@ def test_the_paid_endpoints_are_recorded_as_declared_absences(tmp_path):
     for name in ("tickers", "market_chart"):
         assert art["feeds"][name]["status"] == "unavailable"
         assert art["feeds"][name]["http_status"] == 401
-    assert art["model"]["execution_weight"] == 0.0
-    assert "does not carry" in art["tape_note"] or "blend" in art["tape_note"]
+    assert art["model"]["execution_weight"] > 0, "a declared component cannot weigh nothing"
+    assert art["model"]["max_coverage_on_this_plan"] < 100.0
+    assert art["execution"]["status"] == "UNAVAILABLE"
+    assert "bid/ask" in art["execution"]["missing_fields"]
+    assert "blend" in art["tape_note"]
 
 
 def test_a_full_night_writes_all_three_ledgers_and_the_artifact(tmp_path):
@@ -748,7 +779,8 @@ def test_the_chain_extends_across_two_nights(tmp_path):
     assert rec["flow"]["residual_pct"] == pytest.approx(12.381, abs=0.01)
     assert rec["flow"]["impulse"] == rwa.IMPULSE_MINTING
     assert rec["flow"]["supply_index"] == pytest.approx(112.381, abs=0.01)
-    assert rec["coverage"] == 100.0 and rec["absent"] == [], "the impulse component exists now"
+    assert rec["absent"] == ["execution"], "the impulse component exists now"
+    assert rec["coverage"] < 100.0, "execution can never be priced on this plan"
     rows = rwa.read_rows(tmp_path / "rwa_flow.csv", rwa.RWA_FLOW_FIELDS)
     assert len(rows) == 2 and [r["date"] for r in rows] == sorted(r["date"] for r in rows)
 
@@ -914,11 +946,10 @@ def test_no_etf_wrapper_is_attached_to_a_metal():
 
 
 
-def test_a_failed_night_never_erases_a_good_one(tmp_path):
-    """append_daily_rows REPLACES today's rows, which is right for a re-run with data and
-    exactly wrong without it: a second run on a night the feed was down would keep every
-    prior day, write nothing for today, and delete what the first run recorded. On the
-    flow ledger that is unrecoverable, because market_chart cannot backfill it."""
+def test_a_degraded_run_may_never_replace_a_complete_one(tmp_path):
+    """THE invariant. Three real failures motivated it: a 429 lost an issuer, a 414 lost
+    250 wrappers, and a same-day re-run overwrote a real impulse with a fabricated zero.
+    A run that saw less than the run before it does not get to publish over it."""
     routes = {
         "/rwas/list": ("live", _LIST, 200),
         "/rwas/markets": ("live", [_market_row()], 200),
@@ -931,31 +962,168 @@ def test_a_failed_night_never_erases_a_good_one(tmp_path):
     sess = {"plan": "keyless", "status": "unconfigured"}
     good = rwa.snapshot(session=sess, getter=_routed_getter(routes), sleep=lambda *_: None,
                         now=NOW, ledger_dir=tmp_path)
+    assert good["run"]["status"] == rwa.RUN_COMPLETE and good["run"]["promoted"]
     assert good["written"]["rwa_flow.csv"] == 1
     before = (tmp_path / "rwa_flow.csv").read_text()
 
-    # Same day, same directory, and now the markets feed is rate-limited.
+    # Same day, same directory. The wrapper batch is now rate-limited — every other feed
+    # is live, which is exactly how the 414 presented: a run that looks fine and is not.
     bad = rwa.snapshot(session=sess, sleep=lambda *_: None, now=NOW, ledger_dir=tmp_path,
                        getter=_routed_getter({**routes,
-                                              "/rwas/markets": ("rate_limited", {}, 429)}))
+                                              "/coins/markets": ("rate_limited", {}, 429)}))
+    assert bad["run"]["status"] == rwa.RUN_DEGRADED
+    assert bad["run"]["promoted"] is False
     assert "rwa_flow.csv" not in bad["written"]
-    assert "rwa_flow.csv" in bad["not_written"]
     assert (tmp_path / "rwa_flow.csv").read_text() == before, (
-        "a night with no data erased the rows a good run had already recorded")
+        "a degraded run published over a complete canonical observation")
+
+    # Retained as evidence, in a file nothing derives from.
+    assert bad["quarantined"]["prior_status"] == rwa.RUN_COMPLETE
+    q = rwa.read_rows(tmp_path / "rwa_quarantine.csv", rwa.RWA_RUN_FIELDS)
+    assert len(q) == 1 and q[0]["run_status"] == rwa.RUN_DEGRADED
+    # And the manifest records BOTH attempts, promoted flag and all.
+    runs = rwa.read_rows(tmp_path / "rwa_runs.csv", rwa.RWA_RUN_FIELDS)
+    assert [r["promoted"] for r in runs] == ["1", "0"]
+    # The degraded board is inspectable but not canonical.
+    assert (tmp_path / "rwa.degraded.json").exists()
+    assert json.loads((tmp_path / "rwa.json").read_text())["run"]["status"] == rwa.RUN_COMPLETE
+
+
+def test_a_complete_run_may_replace_a_degraded_one(tmp_path):
+    """The rule is a ranking, not a lock. A night that recovers must be able to publish
+    over the night that did not."""
+    routes = {
+        "/rwas/list": ("live", _LIST, 200),
+        "/rwas/markets": ("live", [_market_row()], 200),
+        "/rwas/issuers/list": ("live", _ISSUER_LIST, 200),
+        "/rwas/issuers/": ("live", _ISSUER, 200),
+    }
+    px = ("live", [{"id": "nvidia-xstock", "symbol": "nvdax", "current_price": 200.0,
+                    "market_cap": 2e8, "total_volume": 6.0e6, "last_updated": _stamp(0.5)}], 200)
+    sess = {"plan": "keyless", "status": "unconfigured"}
+    first = rwa.snapshot(session=sess, sleep=lambda *_: None, now=NOW, ledger_dir=tmp_path,
+                         getter=_routed_getter({**routes,
+                                                "/coins/markets": ("rate_limited", {}, 429)}))
+    assert first["run"]["status"] == rwa.RUN_DEGRADED and first["run"]["promoted"] is True
+    second = rwa.snapshot(session=sess, sleep=lambda *_: None, now=NOW, ledger_dir=tmp_path,
+                          getter=_routed_getter({**routes, "/coins/markets": px}))
+    assert second["run"]["status"] == rwa.RUN_COMPLETE and second["run"]["promoted"] is True
+    assert second["written"]["rwa_flow.csv"] == 1
+
+
+def test_the_promotion_rule_in_one_place():
+    """Stated as a function so it can be tested without a filesystem."""
+    assert rwa.may_promote(rwa.RUN_COMPLETE, None) is True
+    assert rwa.may_promote(rwa.RUN_FAILED, None) is False
+    assert rwa.may_promote(rwa.RUN_DEGRADED, rwa.RUN_COMPLETE) is False
+    assert rwa.may_promote(rwa.RUN_COMPLETE, rwa.RUN_DEGRADED) is True
+    # Equal ranks replace, which is what keeps an identical re-run idempotent.
+    assert rwa.may_promote(rwa.RUN_DEGRADED, rwa.RUN_DEGRADED) is True
+
+
+def test_coverage_breaks_the_tie_inside_one_status():
+    """Status alone was not enough, and the live run showed it: a night where one issuer
+    429s is DEGRADED, and a retry that also lost a whole wrapper batch is DEGRADED too.
+    Equal rank — so under a rank-only rule the thinner run replaced the fuller one."""
+    fuller = (rwa.RUN_RANK[rwa.RUN_DEGRADED], 66.7)
+    assert rwa.may_promote(rwa.RUN_DEGRADED, rwa.RUN_DEGRADED, 33.3, fuller) is False
+    assert rwa.may_promote(rwa.RUN_DEGRADED, rwa.RUN_DEGRADED, 66.7, fuller) is True
+    assert rwa.may_promote(rwa.RUN_DEGRADED, rwa.RUN_DEGRADED, 100.0, fuller) is True
+    # ...and rank still dominates coverage.
+    assert rwa.may_promote(rwa.RUN_DEGRADED, rwa.RUN_COMPLETE, 100.0,
+                           (rwa.RUN_RANK[rwa.RUN_COMPLETE], 66.7)) is False
+
+
+def test_observations_are_recorded_before_anything_is_derived_from_them(tmp_path):
+    """The vendor's own fields and its own timestamp, in their own file. A calculation
+    whose inputs were never written down is not auditable later."""
+    routes = {
+        "/rwas/list": ("live", _LIST, 200),
+        "/rwas/markets": ("live", [_market_row()], 200),
+        "/rwas/issuers/list": ("live", _ISSUER_LIST, 200),
+        "/rwas/issuers/": ("live", _ISSUER, 200),
+        "/coins/markets": ("live", [{"id": "nvidia-xstock", "symbol": "nvdax",
+                                     "current_price": 200.0, "market_cap": 2e8,
+                                     "total_volume": 6.0e6, "last_updated": _stamp(0.5)}], 200),
+    }
+    rwa.snapshot(session={"plan": "keyless"}, getter=_routed_getter(routes),
+                 sleep=lambda *_: None, now=NOW, ledger_dir=tmp_path)
+    obs = rwa.read_rows(tmp_path / "rwa_observed.csv", rwa.RWA_OBSERVED_FIELDS)
+    assert len(obs) == 1
+    row = obs[0]
+    assert row["source_last_updated"], "the vendor's own timestamp must be recorded"
+    assert row["run_ts"] and row["run_ts"] != row["source_last_updated"], (
+        "our run time is not the observation time and must not stand in for it")
+    # OBSERVED only: no derived column may appear in this file.
+    for derived in ("residual_pct", "conviction", "label", "impulse", "supply_index"):
+        assert derived not in rwa.RWA_OBSERVED_FIELDS
+
+
+def test_a_row_from_an_incomplete_peer_set_is_marked_degraded(tmp_path):
+    """An incomplete cross-section does not merely hide signal, it manufactures it — the
+    414 published medians computed from whichever peers survived, and those rows looked
+    exactly like rows computed over a whole set."""
+    graph = _graph_fixture()          # nvidia has two wrappers
+    prices = {"nvidia-xstock": {"price": 200.0, "volume_24h": 5.0e6, "market_cap": 2e8,
+                                "last_updated": _stamp(0.5)}}   # ...only one priced
+    rec = rwa.assemble([_market_row()], graph, prices, {}, "2026-09-01", NOW)
+    assert rec["flow_rows"][0]["peer_set_complete"] == 0
+    assert rec["flow_rows"][0]["degraded"] == 1
+    both = {**prices, "wrapped-nvidia-xstock": {"price": 201.0, "volume_24h": 1e6,
+                                                "market_cap": 1e8, "last_updated": _stamp(0.5)}}
+    clean = rwa.assemble([_market_row()], graph, both, {}, "2026-09-01", NOW)
+    assert clean["flow_rows"][0]["peer_set_complete"] == 1
+    assert clean["flow_rows"][0]["degraded"] == 0
+
+
+def test_publication_is_atomic(tmp_path):
+    """A process killed midway through a direct write leaves a truncated file that still
+    parses as CSV — a shorter ledger that looks like a real one."""
+    target = tmp_path / "x.csv"
+    rwa._atomic_write(target, "a,b\r\n1,2\r\n")
+    # Bytes, not read_text(): universal-newline translation on READ would hide whether
+    # the CRLF the csv module writes actually reached the disk, and the existing ledgers
+    # in this repository are CRLF.
+    assert target.read_bytes() == b"a,b\r\n1,2\r\n"
+    assert not list(tmp_path.glob("*.tmp")), "the temp file must not survive the rename"
+
+
+def test_wrapper_batches_fit_a_query_string():
+    """Wrapper ids are slugs, not tickers — a mean of 33 characters and a max of 83 — so
+    250 of them is a 9,200-character URI and the server answers `414 Request-URI Too
+    Large` in HTML rather than JSON. That happened: a batch of 250 wrappers vanished from
+    a run that reported itself as merely "partial", and every underlying they belonged to
+    left the board with nothing saying the cause was a URL length."""
+    fx = json.loads(FIXTURE.read_text())
+    ids = [t["id"] for i in fx["issuers"] for t in i["tokens"]]
+    batches = rwa.chunk_ids(ids)
+    assert sum(len(b) for b in batches) == len(ids), "ids were lost in the split"
+    assert all(b for b in batches), "an empty batch would send ids= with no ids"
+    for b in batches:
+        assert len(",".join(b)) <= rwa.WRAPPER_QUERY_BUDGET
+        assert len(b) <= rwa.WRAPPER_CHUNK_MAX
+    # And the naive count-based split is genuinely over the line, so this is not academic.
+    assert len(",".join(ids[:250])) > 4000
+
+
+def test_a_single_oversized_id_still_gets_its_own_batch():
+    assert rwa.chunk_ids(["x" * 5000, "y"]) == [["x" * 5000], ["y"]]
 
 
 # ---------------------------------------------------------------------------
-# 10 — denomination: the bug the first live run published
+# restored: denomination handling and the adversarial-review regressions
 # ---------------------------------------------------------------------------
-# These are the REAL prices the engine saw on 2026-09-01, and the reason this section
-# exists is that the first live run reported PAXG at +300,311bp against gold with a
-# confidence of 100 — the largest signal on the board, against a market that was
-# functioning perfectly. Nothing threw. The row looked like every other row.
+# These were deleted by an over-wide edit while the evidence contract was being written,
+# and the standalone runner's source cross-check is what caught it. They are the pins on
+# the +300,311bp denomination defect and on the twenty-two findings an adversarial review
+# confirmed; losing them silently would have been worse than never writing them.
 GOLD_LIVE = [("paxg", 4435.90, 121_523_395),    # one troy ounce
              ("xgz", 142.70, 430_391),          # one gram (4435.90 / 31.1035 = 142.62)
              ("xaum", 4430.30, 388_637),        # one troy ounce
              ("ggbr", 4.43, 121_294),           # one thousandth of an ounce
              ("kau", 142.95, 33_967)]           # one gram
+
+
 NETFLIX_LIVE = [("nflxb", 80.73, 1_817_556),    # one tenth of a share
                 ("nflxon", 810.92, 1_372_682)]  # one share
 
@@ -1095,10 +1263,7 @@ def test_the_fetch_spacing_follows_the_probed_plan():
     assert rwa.fetch_delay(None) == rwa.FETCH_DELAY_KEYLESS, "unknown must take the safe side"
 
 
-# ---------------------------------------------------------------------------
-# 11 — what an adversarial review found, pinned so it cannot come back
-# ---------------------------------------------------------------------------
-def test_a_same_day_rerun_does_not_overwrite_a_real_issuance_event(tmp_path):
+def test_a_same_day_rerun_does_not_overwrite_a_real_impulse_reading(tmp_path):
     """The worst defect this module could have had. append_daily_rows replaces today's
     rows and the nightly carries workflow_dispatch, so a re-run is an expected mode — and
     the second run was reading the row the first had just written, comparing tonight's
@@ -1248,26 +1413,73 @@ def test_every_wrapper_on_the_board_carries_the_basis_the_table_renders():
         "the artifact's wrapper entries carry no basis, so the column is always a dash")
 
 
-def test_wrapper_batches_fit_a_query_string():
-    """Wrapper ids are slugs, not tickers — a mean of 33 characters and a max of 83 — so
-    250 of them is a 9,200-character URI and the server answers `414 Request-URI Too
-    Large` in HTML rather than JSON. That happened: a batch of 250 wrappers vanished from
-    a run that reported itself as merely "partial", and every underlying they belonged to
-    left the board with nothing saying the cause was a URL length."""
-    fx = json.loads(FIXTURE.read_text())
-    ids = [t["id"] for i in fx["issuers"] for t in i["tokens"]]
-    batches = rwa.chunk_ids(ids)
-    assert sum(len(b) for b in batches) == len(ids), "ids were lost in the split"
-    assert all(b for b in batches), "an empty batch would send ids= with no ids"
-    for b in batches:
-        assert len(",".join(b)) <= rwa.WRAPPER_QUERY_BUDGET
-        assert len(b) <= rwa.WRAPPER_CHUNK_MAX
-    # And the naive count-based split is genuinely over the line, so this is not academic.
-    assert len(",".join(ids[:250])) > 4000
+def test_the_equity_leg_is_pending_and_no_vendor_was_added(tmp_path):
+    """Audited before any of this was written: there is no cash-equity data in this
+    repository. The sibling equity project the older modules mention appears only in their
+    prose, no ledger carries a session close or an official opening print, and no equity
+    provider is configured in any workflow. So the gap is PENDING and the scope stays
+    where it was."""
+    rep = rwa.equity_prints(tmp_path)
+    assert rep["status"] == "pending" and rep["rows"] == {}
+    assert rwa.EQUITY_ARTIFACT.endswith(".csv")
+    assert set(rwa.EQUITY_REQUIRED_FIELDS) >= {"session_date", "official_open", "prior_close"}
 
 
-def test_a_single_oversized_id_still_gets_its_own_batch():
-    assert rwa.chunk_ids(["x" * 5000, "y"]) == [["x" * 5000], ["y"]]
+def test_the_equity_interface_is_a_read_only_artifact_not_a_runtime_call(tmp_path):
+    """A direct call into another project's code couples two nightlies at runtime and
+    makes each one's failure the other's. A file that either exists or does not is a
+    boundary that survives either side changing."""
+    src = (ROOT / "rwa.py").read_text()
+    for forbidden in ("import equity", "from equity", "equity_project", "requests.get"):
+        assert forbidden not in src, f"rwa.py reaches for {forbidden}"
+    # And when the artifact does appear, it is simply read.
+    path = tmp_path / "equity_sessions.csv"
+    path.write_text("symbol,session_date,prior_close,official_open\r\n"
+                    "nvda,2026-08-28,180.0,182.5\r\n")
+    rep = rwa.equity_prints(tmp_path)
+    assert rep["status"] == "live" and "nvda" in rep["rows"]
+
+
+def test_the_calendar_declares_its_own_replacement_deadline():
+    """A hand-maintained calendar that refuses past its horizon is acceptable as an
+    interim; becoming the permanent architecture by default is not."""
+    assert rwa.CALENDAR_REPLACEMENT_DUE.startswith(str(rwa.CALENDAR_LAST_YEAR))
+    src = (ROOT / "rwa.py").read_text()
+    assert "MERGE PREREQUISITE" in src
+    # Comment markers stripped, because the sentence wraps across two comment lines.
+    prose = " ".join(l.lstrip("# ") for l in src.splitlines())
+    assert "inferring that a weekday is a trading day" in " ".join(prose.split())
+
+
+def test_an_age_is_never_negative_and_real_skew_is_still_reported():
+    """`now` is captured when a run starts and the run takes minutes, so a wrapper priced
+    at the end of it carries a vendor timestamp ahead of the run clock. Ninety-five of
+    ninety-six tape legs on the first full run read -0.1h — not a price from the future,
+    just the ordering of a multi-minute fetch."""
+    ahead = (NOW + timedelta(minutes=6)).isoformat().replace("+00:00", "Z")
+    assert rwa._age_hours(ahead, NOW) == 0.0
+    assert rwa._age_hours(_stamp(3), NOW) == pytest.approx(3.0)
+    assert rwa._age_hours(None, NOW) is None, "unknown is not fresh"
+    # ...and the lead is still measured, so a genuinely wrong clock stays visible.
+    assert rwa._clock_skew_hours([ahead], NOW) == pytest.approx(0.1, abs=0.01)
+    assert rwa._clock_skew_hours([_stamp(3)], NOW) == 0.0
+
+
+def test_coverage_is_continuous_so_a_thinner_run_scores_lower():
+    """It began as three booleans, and a live pair showed why that is not enough: a run
+    that fetched 31 of 34 issuers and one that fetched 33 both scored 66.7, so the
+    promotion rule could not tell them apart and the thinner one published over the
+    fuller. Fractions, not flags."""
+    feeds = {k: {"status": "live"} for k in ("list", "markets", "wrappers")}
+    feeds["issuers"] = {"status": "partial"}
+    graph = {"wrappers": [{}] * 100, "wrappers_priced": 100}
+    fuller = rwa.run_completeness(feeds, graph, 640, 641, issuers_received=33, issuers_listed=34)
+    thinner = rwa.run_completeness(feeds, graph, 640, 641, issuers_received=31, issuers_listed=34)
+    assert fuller["status"] == thinner["status"] == rwa.RUN_DEGRADED
+    assert fuller["coverage_pct"] > thinner["coverage_pct"], (
+        "two runs with the same status and different data must not score the same")
+    assert rwa.may_promote(rwa.RUN_DEGRADED, rwa.RUN_DEGRADED, thinner["coverage_pct"],
+                           (rwa.RUN_RANK[rwa.RUN_DEGRADED], fuller["coverage_pct"])) is False
 
 
 # LAST in the file, deliberately. _standalone() reads the module namespace as it stands

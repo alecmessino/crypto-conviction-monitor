@@ -376,19 +376,25 @@ def check_context_ledgers(ledger: Path) -> list[str]:
 def check_rwa(ledger: Path) -> list[str]:
     """The RWA ledgers, and one property that has no equivalent on the crypto side.
 
-    The net-issuance series cannot be rebuilt. ``/rwas/{id}/market_chart`` answers HTTP
+    The tokenization-impulse series cannot be rebuilt. ``/rwas/{id}/market_chart`` answers HTTP
     401 below the Basic plan, so a night that was not recorded is gone — not recoverable
     later, not with a key, not at any price. Every other artifact in this directory can
     be regenerated from a fresh fetch. That asymmetry is why these checks exist and why a
     duplicate date here is failed rather than warned about: the supply index compounds
-    this file as a daily series, so one date recorded twice compounds one night's
-    issuance twice and every level after it is wrong.
+    this file as a daily series, so one date recorded twice compounds one night's implied
+    supply change twice and every level after it is wrong.
 
     Skipped entirely when the files are absent. The RWA workspace is optional in exactly
     the way the Dune and Cryptometer feeds are, and a night where CoinGecko refused must
     not fail the gate that lets the crypto ledger commit.
     """
     problems = []
+    # The artifact checks run FIRST and independently of the CSVs. They were nested under
+    # the flow-ledger early return, which meant a night that produced an rwa.json and no
+    # flow rows — exactly the night the artifact is least trustworthy — had every one of
+    # its claims go unexamined.
+    problems += _check_rwa_artifact(ledger)
+
     flow = ledger / "rwa_flow.csv"
     if not flow.exists():
         return problems
@@ -412,8 +418,8 @@ def check_rwa(ledger: Path) -> list[str]:
         problems.append(f"rwa_flow.csv: {blank} row(s) cannot be placed in the series "
                         f"(no date or no underlying_id)")
 
-    # A residual is a change in units outstanding. At or below -100% more units were
-    # redeemed than existed, which is a write-path defect and not a market event.
+    # A residual is a change in IMPLIED units. At or below -100% the implied count went
+    # to zero or negative, which is a write-path defect and not a market event.
     # `_num(...) is not None` FIRST. Written the other way round, `(_num(x) or 0.0)`
     # turns an unparseable or blank residual into 0.0 — which is not <= -100 — while a
     # real -100 passes, so the check could only ever fire on a legitimately catastrophic
@@ -423,7 +429,7 @@ def check_rwa(ledger: Path) -> list[str]:
                   and _num(r.get("residual_pct")) <= -100.0]
     if impossible:
         problems.append(
-            f"rwa_flow.csv: {len(impossible)} row(s) record net issuance at or below "
+            f"rwa_flow.csv: {len(impossible)} row(s) record an implied supply change at or below "
             f"-100%, first {impossible[0].get('date')}/{impossible[0].get('underlying_id')}"
             f" — more units redeemed than existed is arithmetic, not a market")
 
@@ -446,7 +452,55 @@ def check_rwa(ledger: Path) -> list[str]:
         problems.append(f"rwa_flow.csv: {len(unstamped)} row(s) on {latest} carry no "
                         f"spec_hash and cannot be segmented")
 
-    for name, key in (("rwa_issuers.csv", "issuer_id"), ("rwa_wrappers.csv", "token_id")):
+    # The evidence contract. These are the checks that make the historical record
+    # defensible rather than merely present.
+    runs_path = ledger / "rwa_runs.csv"
+    if runs_path.exists():
+        runs = list(csv.DictReader(runs_path.open(newline="", encoding="utf-8")))
+        for date in {r.get("date") for r in rows if r.get("date")}:
+            same = [r for r in runs if r.get("date") == date]
+            promoted = [r for r in same if (r.get("promoted") or "") == "1"]
+            if same and not promoted:
+                problems.append(
+                    f"rwa_flow.csv holds rows for {date} but rwa_runs.csv records no "
+                    f"promoted run for it — canonical history without a manifest entry "
+                    f"cannot be audited")
+            # The invariant, checked against the record rather than trusted.
+            best = max((r.get("run_status") for r in promoted), default=None,
+                       key=lambda st: {"failed": 0, "degraded": 1, "complete": 2}.get(st, -1))
+            later_worse = [r for r in same
+                           if (r.get("promoted") or "") == "1"
+                           and {"failed": 0, "degraded": 1, "complete": 2}.get(r.get("run_status"), -1)
+                           < {"failed": 0, "degraded": 1, "complete": 2}.get(best, -1)
+                           and r.get("run_ts", "") > max((q.get("run_ts", "") for q in promoted
+                                                          if q.get("run_status") == best), default="")]
+            if later_worse:
+                problems.append(
+                    f"rwa_runs.csv: {date} promoted a {later_worse[0].get('run_status')} run "
+                    f"after a {best} one — a degraded fetch replaced a complete canonical "
+                    f"observation, which is the invariant this contract exists for")
+    elif rows:
+        problems.append("rwa_flow.csv exists with no rwa_runs.csv manifest beside it — "
+                        "there is no record of what any run actually saw")
+
+    obs_path = ledger / "rwa_observed.csv"
+    if obs_path.exists():
+        obs = list(csv.DictReader(obs_path.open(newline="", encoding="utf-8")))
+        derived = {"residual_pct", "conviction", "label", "impulse", "supply_index"}
+        leaked = derived & set(obs[0].keys() if obs else ())
+        if leaked:
+            problems.append(
+                f"rwa_observed.csv carries derived column(s) {sorted(leaked)} — this file "
+                f"is the raw observation and mixing derivations into it destroys the one "
+                f"thing it is for")
+        undated = [r for r in obs if not (r.get("source_last_updated") or "").strip()]
+        if undated and len(undated) > len(obs) * 0.5:
+            problems.append(
+                f"rwa_observed.csv: {len(undated)}/{len(obs)} row(s) carry no vendor "
+                f"timestamp — our run time is not the observation time")
+
+    for name, key in (("rwa_issuers.csv", "issuer_id"), ("rwa_wrappers.csv", "token_id"),
+                      ("rwa_observed.csv", "underlying_id")):
         path = ledger / name
         if not path.exists():
             continue
@@ -455,20 +509,52 @@ def check_rwa(ledger: Path) -> list[str]:
         if d:
             problems.append(f"{name}: {len(d)} duplicate (date, {key}) key(s), first {d[0]}")
 
+    return problems
+
+
+def _check_rwa_artifact(ledger: Path) -> list[str]:
+    """Everything rwa.json claims about its own evidence.
+
+    Separate from the CSV checks and never skipped because of them: these are the
+    assertions that stop the artifact promising execution evidence, a complete score, or
+    a confidence it has no basis for.
+    """
+    problems: list[str] = []
     art = ledger / "rwa.json"
-    if art.exists():
-        try:
-            j = json.loads(art.read_text())
-        except Exception as exc:  # noqa: BLE001
-            return problems + [f"rwa.json unreadable: {exc}"]
+    if not art.exists():
+        return problems
+    try:
+        j = json.loads(art.read_text())
+    except Exception as exc:  # noqa: BLE001
+        return [f"rwa.json unreadable: {exc}"]
+    try:
         # The artifact must never claim an executable dislocation. Spread, depth and
         # cost-to-move all live behind an endpoint this plan cannot call, so a tape row
         # marked executable is a claim nobody measured.
-        bad = [l for l in (j.get("tape") or []) if l.get("executable")]
+        bad = [l for l in (j.get("tape") or [])
+               if l.get("stage") != "PRE_EXECUTION"
+               or l.get("executable_after_friction") is not None
+               or l.get("execution_evidence", "").startswith("UNAVAILABLE") is False]
         if bad:
             problems.append(
-                f"rwa.json: {len(bad)} tape row(s) marked executable — executable means "
-                f"after spread, depth and cost-to-move, none of which this model can see")
+                f"rwa.json: {len(bad)} divergence row(s) are not marked PRE_EXECUTION with "
+                f"execution evidence UNAVAILABLE — executable means after bid/ask, depth "
+                f"and cost-to-move, none of which this model can see")
+        # A confidence figure beside an absent execution leg reads as confidence in a
+        # trade. The field was renamed for that reason and must not come back.
+        legacy = [l for l in (j.get("tape") or [])
+                  if "confidence" in l or "executable" in l]
+        if legacy:
+            problems.append(
+                f"rwa.json: {len(legacy)} tape row(s) carry a legacy `confidence` or "
+                f"`executable` field — those names asserted execution evidence the model "
+                f"does not have")
+        model = j.get("model") or {}
+        if (model.get("max_coverage_on_this_plan") or 0) >= 100.0:
+            problems.append(
+                "rwa.json: the model reports it can reach 100% coverage, which means the "
+                "unavailable execution component is being redistributed rather than "
+                "declared")
         # A basis this large is a unit difference, not a market. The first live run
         # published PAX Gold at +300,311bp against gold because the median was taken
         # across ounce- and gram-denominated wrappers together; the engine now anchors on
@@ -487,7 +573,11 @@ def check_rwa(ledger: Path) -> list[str]:
                 f"rwa.json: all {len(graded)} graded rows carry the label "
                 f"'{graded[0].get('label')}' — a board that only ever says one thing is "
                 f"not a board")
+    except (AttributeError, TypeError) as exc:
+        # Report the shape problem rather than raising out of the validator.
+        problems.append(f"rwa.json parses but is not the expected shape: {exc}")
     return problems
+
 
 
 def main() -> int:

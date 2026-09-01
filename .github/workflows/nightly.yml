@@ -191,6 +191,15 @@ jobs:
           # readings the published board was actually built beside, and a client-side
           # recomputation from a live feed would disagree with it whenever the tape moved
           # during the day.
+          #
+          # rwa_observed.csv is the RAW observation, written before anything is derived
+          # from it, and rwa_runs.csv is the manifest of what every run actually saw.
+          # Those two are what make the derived series auditable a year from now: without
+          # them the flow ledger is a column of numbers with no record of the evidence
+          # behind it. rwa_quarantine.csv holds the runs that were refused promotion — a
+          # ledger that silently drops its failures cannot be audited for the invariant
+          # that produced them.
+          git add ledger/rwa_observed.csv ledger/rwa_runs.csv ledger/rwa_quarantine.csv || true
           git add ledger/rwa_flow.csv ledger/rwa_issuers.csv ledger/rwa_wrappers.csv ledger/rwa.json
           git add ledger/index.legacy.csv 2>/dev/null || true
           if git diff --cached --quiet; then

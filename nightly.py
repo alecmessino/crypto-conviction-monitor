@@ -4017,6 +4017,15 @@ def main() -> int:
         for name, rep in (rwa_art.get("feeds") or {}).items():
             if rep["status"] not in ("live", "unavailable"):
                 print(f"[rwa] {name}: {rep['status']} — {rep['detail']}")
+        run = rwa_art.get("run") or {}
+        if run:
+            print(f"[rwa] run {run.get('status')} · coverage {run.get('coverage_pct')}% · "
+                  f"promoted={run.get('promoted')} · {run.get('note')}")
+        if rwa_art.get("quarantined"):
+            q = rwa_art["quarantined"]
+            print(f"[rwa] QUARANTINED — {q.get('reason')}")
+            print(f"[rwa] tonight's canonical rows are unchanged; the attempt is kept in "
+                  f"{q.get('retained_in')}")
         if rwa_art.get("written"):
             print("[rwa] ledger: " + ", ".join(f"{k} {v} row(s)"
                                                for k, v in sorted(rwa_art["written"].items())))

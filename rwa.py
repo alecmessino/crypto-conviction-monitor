@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tokenized real-world assets: the wrapper graph, net issuance, and market quality.
+"""Tokenized real-world assets: the wrapper graph, supply impulse, and market quality.
 
 Why this is a separate module and a separate model
 --------------------------------------------------
@@ -20,31 +20,47 @@ number.
 
 The one thing worth knowing before reading further
 --------------------------------------------------
-The residual this module records is not a factor. It is the net minting rate of the
-wrapper supply, and it is exact rather than approximate.
+The residual this module records is the IMPLIED change in tokenized supply. It is a
+derived quantity, not an observed one, and the distinction is the whole reason this
+paragraph is long.
 
-CoinGecko publishes a tokenized price and a tokenized market cap for each underlying
-and no supply series at all. But market cap is price times units outstanding, so::
+CoinGecko publishes a tokenized price and a tokenized market cap for each underlying and
+no supply series at all. Market cap is price times units outstanding, so::
 
       MC_t                    U_t * P_t
     ---------------- = ------------------------------- = U_t / U_{t-1}
     MC_{t-1} * P_t/P_{t-1}    U_{t-1} * P_{t-1} * P_t/P_{t-1}
 
-The price term cancels completely. What is left is the change in units — mint minus
-redemption — recovered from two series neither of which is a supply series. Every
-reading in the brief falls out of that arithmetic rather than out of a convention:
+The price term cancels completely and what is left is the ratio of IMPLIED units — the
+units the vendor's own two series imply, recovered from a pair neither of which is a
+supply series.
 
-    P +5% / MC +5%    ->  U unchanged   ->  no incremental adoption
-    P +5% / MC +18%   ->  U +12.4%      ->  net minting
-    P  flat / MC +12% ->  U +12%        ->  strong adoption
-    P +8% / MC -3%    ->  U -10.2%      ->  net redemption
+WHAT THIS IS NOT. It is not a verified on-chain issuance fact, and this module must never
+describe it as mint minus redemption, as net issuance, or as exact. That identity holds
+only if CoinGecko's historical market cap is contemporaneous circulating units times the
+same published price, with no supply revisions, no reclassification of what counts as
+circulating, and no backfill. None of that is documented and none of it has been checked
+against an issuance source, because there is no free issuance source for these tokens. A
+vendor restating a supply figure would move this series without a single token being
+minted, and nothing here could tell the difference.
 
-Two consequences follow, and both are load-bearing below. Because it is a supply
+So: the arithmetic is exact, the interpretation is an inference, and the label says
+IMPULSE rather than ISSUANCE. Promoting it would require a token-supply or mint/burn feed
+to corroborate against — which is a real and worthwhile next step, and is not this.
+
+Read that way, every reading in the brief still falls out of the arithmetic:
+
+    P +5% / MC +5%    ->  implied units unchanged  ->  no incremental adoption
+    P +5% / MC +18%   ->  implied units +12.4%     ->  supply expanding
+    P  flat / MC +12% ->  implied units +12%       ->  strong adoption
+    P +8% / MC -3%    ->  implied units -10.2%     ->  supply contracting
+
+Two consequences follow, and both are load-bearing below. Because it behaves as a supply
 series it is cumulative and path-dependent, so a missing day breaks the chain and the
 chain has to record its own gaps rather than compound across them. And because
-``/rwas/{id}/market_chart`` answers HTTP 401 on every plan below Basic, the only
-history that will ever exist for this series is the history this pipeline records. A
-night not snapshotted is a night that cannot be recovered later at any price.
+``/rwas/{id}/market_chart`` answers HTTP 401 on every plan below Basic, the only history
+that will ever exist for this series is the history this pipeline records. A night not
+snapshotted is a night that cannot be recovered later at any price.
 
 What the free tier can and cannot see
 -------------------------------------
@@ -323,6 +339,19 @@ def unit_explanation(ratio):
 # quantisation and below any spread a person would actually cross.
 DISLOCATION_MIN_BPS = 25.0
 
+# What this engine emits, named for what it is. A price gap between two wrappers of the
+# same underlying is a PRE-EXECUTION observation: it is measured on last prices, and last
+# prices say nothing about whether the gap survives a spread, a depth-limited fill or a
+# transfer between chains. Calling it an executable dislocation would be claiming the
+# three things this plan cannot see.
+#
+# A row is only ever promoted to EXECUTABLE by a future run that has /rwas/{id}/tickers
+# AND passes an explicit friction gate. Nothing in this module can set that state, which
+# is why `executable_after_friction` is None here rather than False — False would assert
+# a test was run and failed; None says it was never run.
+DIVERGENCE_STAGE = "PRE_EXECUTION"
+EXECUTABLE_STAGE = "EXECUTABLE"          # reserved; unreachable without a ticker feed
+
 # The board ranks underlyings that have at least one wrapper anyone is trading. Without
 # this the board is a 642-row dump in which the top of the ranking is decided by tokens
 # with three digits of daily volume.
@@ -386,10 +415,11 @@ RWA_T_SOUND = 65.0
 RWA_T_THIN = 50.0
 RWA_T_FRAGILE = 35.0
 
-# Tokenization impulse. These are readings of the net issuance rate, not of price, and
-# the words say so. NEUTRAL is not "no signal" — it is the specific and informative
-# finding that market cap moved exactly as much as price did, so nobody minted or
-# redeemed anything and the move was repricing rather than adoption.
+# Tokenization impulse. These are readings of the IMPLIED supply change, not of price,
+# and the words say so — none of them names a mint or a redemption, because this module
+# cannot observe one. NEUTRAL is not "no signal": it is the specific and informative
+# finding that market cap moved as much as price did, so the implied unit count did not
+# move and the day was repricing rather than adoption.
 IMPULSE_MINTING = "MINTING"
 IMPULSE_STRONG = "STRONG_ADOPTION"    # supply grew while price did not
 IMPULSE_NEUTRAL = "NEUTRAL"
@@ -398,10 +428,10 @@ IMPULSE_UNREADABLE = "UNREADABLE"     # below the noise floor of the published i
 IMPULSE_LABELS = (IMPULSE_MINTING, IMPULSE_STRONG, IMPULSE_NEUTRAL,
                   IMPULSE_REDEMPTION, IMPULSE_UNREADABLE)
 
-# Daily net issuance above this is a real change in units outstanding. CoinGecko rounds
-# market cap to whole dollars and price to the cent, so on a $200 wrapper the price
-# quantisation alone is 2.5bp; 0.5% a day is twenty times that and is still a small
-# number against the 12% daily prints the brief's own worked examples contain.
+# A daily impulse above this is a change the published inputs can actually resolve.
+# CoinGecko rounds market cap to whole dollars and price to the cent, so on a $200 wrapper
+# the price quantisation alone is 2.5bp; 0.5% a day is twenty times that and is still a
+# small number against the 12% daily prints the brief's own worked examples contain.
 IMPULSE_MIN_PCT = 0.5
 # "Strong adoption" is the case where supply grew and price did not explain it. Below
 # this much price movement the day is a supply event rather than a repricing.
@@ -420,16 +450,32 @@ W_LIQUIDITY = 30.0
 W_DISTRIBUTION = 25.0
 W_IMPULSE = 25.0
 W_INTEGRITY = 20.0
-W_EXECUTION = 0.0            # requires /rwas/{id}/tickers — see module docstring
-COMPONENT_WEIGHTS = {"liquidity": W_LIQUIDITY, "distribution": W_DISTRIBUTION,
-                     "impulse": W_IMPULSE, "integrity": W_INTEGRITY}
+# Execution carries REAL WEIGHT and is currently unpriceable. That is the correction: an
+# earlier version set this to 0.0 and left execution out of COMPONENT_WEIGHTS entirely,
+# which silently redistributed its share across the other four and let a board with no
+# execution evidence at all report 100% coverage. A component nobody can measure is not a
+# component worth nothing — it is a hole, and the denominator has to know about it.
+W_EXECUTION = 20.0
+# Per-wrapper weights, same shape and the same rule: execution is declared and absent.
+W_W_LIQ, W_W_INT, W_W_DIST, W_W_ISS, W_W_EXEC = 35.0, 30.0, 20.0, 15.0, 20.0
+DECLARED_WEIGHTS = {"liquidity": W_LIQUIDITY, "distribution": W_DISTRIBUTION,
+                    "impulse": W_IMPULSE, "integrity": W_INTEGRITY,
+                    "execution": W_EXECUTION}
+# What can be priced without /rwas/{id}/tickers. The gap between this and DECLARED_WEIGHTS
+# is exactly what "coverage" reports, and on the free tier it can never close.
+COMPONENT_WEIGHTS = {k: v for k, v in DECLARED_WEIGHTS.items() if k != "execution"}
+EXECUTION_UNAVAILABLE = "UNAVAILABLE — venue depth/spread feed not connected"
 
 # The score is a weighted mean over the components that actually produced a value,
-# rescaled to 0-100, and stamped with the share of weight that was priced. That is what
-# lets the board be honest on night one, when the impulse component cannot exist because
-# it needs a previous night: coverage reads 75%, every row is affected identically, and
-# the ranking is internally comparable. Below this floor the model refuses to grade.
-RWA_MIN_COVERAGE = 60.0
+# rescaled to 0-100, and stamped with the share of DECLARED weight that was priced. That
+# is what lets the board be honest on night one, when the impulse component cannot exist
+# because it needs a previous night AND execution cannot exist at all: coverage reads 60%,
+# every row is affected identically, and the ranking is internally comparable.
+#
+# The floor is 50 rather than 60 because execution is 20 points of permanent absence on
+# this plan. A 60 floor would have refused every row on night one — which is not caution,
+# it is a model that cannot run in the only configuration it has.
+RWA_MIN_COVERAGE = 50.0
 
 # Liquidity is scored on a log scale because tokenized volume spans six orders of
 # magnitude — $8 of Dinari inventory and $12M of wrapped NVDA are both in the universe —
@@ -487,6 +533,7 @@ RWA_SPEC_CONSTANTS = (
     "DIST_CONCENTRATED_HHI", "INTEGRITY_TIGHT_BPS", "INTEGRITY_BROKEN_BPS",
     "WRAPPER_LIVE_VOL_USD", "WRAPPER_STALE_HOURS",
     "DISLOCATION_MIN_LIVE", "DISLOCATION_MIN_BPS", "BOARD_MIN_LIVE_WRAPPERS",
+    "W_W_LIQ", "W_W_INT", "W_W_DIST", "W_W_ISS", "W_W_EXEC",
     "DENOMINATION_TOLERANCE",
     "SHELF_AFFIXES", "COMMODITY_NAME_PATTERNS", "EXCHANGE_SUFFIXES",
 )
@@ -568,16 +615,44 @@ def _iso(ts) -> datetime | None:
 
 
 def _age_hours(ts, now: datetime | None = None):
-    """Hours since ``ts``. None when the stamp is missing or unparseable.
+    """Hours since ``ts``, floored at zero. None when the stamp is missing.
 
     None is not "fresh". Every caller treats an unknown age as failing the freshness
     gate, because a token whose feed stopped publishing a timestamp is exactly the token
     whose price should not be trusted.
+
+    The floor is not cosmetic. ``now`` is captured once when a run starts, and the run
+    takes several minutes — so a wrapper price fetched at the end of it carries a vendor
+    timestamp AHEAD of the run's own clock, and the raw subtraction gives a negative age.
+    Ninety-five of ninety-six tape legs on the first full run read -0.1h that way, which
+    is not a price from the future: it is the ordering of a multi-minute fetch, and the
+    honest report of it is "as fresh as this run can tell", which is zero.
+
+    What this deliberately does NOT do is hide a real clock problem. A stamp hours ahead
+    of the run still floors to zero and still passes the freshness gate — the gate is
+    about staleness — but ``_clock_skew_hours`` below reports the largest such gap so a
+    genuinely wrong clock is visible in the manifest rather than absorbed here.
     """
     dt = _iso(ts)
     if dt is None or now is None:
         return None
-    return (now - dt).total_seconds() / 3600.0
+    return max(0.0, (now - dt).total_seconds() / 3600.0)
+
+
+def _clock_skew_hours(stamps, now: datetime | None = None) -> float:
+    """The largest amount by which a source timestamp leads ``now``, in hours.
+
+    Expected to be a few minutes on any real run, because the run is not instantaneous.
+    A large value means the vendor's clock or ours is wrong, and that is worth seeing.
+    """
+    if now is None:
+        return 0.0
+    lead = 0.0
+    for ts in stamps:
+        dt = _iso(ts)
+        if dt is not None:
+            lead = max(lead, (dt - now).total_seconds() / 3600.0)
+    return round(lead, 3)
 
 
 def normalise_symbol(sym: str) -> str:
@@ -722,7 +797,13 @@ def fetch_issuers(session: dict, getter=None, sleep=None) -> dict:
     detail = f"{len(issuers)}/{len(listed)} issuer(s), {sum(len(i['tokens']) for i in issuers)} token(s)"
     if failures:
         detail += f" — {len(failures)} issuer(s) failed: " + "; ".join(failures[:3])
-    return cg._report(status, detail, issuers, 200)
+    rep = cg._report(status, detail, issuers, 200)
+    # The DENOMINATOR, carried alongside the data. Completeness is a fraction and the
+    # caller cannot compute it from the returned list alone — 31 issuers and 33 issuers
+    # both report "partial", and without this the two are indistinguishable to the
+    # promotion rule that is supposed to prefer the fuller one.
+    rep["listed_n"] = len(listed)
+    return rep
 
 
 def fetch_wrapper_coins(session: dict, coin_ids: list, getter=None, sleep=None,
@@ -1013,13 +1094,14 @@ def build_graph(underlyings: list, issuers: list, issuer_markets: dict | None = 
 # 1 — tokenization flow residual  ("tokenization impulse")
 # ---------------------------------------------------------------------------
 def flow_residual(prev_price, prev_mcap, price, mcap) -> dict:
-    """Net issuance between two consecutive snapshots of one underlying.
+    """Implied change in tokenized supply between two consecutive snapshots.
 
     ``Expected_MC = MC_prev * P / P_prev`` is the market cap the same units outstanding
-    would have carried at today's price. What is left over after dividing it out is the
-    change in units, exactly — see the module docstring for the cancellation. So
-    ``residual_pct`` is not a proxy for minting, it IS the minting rate, and it should be
-    read in units rather than in dollars.
+    would have carried at today's price. What is left after dividing it out is the change
+    in IMPLIED units — see the module docstring for the cancellation, and for why implied
+    is the operative word. The arithmetic is exact; the reading of it as issuance is an
+    inference that no available feed corroborates, so ``residual_pct`` is published as a
+    tokenization impulse and never as a mint or a redemption.
 
     Returns ``residual_usd`` alongside it because the dollar figure is what says whether
     a 4% supply change was four million dollars of demand or four hundred.
@@ -1049,10 +1131,10 @@ def flow_residual(prev_price, prev_mcap, price, mcap) -> dict:
 
 
 def impulse_label(residual_pct, price_chg_pct) -> str:
-    """Read the net issuance rate. A description of supply, never of price.
+    """Read the implied supply change. A description of supply, never of price.
 
-    NEUTRAL is a finding, not a shrug: it says market cap moved exactly as much as price
-    did, so the day was repricing and nobody minted or redeemed. UNREADABLE is the
+    NEUTRAL is a finding, not a shrug: it says market cap moved as much as price did, so
+    the day was repricing and the implied unit count did not move. UNREADABLE is the
     separate case where the move is inside the quantisation of the published inputs and
     the arithmetic cannot distinguish it from rounding.
     """
@@ -1065,8 +1147,9 @@ def impulse_label(residual_pct, price_chg_pct) -> str:
         return IMPULSE_REDEMPTION
     pc = _num(price_chg_pct)
     if pc is not None and abs(pc) < IMPULSE_FLAT_PRICE_PCT:
-        # Supply grew and price did not explain it. This is the reading the brief calls
-        # strong adoption, and it is the only one where the price leg is load-bearing.
+        # Implied supply grew and price did not explain it. This is the reading the
+        # brief calls strong adoption, and the only one where the price leg is
+        # load-bearing.
         return IMPULSE_STRONG
     return IMPULSE_MINTING
 
@@ -1159,7 +1242,10 @@ def comparable_set(live: list) -> dict:
 
 
 def dislocations(priced: list, now: datetime | None = None) -> dict:
-    """Wrapper-versus-wrapper basis on one underlying, within one denomination.
+    """WRAPPER PRICE DIVERGENCE on one underlying, within one denomination.
+
+    Pre-execution by construction. The name of this function is historical; what it
+    returns is a divergence observation, never an executable dislocation.
 
     Priced against the median of the LIVE wrappers that denominate the same quantity,
     and never against ``tokenized_market_data.current_price``. That aggregate is a blend
@@ -1168,12 +1254,14 @@ def dislocations(priced: list, now: datetime | None = None) -> dict:
     $80 tenth-share token, describing neither — so a basis measured against it is partly
     a basis against itself and partly a basis against a unit conversion.
 
-    What this therefore is: the spread between two tokens redeemable for the same
-    quantity of the same thing. What it is NOT, and the artifact says so on every row: an
-    executable dislocation. Executable means after spread, depth and cost-to-move, and
-    all three live behind ``/rwas/{id}/tickers``, which answers 401.
+    What this therefore is: the last-price gap between two tokens redeemable for the same
+    quantity of the same thing. What it is NOT, and every row says so: an executable
+    dislocation, an executable basis, or an opportunity after friction. Executable means
+    after bid/ask, depth, cost-to-move and a freshness/trust check, and all of those live
+    behind ``/rwas/{id}/tickers``, which answers 401 on this plan. Each leg therefore
+    carries ``stage: PRE_EXECUTION`` and ``execution_evidence: UNAVAILABLE``.
 
-    Informational. Nothing here auto-executes.
+    Informational. Nothing here auto-executes, and nothing here is sized.
     """
     # A contradicted edge is excluded HERE, before the median is taken, and not merely
     # from the published legs. build_graph keeps such an edge and withholds the reading;
@@ -1187,7 +1275,9 @@ def dislocations(priced: list, now: datetime | None = None) -> dict:
     contradicted = sum(1 for w in priced if w.get("join_rule") == JOIN_CONFLICT)
     comp = comparable_set(live)
     legs_in = comp["legs"]
-    base = {"median_price": None, "dispersion_bps": None, "legs": [],
+    base = {"kind": "wrapper_price_divergence", "stage": DIVERGENCE_STAGE,
+            "execution_evidence": EXECUTION_UNAVAILABLE,
+            "median_price": None, "dispersion_bps": None, "legs": [],
             "live_n": len(live), "comparable_n": len(legs_in),
             "contradicted_n": contradicted,
             "other_denominations": comp["other_denominations"]}
@@ -1219,15 +1309,23 @@ def dislocations(priced: list, now: datetime | None = None) -> dict:
         freshness = _clamp01(1.0 - (age or WRAPPER_STALE_HOURS) / WRAPPER_STALE_HOURS)
         vol = _num(w.get("volume_24h")) or 0.0
         depth = _clamp01(math.log10(max(vol, 1.0) / WRAPPER_LIVE_VOL_USD + 1.0) / 2.0)
-        conf = round(100.0 * (0.40 * breadth + 0.30 * freshness + 0.30 * depth), 1)
+        # NOT a confidence in a trade, and deliberately not called one. It scores how well
+        # EVIDENCED the divergence reading is — how many comparable wrappers formed the
+        # median, how fresh this leg is, how much volume stands behind it — and says
+        # nothing about whether the gap survives a spread. An earlier version published
+        # this as `confidence` next to an `executable: false`, which reads as "we are
+        # confident this is executable"; it reached 100 on rows where no execution
+        # evidence existed at all.
+        evidence = round(100.0 * (0.40 * breadth + 0.30 * freshness + 0.30 * depth), 1)
         legs.append({
             "token_id": w["token_id"], "symbol": w.get("symbol"),
             "issuer_id": w.get("issuer_id"), "price": _num(w["price"]),
             "basis_bps": round(basis_bps, 1), "volume_24h": vol,
             "age_hours": None if age is None else round(age, 1),
-            "confidence": conf,
-            "executable": False,
-            "executable_blocked_by": "per-venue spread and depth need /rwas/{id}/tickers",
+            "stage": DIVERGENCE_STAGE,
+            "observation_evidence": evidence,
+            "execution_evidence": EXECUTION_UNAVAILABLE,
+            "executable_after_friction": None,
             "join_rule": w.get("join_rule"),
         })
     # Belt and braces. `usable` already removed these before the median was taken, so
@@ -1259,7 +1357,11 @@ def wrapper_score(w: dict, peer: dict, issuer: dict | None = None) -> dict:
         integrity     30   distance from the live peer median, and freshness
         distribution  20   chains it exists on, and whether it is the concentrated one
         issuer        15   the issuer's own float and turnover behind it
-        execution      0   bid/ask and cost-to-move — needs /rwas/{id}/tickers
+        execution     20   bid/ask, depth and cost-to-move — DECLARED and UNAVAILABLE
+
+    The score is rescaled over the four that can be priced and carries `coverage`, which
+    on this plan is 83.3% and cannot be higher. It is not a complete score with one
+    component omitted; it is an incomplete score that says so.
 
     A wrapper that fails the liveness gate is not scored low, it is not scored. Ranking
     a three-week-stale token at 8/100 invites the reading that it is a worse version of
@@ -1281,7 +1383,7 @@ def wrapper_score(w: dict, peer: dict, issuer: dict | None = None) -> dict:
 
     vol = _num(w.get("volume_24h")) or 0.0
     peer_vol = _num(peer.get("total_volume")) or 0.0
-    c_liq = 35.0 * (0.6 * _clamp01(
+    c_liq = W_W_LIQ * (0.6 * _clamp01(
         math.log10(max(vol, LIQ_FLOOR_USD) / LIQ_FLOOR_USD)
         / math.log10(LIQ_CEIL_USD / LIQ_FLOOR_USD))
         + 0.4 * _clamp01(vol / peer_vol if peer_vol > 0 else 0.0))
@@ -1309,25 +1411,34 @@ def wrapper_score(w: dict, peer: dict, issuer: dict | None = None) -> dict:
         tight = 0.5
     age = liveness.get("age_hours")
     fresh = _clamp01(1.0 - (age or WRAPPER_STALE_HOURS) / WRAPPER_STALE_HOURS)
-    c_int = 30.0 * (0.7 * tight + 0.3 * fresh)
+    c_int = W_W_INT * (0.7 * tight + 0.3 * fresh)
 
     chains = len(w.get("chains") or [])
-    c_dist = 20.0 * _clamp01(chains / float(DIST_CHAINS_FULL))
+    c_dist = W_W_DIST * _clamp01(chains / float(DIST_CHAINS_FULL))
 
     iss_mcap = _num((issuer or {}).get("market_cap")) or 0.0
     iss_vol = _num((issuer or {}).get("volume_24h")) or 0.0
     iss_turn = (iss_vol / iss_mcap) if iss_mcap > 0 else None
-    c_iss = 15.0 * (0.6 * _clamp01(math.log10(max(iss_mcap, 1e6) / 1e6) / 4.0)
+    c_iss = W_W_ISS * (0.6 * _clamp01(math.log10(max(iss_mcap, 1e6) / 1e6) / 4.0)
                     + 0.4 * (_clamp01((iss_turn or 0.0) / TURNOVER_HEALTHY_HI)))
 
-    total = c_liq + c_int + c_dist + c_iss
+    # Same rule as rwa_conviction: execution is declared, unpriceable, and IN the
+    # denominator. Scoring four components out of a declared five and calling the result
+    # a complete wrapper score is the redistribution this guards against — the score is
+    # rescaled over what was priced and stamped with how much that was.
+    priced = c_liq + c_int + c_dist + c_iss
+    priced_weight = W_W_LIQ + W_W_INT + W_W_DIST + W_W_ISS
+    declared_weight = priced_weight + W_W_EXEC
+    total = 100.0 * priced / priced_weight
     return {
         "score": round(total, 1),
         "label": rwa_label(total),
+        "coverage": round(100.0 * priced_weight / declared_weight, 1),
+        "absent": ["execution"],
         "components": {"liquidity": round(c_liq, 1), "integrity": round(c_int, 1),
                        "distribution": round(c_dist, 1), "issuer": round(c_iss, 1),
                        "execution": None},
-        "execution_blocked_by": "per-venue spread and depth need /rwas/{id}/tickers",
+        "execution_evidence": EXECUTION_UNAVAILABLE,
         "reason": (f"${vol:,.0f} 24h on {chains or 'no listed'} chain(s), "
                    + ("a different denomination from the deepest wrapper, so no basis"
                       if other_denom else
@@ -1391,12 +1502,11 @@ def score_distribution(wrappers_live: int, issuers_n: int, chains_n: int, hhi) -
 
 
 def score_impulse(residual_pct_trail: list) -> float | None:
-    """Adoption, measured as net issuance — never as price momentum.
+    """Adoption, measured as implied supply change — never as price momentum.
 
-    Takes the recorded daily net-issuance series and scores its CUMULATIVE growth, not
-    its latest print. Supply is a stock and issuance is its flow; a single day's mint
-    says almost nothing, and the same 1% arriving on twelve consecutive days is the
-    finding.
+    Takes the recorded daily impulse series and scores its CUMULATIVE growth, not its
+    latest print. Supply is a stock and its change is a flow; a single day says almost
+    nothing, and the same 1% arriving on twelve consecutive days is the finding.
 
     ``None`` when there is no recorded history yet, which on the first night is every
     row. That is what the coverage mechanism is for: the component is absent rather than
@@ -1407,7 +1517,7 @@ def score_impulse(residual_pct_trail: list) -> float | None:
     vals = [v for v in vals if v is not None]
     if not vals:
         return None
-    # Compound rather than sum: these are percentage changes in units outstanding, and
+    # Compound rather than sum: these are percentage changes in implied units, and
     # adding them overstates a long run of growth exactly as adding daily returns does.
     growth = 1.0
     for v in vals:
@@ -1454,9 +1564,12 @@ def rwa_conviction(components: dict) -> dict:
     got = {k: _num(v) for k, v in (components or {}).items()}
     got = {k: v for k, v in got.items() if v is not None and k in COMPONENT_WEIGHTS}
     priced = sum(COMPONENT_WEIGHTS[k] for k in got)
-    total = sum(COMPONENT_WEIGHTS.values())
+    # Against the DECLARED total, which includes execution. A score computed over four of
+    # five components is not a complete score just because the fifth was excluded from the
+    # arithmetic, and reporting 100% there is the specific dishonesty this guards.
+    total = sum(DECLARED_WEIGHTS.values())
     coverage = 100.0 * priced / total if total else 0.0
-    absent = sorted(set(COMPONENT_WEIGHTS) - set(got))
+    absent = sorted(set(DECLARED_WEIGHTS) - set(got))
     if coverage < RWA_MIN_COVERAGE or priced <= 0:
         return {"score": None, "label": RWA_UNRATED, "coverage": round(coverage, 1),
                 "absent": absent,
@@ -1466,7 +1579,9 @@ def rwa_conviction(components: dict) -> dict:
     score = 100.0 * sum(got.values()) / priced
     return {"score": round(score, 1), "label": rwa_label(score),
             "coverage": round(coverage, 1), "absent": absent,
-            "reason": (f"{coverage:.0f}% of model weight priced"
+            "max_coverage_on_this_plan": round(
+                100.0 * sum(COMPONENT_WEIGHTS.values()) / sum(DECLARED_WEIGHTS.values()), 1),
+            "reason": (f"{coverage:.0f}% of declared model weight priced"
                        + (f"; absent: {', '.join(absent)}" if absent else ""))}
 
 
@@ -1496,8 +1611,24 @@ def rwa_label(score) -> str:
 # list is written down, its last covered year is declared, and `session_calendar_status`
 # refuses to answer past it rather than assuming every weekday is a session. The refusal
 # is the maintenance trigger — this needs an owner and a review each December.
+# MERGE PREREQUISITE, not a preference: this hand-maintained table must be replaced by a
+# pinned, tested exchange-calendar implementation BEFORE 2027-12-31. It is not the
+# permanent architecture and should not become it by default.
+#
+# Why it is still here: the nightly runs on the standard library with no install step, and
+# every maintained exchange-calendar package (exchange_calendars, pandas_market_calendars)
+# brings pandas with it. Adding that to this workflow is a bigger change than this branch
+# should make, and it is a decision with an owner rather than a detail.
+#
+# What makes it safe in the meantime is the refusal below: past the horizon every reading
+# is withheld rather than measured against an assumed session. The refusal IS the
+# maintenance trigger, and it fires loudly rather than degrading quietly.
+#
+# What is never acceptable, with or without a library: inferring that a weekday is a
+# trading day.
 CALENDAR_FIRST_YEAR = 2026
 CALENDAR_LAST_YEAR = 2027
+CALENDAR_REPLACEMENT_DUE = "2027-12-31"
 NYSE_HOLIDAYS = frozenset({
     # 2026
     "2026-01-01", "2026-01-19", "2026-02-16", "2026-04-03", "2026-05-25",
@@ -1517,6 +1648,55 @@ SESSION_EARLY_CLOSE_ET = (13, 0)
 # label distinguishes them because a 65-hour weekend and a 17-hour overnight accumulate
 # very different amounts of information.
 WEEKEND_MIN_HOURS = 40.0
+
+# ---------------------------------------------------------------------------
+# the equity leg, and why it is pending rather than sourced
+# ---------------------------------------------------------------------------
+# Audited before writing any of this: there is no cash-equity data in this repository.
+# The "sibling equity project" that nightly.py and the ledger validator mention appears
+# only in their prose — it is a different repository, and nothing here imports, reads or
+# is configured to reach it. No ledger carries a session close, a session date or an
+# official opening print, and no equity provider secret is configured in any workflow.
+#
+# So the Monday-gap half of this reading is PENDING, and no provider is being added for
+# it. That is a deliberate scope refusal: a new vendor and a new secret to complete one
+# panel is a larger commitment than the panel is worth today, and the tokenized side
+# accumulates perfectly well without it.
+#
+# What a future equity source must satisfy, so the coupling stays clean when it arrives:
+# a persisted artifact this module READS, never a runtime call into another repository.
+# The shape below is the whole interface — one row per symbol per session — and nothing
+# in this file will consume anything wider.
+EQUITY_ARTIFACT = "ledger/equity_sessions.csv"
+EQUITY_REQUIRED_FIELDS = ("symbol", "session_date", "prior_close", "official_open")
+EQUITY_PENDING = "PENDING EQUITY PRINT HISTORY"
+
+
+def equity_prints(ledger_dir: Path | None = None) -> dict:
+    """Whatever cash-equity session prints have been persisted for this module to read.
+
+    Read-only and artifact-shaped on purpose. A direct call into another project's code
+    would couple two nightlies at runtime and make each one's failure the other's; a file
+    that either exists or does not is a boundary that survives either side changing.
+
+    Returns a report rather than a value, so the absence is a state the artifact carries
+    rather than an exception the caller has to know about.
+    """
+    path = (ledger_dir or LEDGER_DIR) / Path(EQUITY_ARTIFACT).name
+    if not path.exists():
+        return {"status": "pending", "detail": (
+            f"no {EQUITY_ARTIFACT} in this repository. Audited: no ledger carries a "
+            f"session close, session date or official opening print, and no equity "
+            f"provider is configured in any workflow. The implied gap stays "
+            f"{EQUITY_PENDING} and the tokenized inputs accumulate meanwhile."),
+            "rows": {}}
+    rows = {}
+    for r in read_rows(path, list(EQUITY_REQUIRED_FIELDS)):
+        sym = (r.get("symbol") or "").lower()
+        if sym:
+            rows.setdefault(sym, []).append(r)
+    return {"status": "live" if rows else "empty",
+            "detail": f"{len(rows)} symbol(s) of cash-session prints", "rows": rows}
 # Sparkline arrays carry no timestamps, so the hour of each point is INFERRED from
 # last_updated. Every reading built on that inference says so.
 #
@@ -1660,10 +1840,11 @@ def offhours_reading(row: dict, wrappers_live: list, dispersion_bps,
 
     What it deliberately does NOT publish: an implied Monday gap or a confidence in one.
     Converting a tokenized drift into an expected cash-open gap needs the cash prints as
-    the other half of the pair, and CoinGecko does not carry them — its own "underlying"
-    price is a blend of these same wrappers. Publishing a gap from one side of that
-    relationship would be inventing the side that was never measured. The inputs are
-    recorded so the study becomes possible the night an equity feed is connected.
+    the other half of the pair. This repository has none — see EQUITY_ARTIFACT above for
+    the audit — and CoinGecko cannot supply them, because its own "underlying" price is a
+    blend of these same wrappers. Publishing a gap from one side of that relationship
+    would be inventing the side nobody measured, so the state is PENDING and the inputs
+    accumulate.
     """
     cal = session_calendar_status(now)
     if not cal["ok"]:
@@ -1721,12 +1902,16 @@ def offhours_reading(row: dict, wrappers_live: list, dispersion_bps,
         "dispersion_bps": dispersion_bps,
         "volume_ratio": volume_ratio,
         "implied_gap_pct": None,
-        "confidence": None,
+        "implied_gap_state": EQUITY_PENDING,
+        "implied_gap_confidence": None,
         "implied_gap_blocked_by": (
             "an implied cash-open gap needs the underlying's own equity prints as the "
-            "other half of the pair. CoinGecko does not carry them — its 'underlying' "
-            "price is a blend of these same wrappers — so the gap is withheld and its "
-            "inputs are recorded until an equity feed is connected."),
+            "other half of the pair, and this repository has none: audited, no ledger "
+            "carries a session close or an official opening print and no equity provider "
+            "is configured. CoinGecko cannot supply it — its 'underlying' price is a "
+            "blend of these same wrappers. The gap is therefore withheld, no vendor is "
+            "being added for it, and the tokenized inputs above are recorded nightly so "
+            f"the study runs the day {EQUITY_ARTIFACT} exists."),
     }
 
 
@@ -1749,6 +1934,7 @@ RWA_FLOW_FIELDS = [
     "price_chg_pct", "impulse", "span_days", "supply_index",
     "wrappers_n", "wrappers_live", "issuers_n", "chains_n",
     "dispersion_bps", "conviction", "label", "coverage", "spec_hash",
+    "degraded", "peer_set_complete",
 ]
 RWA_ISSUER_FIELDS = [
     "date", "issuer_id", "name", "market_cap", "market_cap_change_24h",
@@ -1759,6 +1945,172 @@ RWA_WRAPPER_FIELDS = [
     "price", "market_cap", "volume_24h", "chains", "live", "age_hours",
     "basis_bps", "wrapper_score",
 ]
+
+
+# ---------------------------------------------------------------------------
+# the evidence contract for the historical record
+# ---------------------------------------------------------------------------
+# The dataset is the asset. Everything else in this module can be rebuilt from a fresh
+# fetch; the recorded series cannot, because /rwas/{id}/market_chart answers 401. So the
+# write path carries an explicit contract rather than a convention, and the invariant at
+# the top of it is the one that matters:
+#
+#     A DEGRADED OR PARTIAL FETCH MAY NEVER REPLACE A COMPLETE CANONICAL OBSERVATION.
+#
+# Three real failures motivated each clause. A 429 lost an issuer and the run wrote a
+# thinner graph over a fuller one. A 414 lost 250 wrappers and the run published medians
+# computed from whichever peers survived — an incomplete peer set does not merely hide
+# signal, it manufactures it. And a same-day re-run read the row it had just written and
+# recorded a 0.0% impulse over a real one.
+#
+# The clauses:
+#   * observations are persisted BEFORE any derivation, in their own file
+#   * every run writes a manifest row: what was asked for, what came back, and the
+#     vendor's own timestamp — not merely ours
+#   * publication is atomic, so a killed process cannot leave a half-written ledger
+#   * a re-run at equal or better completeness replaces; a worse one is quarantined
+#   * quarantined runs are KEPT, as diagnostic evidence, and never promoted
+#   * a derived row computed from an incomplete peer set is marked degraded on the row
+RUN_COMPLETE = "complete"
+RUN_DEGRADED = "degraded"
+RUN_FAILED = "failed"
+RUN_RANK = {RUN_FAILED: 0, RUN_DEGRADED: 1, RUN_COMPLETE: 2}
+
+RWA_OBSERVED_FIELDS = [
+    "date", "run_ts", "underlying_id", "symbol", "asset_type",
+    "price", "market_cap", "total_volume", "source_last_updated",
+]
+RWA_RUN_FIELDS = [
+    "date", "run_ts", "run_status", "spec_hash", "plan",
+    "underlyings_listed", "underlyings_observed", "issuers_expected", "issuers_received",
+    "wrappers_in_graph", "wrappers_priced", "wrappers_unresolved",
+    "feed_list", "feed_markets", "feed_issuers", "feed_wrappers",
+    "coverage_pct", "promoted", "note",
+]
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via a sibling temp file and one rename.
+
+    A process killed midway through a direct write leaves a truncated file that still
+    parses as CSV — a shorter ledger that looks like a real one. os.replace is atomic on
+    the same filesystem, so a reader sees either the old file or the new one.
+    """
+    import os
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def run_completeness(feeds: dict, graph: dict, observed_n: int, listed_n: int,
+                     issuers_received: int = 0, issuers_listed: int = 0) -> dict:
+    """What was asked for against what came back, and the resulting run status.
+
+    COMPLETE requires every feed live AND every wrapper in the graph priced. Anything
+    less is DEGRADED — including the case where all four feeds report "live" but the
+    wrapper set came back short, because that is exactly how the 414 presented.
+
+    ``coverage_pct`` is CONTINUOUS, and that is a correction. It began as three booleans,
+    which meant a run that fetched 31 of 34 issuers and one that fetched 33 both scored
+    66.7 — so the promotion rule, whose whole job is to prefer the fuller observation,
+    could not tell them apart and let the thinner one publish over the fuller. Measured
+    on a live pair, which is how it was found. Fractions, not flags.
+    """
+    named = ("list", "markets", "issuers", "wrappers")
+    statuses = {k: (feeds.get(k) or {}).get("status") for k in named}
+    wrappers_n = len(graph.get("wrappers") or [])
+    priced = int(graph.get("wrappers_priced") or 0)
+    all_live = all(statuses.get(k) == "live" for k in named)
+    peers_whole = wrappers_n > 0 and priced >= wrappers_n
+    observed_whole = listed_n > 0 and observed_n >= listed_n - LIST_MARKETS_GAP_EXPECTED
+
+    if statuses.get("list") not in ("live", "partial") or observed_n == 0:
+        status = RUN_FAILED
+    elif all_live and peers_whole and observed_whole:
+        status = RUN_COMPLETE
+    else:
+        status = RUN_DEGRADED
+
+    def share(got, want):
+        return 1.0 if want <= 0 else _clamp01(got / float(want))
+
+    shares = {
+        "feeds": sum(1 for k in named if statuses.get(k) == "live") / float(len(named)),
+        "wrappers": share(priced, wrappers_n),
+        "issuers": share(issuers_received, issuers_listed or issuers_received),
+        "universe": share(observed_n, max(1, listed_n - LIST_MARKETS_GAP_EXPECTED)),
+    }
+    return {
+        "status": status,
+        "feeds": statuses,
+        "all_feeds_live": all_live,
+        "peer_set_complete": peers_whole,
+        "universe_complete": observed_whole,
+        "shares": {k: round(v, 4) for k, v in shares.items()},
+        "coverage_pct": round(100.0 * sum(shares.values()) / len(shares), 2),
+        "wrappers_priced": priced, "wrappers_in_graph": wrappers_n,
+        "issuers_received": issuers_received, "issuers_listed": issuers_listed,
+        "observed_n": observed_n, "listed_n": listed_n,
+        "note": ("every feed live, every wrapper priced, universe whole"
+                 if status == RUN_COMPLETE else
+                 "; ".join(filter(None, [
+                     None if all_live else "a feed did not come back live",
+                     None if peers_whole else
+                     f"{wrappers_n - priced} wrapper(s) unpriced — medians and integrity "
+                     f"are computed from an incomplete peer set",
+                     None if observed_whole else
+                     f"{listed_n - observed_n} underlying(s) not observed"]))),
+    }
+
+
+def prior_run_quality(path: Path, today: str):
+    """The quality of the best run already promoted for ``today``: (rank, coverage).
+
+    None when nothing has been promoted yet.
+    """
+    best = None
+    for r in read_rows(path, RWA_RUN_FIELDS):
+        if r.get("date") != today or str(r.get("promoted") or "") != "1":
+            continue
+        q = (RUN_RANK.get((r.get("run_status") or "").strip(), -1),
+             _num(r.get("coverage_pct")) or 0.0)
+        if best is None or q > best:
+            best = q
+    return best
+
+
+def prior_run_status(path: Path, today: str) -> str | None:
+    """The status word of the best run already promoted for ``today``, for reporting."""
+    q = prior_run_quality(path, today)
+    if q is None:
+        return None
+    return next((k for k, v in RUN_RANK.items() if v == q[0]), None)
+
+
+def may_promote(new_status: str, prior_status: str | None,
+                new_coverage: float | None = None,
+                prior_quality=None) -> bool:
+    """The invariant, in one function so it can be tested in one place.
+
+    A run may publish over today's canonical rows only when it is at least as good as
+    whatever already stands there, compared on (status rank, coverage) in that order.
+
+    Status alone was not enough, and the live run is what showed it: a night where one
+    issuer 429s is DEGRADED, and a retry that lost a whole wrapper batch is also
+    DEGRADED — equal rank, and under a rank-only rule the thinner run would have replaced
+    the fuller one. Coverage is the tie-break, so "may never replace a more complete
+    observation" holds inside a status as well as across statuses.
+
+    Equal on both replaces, which is what keeps an identical re-run idempotent.
+    """
+    if new_status == RUN_FAILED:
+        return False
+    if prior_status is None and prior_quality is None:
+        return True
+    prior_q = prior_quality if prior_quality is not None else (
+        RUN_RANK.get(prior_status, -1), 0.0)
+    return (RUN_RANK.get(new_status, -1), float(new_coverage or 0.0)) >= prior_q
 
 
 def read_rows(path: Path, fields: list) -> list:
@@ -1780,14 +2132,26 @@ def append_daily_rows(path: Path, fields: list, today: str, rows: list) -> int:
     and a supply chain that reads the file as a daily series then compounds one day's
     issuance nine times.
     """
+    import io
     kept = [r for r in read_rows(path, fields) if r.get("date") != today]
     fresh = [{k: r.get(k) for k in fields} for r in rows]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        w.writeheader()
-        w.writerows(kept + fresh)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=fields, lineterminator="\r\n")
+    w.writeheader()
+    w.writerows(kept + fresh)
+    _atomic_write(path, buf.getvalue())
     return len(fresh)
+
+
+def _append_manifest(path: Path, row: dict) -> None:
+    """Append one run row. Never replaces, so the record of every attempt survives."""
+    import io
+    existing = read_rows(path, RWA_RUN_FIELDS)
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=RWA_RUN_FIELDS, lineterminator="\r\n")
+    w.writeheader()
+    w.writerows(existing + [{k: row.get(k) for k in RWA_RUN_FIELDS}])
+    _atomic_write(path, buf.getvalue())
 
 
 def _prior_flow(path: Path = None, today: str | None = None) -> dict:
@@ -1831,7 +2195,7 @@ def _span_days(prev_date: str, today: str) -> int:
 def _daily_rate(residual_pct, span_days: int):
     """Geometric daily rate from a residual measured across ``span_days``.
 
-    A gap in the chain does not invalidate the residual — units still changed by exactly
+    A gap in the chain does not invalidate the residual — implied units still changed by
     that much between the two observations — but it does change what the number means. 3%
     over seven nights is 0.42% a day and reads NEUTRAL; labelling it MINTING because the
     raw figure crossed a daily threshold would turn an outage into a signal. The raw
@@ -1861,7 +2225,8 @@ def assemble(underlying_rows: list, graph: dict, wrapper_prices: dict,
              prior: dict, today: str, now: datetime,
              volume_baseline: dict | None = None,
              impulse_trail: dict | None = None,
-             issuers_by_id: dict | None = None) -> dict:
+             issuers_by_id: dict | None = None,
+             degraded: bool = False) -> dict:
     """Join every feed into the board, the wrapper tape and the flow rows.
 
     Pure: no network and no clock of its own. Everything it needs arrives as an
@@ -1872,6 +2237,12 @@ def assemble(underlying_rows: list, graph: dict, wrapper_prices: dict,
     volume_baseline = volume_baseline or {}
     impulse_trail = impulse_trail or {}
     issuers_by_id = issuers_by_id or {}
+    # A run-level degradation marks EVERY row it produced. The 414 that lost 250 wrappers
+    # published medians computed from whichever peers survived, and those rows were
+    # indistinguishable from rows computed over a whole peer set — an incomplete
+    # cross-section does not merely hide signal, it manufactures it. Per-row peer
+    # completeness is recorded alongside, because an underlying whose own wrappers all
+    # priced is still clean on a night when another underlying's did not.
     board, flow_rows, wrapper_rows, tape = [], [], [], []
     sh = spec_hash()
 
@@ -1970,8 +2341,13 @@ def assemble(underlying_rows: list, graph: dict, wrapper_prices: dict,
         vol_ratio = (round(vol / base, 2) if (vol and base and base > 0) else None)
         oh = offhours_reading(row, live, disloc.get("dispersion_bps"), now, vol_ratio)
 
+        # This underlying's own peer set: did every wrapper the graph knows about get a
+        # price tonight?
+        row_peers_whole = all(wrapper_prices.get(w["token_id"]) for w in by_underlying.get(uid, []))
+        row_degraded = bool(degraded) or not row_peers_whole
         rec = {
             "id": uid, "symbol": row.get("symbol"), "name": row.get("name"),
+            "degraded": row_degraded, "peer_set_complete": bool(row_peers_whole),
             "asset_type": row.get("asset_type"), "image": row.get("image"),
             "price": price, "market_cap": mcap, "total_volume": vol,
             "price_chg_pct_24h": _num(tmd.get("price_change_percentage_24h")),
@@ -2029,6 +2405,7 @@ def assemble(underlying_rows: list, graph: dict, wrapper_prices: dict,
             "dispersion_bps": disloc.get("dispersion_bps"),
             "conviction": conv["score"], "label": conv["label"],
             "coverage": conv["coverage"], "spec_hash": sh,
+            "degraded": int(row_degraded), "peer_set_complete": int(bool(row_peers_whole)),
         })
 
     board.sort(key=lambda r: (r["conviction"] is None, -(r["conviction"] or 0)))
@@ -2038,7 +2415,7 @@ def assemble(underlying_rows: list, graph: dict, wrapper_prices: dict,
 
 
 def flow_series(path: Path = None, window: int = 30, today: str | None = None) -> dict:
-    """Trailing net-issuance series per underlying, oldest first.
+    """Trailing tokenization-impulse series per underlying, oldest first.
 
     This is what ``score_impulse`` consumes, and it is read from the recorded ledger
     rather than recomputed, because the recorded series is the one that actually existed
@@ -2127,19 +2504,53 @@ def snapshot(session: dict | None = None, getter=None, sleep=None,
     # The two paid endpoints, recorded as declared absences rather than omitted. A reader
     # of the artifact should be able to see what this model could not ask for.
     feeds["tickers"] = {"status": "unavailable", "http_status": 401,
-                        "detail": ("/rwas/{id}/tickers is Basic plan or above — per-venue "
-                                   "spread, depth and cost-to-move are therefore not "
-                                   "computed, and execution carries zero weight")}
+                        "detail": ("/rwas/{id}/tickers is Basic plan or above — bid/ask, "
+                                   "cost-to-move, venue depth and the stale/anomaly/trust "
+                                   "fields are therefore not computed. Execution is a "
+                                   "declared component of both models, is UNAVAILABLE, and "
+                                   "its weight is NOT redistributed: it sits in the "
+                                   "denominator so coverage can never read complete.")}
     feeds["market_chart"] = {"status": "unavailable", "http_status": 401,
                              "detail": ("/rwas/{id}/market_chart is Basic plan or above — "
                                         "the net-issuance series cannot be backfilled and "
                                         "exists only from the first night recorded here")}
 
+    # ---- OBSERVATION, captured before anything is derived from it ---------------
+    # The vendor's own fields and its own timestamp, in their own rows. Everything below
+    # is a calculation over these, and a calculation whose inputs were never written down
+    # is not auditable later — which matters most for the one series that cannot be
+    # re-fetched at any price.
+    observed_rows = [{
+        "date": today, "run_ts": now.isoformat(),
+        "underlying_id": row.get("id"), "symbol": row.get("symbol"),
+        "asset_type": row.get("asset_type"),
+        "price": _num((row.get("tokenized_market_data") or {}).get("current_price")),
+        "market_cap": _num((row.get("tokenized_market_data") or {}).get("market_cap")),
+        "total_volume": _num((row.get("tokenized_market_data") or {}).get("total_volume")),
+        "source_last_updated": (row.get("tokenized_market_data") or {}).get("last_updated"),
+    } for row in market_rows]
+
+    graph_stats = dict(graph)
+    graph_stats["wrappers_priced"] = len(wrapper_prices)
+    completeness = run_completeness(feeds, graph_stats, len(observed_rows), len(underlyings),
+                                    len(issuers), iss_rep.get("listed_n") or len(issuers))
+    # How far the freshest source timestamp leads the run's own clock. A few minutes is
+    # the run's own duration; more than an hour is a clock worth investigating.
+    completeness["source_clock_lead_hours"] = _clock_skew_hours(
+        [r["source_last_updated"] for r in observed_rows]
+        + [w.get("last_updated") for w in wrapper_prices.values()], now)
+    runs_csv = ledger_dir / "rwa_runs.csv"
+    prior_quality = prior_run_quality(runs_csv, today)
+    prior_status = prior_run_status(runs_csv, today)
+    promote = may_promote(completeness["status"], prior_status,
+                          completeness["coverage_pct"], prior_quality)
+
     prior = _prior_flow(flow_csv, today)
     trail = flow_series(flow_csv, today=today)
     baseline = volume_baseline(flow_csv, today=today)
     built = assemble(market_rows, graph, wrapper_prices, prior, today, now,
-                     baseline, trail, {i["id"]: i for i in issuers})
+                     baseline, trail, {i["id"]: i for i in issuers},
+                     degraded=not completeness["peer_set_complete"])
 
     live_by_issuer = {}
     for w in built["wrapper_rows"]:
@@ -2158,24 +2569,63 @@ def snapshot(session: dict | None = None, getter=None, sleep=None,
             "live_tokens_n": live_by_issuer.get(i["id"], 0),
         })
 
-    written, skipped = {}, {}
+    written, skipped, quarantined = {}, {}, {}
     if write:
-        # An EMPTY row set is never written, and this is not a micro-optimisation.
-        # append_daily_rows replaces today's rows, which is the right rule for a re-run
-        # with data and exactly the wrong one without: a second run on a night the feed
-        # was down would keep every prior day, write nothing for today, and erase the
-        # good rows the first run recorded. On the flow ledger that is unrecoverable —
-        # /rwas/{id}/market_chart cannot backfill it — so a run with nothing to say
-        # leaves the file alone and reports that it did.
-        for name, fields, rows in (
-                ("rwa_flow.csv", RWA_FLOW_FIELDS, built["flow_rows"]),
-                ("rwa_issuers.csv", RWA_ISSUER_FIELDS, issuer_rows),
-                ("rwa_wrappers.csv", RWA_WRAPPER_FIELDS, built["wrapper_rows"])):
-            if rows:
-                written[name] = append_daily_rows(ledger_dir / name, fields, today, rows)
-            else:
-                skipped[name] = ("nothing to record tonight; the existing file is left "
-                                 "untouched rather than emptied of today")
+        run_row = {
+            "date": today, "run_ts": now.isoformat(),
+            "run_status": completeness["status"], "spec_hash": spec_hash(),
+            "plan": session.get("plan"),
+            "underlyings_listed": len(underlyings),
+            "underlyings_observed": len(observed_rows),
+            "issuers_expected": completeness.get("issuers_listed"),
+            "issuers_received": len(issuers),
+            "wrappers_in_graph": len(graph["wrappers"]),
+            "wrappers_priced": len(wrapper_prices),
+            "wrappers_unresolved": len(graph["unresolved"]),
+            "feed_list": completeness["feeds"].get("list"),
+            "feed_markets": completeness["feeds"].get("markets"),
+            "feed_issuers": completeness["feeds"].get("issuers"),
+            "feed_wrappers": completeness["feeds"].get("wrappers"),
+            "coverage_pct": completeness["coverage_pct"],
+            "promoted": int(bool(promote)), "note": completeness["note"],
+        }
+        # The manifest is APPENDED, never replaced — every run of every night is kept,
+        # promoted or not. A rejected run IS the evidence that a rejection happened, and a
+        # ledger that silently drops its failures cannot be audited for the one thing this
+        # contract exists to guarantee.
+        _append_manifest(ledger_dir / "rwa_runs.csv", run_row)
+        written["rwa_runs.csv"] = 1
+
+        if promote:
+            # An EMPTY row set is still never written: append_daily_rows replaces today's
+            # rows, which is right for a re-run with data and exactly wrong without it.
+            for name, fields, rows in (
+                    ("rwa_observed.csv", RWA_OBSERVED_FIELDS, observed_rows),
+                    ("rwa_flow.csv", RWA_FLOW_FIELDS, built["flow_rows"]),
+                    ("rwa_issuers.csv", RWA_ISSUER_FIELDS, issuer_rows),
+                    ("rwa_wrappers.csv", RWA_WRAPPER_FIELDS, built["wrapper_rows"])):
+                if rows:
+                    written[name] = append_daily_rows(ledger_dir / name, fields, today, rows)
+                else:
+                    skipped[name] = ("nothing to record tonight; the existing file is "
+                                     "left untouched rather than emptied of today")
+        else:
+            # The invariant doing its job. A 429 that lost an issuer or a 414 that lost a
+            # quarter of the wrapper set must not overwrite the night that got them all.
+            # The run is retained where nothing derives from it.
+            _append_manifest(ledger_dir / "rwa_quarantine.csv", run_row)
+            quarantined = {
+                "reason": (
+                    f"this run is {completeness['status']} at "
+                    f"{completeness['coverage_pct']}% coverage; {prior_status} rows at "
+                    f"{(prior_quality or (0, 0.0))[1]}% already stand for {today}. A fetch "
+                    f"that saw less may not replace a more complete canonical observation."),
+                "run_status": completeness["status"],
+                "run_coverage_pct": completeness["coverage_pct"],
+                "prior_status": prior_status,
+                "prior_coverage_pct": (prior_quality or (0, None))[1],
+                "note": completeness["note"], "retained_in": "rwa_quarantine.csv",
+            }
 
     board = built["board"]
     graded = [r for r in board if r["conviction"] is not None]
@@ -2187,9 +2637,34 @@ def snapshot(session: dict | None = None, getter=None, sleep=None,
                     "detail": session.get("detail")},
         "feeds": feeds,
         "calendar": session_calendar_status(now),
+        "equity_leg": {**{k: v for k, v in equity_prints(ledger_dir).items() if k != "rows"},
+                       "required_fields": list(EQUITY_REQUIRED_FIELDS),
+                       "artifact": EQUITY_ARTIFACT,
+                       "gap_state": EQUITY_PENDING},
+        "impulse_provenance": {
+            "kind": "DERIVED",
+            "observed": ["tokenized_market_data.current_price",
+                         "tokenized_market_data.market_cap"],
+            "identity": "MC_t / (MC_{t-1} * P_t / P_{t-1}) = implied_units_t / implied_units_{t-1}",
+            "claim": "implied change in tokenized supply",
+            "not_a_claim": ("net issuance, mint minus redemption, or any verified "
+                            "on-chain supply fact"),
+            "unverified_assumption": (
+                "that CoinGecko's historical market cap equals contemporaneous "
+                "circulating units times the same published price, with no supply "
+                "revision, reclassification or backfill. This is not documented and has "
+                "not been checked against an issuance source, because no free one exists "
+                "for these tokens. A vendor restating supply would move this series with "
+                "no token minted, and nothing here could tell the difference."),
+            "would_promote_it": "a token-supply or mint/burn feed to corroborate against",
+        },
         "model": {
-            "weights": dict(COMPONENT_WEIGHTS),
+            "declared_weights": dict(DECLARED_WEIGHTS),
+            "priceable_weights": dict(COMPONENT_WEIGHTS),
             "execution_weight": W_EXECUTION,
+            "execution_status": EXECUTION_UNAVAILABLE,
+            "max_coverage_on_this_plan": round(
+                100.0 * sum(COMPONENT_WEIGHTS.values()) / sum(DECLARED_WEIGHTS.values()), 1),
             "min_coverage": RWA_MIN_COVERAGE,
             "labels": {"DEEP": RWA_T_DEEP, "SOUND": RWA_T_SOUND, "THIN": RWA_T_THIN,
                        "FRAGILE": RWA_T_FRAGILE, "DORMANT": 0.0},
@@ -2226,16 +2701,40 @@ def snapshot(session: dict | None = None, getter=None, sleep=None,
                      f"{WRAPPER_STALE_HOURS:.0f}h. They are in the ledger, not the ranking."),
         },
         "tape": built["tape"][:200],
-        "tape_note": ("Wrapper against wrapper, priced on the median of the LIVE wrappers "
-                      "for that underlying. NOT against tokenized_market_data.current_price, "
-                      "which is a blend of these same wrappers. NOT executable: spread, "
-                      "depth and cost-to-move need /rwas/{id}/tickers. Informational."),
+        "tape_kind": "wrapper_price_divergence",
+        "tape_stage": DIVERGENCE_STAGE,
+        "tape_note": ("WRAPPER PRICE DIVERGENCE — pre-execution. Wrapper against wrapper, "
+                      "on the median of the live wrappers sharing the deepest "
+                      "denomination. NOT against tokenized_market_data.current_price, "
+                      "which is a blend of these same wrappers. NOT an executable "
+                      "dislocation, an executable basis, or an after-friction "
+                      "opportunity: bid/ask, depth, cost-to-move and the trust fields all "
+                      "need /rwas/{id}/tickers. The per-leg score is OBSERVATION evidence "
+                      "and is not a confidence in a trade."),
+        "execution": {"status": "UNAVAILABLE",
+                      "detail": EXECUTION_UNAVAILABLE,
+                      "requires": "/rwas/{id}/tickers (Basic plan or above)",
+                      "missing_fields": ["bid/ask", "cost-to-move-up", "cost-to-move-down",
+                                         "venue depth", "stale", "anomaly", "trust score"],
+                      "promotion_rule": ("a divergence becomes an EXECUTABLE dislocation "
+                                         "only after a ticker feed exists AND the spread, "
+                                         "depth and friction gates pass. No code path in "
+                                         "this module can set that state.")},
         "issuers": sorted(issuer_rows, key=lambda r: -(_num(r["market_cap"]) or 0)),
+        "run": {**completeness, "promoted": bool(promote),
+                "prior_status": prior_status, "prior_quality": prior_quality,
+                "run_ts": now.isoformat()},
         "written": written,
         "not_written": skipped,
+        "quarantined": quarantined,
     }
+    # The artifact follows the same promotion rule as the ledgers: a degraded run must not
+    # overwrite the board a complete one published. Written atomically either way — to
+    # rwa.json when promoted, to rwa.degraded.json when not — so the degraded view stays
+    # inspectable without ever being canonical.
     if write:
-        (ledger_dir / "rwa.json").write_text(json.dumps(artifact, indent=2))
+        _atomic_write(ledger_dir / ("rwa.json" if promote else "rwa.degraded.json"),
+                      json.dumps(artifact, indent=2))
     return artifact
 
 

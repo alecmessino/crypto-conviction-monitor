@@ -465,6 +465,10 @@ canvas{display:block;width:100%}
   box-shadow:inset 0 -2px 0 var(--blue)}
 .ws-tab:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
 .ws-tab .ext{color:var(--tert);font-size:8px;margin-left:5px}
+/* A routed panel is marked so the nav entry visibly did something. INDEX and PORTFOLIO
+   scroll to panels that stay in the crypto workspace rather than moving into their own,
+   and an unacknowledged scroll reads as a dead nav entry. */
+.ws-routed{outline:1px solid var(--blue);outline-offset:2px}
 
 /* RWA workspace. Reuses the crypto tracks deliberately: it is the same shape of
    question — a dominant ranked board with a persistent inspector beside it — and a
@@ -502,6 +506,21 @@ tr.rw-dead td{opacity:.45}
 .rwa-empty{padding:10px 12px;color:var(--tert);font-size:11px}
 .absent{border-left:2px solid var(--amber);padding:6px 10px;margin:6px 0;
   background:rgba(224,179,114,.06);font-size:10px;color:var(--sec)}
+/* EVIDENCE VOCABULARY. Five states, one chip each, used identically on the board, in the
+   inspector and on the Method page. The distinction between what a vendor published, what
+   we computed from it, what a documented convention let us normalise, what we could not
+   buy and what we could not explain is the most valuable thing this workspace reports —
+   more so than filling every cell. */
+.ev{font-size:7px;letter-spacing:.9px;padding:1px 5px;border-radius:3px;
+  border:1px solid var(--border);color:var(--tert);white-space:nowrap;margin-left:5px;
+  text-transform:uppercase;vertical-align:middle}
+.ev-observed{color:var(--green);border-color:rgba(123,201,160,.35)}
+.ev-derived{color:var(--blue);border-color:rgba(59,130,246,.4)}
+.ev-normalized{color:var(--violet);border-color:rgba(167,139,250,.4)}
+.ev-unavailable{color:var(--red);border-color:rgba(232,145,127,.4)}
+.ev-unexplained{color:var(--amber);border-color:rgba(224,179,114,.45)}
+.ev-legend{display:flex;gap:6px;flex-wrap:wrap;padding:6px 10px;align-items:center;
+  border-bottom:1px solid var(--grid);font-size:9px;color:var(--tert)}
 
 /* Relocated prose. Closed by default; nothing was deleted, and methodology.html remains
    the permanent home for the long form. A terminal that explains itself at length on
@@ -659,6 +678,61 @@ canvas:focus-visible{outline:2px solid var(--blue)}
           <div class="sw" data-tf="7d">7D</div>
           <div class="sw" data-tf="30d">30D</div>
         </div>
+      </div>
+    </div>
+    <div class="glass">
+      <div class="card-h">POSITION SIZING <span class="muted" id="sz-sub">liquidity-constrained</span></div>
+      <div class="card-b">
+        <div class="sz-in">
+          <label class="muted">Book $</label>
+          <input id="sz-notional" type="number" min="0" step="1000" value="100000" style="flex:1">
+          <label class="muted" data-tip="Share of 24h volume you are willing to be. Above a few percent your own order is the price.">ADV %</label>
+          <input id="sz-participation" type="number" min="0.1" max="25" step="0.5" value="2" style="width:52px">
+        </div>
+        <div class="sz-in">
+          <label class="muted" data-tip="Stop distance in multiples of the recorded 14-bar ATR. 2 is a convention, not a measurement: it is wide enough that ordinary daily range does not take you out and narrow enough to bound the loss. Change it and every risk figure below moves with it.">Stop ATR x</label>
+          <input id="sz-stopk" type="number" min="0.25" max="10" step="0.25" value="2" style="width:52px">
+          <label class="muted" data-tip="Initial margin as a percent of notional, from your exchange. Optional: supply it and the panel reports implied leverage and how far an adverse move can travel before the posted margin is gone. Leave it blank and those two lines are absent rather than assumed.">Margin %</label>
+          <input id="sz-margin" type="number" min="0" max="100" step="0.5" placeholder="—" style="width:52px">
+        </div>
+        <div id="sz-out"></div>
+      </div>
+    </div>
+    <!-- Recovers a comparable rate from the dollar figure an exchange UI shows. Coinbase
+         Advanced reports accumulated funding as a running dollar total against an open
+         position and never as a rate, and that number is not comparable to anything:
+         it scales with position size and with how long the position has been open, so
+         $40 on one screen and $12 on another say nothing about which market pays more. -->
+    <div class="glass">
+      <div class="card-h">POSITION FUNDING PARSER <span class="muted">$ accrual → APR</span></div>
+      <div class="card-b">
+        <div class="fin">
+          <label class="wide" data-tip="Every Coinbase Derivatives contract is a fixed quantity of the underlying, not one unit of it. Only perpetual-style contracts pay funding, so only those are listed here. Pick the contract and the multiplier fills itself in. Pick 'no verified perpetual mapping' and the parser refuses to compute rather than assuming 1.">Contract
+            <select id="pp-contract"></select></label>
+          <div class="wide spec-snap" id="pp-snapshot"></div>
+          <label data-tip="Units of the underlying per contract. Autofilled from the pinned specification table; editable, because a table that cannot be overridden is a table that is wrong in exactly the case you needed it.">Multiplier
+            <input id="pp-mult" type="number" min="0" step="any" value="0.1"></label>
+          <label data-tip="The contract count as the exchange reports it, not a quantity of the underlying.">Contracts
+            <input id="pp-contracts" type="number" min="0" step="any" value="10"></label>
+          <label>Mark price $
+            <input id="pp-price" type="number" min="0" step="any" value="3000"></label>
+          <label data-tip="Copy the accumulated funding figure straight from the exchange. Sign matters: a negative value on a LONG means the position received funding.">Accrued $
+            <input id="pp-accrued" type="number" step="any" value="-40"></label>
+          <label>Over (hours)
+            <input id="pp-hours" type="number" min="0" step="any" value="24"></label>
+          <label class="wide">Side
+            <select id="pp-side"><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select></label>
+        </div>
+        <div class="pp-out" id="pp-out"></div>
+      </div>
+    </div>
+    <div class="glass">
+      <div class="card-h">PORTFOLIO OVERLAY</div>
+      <div class="card-b">
+        <div class="muted" style="margin-bottom:6px">Paste holdings as JSON: {"BTC":0.5,"SOL":20} — overlays your bags on the matrix.</div>
+        <textarea id="pf-input" rows="3" style="width:100%;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:6px" placeholder='{"BTC":0.5,"SOL":20}'></textarea>
+        <button id="pf-btn" style="margin-top:6px;width:100%;background:rgba(59,130,246,.18);color:var(--txt);border:1px solid var(--blue);border-radius:4px;padding:5px;cursor:pointer;font-family:inherit;font-size:10px">OVERLAY HOLDINGS</button>
+        <div id="pf-out" class="muted" style="margin-top:8px"></div>
       </div>
     </div>
     <div class="glass">
@@ -916,6 +990,16 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       <div class="fb-wrap" id="fb"><div class="muted" style="padding:30px 12px">Select a token to see its factor tilt.</div></div>
       <div class="muted" style="padding:4px 12px 10px">DFA/AQR factor readout (0–100). Size·Value·Quality·Momentum·Liquidity — explains the Conviction Score.</div>
     </div>
+    <div class="glass">
+      <div class="card-h">CONVICTION-WEIGHTED INDEX <span class="muted" id="idx-rebal">—</span>
+        <span class="pill" id="idx-snapshot">NIGHTLY SNAPSHOT · 06:17 UTC</span>
+        <span class="pill" id="idx-macro" style="display:none"></span>
+      </div>
+      <div class="chart-box"><canvas id="idx" height="120" style="height:120px"></canvas>
+        <div class="muted" id="idx-note">Cumulative basket vs market · live paper track record</div></div>
+      <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
+      <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:4px 12px 10px">Nightly Top-10 basket (06:17 UTC snapshot), score-proportional weights. The <b>live</b> conviction leaders in the Alpha Map use the same formula but diverge slightly on intraday price moves. Paper return is chained from the recorded signals ledger — weights from the earlier night, priced at both ends — against BTC, with the equal-weight universe as the control that separates selection from market beta.</div></details>
+    </div>
   </aside>
   </div><!-- /ws crypto -->
 
@@ -945,6 +1029,7 @@ canvas:focus-visible{outline:2px solid var(--blue)}
         <div class="stat"><b id="rw-iss" class="num">—</b><span>Issuers</span></div>
         <div class="stat"><b id="rw-cov" class="num">—</b><span>Model Coverage</span></div>
         <div class="stat"><b id="rwa-snap-date" class="num">—</b><span>Snapshot</span></div>
+        <div class="stat"><b id="rwa-run" class="num">—</b><span>Run</span></div>
       </div>
     </div>
 
@@ -981,12 +1066,19 @@ canvas:focus-visible{outline:2px solid var(--blue)}
                  title="Filter by ticker, name, asset type, label or issuer.">
           <span class="muted" id="rw-gate"></span>
         </div>
+        <div class="ev-legend" aria-label="Evidence states">
+          <span><span class="ev ev-observed">observed</span> vendor payload</span>
+          <span><span class="ev ev-derived">derived</span> our calculation</span>
+          <span><span class="ev ev-normalized">normalized</span> documented unit convention</span>
+          <span><span class="ev ev-unavailable">unavailable</span> paid/external evidence missing</span>
+          <span><span class="ev ev-unexplained">unexplained</span> divergence we cannot safely normalize</span>
+        </div>
         <div class="scroll-pane">
           <table id="tbl-rwa"><thead><tr>
             <th>#</th><th>Ticker</th><th>Type</th><th>Price</th><th>24H &#916;</th>
             <th title="Tokenized market cap. This is the ONCHAIN aggregate across every wrapper CoinGecko tracks, not a TradFi market cap.">Tokenized Cap</th>
             <th>24H Vol</th>
-            <th title="Net change in wrapper units outstanding since the last recorded night — mint minus redemption, recovered exactly from price and market cap. Not a momentum reading.">Issuance</th>
+            <th title="DERIVED, not observed. The implied change in wrapper units since the last recorded night, recovered from the published price and market cap. The arithmetic is exact; reading it as issuance is an inference no available feed corroborates, so it is published as an impulse and never as a mint or a redemption.">Impulse</th>
             <th title="Live wrappers over total wrappers. Live means it cleared the 24h volume floor AND was updated inside the staleness window.">Wrappers</th>
             <th title="Standard deviation of live wrapper prices around their own median, in basis points. Two tokens redeemable for the same share should not disagree.">Disp</th>
             <th>RWA Conv</th><th>Signal</th>
@@ -1003,7 +1095,7 @@ canvas:focus-visible{outline:2px solid var(--blue)}
           <button class="tab" data-rwatab="issuers" role="tab" aria-selected="false">Issuers</button>
           <button class="tab" data-rwatab="venues" role="tab" aria-selected="false">Venues</button>
           <button class="tab" data-rwatab="flows" role="tab" aria-selected="false">Flows</button>
-          <button class="tab" data-rwatab="disloc" role="tab" aria-selected="false">Dislocations</button>
+          <button class="tab" data-rwatab="disloc" role="tab" aria-selected="false">Divergence</button>
           <button class="tab" data-rwatab="issuance" role="tab" aria-selected="false">New Issuance</button>
         </div>
         <div data-rwapane="wrappers">
@@ -1042,26 +1134,40 @@ canvas:focus-visible{outline:2px solid var(--blue)}
           <div class="scroll-pane">
             <table id="tbl-rwa-flow"><thead><tr>
               <th>Ticker</th><th>Price &#916;</th>
-              <th title="The market cap the SAME units outstanding would have carried at today's price.">Expected Cap</th>
+              <th title="OBSERVED price and market cap; the expected cap is DERIVED — what the same implied unit count would have been worth at today's price.">Expected Cap</th>
               <th>Actual Cap</th><th>Residual $</th>
-              <th title="Net change in units outstanding. The price term cancels exactly.">Net Issuance</th>
+              <th title="The implied change in units. The price term cancels exactly; the reading is still an inference, not an observed mint.">Implied Supply &#916;</th>
               <th>Per Day</th><th>Reading</th>
-              <th title="A level in units, base 100 at the first recorded night. It compounds the raw residual, so a gap in the chain does not distort it.">Supply Index</th>
+              <th title="A level in IMPLIED units, base 100 at the first recorded night. It compounds the raw residual, so a gap in the chain does not distort it.">Implied Supply Index</th>
               <th>Nights</th>
             </tr></thead><tbody></tbody></table>
           </div>
           <details class="why"><summary>Why this panel exists</summary><div class="note">Market cap is price times units outstanding, so dividing out the price-implied cap leaves the
-            <b>unit ratio and nothing else</b>. The residual is therefore not a proxy for minting — it <i>is</i> the net
-            minting rate, mint minus redemption, recovered from two published series neither of which is a supply series.
+            <b>implied unit ratio and nothing else</b>. The arithmetic is exact. Reading it as issuance is an
+            <b>inference</b>: it holds only if the vendor's historical market cap is contemporaneous circulating units at
+            the same published price, with no supply revision or reclassification — which is undocumented and unchecked,
+            because no free issuance feed exists for these tokens. So this is published as a tokenization impulse and
+            never as a mint or a redemption.
             <code>/rwas/{id}/market_chart</code> answers HTTP 401 below the Basic plan, so this series has no history
             anywhere except <code>ledger/rwa_flow.csv</code>: a night that was not recorded is gone, and no key bought
             later recovers it. That is why the column reads <b>accumulating</b> rather than being backfilled.</div></details>
         </div>
         <div data-rwapane="disloc" hidden>
+          <div class="absent" id="rwa-exec-banner">
+            <b>EXECUTION UNAVAILABLE — venue depth/spread feed not connected.</b>
+            Everything below is a <b>pre-execution price divergence</b> measured on last
+            prices. It is not an executable dislocation, not an executable basis, and not
+            an after-friction opportunity. Bid/ask, cost-to-move, venue depth and the
+            stale/anomaly/trust fields all come from <code>/rwas/{id}/tickers</code>, which
+            answers HTTP&nbsp;401 on this plan. A row is promoted to EXECUTABLE only once
+            that feed exists <i>and</i> the spread, depth and friction gates pass.
+          </div>
           <div class="scroll-pane">
             <table id="tbl-rwa-disloc"><thead><tr>
               <th>Wrapper</th><th>Underlying</th><th>Price</th><th>Live Median</th>
-              <th>Basis</th><th>24H Vol</th><th>Age</th><th>Confidence</th><th>Executable</th>
+              <th>Basis</th><th>24H Vol</th><th>Age</th>
+              <th title="How well EVIDENCED the divergence reading is — comparable wrappers, freshness, depth. NOT a confidence in a trade.">Obs. Evidence</th>
+              <th title="Bid/ask, depth, cost-to-move and the trust fields all need /rwas/{id}/tickers, which answers 401 on this plan.">Execution</th>
             </tr></thead><tbody></tbody></table>
           </div>
           <div class="absent" id="rwa-disloc-note">—</div>
@@ -1100,90 +1206,7 @@ canvas:focus-visible{outline:2px solid var(--blue)}
     </aside>
   </div><!-- /ws rwa -->
 
-  <!-- ============================ INDEX WORKSPACE ============================
-       The conviction-weighted index, moved out of the crypto rail rather than
-       duplicated. It is a track record rather than a market view — a different question
-       from "what should I look at now" — and the crypto board is more dominant without
-       it, which is the direction the locked layout points. -->
-  <div class="ws" data-ws="index" hidden>
-    <main class="col-center" style="grid-column:1/-1">
-    <div class="glass">
-      <div class="card-h">CONVICTION-WEIGHTED INDEX <span class="muted" id="idx-rebal">—</span>
-        <span class="pill" id="idx-snapshot">NIGHTLY SNAPSHOT · 06:17 UTC</span>
-        <span class="pill" id="idx-macro" style="display:none"></span>
-      </div>
-      <div class="chart-box"><canvas id="idx" height="120" style="height:120px"></canvas>
-        <div class="muted" id="idx-note">Cumulative basket vs market · live paper track record</div></div>
-      <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
-      <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:4px 12px 10px">Nightly Top-10 basket (06:17 UTC snapshot), score-proportional weights. The <b>live</b> conviction leaders in the Alpha Map use the same formula but diverge slightly on intraday price moves. Paper return is chained from the recorded signals ledger — weights from the earlier night, priced at both ends — against BTC, with the equal-weight universe as the control that separates selection from market beta.</div></details>
-    </div>
-    </main>
-  </div><!-- /ws index -->
 
-  <!-- ========================== PORTFOLIO WORKSPACE ==========================
-       Position sizing, the funding parser and the holdings overlay, moved out of the
-       crypto sidebar. All three are things you do WITH a decision rather than inputs to
-       one, and none of them is read while scanning the board. Every element keeps the
-       id its renderer already writes to, so relocating them changed no render code. -->
-  <div class="ws" data-ws="portfolio" hidden>
-    <main class="col-center" style="grid-column:1/-1">
-    <div class="glass">
-      <div class="card-h">POSITION SIZING <span class="muted" id="sz-sub">liquidity-constrained</span></div>
-      <div class="card-b">
-        <div class="sz-in">
-          <label class="muted">Book $</label>
-          <input id="sz-notional" type="number" min="0" step="1000" value="100000" style="flex:1">
-          <label class="muted" data-tip="Share of 24h volume you are willing to be. Above a few percent your own order is the price.">ADV %</label>
-          <input id="sz-participation" type="number" min="0.1" max="25" step="0.5" value="2" style="width:52px">
-        </div>
-        <div class="sz-in">
-          <label class="muted" data-tip="Stop distance in multiples of the recorded 14-bar ATR. 2 is a convention, not a measurement: it is wide enough that ordinary daily range does not take you out and narrow enough to bound the loss. Change it and every risk figure below moves with it.">Stop ATR x</label>
-          <input id="sz-stopk" type="number" min="0.25" max="10" step="0.25" value="2" style="width:52px">
-          <label class="muted" data-tip="Initial margin as a percent of notional, from your exchange. Optional: supply it and the panel reports implied leverage and how far an adverse move can travel before the posted margin is gone. Leave it blank and those two lines are absent rather than assumed.">Margin %</label>
-          <input id="sz-margin" type="number" min="0" max="100" step="0.5" placeholder="—" style="width:52px">
-        </div>
-        <div id="sz-out"></div>
-      </div>
-    </div>
-    <!-- Recovers a comparable rate from the dollar figure an exchange UI shows. Coinbase
-         Advanced reports accumulated funding as a running dollar total against an open
-         position and never as a rate, and that number is not comparable to anything:
-         it scales with position size and with how long the position has been open, so
-         $40 on one screen and $12 on another say nothing about which market pays more. -->
-    <div class="glass">
-      <div class="card-h">POSITION FUNDING PARSER <span class="muted">$ accrual → APR</span></div>
-      <div class="card-b">
-        <div class="fin">
-          <label class="wide" data-tip="Every Coinbase Derivatives contract is a fixed quantity of the underlying, not one unit of it. Only perpetual-style contracts pay funding, so only those are listed here. Pick the contract and the multiplier fills itself in. Pick 'no verified perpetual mapping' and the parser refuses to compute rather than assuming 1.">Contract
-            <select id="pp-contract"></select></label>
-          <div class="wide spec-snap" id="pp-snapshot"></div>
-          <label data-tip="Units of the underlying per contract. Autofilled from the pinned specification table; editable, because a table that cannot be overridden is a table that is wrong in exactly the case you needed it.">Multiplier
-            <input id="pp-mult" type="number" min="0" step="any" value="0.1"></label>
-          <label data-tip="The contract count as the exchange reports it, not a quantity of the underlying.">Contracts
-            <input id="pp-contracts" type="number" min="0" step="any" value="10"></label>
-          <label>Mark price $
-            <input id="pp-price" type="number" min="0" step="any" value="3000"></label>
-          <label data-tip="Copy the accumulated funding figure straight from the exchange. Sign matters: a negative value on a LONG means the position received funding.">Accrued $
-            <input id="pp-accrued" type="number" step="any" value="-40"></label>
-          <label>Over (hours)
-            <input id="pp-hours" type="number" min="0" step="any" value="24"></label>
-          <label class="wide">Side
-            <select id="pp-side"><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select></label>
-        </div>
-        <div class="pp-out" id="pp-out"></div>
-      </div>
-    </div>
-    <div class="glass">
-      <div class="card-h">PORTFOLIO OVERLAY</div>
-      <div class="card-b">
-        <div class="muted" style="margin-bottom:6px">Paste holdings as JSON: {"BTC":0.5,"SOL":20} — overlays your bags on the matrix.</div>
-        <textarea id="pf-input" rows="3" style="width:100%;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:6px" placeholder='{"BTC":0.5,"SOL":20}'></textarea>
-        <button id="pf-btn" style="margin-top:6px;width:100%;background:rgba(59,130,246,.18);color:var(--txt);border:1px solid var(--blue);border-radius:4px;padding:5px;cursor:pointer;font-family:inherit;font-size:10px">OVERLAY HOLDINGS</button>
-        <div id="pf-out" class="muted" style="margin-top:8px"></div>
-      </div>
-    </div>
-    </main>
-  </div><!-- /ws portfolio -->
 
 </div>
 
@@ -5036,40 +5059,67 @@ document.addEventListener("click",e=>{
   if(chip && chip.dataset.filter!=null){ e.stopPropagation(); setFilter(chip.textContent.trim()); }
 });
 /* ===================== WORKSPACE SWITCH =====================
-   Cloned from the secondary-pane handler above, in a SEPARATE attribute namespace.
-   That separation is the single most important detail in this block: the pane handler
-   selects [data-pane] and [data-note] document-globally and unscoped, so a workspace
-   reusing either name would mean every click on Liquidity or Funding silently hid part
-   of another workspace. Workspaces use data-ws / data-ws-btn and nothing else.
+   Two real workspaces, and two ROUTES.
 
-   METHOD is an <a> and carries no data-ws-btn, so it never enters this sweep. */
+   CRYPTO and RWA each own a subtree. INDEX and PORTFOLIO do not: they scroll to panels
+   that already live inside the crypto workspace and are left exactly where the canonical
+   layout puts them. That is the whole design, and it is a correction — an earlier version
+   physically re-parented those four panels into workspaces of their own, which made the
+   nav entries real at the cost of changing a crypto layout this change has no business
+   touching. The crypto columns are now byte-identical to origin/main, and a route reaches
+   a panel without moving it.
+
+   The panels are addressed through ids that already existed (#idx, #sz-notional), so
+   routing adds no attribute to any canonical node.
+
+   Attribute namespace: data-ws / data-ws-btn only. The secondary-pane handler below
+   selects [data-pane] and [data-note] document-globally and unscoped, so any overlap
+   would mean a click on Liquidity silently hid part of another screen. */
+const WS_ROUTES = {
+  index:     {ws: "crypto", anchor: "idx",         label: "conviction-weighted index"},
+  portfolio: {ws: "crypto", anchor: "sz-notional", label: "position tools"},
+};
+
+function revealFor(want){ return (WS_ROUTES[want] || {}).ws || want; }
+
 function switchWorkspace(want, push){
   const known=[...document.querySelectorAll("[data-ws]")].map(w=>w.dataset.ws);
-  if(known.indexOf(want)<0) want="crypto";
+  if(known.indexOf(want)<0 && !WS_ROUTES[want]) want="crypto";
+  const reveal=revealFor(want);
   document.querySelectorAll("[data-ws-btn]").forEach(b=>{
     const on=b.dataset.wsBtn===want;
     b.classList.toggle("on",on);
     if(on) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current");
   });
-  document.querySelectorAll("[data-ws]").forEach(w=>{ w.hidden = w.dataset.ws!==want; });
+  document.querySelectorAll("[data-ws]").forEach(w=>{ w.hidden = w.dataset.ws!==reveal; });
   /* Three of the four canvases lack the clientWidth||360 fallback factorQuad has, there
      is no resize observer anywhere in this file, and a canvas measured while its
-     workspace was hidden draws at width zero. Redrawing on reveal is what keeps the
-     relocated index chart from coming back blank. */
-  /* The crypto branch matters as much as the others and was missing. #quad, #alpha and
-     #idx are all drawn during load(), so a reader who deep-links to #rwa has them
-     measured at clientWidth zero and comes back to three blank charts. */
-  if(want==="crypto"){
+     workspace was hidden draws at width zero. Redrawing on reveal is what keeps a reader
+     who deep-links to #rwa from coming back to blank charts. */
+  if(reveal==="crypto"){
     try{ if(typeof quad==="function") quad();
          if(typeof alphaMap==="function") alphaMap();
+         if(typeof renderIndex==="function") renderIndex();
+         if(typeof renderSizing==="function") renderSizing();
+         if(typeof renderParser==="function") renderParser();
          if(typeof factorQuad==="function") factorQuad(); }catch(e){}
   }
-  if(want==="index" && typeof renderIndex==="function"){ try{ renderIndex(); }catch(e){} }
-  if(want==="portfolio"){
-    try{ if(typeof renderSizing==="function") renderSizing();
-         if(typeof renderParser==="function") renderParser(); }catch(e){}
+  if(reveal==="rwa"){ try{ renderRwa(); }catch(e){} }
+  const route=WS_ROUTES[want];
+  if(route){
+    const el=document.getElementById(route.anchor);
+    const panel=el && el.closest(".glass");
+    if(panel){
+      panel.scrollIntoView({block:"start", behavior:"auto"});
+      /* A scroll with no acknowledgement reads as a nav entry that did nothing. The
+         outline is removed on the next interaction rather than on a timer, so it cannot
+         animate under prefers-reduced-motion. */
+      document.querySelectorAll(".ws-routed").forEach(n=>n.classList.remove("ws-routed"));
+      panel.classList.add("ws-routed");
+    }
+  } else {
+    document.querySelectorAll(".ws-routed").forEach(n=>n.classList.remove("ws-routed"));
   }
-  if(want==="rwa"){ try{ renderRwa(); }catch(e){} }
   /* The hash is the only state this page has ever serialised. Written on an explicit
      switch and never on the 120s refresh, so a reload lands where the reader left off
      without the timer rewriting history under them. */
@@ -5131,7 +5181,7 @@ function rwPrice(v){ const n=rwNum(v); if(n==null) return "—";
 function rwChains(list,keep){ const c=list||[]; if(!c.length) return "—";
   const k=keep==null?2:keep;
   return c.length<=k ? c.join(", ") : c.slice(0,k).join(", ")+" +"+(c.length-k); }
-/* Sign colour only where the sign carries a direction. Net issuance is signed and
+/* Sign colour only where the sign carries a direction. The supply impulse is signed and
    directional; a dispersion is a magnitude and colouring it green would be nonsense. */
 function rwSigned(v,dp){ const n=rwNum(v); if(n==null) return '<span class="muted">—</span>';
   const c=n>0?"pos":(n<0?"neg":"muted"); return '<span class="'+c+'">'+rwPct(n,dp)+'</span>'; }
@@ -5165,6 +5215,26 @@ function renderRwa(){
   set("rw-wrap", (g.wrappers_priced!=null?g.wrappers_priced:"—")+" / "+(g.wrappers_n||"—"));
   set("rw-iss", g.issuers_n!=null?g.issuers_n:"—");
   set("rwa-snap-date", RWA.date||"—");
+  /* The run's own completeness, on the strip. A board built from a partial fetch looks
+     exactly like one built from a whole fetch, which is how a lost wrapper batch got to
+     publish medians computed from whichever peers survived. */
+  const run=RWA.run||{};
+  const runEl=rwEl("rwa-run");
+  if(runEl){
+    runEl.textContent=(run.status||"—").toUpperCase();
+    runEl.className="num "+(run.status==="complete"?"pos":(run.status==="degraded"?"neg":""));
+    /* data-tip, never a native title: initTips() upgrades these into the explanation
+       layer, and a native title renders on no phone. Set after the text so the observer
+       picks it up. */
+    /* Set only when there is something to say. An empty data-tip still counts as an
+       explanation to the reachability gate, and an explanation with no text is an
+       unreachable node promising nothing. */
+    const tip=(run.note||"")
+      +(run.promoted===false?" — NOT promoted to canonical history; the rows already "
+        +"recorded for today came from a more complete run.":"");
+    if(tip.trim()){ runEl.setAttribute("data-tip",tip); }
+    else { runEl.removeAttribute("data-tip"); }
+  }
   set("rw-spec", "spec "+(RWA.spec_hash||"—"));
   const rows=rwaRows();
   /* From the WHOLE board, never the filtered view. Every other stat in this strip is a
@@ -5182,11 +5252,20 @@ function renderRwa(){
      that did not run. */
   const mc=rwEl("rw-model");
   if(mc){
-    const w=m.weights||{};
-    mc.innerHTML = Object.keys(w).map(k=>
-      '<div class="kv"><span>'+rwEsc(k)+'</span><b>'+w[k]+'</b></div>').join("")
-      + '<div class="kv"><span>execution</span><b class="neg">'+(m.execution_weight||0)+'</b></div>'
-      + '<div class="kv"><span>min coverage</span><b>'+(m.min_coverage||0)+'%</b></div>'
+    const w=m.declared_weights||m.weights||{};
+    const priceable=m.priceable_weights||{};
+    mc.innerHTML = Object.keys(w).map(k=>{
+      const has = Object.prototype.hasOwnProperty.call(priceable, k);
+      return '<div class="kv"><span>'+rwEsc(k)
+        + (has ? '' : '<span class="ev ev-unavailable">unavailable</span>')
+        + '</span><b'+(has?'':' class="neg"')+'>'+w[k]+'</b></div>';
+    }).join("")
+      /* The ceiling, stated. An earlier version gave execution weight 0 and left it out
+         of the denominator, so four priced components reported 100% coverage on a board
+         with no execution evidence at all. */
+      + '<div class="kv"><span>max coverage here</span><b class="neg">'
+        +(m.max_coverage_on_this_plan!=null?m.max_coverage_on_this_plan.toFixed(1):"—")+'%</b></div>'
+      + '<div class="kv"><span>min to grade</span><b>'+(m.min_coverage||0)+'%</b></div>'
       + '<div class="note" style="margin-top:8px">'+rwEsc(m.note||"")+'</div>';
   }
 
@@ -5237,7 +5316,10 @@ function renderRwa(){
       +'<td class="num">'+(r.dislocation&&r.dislocation.dispersion_bps!=null?r.dislocation.dispersion_bps.toFixed(0)+"bp":'<span class="muted">—</span>')+'</td>'
       +'<td class="num"><b>'+(r.conviction==null?"—":r.conviction.toFixed(0))+'</b>'
         +(r.coverage!=null&&r.coverage<100?'<span class="muted" style="display:block;font-size:8px">'+r.coverage.toFixed(0)+'% priced</span>':"")+'</td>'
-      +'<td><span class="rwa-badge '+rwEsc(r.label||"")+'">'+rwEsc(r.label||"")+'</span></td></tr>';
+      +'<td><span class="rwa-badge '+rwEsc(r.label||"")+'">'+rwEsc(r.label||"")+'</span>'
+      +(r.peer_set_complete===false
+          ? '<span class="ev ev-unavailable" data-tip="Not every wrapper on this underlying priced tonight. The median, the dispersion and the integrity component were computed from an incomplete peer set — which does not merely hide signal, it manufactures it.">degraded</span>'
+          : "")+'</td></tr>';
   }).join("") : '<tr><td colspan="12" class="muted" style="padding:14px">No underlying cleared the board gate.</td></tr>';
 
   renderRwaWrappers(); renderRwaIssuers(); renderRwaVenues();
@@ -5254,7 +5336,7 @@ function renderRwaWrappers(){
     +'<td><b>'+rwEsc((w.symbol||"").toUpperCase())+'</b></td>'
     +'<td class="muted">'+rwEsc((u.symbol||"").toUpperCase())+'</td>'
     +'<td class="muted">'+rwEsc(w.issuer_name||w.issuer_id||"")+'</td>'
-    +'<td class="muted" title="'+rwEsc((w.chains||[]).join(", "))+'">'+rwEsc(rwChains(w.chains))+'</td>'
+    +'<td class="muted" data-tip="'+rwEsc((w.chains||[]).join(", "))+'">'+rwEsc(rwChains(w.chains))+'</td>'
     +'<td class="num">'+rwPrice(w.price)+'</td>'
     +'<td class="num">'+rwUsd(w.volume_24h)+'</td>'
     +'<td class="num">'+(w.basis_bps!=null?rwSigned(w.basis_bps,0).replace("%","bp"):'<span class="muted">—</span>')+'</td>'
@@ -5339,8 +5421,8 @@ function renderRwaDisloc(){
       +(l.basis_bps>0?"+":"")+l.basis_bps.toFixed(0)+'bp</span></td>'
     +'<td class="num">'+rwUsd(l.volume_24h)+'</td>'
     +'<td class="num">'+(l.age_hours==null?"—":l.age_hours.toFixed(1)+"h")+'</td>'
-    +'<td class="num">'+(l.confidence==null?"—":l.confidence.toFixed(0))+'</td>'
-    +'<td class="neg" style="font-size:9px">NO</td></tr>').join("")
+    +'<td class="num">'+(l.observation_evidence==null?"—":l.observation_evidence.toFixed(0))+'</td>'
+    +'<td><span class="ev ev-unavailable">UNAVAILABLE</span></td></tr>').join("")
     : '<tr><td colspan="9" class="muted" style="padding:14px">No basis cleared the floor. '
       +'A cross-section needs at least two live wrappers on the same underlying.</td></tr>';
   const note=rwEl("rwa-disloc-note");
@@ -5391,11 +5473,14 @@ function renderRwaInspector(){
     '<div class="kv"><span>RWA conviction</span><b>'+(r.conviction==null?"UNRATED":r.conviction.toFixed(1))
       +' <span class="rwa-badge '+rwEsc(r.label)+'">'+rwEsc(r.label)+'</span></b></div>'
     +'<div class="kv"><span>coverage</span><b>'+(r.coverage==null?"—":r.coverage.toFixed(0)+"%")+'</b></div>'
-    + Object.keys(comp).map(k=>'<div class="kv"><span>'+rwEsc(k)+'</span><b>'
+    + Object.keys(comp).map(k=>'<div class="kv"><span>'+rwEsc(k)
+        +'<span class="ev ev-derived">derived</span></span><b>'
         +(comp[k]==null?'<span class="muted">not priced</span>':comp[k].toFixed(1))+'</b></div>').join("")
+    + '<div class="kv"><span>execution<span class="ev ev-unavailable">unavailable</span></span>'
+      +'<b class="neg">—</b></div>' 
     + (r.absent&&r.absent.length?'<div class="absent">Not priced tonight: <b>'+rwEsc(r.absent.join(", "))
         +'</b>. '+rwEsc(r.score_reason||"")+'</div>':"")
-    +'<div class="fa-h" style="margin-top:10px">NET ISSUANCE</div>'
+    +'<div class="fa-h" style="margin-top:10px">TOKENIZATION IMPULSE <span class="ev ev-derived">DERIVED</span></div>'
     +'<div class="kv"><span>since last night</span><b>'+rwSigned(f.residual_pct,2)+'</b></div>'
     +'<div class="kv"><span>per day</span><b>'+rwSigned(f.residual_pct_daily,2)+'</b></div>'
     +'<div class="kv"><span>reading</span><b class="imp '+rwEsc(f.impulse||"")+'">'+rwEsc(f.impulse||"")+'</b></div>'
@@ -5420,12 +5505,14 @@ function renderRwaInspector(){
        endpoints — so the ratio is shown and the basis is withheld. */
     + ((d.other_denominations||[]).length
         ? '<div class="fa-h" style="margin-top:10px">OTHER DENOMINATIONS</div>'
-          + d.other_denominations.map(o=>
-              '<div class="wrapline dead"><div><span class="wl-sym">'+rwEsc((o.symbol||"").toUpperCase())
+          + d.other_denominations.map(o=>{
+              const norm = o.kind==="denomination";
+              return '<div class="wrapline dead"><div><span class="wl-sym">'+rwEsc((o.symbol||"").toUpperCase())
+              +'<span class="ev '+(norm?'ev-normalized">normalized':'ev-unexplained">unexplained')+'</span>'
               +'</span><span class="wl-iss">'+(o.ratio_to_reference!=null?o.ratio_to_reference.toPrecision(3):"?")
-              +'&#215; the deepest wrapper &#183; not a basis</span></div>'
+              +'&#215; the deepest wrapper &#183; '+rwEsc(norm?(o.unit||"documented unit"):"no convention explains this")+'</span></div>'
               +'<div class="num">'+rwPrice(o.price)+'</div><div class="num muted">'
-              +rwUsd(o.volume_24h)+'</div></div>').join("")
+              +rwUsd(o.volume_24h)+'</div></div>'; }).join("")
         : "");
   renderRwaOffhours(r);
 }
@@ -5454,13 +5541,18 @@ function renderRwaOffhours(r){
       +(o.dispersion_bps!=null?' &#183; disp '+o.dispersion_bps.toFixed(0)+'bp':"")
       +(o.volume_ratio!=null?' &#183; vol '+o.volume_ratio.toFixed(1)+'&#215;':"")
       +'</span></div><div class="num">'+rwSigned(o.offhours_return_pct)+'</div>'
-      +'<div class="muted" style="font-size:9px">gap withheld</div></div>';
+      +'<div style="font-size:9px"><span class="ev ev-unavailable">gap pending</span></div></div>';
   }).join("")
-  + '<div class="absent">Implied cash-open gap and its confidence are <b>withheld, not '
-  + 'zero</b>. Converting a tokenized drift into an expected gap needs the underlying\'s '
-  + 'own equity prints as the other half of the pair, and CoinGecko does not carry them — '
-  + 'its "underlying" price is a blend of these same wrappers. The inputs above are '
-  + 'recorded nightly so the study runs the day an equity feed is connected.</div>';
+  + '<div class="absent"><b>IMPLIED MONDAY GAP — '
+  + rwEsc(((RWA&&RWA.equity_leg)||{}).gap_state || "PENDING EQUITY PRINT HISTORY")
+  + '.</b> Withheld, not zero. Converting a tokenized drift into an expected cash-open gap '
+  + 'needs the underlying\'s own equity prints as the other half of the pair, and this '
+  + 'repository has none: no ledger carries a session close or an official opening print, '
+  + 'and no equity provider is configured. CoinGecko cannot supply it — its "underlying" '
+  + 'price is a blend of these same wrappers. <b>No vendor is being added for it.</b> The '
+  + 'tokenized inputs above are recorded nightly, so the study runs the day '
+  + '<code>' + rwEsc(((RWA&&RWA.equity_leg)||{}).artifact || "ledger/equity_sessions.csv")
+  + '</code> exists.</div>';
 }
 
 document.addEventListener("click",e=>{

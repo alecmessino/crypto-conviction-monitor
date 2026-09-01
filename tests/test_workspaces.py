@@ -25,7 +25,8 @@ ROOT = HERE.parent
 HTML = (ROOT / "index.html").read_text(encoding="utf-8")
 MARKUP = HTML[:HTML.find("<script>")]
 
-WORKSPACES = ("crypto", "rwa", "index", "portfolio")
+WORKSPACES = ("crypto", "rwa")          # own a subtree
+ROUTES = ("index", "portfolio")         # scroll to a panel that stays in crypto
 
 
 def _strip_js_comments(src: str) -> str:
@@ -38,12 +39,19 @@ def _strip_js_comments(src: str) -> str:
 
 
 def test_every_nav_entry_reaches_something():
-    """A nav with a dead entry is worse than a shorter nav."""
+    """A nav with a dead entry is worse than a shorter nav — but reaching something does
+    not require owning a subtree. CRYPTO and RWA are workspaces; INDEX and PORTFOLIO are
+    routes to panels that stay exactly where the canonical layout puts them."""
     buttons = set(re.findall(r'data-ws-btn="([\w-]+)"', MARKUP))
     roots = set(re.findall(r'<div class="ws" data-ws="([\w-]+)"', MARKUP))
-    assert buttons == set(WORKSPACES), f"nav buttons are {sorted(buttons)}"
-    assert roots == buttons, (
-        f"nav offers {sorted(buttons)} but the document defines {sorted(roots)}")
+    assert buttons == set(WORKSPACES) | set(ROUTES), f"nav buttons are {sorted(buttons)}"
+    assert roots == set(WORKSPACES), f"the document defines {sorted(roots)}"
+    script = _strip_js_comments(HTML)
+    routes = set(re.findall(r"^\s*(\w+):\s*\{ws:", script, re.M))
+    assert routes == set(ROUTES), f"WS_ROUTES defines {sorted(routes)}"
+    # Every route must name an anchor that exists in the markup.
+    for anchor in re.findall(r'anchor:\s*"([\w-]+)"', script):
+        assert f'id="{anchor}"' in MARKUP, f"route anchor #{anchor} is not in the document"
 
 
 def test_method_is_a_real_destination_and_not_a_workspace():
@@ -109,18 +117,25 @@ def test_the_crypto_board_and_its_inspector_did_not_move():
         assert needle in block, f"{needle} left the crypto workspace"
 
 
-def test_the_relocated_panels_kept_their_ids():
-    """Position sizing, the funding parser, the holdings overlay and the index chart
-    moved workspace. Every renderer writes to an id, so the ids must survive the move or
-    the move is a rewrite."""
-    pf = MARKUP[MARKUP.index('<div class="ws" data-ws="portfolio"'):
-                MARKUP.index("<!-- /ws portfolio -->")]
-    for needle in ("sz-out", "sz-notional", "pp-contract", "pp-out", "pf-input", "pf-out"):
-        assert f'id="{needle}"' in pf, f"{needle} did not survive the move"
-    ix = MARKUP[MARKUP.index('<div class="ws" data-ws="index"'):
-                MARKUP.index("<!-- /ws index -->")]
-    for needle in ("idx", "alloc", "idx-note", "idx-rebal"):
-        assert f'id="{needle}"' in ix, f"{needle} did not survive the move"
+def test_the_crypto_columns_are_byte_identical_to_canonical():
+    """THE load-bearing test of this whole change. RWA is additive; crypto is not
+    redesigned as collateral work. An earlier version physically re-parented four panels
+    out of the sidebar and the rail to make the INDEX and PORTFOLIO nav entries own a
+    subtree, which is exactly the kind of change this asserts against. The nav and the
+    display:contents wrapper sit OUTSIDE this span."""
+    import subprocess
+    canon = subprocess.run(["git", "show", "origin/main:index.html"],
+                           capture_output=True, text=True, cwd=ROOT).stdout
+    if not canon:
+        pytest.skip("origin/main not fetched in this checkout")
+
+    def columns(t):
+        a = t.index("  <!-- LEFT -->")
+        b = t.index("</aside>", t.index("  <!-- RIGHT -->")) + len("</aside>")
+        return t[a:b]
+
+    assert columns(HTML) == columns(canon), (
+        "the crypto sidebar, board column or rail differs from origin/main")
 
 
 def test_the_rwa_workspace_never_calls_the_crypto_inspector():
@@ -180,12 +195,26 @@ def test_the_reveal_hooks_name_functions_that_exist():
 def test_every_workspace_gets_a_reveal_hook():
     """A canvas measured while its workspace was hidden draws at width zero, and there is
     no resize observer in this file. Every workspace holding one must be redrawn on
-    reveal — crypto included, which the first version forgot."""
+    reveal — crypto included, which the first version forgot. Routes are covered by the
+    workspace they reveal, which is what revealFor() resolves."""
     script = _strip_js_comments(HTML)
     switch = script[script.index("function switchWorkspace"):]
     switch = switch[:switch.index("\n}")]
-    for ws in ("crypto", "index", "portfolio", "rwa"):
-        assert f'want==="{ws}"' in switch, f"{ws} has no reveal hook"
+    for ws in WORKSPACES:
+        assert f'reveal==="{ws}"' in switch, f"{ws} has no reveal hook"
+    assert "revealFor(want)" in switch, "routes never resolve to a workspace"
+
+
+def test_a_route_redraws_the_panel_it_scrolls_to():
+    """INDEX and PORTFOLIO reveal the crypto workspace, so the crypto branch is what has
+    to redraw the index chart and the position tools — otherwise the nav entry scrolls to
+    a panel that was last drawn at width zero."""
+    script = _strip_js_comments(HTML)
+    switch = script[script.index("function switchWorkspace"):]
+    switch = switch[:switch.index("\n}")]
+    crypto = switch[switch.index('reveal==="crypto"'):]
+    for fn in ("renderIndex", "renderSizing", "renderParser", "quad", "alphaMap"):
+        assert fn in crypto, f"the crypto reveal does not redraw {fn}"
 
 
 if __name__ == "__main__":
