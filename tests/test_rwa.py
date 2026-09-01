@@ -1656,6 +1656,15 @@ def test_the_release_workflow_can_only_ever_commit_rwa_ledger_files():
     # The stage guard is present and refuses before the commit.
     guard = "grep -v '^ledger/rwa'"
     assert guard in wf and wf.index(guard) < wf.index("git commit")
+    # Reachable from the Tests workflow before the branch lands (a dispatch by file name
+    # resolves against the default branch), and only after the suite is green, only on
+    # an explicit dispatch input — never on a push or a pull request.
+    tests_wf = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+    assert "workflow_call" in wf
+    assert "uses: ./.github/workflows/rwa_release.yml" in tests_wf
+    assert "secrets: inherit" in tests_wf and "needs: pytest" in tests_wf
+    assert "github.event_name == 'workflow_dispatch' && inputs.rwa_release" in tests_wf
+    assert tests_wf.count("contents: write") == 1
 
 
 # LAST in the file, deliberately. _standalone() reads the module namespace as it stands

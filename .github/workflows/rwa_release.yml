@@ -17,6 +17,12 @@ name: RWA Release Snapshot
 # ledger/rwa* is staged.
 on:
   workflow_dispatch: {}
+  # Callable from the Tests workflow too. GitHub resolves a dispatch by file name
+  # against the default branch, so a workflow that exists only on a feature branch
+  # answers 404 to the dispatch API until it has merged. tests.yml exists on main, and
+  # its branch copy can call this one — that is how the first keyed release run of a
+  # branch is produced before the branch lands.
+  workflow_call: {}
 
 permissions:
   contents: write

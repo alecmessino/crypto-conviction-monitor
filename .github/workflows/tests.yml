@@ -12,7 +12,18 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      rwa_release:
+        # Off by default, and never set by a push or a pull request. When a dispatch
+        # sets it, the rwa-release job below runs the RWA Release Snapshot workflow
+        # after the suite is green. It is here because GitHub resolves a dispatch by
+        # file name against the default branch, so rwa_release.yml itself cannot be
+        # dispatched on a branch until it has merged — and the first keyed release run
+        # of a branch is exactly what has to happen before it merges.
+        description: "Publish a keyed RWA snapshot after the suite (RWA Release Snapshot)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -116,3 +127,15 @@ jobs:
         # rendered stop breaks the provenance half of the invariant without touching any
         # data at all.
         run: python tests/test_atr_eligibility.py
+
+  rwa-release:
+    # Only on an explicit dispatch that asks for it, and only after the suite passed.
+    # The called workflow commits ledger/rwa* and nothing else; write access to the
+    # repository is granted to this job alone, and the suite above keeps its
+    # read-only token.
+    if: github.event_name == 'workflow_dispatch' && inputs.rwa_release
+    needs: pytest
+    permissions:
+      contents: write
+    uses: ./.github/workflows/rwa_release.yml
+    secrets: inherit
