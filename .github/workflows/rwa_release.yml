@@ -1,0 +1,101 @@
+name: RWA Release Snapshot
+
+# Dispatch only. The scheduled path for the RWA ledger is the nightly, where
+# rwa.snapshot() runs at the end of nightly.py and its files are committed beside the
+# crypto ledger. This workflow is the RWA snapshot on its own, for the day a keyed,
+# complete run is needed outside the schedule.
+#
+# It exists because of one measured failure. On 2026-09-01 the scheduled nightly
+# committed at 11:43 UTC; a 19:21 UTC dispatch of the same workflow fetched a COMPLETE
+# RWA snapshot (34/34 issuers, 1071/1071 wrappers priced, 647 underlyings) and then
+# failed the canonical ATR eligibility gate, which refuses a same-day re-run of the
+# crypto pipeline (22 bars recorded against 21 rebuilt — reproduced on origin/main with
+# none of this module's code present). The commit step never ran and the snapshot was
+# lost with the runner. The RWA model is independent of the crypto model by design; its
+# release path is independent for the same reason, and it can never touch a crypto
+# ledger file: the commit step below refuses to proceed if anything outside
+# ledger/rwa* is staged.
+on:
+  workflow_dispatch: {}
+  # Callable from the Tests workflow too. GitHub resolves a dispatch by file name
+  # against the default branch, so a workflow that exists only on a feature branch
+  # answers 404 to the dispatch API until it has merged. tests.yml exists on main, and
+  # its branch copy can call this one — that is how the first keyed release run of a
+  # branch is produced before the branch lands.
+  workflow_call: {}
+
+permissions:
+  contents: write
+
+jobs:
+  rwa:
+    runs-on: ubuntu-latest
+    # The keyed snapshot is roughly forty-five CoinGecko calls at 2.5s spacing. Twenty
+    # minutes is the nightly's budget for the whole ledger; this needs a fraction of it,
+    # and the same ceiling keeps a stalled fetch from running unbounded.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: RWA snapshot
+        # rwa.py --snapshot is rwa.snapshot() plus the summary the nightly prints for it.
+        # It writes under the promotion invariant — a DEGRADED run cannot replace the
+        # COMPLETE rows already recorded for today; it is retained in the manifest and the
+        # quarantine, and those two files are what gets committed in that case.
+        env:
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+        run: python rwa.py --snapshot
+
+      - name: RWA model gate, standalone
+        # No pytest, so a missing package can never skip it.
+        run: python tests/test_rwa.py
+
+      - name: Ledger integrity gate
+        # The same gate the nightly runs before its commit, over the ledger this run just
+        # wrote. It checks the RWA artifacts (PRE_EXECUTION stage, UNAVAILABLE execution,
+        # manifest and promotion invariants) alongside everything else.
+        run: python scripts/validate_ledger.py
+
+      - name: Commit RWA ledger
+        run: |
+          git config user.name "conviction-bot"
+          git config user.email "bot@noreply.github.com"
+          # The same file set the nightly commits for this model, and no other.
+          # rwa_observed.csv is the raw observation, rwa_runs.csv the manifest of every
+          # run, rwa_quarantine.csv the runs refused promotion.
+          #
+          # ONE optional file per `git add ... || true`. git add is all-or-nothing over
+          # its pathspecs: with the quarantine file absent, a single line naming all
+          # three staged NOTHING and || true hid it, and the first release commit
+          # (3394528) carried the board without its raw observation or its manifest
+          # row. Measured, not hypothetical.
+          git add ledger/rwa_flow.csv ledger/rwa_issuers.csv ledger/rwa_wrappers.csv ledger/rwa.json
+          git add ledger/rwa_observed.csv || true
+          git add ledger/rwa_runs.csv || true
+          git add ledger/rwa_quarantine.csv || true
+          # Every run appends a manifest row, so a commit without rwa_runs.csv is a
+          # commit whose provenance is missing. Refuse it.
+          if ! git diff --cached --name-only | grep -q '^ledger/rwa_runs.csv$'; then
+            echo "refusing to commit: rwa_runs.csv did not record this run"
+            git diff --cached --name-only
+            exit 1
+          fi
+          # Refuse to commit anything that is not an RWA ledger file. This is the
+          # guarantee that makes the workflow safe to dispatch on any branch: it cannot
+          # write a crypto ledger row, even by accident.
+          if git diff --cached --name-only | grep -v '^ledger/rwa' | grep -q .; then
+            echo "refusing to commit: a non-RWA file is staged"
+            git diff --cached --name-only
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "rwa release snapshot $(date -u +%Y-%m-%d)"
+            git push
+          fi

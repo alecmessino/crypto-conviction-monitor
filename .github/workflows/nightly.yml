@@ -12,7 +12,12 @@ permissions:
 jobs:
   ledger:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # Raised from 10. The RWA snapshot adds roughly forty CoinGecko calls at 4.5s
+    # spacing — about three minutes — against a keyless ceiling of ten to fifteen
+    # requests a rolling minute. Ten minutes had no headroom left for that, and a job
+    # killed at the timeout loses the whole night's ledger commit, not just the part
+    # that was slow.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -71,6 +76,29 @@ jobs:
         env:
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: python coingecko.py
+
+      - name: RWA smoke test
+        # Same reasoning as the two smoke steps above, and one check they do not have.
+        # Every field name in rwa.py came from a response this repository actually
+        # received — /rwas/{id} omitting tokens[] below the Basic plan, and
+        # sparkline_in_7d sitting INSIDE tokenized_market_data rather than beside it,
+        # are neither of them in the documentation.
+        #
+        # It also proves the wrapper join, which is the load-bearing inference in that
+        # module. 99.3% of 1,073 tokens across all 34 issuers resolved when it was
+        # measured, and the script fails below 97%. That floor is not conservatism: a
+        # naming convention change raises nothing at all. The join returns nothing for
+        # the affected shelf, the graph builds without it, and every dispersion and basis
+        # computed afterwards is over whichever issuers still happened to match.
+        #
+        # continue-on-error on the same terms as the others: this feed is optional and
+        # must never fail the job that writes the ledger. The script exits non-zero only
+        # when a FREE endpoint fails. The two paid endpoints are expected to answer 401
+        # and their refusal is reported rather than treated as a failure.
+        continue-on-error: true
+        env:
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+        run: python rwa.py
 
       - name: Record the observations under watch
         # Both open questions on this repo are "has X held for N nights". Answering them
@@ -147,6 +175,38 @@ jobs:
           # every multi-day reading to "accumulating" the next night.
           git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json ledger/funding.json ledger/venue_health.csv
           git add ledger/market_intel.json ledger/sectors.csv ledger/macro.csv ledger/dex.csv
+          #
+          # rwa_flow.csv is the one file in this directory that cannot be rebuilt.
+          # /rwas/{id}/market_chart answers HTTP 401 below CoinGecko's Basic plan, so the
+          # tokenized net-issuance series has no history anywhere except here: a night
+          # that is not committed is a night that is gone, and no key bought later
+          # recovers it. Every other artifact above can be regenerated from a fresh
+          # fetch. rwa_issuers.csv and rwa_wrappers.csv are the same kind of accumulation
+          # for the issuer league and the wrapper tape — /rwas/issuers/{id} publishes a
+          # snapshot and no history at all, so an issuer's share of the market over 30
+          # days cannot be fetched, only accumulated.
+          #
+          # rwa.json is the render artifact, committed rather than derived in the browser
+          # for the same reason funding.json and market_intel.json are: it records the
+          # readings the published board was actually built beside, and a client-side
+          # recomputation from a live feed would disagree with it whenever the tape moved
+          # during the day.
+          #
+          # rwa_observed.csv is the RAW observation, written before anything is derived
+          # from it, and rwa_runs.csv is the manifest of what every run actually saw.
+          # Those two are what make the derived series auditable a year from now: without
+          # them the flow ledger is a column of numbers with no record of the evidence
+          # behind it. rwa_quarantine.csv holds the runs that were refused promotion — a
+          # ledger that silently drops its failures cannot be audited for the invariant
+          # that produced them.
+          #
+          # One optional file per line: git add is all-or-nothing over its pathspecs, so
+          # naming the three together staged nothing while the quarantine file did not
+          # yet exist, and || true hid it. Found on the first RWA release commit.
+          git add ledger/rwa_flow.csv ledger/rwa_issuers.csv ledger/rwa_wrappers.csv ledger/rwa.json
+          git add ledger/rwa_observed.csv || true
+          git add ledger/rwa_runs.csv || true
+          git add ledger/rwa_quarantine.csv || true
           git add ledger/index.legacy.csv 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes to commit"

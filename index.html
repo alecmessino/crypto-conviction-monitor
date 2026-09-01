@@ -436,6 +436,117 @@ canvas{display:block;width:100%}
   border-color:var(--border);border-bottom-color:transparent}
 .tab:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
 
+/* WORKSPACE NAV — 36px, above the 48px status strip.
+
+   The one piece of chrome that is not about the crypto board, so it sits above
+   everything and never competes with it: same .tab idiom as the secondary pane, one
+   step louder because it selects a whole screen rather than a panel inside one.
+
+   Its ATTRIBUTE NAMESPACE is the load-bearing detail. The secondary-pane handler
+   selects `[data-pane]` and `[data-note]` document-globally and unscoped, so a
+   workspace reusing either name would mean every click on Liquidity or Funding also
+   hid half of another workspace. Workspaces use data-ws / data-ws-btn exclusively.
+
+   .ws is display:contents so the three column roots stay DIRECT grid items of .wrap.
+   Any other wrapper collapses the 240px/1fr/400px tracks to a single item and silently
+   de-activates every grid-column rule in the file — a break that passes every static
+   gate because those gates read the CSS source rather than the render. The [hidden]
+   rule needs the attribute selector to out-specify .ws itself. */
+.ws{display:contents}
+.ws[hidden]{display:none!important}
+.ws-nav{grid-column:1/-1;display:flex;gap:2px;align-items:flex-end;min-height:36px;
+  padding:0 4px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.ws-tab{background:transparent;color:var(--tert);border:1px solid transparent;
+  border-bottom:none;border-radius:5px 5px 0 0;padding:8px 14px;cursor:pointer;
+  font-family:inherit;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;
+  text-decoration:none;display:inline-block;line-height:1}
+.ws-tab:hover{color:var(--sec)}
+.ws-tab.on{color:var(--txt);background:rgba(59,130,246,.14);border-color:var(--border);
+  box-shadow:inset 0 -2px 0 var(--blue)}
+.ws-tab:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+/* MOBILE. Both rules scoped so the canonical crypto mobile layout is untouched. The nav
+   becomes one horizontally scrollable row rather than wrapping METHOD onto a second line;
+   the RWA workspace reorders its grid children so the ranked board comes first, the
+   inspector second and the diagnostics last. `order` works because .ws is
+   display:contents and these are direct grid items of .wrap. */
+@media(max-width:560px){
+  .ws-nav{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none}
+  .ws-nav::-webkit-scrollbar{display:none}
+  .ws-tab{flex:0 0 auto}
+  [data-ws="rwa"] > .statuswrap{order:0}
+  [data-ws="rwa"] > main.col-center{order:1}
+  [data-ws="rwa"] > aside.rail{order:2}
+  [data-ws="rwa"] > aside.side{order:3}
+}
+/* Foldable RWA side cards: <details> with the card header as its summary. Open on
+   desktop, folded at the phone gate by the matchMedia hook, so the diagnostics sit
+   beneath the board as one-line disclosures rather than as several screens. */
+details.rwa-fold > summary{list-style:none;cursor:pointer}
+details.rwa-fold > summary::-webkit-details-marker{display:none}
+details.rwa-fold > summary::after{content:"▾";color:var(--tert);font-size:9px;margin-left:8px}
+details.rwa-fold:not([open]) > summary::after{content:"▸"}
+details.rwa-fold > summary:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.tab.deferred{border-style:dashed;color:var(--tert);opacity:.75}
+.tab.deferred.on{opacity:1}
+.ws-tab .ext{color:var(--tert);font-size:8px;margin-left:5px}
+/* A routed panel is marked so the nav entry visibly did something. INDEX and PORTFOLIO
+   scroll to panels that stay in the crypto workspace rather than moving into their own,
+   and an unacknowledged scroll reads as a dead nav entry. */
+.ws-routed{outline:1px solid var(--blue);outline-offset:2px}
+
+/* RWA workspace. Reuses the crypto tracks deliberately: it is the same shape of
+   question — a dominant ranked board with a persistent inspector beside it — and a
+   second set of grid tracks would make .wrap's grid-template-columns conditional on
+   which workspace is showing, which is a far larger CSS change than anything else here.
+   No <canvas> anywhere in this workspace, and that is not an omission: a canvas sized
+   while its container is `hidden` measures clientWidth zero, and attachChartInteraction
+   registers no points, so a chart drawn in a hidden workspace publishes an empty
+   accessible table. The board answers its questions in a table. */
+.rwa-sub{display:flex;gap:2px;flex-wrap:wrap;padding:6px 10px;
+  border-bottom:1px solid var(--border);background:rgba(30,41,59,.18)}
+.rwa-sub .tab{font-size:9px;padding:4px 9px;border-bottom-color:transparent}
+.rwa-badge{font-size:8px;letter-spacing:.8px;padding:2px 7px;border-radius:9px;
+  border:1px solid var(--border);color:var(--tert);white-space:nowrap}
+.rwa-badge.DEEP{color:var(--green);border-color:rgba(123,201,160,.45)}
+.rwa-badge.SOUND{color:#9FD8BC;border-color:rgba(123,201,160,.28)}
+.rwa-badge.THIN{color:var(--amber);border-color:rgba(224,179,114,.4)}
+.rwa-badge.FRAGILE{color:var(--red);border-color:rgba(232,145,127,.4)}
+.rwa-badge.DORMANT{color:var(--tert)}
+.rwa-badge.UNRATED{color:var(--tert);border-style:dashed}
+.imp{font-size:9px;letter-spacing:.5px;white-space:nowrap}
+.imp.MINTING,.imp.STRONG_ADOPTION{color:var(--green)}
+.imp.REDEMPTION{color:var(--red)}
+.imp.NEUTRAL{color:var(--sec)}
+.imp.UNREADABLE{color:var(--tert)}
+.wrapline{display:grid;grid-template-columns:1fr auto auto;gap:8px;padding:5px 0;
+  border-bottom:1px solid var(--grid);font-size:11px;align-items:baseline}
+.wrapline .wl-sym{font-weight:700}
+.wrapline .wl-iss{color:var(--tert);font-size:9px;display:block;letter-spacing:.3px}
+.wrapline.dead{opacity:.5}
+/* Dimming for a TABLE row. .wrapline is display:grid and applying it to a <tr> collapsed
+   the row's nine cells into a three-column grid — legible in the inspector, where
+   .wrapline belongs, and wrong everywhere a <tr> is. */
+tr.rw-dead td{opacity:.45}
+.rwa-empty{padding:10px 12px;color:var(--tert);font-size:11px}
+.absent{border-left:2px solid var(--amber);padding:6px 10px;margin:6px 0;
+  background:rgba(224,179,114,.06);font-size:10px;color:var(--sec)}
+/* EVIDENCE VOCABULARY. Five states, one chip each, used identically on the board, in the
+   inspector and on the Method page. The distinction between what a vendor published, what
+   we computed from it, what a documented convention let us normalise, what we could not
+   buy and what we could not explain is the most valuable thing this workspace reports —
+   more so than filling every cell. */
+.ev{font-size:7px;letter-spacing:.9px;padding:1px 5px;border-radius:3px;
+  border:1px solid var(--border);color:var(--tert);white-space:nowrap;margin-left:5px;
+  text-transform:uppercase;vertical-align:middle}
+.ev-observed{color:var(--green);border-color:rgba(123,201,160,.35)}
+.ev-derived{color:var(--blue);border-color:rgba(59,130,246,.4)}
+.ev-normalized{color:var(--violet);border-color:rgba(167,139,250,.4)}
+.ev-unavailable{color:var(--red);border-color:rgba(232,145,127,.4)}
+.ev-unexplained{color:var(--amber);border-color:rgba(224,179,114,.45)}
+.ev-legend{display:flex;gap:6px;flex-wrap:wrap;padding:6px 10px;align-items:center;
+  border-bottom:1px solid var(--grid);font-size:9px;color:var(--tert)}
+
 /* Relocated prose. Closed by default; nothing was deleted, and methodology.html remains
    the permanent home for the long form. A terminal that explains itself at length on
    every panel is a terminal you scroll past to reach the numbers. */
@@ -505,6 +616,27 @@ canvas:focus-visible{outline:2px solid var(--blue)}
 </head>
 <body>
 <div class="wrap">
+  <!-- WORKSPACE NAV — the only chrome above the status strip.
+
+       Deliberately ABOVE it. tests/test_terminal.py slices the markup between the
+       status ribbon and the board's own heading, and fails on anything in that slice
+       carrying a class beginning "ribbon"; more to the point, everything between a
+       reader and the board is a cost, and this is a screen selector rather than market
+       data. (This comment does not spell that heading out, because it sits above the
+       ribbon and would land inside the slice it describes.)
+
+       METHOD is a real <a>, not a workspace. It never enters the hide/show sweep
+       because methodology.html is a document, not a panel — the long form has always
+       lived there and pulling it inline would be the fourth copy of the same prose. -->
+  <nav class="ws-nav" id="ws-nav" aria-label="Workspace">
+    <button class="ws-tab on" data-ws-btn="crypto" aria-current="page">Crypto</button>
+    <button class="ws-tab" data-ws-btn="rwa">RWA</button>
+    <button class="ws-tab" data-ws-btn="index">Index</button>
+    <button class="ws-tab" data-ws-btn="portfolio">Portfolio</button>
+    <a class="ws-tab" href="methodology.html">Method<span class="ext">&#8599;</span></a>
+  </nav>
+
+  <div class="ws" data-ws="crypto">
   <!-- STATUS STRIP — one row, and the only chrome above the board.
 
        This was three stacked ribbons plus a rewind bar: 225px of status before any
@@ -894,6 +1026,216 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:4px 12px 10px">Nightly Top-10 basket (06:17 UTC snapshot), score-proportional weights. The <b>live</b> conviction leaders in the Alpha Map use the same formula but diverge slightly on intraday price moves. Paper return is chained from the recorded signals ledger — weights from the earlier night, priced at both ends — against BTC, with the equal-weight universe as the control that separates selection from market beta.</div></details>
     </div>
   </aside>
+  </div><!-- /ws crypto -->
+
+  <!-- ============================ RWA WORKSPACE ============================
+       Its own workspace and its own model. Nothing rendered here is computed by,
+       compared to, or convertible into the crypto conviction score, and the labels are
+       a deliberately different vocabulary — DEEP / SOUND / THIN / FRAGILE / DORMANT
+       describe a market's structure, where STRONG / BUY / HOLD / WATCH / AVOID is an
+       action ladder. Two vocabularies that shared even one word would invite the
+       reading that they share a scale.
+
+       Same shape as the crypto workspace, because it is the same shape of question: a
+       dominant ranked board of UNDERLYINGS, one tabbed plate beneath it, and a
+       persistent inspector on the right. Same grid tracks, same type roles, same flat
+       surfaces.
+
+       No <canvas> anywhere in here, and that is deliberate rather than unfinished. A
+       canvas sized while its workspace is `hidden` measures clientWidth zero and
+       attachChartInteraction registers no points, so the accessible table it publishes
+       would come out empty and the render gate would fail naming no cause. -->
+  <div class="ws" data-ws="rwa" hidden>
+    <div class="statuswrap">
+      <div class="ribbon glass statusbar">
+        <div class="brand">TOKENIZED <span class="live">RWA</span> WORKSPACE</div>
+        <div class="stat"><b id="rw-under" class="num">—</b><span>Underlyings Ranked</span></div>
+        <div class="stat"><b id="rw-wrap" class="num">—</b><span>Wrapper Price Coverage</span></div>
+        <div class="stat"><b id="rw-iss" class="num">—</b><span>Issuers</span></div>
+        <div class="stat"><b id="rw-cov" class="num">—</b><span>Model Coverage · of declared</span></div>
+        <div class="stat"><b id="rw-exec" class="num neg">UNAVAILABLE</b><span>Execution Evidence</span></div>
+        <div class="stat"><b id="rwa-snap-date" class="num">—</b><span>Snapshot</span></div>
+        <div class="stat"><b id="rwa-run" class="num">—</b><span>Run</span></div>
+      </div>
+    </div>
+
+    <aside class="side">
+      <details class="glass rwa-fold" open>
+        <summary class="card-h">RWA MODEL <span class="muted" id="rw-spec">—</span></summary>
+        <div class="card-b" id="rw-model">
+          <div class="muted">Artifact pending — <code>ledger/rwa.json</code> was not produced.</div>
+        </div>
+      </details>
+      <details class="glass rwa-fold" open>
+        <summary class="card-h">WHAT THIS MODEL CANNOT SEE</summary>
+        <div class="card-b" id="rw-absent">
+          <div class="muted">—</div>
+        </div>
+      </details>
+      <details class="glass rwa-fold" open>
+        <summary class="card-h">THE JOIN <span class="muted">wrapper &#8594; underlying</span></summary>
+        <div class="card-b" id="rw-join">
+          <div class="muted">—</div>
+        </div>
+      </details>
+    </aside>
+
+    <main class="col-center">
+      <div class="glass">
+        <div class="card-h">TOKENIZED UNDERLYINGS
+          <span class="muted" id="rw-board-note">ranked by RWA conviction &#183; click a row</span></div>
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;
+                    border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <input id="rw-filter" type="search" placeholder="filter" autocomplete="off"
+                 style="background:#0c1320;color:var(--txt);border:1px solid var(--border);
+                        border-radius:4px;font-family:inherit;font-size:10px;padding:3px 7px;width:130px"
+                 title="Filter by ticker, name, asset type, label or issuer.">
+          <span class="muted" id="rw-gate"></span>
+        </div>
+        <div class="ev-legend" aria-label="Evidence states">
+          <span><span class="ev ev-observed">observed</span> vendor payload</span>
+          <span><span class="ev ev-derived">derived</span> our calculation</span>
+          <span><span class="ev ev-normalized">normalized</span> documented unit convention</span>
+          <span><span class="ev ev-unavailable">unavailable</span> paid/external evidence missing</span>
+          <span><span class="ev ev-unexplained">unexplained</span> divergence we cannot safely normalize</span>
+        </div>
+        <div class="scroll-pane">
+          <table id="tbl-rwa"><thead><tr>
+            <th>#</th><th>Ticker</th><th>Type</th><th>Price</th><th>24H &#916;</th>
+            <th title="Tokenized market cap. This is the ONCHAIN aggregate across every wrapper CoinGecko tracks, not a TradFi market cap.">Tokenized Cap</th>
+            <th>24H Vol</th>
+            <th title="DERIVED, not observed. The implied change in wrapper units since the last recorded night, recovered from the published price and market cap. The arithmetic is exact; reading it as issuance is an inference no available feed corroborates, so it is published as an impulse and never as a mint or a redemption.">Impulse</th>
+            <th title="Live wrappers over total wrappers. Live means it cleared the 24h volume floor AND was updated inside the staleness window.">Wrappers</th>
+            <th title="Standard deviation of live wrapper prices around their own median, in basis points. Two tokens redeemable for the same share should not disagree.">Disp</th>
+            <th data-tip="AVAILABLE-EVIDENCE NORMALIZED. The weighted mean of the components that produced a value, rescaled to 0–100 over the weight of those components only. A 94 is 94 on the evidence that was priced — not 94 of a fully evidenced 100. The small figure beneath is the share of declared model weight that was priced.">RWA Conv</th>
+            <th data-tip="The RWA SIGNAL: the band of the normalized score. DEEP / SOUND / THIN / FRAGILE / DORMANT describe the tokenized market's structure and are the final signal, not a liquidity sub-classification. UNRATED is a refusal.">RWA Signal</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+
+      <div class="glass">
+        <!-- ONE tabbed plate. The subnav the brief specifies, minus the two entries the
+             dominant board above already is: OVERVIEW is the status strip and the model
+             card, UNDERLYINGS is the board itself. -->
+        <div class="rwa-sub" id="rwa-tabs" role="tablist">
+          <button class="tab on" data-rwatab="wrappers" role="tab" aria-selected="true">Wrappers</button>
+          <button class="tab" data-rwatab="issuers" role="tab" aria-selected="false">Issuers</button>
+          <button class="tab" data-rwatab="venues" role="tab" aria-selected="false">Venues</button>
+          <button class="tab" data-rwatab="flows" role="tab" aria-selected="false">Flows</button>
+          <button class="tab" data-rwatab="disloc" role="tab" aria-selected="false">Divergence</button>
+          <button class="tab deferred" data-rwatab="issuance" role="tab" aria-selected="false"
+                  aria-disabled="true" data-tip="Deliberately not built in this change. The tab opens a statement of what it is waiting for, not a feature.">New Issuance <span class="ev ev-unavailable">deferred</span></button>
+        </div>
+        <div data-rwapane="wrappers">
+          <div class="scroll-pane">
+            <table id="tbl-rwa-wrap"><thead><tr>
+              <th>Wrapper</th><th>Underlying</th><th>Issuer</th><th>Chains</th>
+              <th>Price</th><th>24H Vol</th>
+              <th title="Distance from the median of the live wrappers on this underlying.">Basis</th>
+              <th>Score</th><th>State</th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+          <details class="why"><summary>Why this panel exists</summary><div class="note">"Which implementation of this exposure is structurally best", not "is the company going up".
+            A wrapper that fails the liveness gate is <b>not scored low, it is not scored</b> — ranking a three-week-stale
+            token at 8/100 invites the reading that it is a worse version of a live thing, when the truthful statement is
+            that there is no market there to rank. Execution cost carries zero weight and says so on every row: bid/ask,
+            cost-to-move-up and cost-to-move-down all need <code>/rwas/{id}/tickers</code>, which answers HTTP 401 below
+            CoinGecko's Basic plan.</div></details>
+        </div>
+        <div data-rwapane="issuers" hidden>
+          <div class="scroll-pane">
+            <table id="tbl-rwa-iss"><thead><tr>
+              <th>Issuer</th><th>Tokenized Cap</th><th>24H &#916;</th><th>24H Vol</th>
+              <th>Tokens</th><th>Live</th><th>Underlyings</th><th>Chains</th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+          <details class="why"><summary>Why this panel exists</summary><div class="note">A shelf can be large and dead. The <b>Live</b> column is the one that separates an issuer with
+            inventory from an issuer with a market: it counts only tokens that cleared the 24h volume floor inside the
+            staleness window. <code>/rwas/issuers/{id}</code> publishes a snapshot and no history at all, so an issuer's
+            share of the market over 30 days cannot be fetched — only accumulated, which is what
+            <code>ledger/rwa_issuers.csv</code> is for.</div></details>
+        </div>
+        <div data-rwapane="venues" hidden>
+          <div class="card-b" id="rwa-venues"><div class="rwa-empty">—</div></div>
+        </div>
+        <div data-rwapane="flows" hidden>
+          <div class="scroll-pane">
+            <table id="tbl-rwa-flow"><thead><tr>
+              <th>Ticker</th><th>Price &#916;</th>
+              <th title="OBSERVED price and market cap; the expected cap is DERIVED — what the same implied unit count would have been worth at today's price.">Expected Cap</th>
+              <th>Actual Cap</th><th>Residual $</th>
+              <th title="The implied change in units. The price term cancels exactly; the reading is still an inference, not an observed mint.">Implied Supply &#916;</th>
+              <th>Per Day</th><th>Reading</th>
+              <th title="A level in IMPLIED units, base 100 at the first recorded night. It compounds the raw residual, so a gap in the chain does not distort it.">Implied Supply Index</th>
+              <th>Nights</th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+          <details class="why"><summary>Why this panel exists</summary><div class="note">Market cap is price times units outstanding, so dividing out the price-implied cap leaves the
+            <b>implied unit ratio and nothing else</b>. The arithmetic is exact. Reading it as issuance is an
+            <b>inference</b>: it holds only if the vendor's historical market cap is contemporaneous circulating units at
+            the same published price, with no supply revision or reclassification — which is undocumented and unchecked,
+            because no free issuance feed exists for these tokens. So this is published as a tokenization impulse and
+            never as a mint or a redemption.
+            <code>/rwas/{id}/market_chart</code> answers HTTP 401 below the Basic plan, so this series has no history
+            anywhere except <code>ledger/rwa_flow.csv</code>: a night that was not recorded is gone, and no key bought
+            later recovers it. That is why the column reads <b>accumulating</b> rather than being backfilled.</div></details>
+        </div>
+        <div data-rwapane="disloc" hidden>
+          <div class="absent" id="rwa-exec-banner">
+            <b>EXECUTION UNAVAILABLE — venue depth/spread feed not connected.</b>
+            Everything below is a <b>pre-execution price divergence</b> measured on last
+            prices. It is not an executable dislocation, not an executable basis, and not
+            an after-friction opportunity. Bid/ask, cost-to-move, venue depth and the
+            stale/anomaly/trust fields all come from <code>/rwas/{id}/tickers</code>, which
+            answers HTTP&nbsp;401 on this plan. A row is promoted to EXECUTABLE only once
+            that feed exists <i>and</i> the spread, depth and friction gates pass.
+          </div>
+          <div class="scroll-pane">
+            <table id="tbl-rwa-disloc"><thead><tr>
+              <th>Wrapper</th><th>Underlying</th><th>Price</th><th>Live Median</th>
+              <th>Basis</th><th>24H Vol</th><th>Age</th>
+              <th title="How well EVIDENCED the divergence reading is — comparable wrappers, freshness, depth. NOT a confidence in a trade.">Obs. Evidence</th>
+              <th title="Bid/ask, depth, cost-to-move and the trust fields all need /rwas/{id}/tickers, which answers 401 on this plan.">Execution</th>
+            </tr></thead><tbody></tbody></table>
+          </div>
+          <div class="absent" id="rwa-disloc-note">—</div>
+          <details class="why"><summary>Why this panel exists</summary><div class="note">Wrapper against wrapper, priced on the median of the <b>live</b> wrappers for that underlying —
+            never against <code>tokenized_market_data.current_price</code>, which is a blend of these same wrappers. For 18
+            underlyings that published aggregate equalled a wrapper price to the cent, and where only one wrapper is known
+            it collapses onto that wrapper and reports a 0.00% basis by construction. IBM is the clearest case: the
+            aggregate read 282.91 while both live wrappers sat at 233.43 and 238.57, dragged up by stale members of the
+            blend. <b>Nothing here is executable.</b> Executable means after spread, depth and cost-to-move, and all three
+            live behind an endpoint this plan cannot call. Informational; nothing auto-executes.</div></details>
+        </div>
+        <div data-rwapane="issuance" hidden>
+          <div class="card-b" id="rwa-issuance"><div class="rwa-empty">—</div></div>
+        </div>
+      </div>
+    </main>
+
+    <aside class="rail">
+      <div class="glass">
+        <div class="card-h">INSPECTOR <span class="muted" id="rw-insp-sym">—</span></div>
+        <div class="card-b" id="rw-inspector">
+          <div class="muted" style="padding:22px 0">Select an underlying to see its wrapper set,
+            its issuance chain and what the model could not price.</div>
+        </div>
+      </div>
+      <div class="glass">
+        <div class="card-h">OFF-HOURS TAPE <span class="muted" id="rw-oh-note">24/7 against a shut cash market</span></div>
+        <div class="card-b" id="rw-offhours"><div class="rwa-empty">—</div></div>
+        <details class="why"><summary>Why this panel exists</summary><div class="note">Between Friday's close and Monday's open, the tokenized tape is the only place price discovery
+          happened anywhere. What is published here is that move, how long the window has been open, how many wrappers
+          agree on its direction and how far apart they are. What is <b>not</b> published is an implied cash-open gap or a
+          confidence in one: converting a tokenized drift into an expected gap needs the underlying's own equity prints as
+          the other half of the pair, and CoinGecko does not carry them. The inputs are recorded so the study becomes
+          possible the night an equity feed is connected.</div></details>
+      </div>
+    </aside>
+  </div><!-- /ws rwa -->
+
+
+
 </div>
 
 <!-- DRAWER -->
@@ -4744,10 +5086,582 @@ document.addEventListener("click",e=>{
   const chip=e.target.closest&&e.target.closest(".tier");
   if(chip && chip.dataset.filter!=null){ e.stopPropagation(); setFilter(chip.textContent.trim()); }
 });
+/* ===================== WORKSPACE SWITCH =====================
+   Two real workspaces, and two ROUTES.
+
+   CRYPTO and RWA each own a subtree. INDEX and PORTFOLIO do not: they scroll to panels
+   that already live inside the crypto workspace and are left exactly where the canonical
+   layout puts them. That is the whole design, and it is a correction — an earlier version
+   physically re-parented those four panels into workspaces of their own, which made the
+   nav entries real at the cost of changing a crypto layout this change has no business
+   touching. The crypto columns are now byte-identical to origin/main, and a route reaches
+   a panel without moving it.
+
+   The panels are addressed through ids that already existed (#idx, #sz-notional), so
+   routing adds no attribute to any canonical node.
+
+   Attribute namespace: data-ws / data-ws-btn only. The secondary-pane handler below
+   selects [data-pane] and [data-note] document-globally and unscoped, so any overlap
+   would mean a click on Liquidity silently hid part of another screen. */
+const WS_ROUTES = {
+  index:     {ws: "crypto", anchor: "idx",         label: "conviction-weighted index"},
+  portfolio: {ws: "crypto", anchor: "sz-notional", label: "position tools"},
+};
+
+function revealFor(want){ return (WS_ROUTES[want] || {}).ws || want; }
+
+function switchWorkspace(want, push){
+  const known=[...document.querySelectorAll("[data-ws]")].map(w=>w.dataset.ws);
+  if(known.indexOf(want)<0 && !WS_ROUTES[want]) want="crypto";
+  const reveal=revealFor(want);
+  document.querySelectorAll("[data-ws-btn]").forEach(b=>{
+    const on=b.dataset.wsBtn===want;
+    b.classList.toggle("on",on);
+    if(on) b.setAttribute("aria-current","page"); else b.removeAttribute("aria-current");
+  });
+  document.querySelectorAll("[data-ws]").forEach(w=>{ w.hidden = w.dataset.ws!==reveal; });
+  /* Three of the four canvases lack the clientWidth||360 fallback factorQuad has, there
+     is no resize observer anywhere in this file, and a canvas measured while its
+     workspace was hidden draws at width zero. Redrawing on reveal is what keeps a reader
+     who deep-links to #rwa from coming back to blank charts. */
+  if(reveal==="crypto"){
+    try{ if(typeof quad==="function") quad();
+         if(typeof alphaMap==="function") alphaMap();
+         if(typeof renderIndex==="function") renderIndex();
+         if(typeof renderSizing==="function") renderSizing();
+         if(typeof renderParser==="function") renderParser();
+         if(typeof factorQuad==="function") factorQuad(); }catch(e){}
+  }
+  if(reveal==="rwa"){ try{ renderRwa(); }catch(e){} }
+  const route=WS_ROUTES[want];
+  if(route){
+    const el=document.getElementById(route.anchor);
+    const panel=el && el.closest(".glass");
+    if(panel){
+      panel.scrollIntoView({block:"start", behavior:"auto"});
+      /* A scroll with no acknowledgement reads as a nav entry that did nothing. The
+         outline is removed on the next interaction rather than on a timer, so it cannot
+         animate under prefers-reduced-motion. */
+      document.querySelectorAll(".ws-routed").forEach(n=>n.classList.remove("ws-routed"));
+      panel.classList.add("ws-routed");
+    }
+  } else {
+    document.querySelectorAll(".ws-routed").forEach(n=>n.classList.remove("ws-routed"));
+  }
+  /* The hash is the only state this page has ever serialised. Written on an explicit
+     switch and never on the 120s refresh, so a reload lands where the reader left off
+     without the timer rewriting history under them. */
+  if(push && location.hash!=="#"+want){ history.replaceState(null,"","#"+want); }
+}
+document.querySelectorAll("[data-ws-btn]").forEach(btn=>{
+  btn.onclick=()=>switchWorkspace(btn.dataset.wsBtn,true);
+});
+window.addEventListener("hashchange",()=>switchWorkspace((location.hash||"").slice(1),false));
+/* Fold the RWA side cards at the phone gate and open them above it. Driven by the same
+   560px query as the CSS so the two cannot disagree. */
+(function(){
+  const mq=window.matchMedia("(max-width:560px)");
+  const apply=()=>document.querySelectorAll("details.rwa-fold").forEach(d=>{ d.open=!mq.matches; });
+  apply(); if(mq.addEventListener) mq.addEventListener("change",apply); else mq.addListener(apply);
+})();
+
+document.querySelectorAll("#rwa-tabs .tab").forEach(btn=>{
+  btn.onclick=()=>{
+    const want=btn.dataset.rwatab;
+    document.querySelectorAll("#rwa-tabs .tab").forEach(b=>{
+      const on=b.dataset.rwatab===want;
+      b.classList.toggle("on",on); b.setAttribute("aria-selected",on?"true":"false");
+    });
+    document.querySelectorAll("[data-rwapane]").forEach(pane=>{
+      pane.hidden = pane.dataset.rwapane!==want;
+    });
+  };
+});
+
+/* ===================== RWA WORKSPACE =====================
+   Reads ledger/rwa.json and renders it. Every number on screen was computed by rwa.py
+   and committed beside the board it describes; nothing here recomputes a score from a
+   live feed, for the same reason funding.json is committed rather than derived — a
+   client-side recomputation would disagree with the published board whenever the tape
+   moved during the day.
+
+   RWA rows do NOT route through select(). factorBreakdown() falls back to STATE[0] on a
+   miss, so a wrapper id handed to the crypto inspector would silently paint a different
+   asset's factor ledger: a wrong number that looks entirely normal. RWA has its own
+   selection and its own inspector host. */
+let RWA=null, RWA_SEL=null, RWA_FILTER="";
+const rwEl=id=>document.getElementById(id);
+const rwNum=v=>(v==null||v===""||isNaN(parseFloat(v)))?null:parseFloat(v);
+/* The sign goes OUTSIDE the currency symbol. Built the other way round, every negative
+   residual on the Flows tab read "$-12.5K", which is not how anyone writes money and is
+   the column where the sign carries the whole meaning. */
+function rwUsd(v,dp){ const n=rwNum(v); if(n==null) return "—";
+  const a=Math.abs(n), sign=n<0?"-":"";
+  if(a>=1e9) return sign+"$"+(a/1e9).toFixed(2)+"B";
+  if(a>=1e6) return sign+"$"+(a/1e6).toFixed(1)+"M";
+  if(a>=1e3) return sign+"$"+(a/1e3).toFixed(1)+"K";
+  return sign+"$"+a.toFixed(dp==null?2:dp); }
+function rwPct(v,dp){ const n=rwNum(v); return n==null?"—":(n>=0?"+":"")+n.toFixed(dp==null?2:dp)+"%"; }
+/* A PRICE is never abbreviated. $4.4K for a $4,435.90 gold token throws away the two
+   digits that say which denomination it is, on the one panel where the denomination is
+   the whole question. Volumes and market caps still abbreviate — nobody reads those to
+   the cent. Sub-dollar tokens keep enough places to stay distinguishable. */
+function rwPrice(v){ const n=rwNum(v); if(n==null) return "—";
+  const a=Math.abs(n);
+  const dp = a>=1 ? 2 : (a>=0.01 ? 4 : 6);
+  return "$"+n.toLocaleString("en-US",{minimumFractionDigits:dp,maximumFractionDigits:dp}); }
+/* Chains are a list that can run to six entries. Shown whole they set the table width
+   and push the columns after them off the panel; the count is what the reader is
+   actually scanning for, and the full list is one row away in the inspector. */
+function rwChains(list,keep){ const c=list||[]; if(!c.length) return "—";
+  const k=keep==null?2:keep;
+  return c.length<=k ? c.join(", ") : c.slice(0,k).join(", ")+" +"+(c.length-k); }
+/* Sign colour only where the sign carries a direction. The supply impulse is signed and
+   directional; a dispersion is a magnitude and colouring it green would be nonsense. */
+function rwSigned(v,dp){ const n=rwNum(v); if(n==null) return '<span class="muted">—</span>';
+  const c=n>0?"pos":(n<0?"neg":"muted"); return '<span class="'+c+'">'+rwPct(n,dp)+'</span>'; }
+const rwEsc=t=>String(t==null?"":t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function loadRwa(){
+  try{
+    const r=await fetch("ledger/rwa.json",{cache:"no-store"});
+    if(r.ok) RWA = await r.json();
+  }catch(e){ /* artifact absent — every panel renders its pending state, never zeros */ }
+}
+
+function rwaRows(){
+  const b=(RWA&&RWA.board)||[];
+  if(!RWA_FILTER) return b;
+  const q=RWA_FILTER.toLowerCase();
+  return b.filter(r=>[r.symbol,r.name,r.asset_type,r.label,(r.issuers||[]).join(" ")]
+    .join(" ").toLowerCase().includes(q));
+}
+
+function renderRwa(){
+  if(!RWA){
+    const t=rwEl("tbl-rwa"); if(t) t.querySelector("tbody").innerHTML=
+      '<tr><td colspan="12" class="muted" style="padding:14px">RWA artifact pending — '
+      +'<code>ledger/rwa.json</code> was not produced. Nothing is estimated in its place.</td></tr>';
+    return;
+  }
+  const g=RWA.graph||{}, bg=RWA.board_gate||{}, m=RWA.model||{};
+  const set=(id,v)=>{const e=rwEl(id); if(e) e.textContent=v;};
+  set("rw-under", (bg.ranked!=null?bg.ranked:"—")+" / "+(g.underlyings_ranked||"—"));
+  set("rw-wrap", (g.wrappers_priced!=null?g.wrappers_priced:"—")+" / "+(g.wrappers_n||"—"));
+  set("rw-iss", g.issuers_n!=null?g.issuers_n:"—");
+  set("rwa-snap-date", RWA.date||"—");
+  /* The run's own completeness, on the strip. A board built from a partial fetch looks
+     exactly like one built from a whole fetch, which is how a lost wrapper batch got to
+     publish medians computed from whichever peers survived. */
+  const run=RWA.run||{};
+  const runEl=rwEl("rwa-run");
+  if(runEl){
+    runEl.textContent=(run.status||"—").toUpperCase();
+    runEl.className="num "+(run.status==="complete"?"pos":(run.status==="degraded"?"neg":""));
+    /* data-tip, never a native title: initTips() upgrades these into the explanation
+       layer, and a native title renders on no phone. Set after the text so the observer
+       picks it up. */
+    /* Set only when there is something to say. An empty data-tip still counts as an
+       explanation to the reachability gate, and an explanation with no text is an
+       unreachable node promising nothing. */
+    const tip=(run.note||"")
+      +(run.promoted===false?" — NOT promoted to canonical history; the rows already "
+        +"recorded for today came from a more complete run.":"");
+    if(tip.trim()){ runEl.setAttribute("data-tip",tip); }
+    else { runEl.removeAttribute("data-tip"); }
+  }
+  set("rw-spec", "spec "+(RWA.spec_hash||"—"));
+  const rows=rwaRows();
+  /* From the WHOLE board, never the filtered view. Every other stat in this strip is a
+     property of the snapshot, and a status figure that moves while you type in a filter
+     box is not a status figure. */
+  const cov=((RWA.board)||[]).filter(r=>r.coverage!=null).map(r=>r.coverage);
+  set("rw-cov", cov.length?(cov.reduce((a,b)=>a+b,0)/cov.length).toFixed(0)+"%":"—");
+
+  const gate=rwEl("rw-gate");
+  if(gate) gate.innerHTML = bg.note ? rwEsc(bg.note) : "";
+
+  /* The model card states the weights the score actually used, read from the artifact
+     rather than restated here. A second copy of the weights in JavaScript is a second
+     set of thresholds, and the moment someone tunes one the board describes a model
+     that did not run. */
+  const mc=rwEl("rw-model");
+  if(mc){
+    const w=m.declared_weights||m.weights||{};
+    const priceable=m.priceable_weights||{};
+    mc.innerHTML = Object.keys(w).map(k=>{
+      const has = Object.prototype.hasOwnProperty.call(priceable, k);
+      return '<div class="kv"><span>'+rwEsc(k)
+        + (has ? '' : '<span class="ev ev-unavailable">unavailable</span>')
+        + '</span><b'+(has?'':' class="neg"')+'>'+w[k]+'</b></div>';
+    }).join("")
+      /* The ceiling, stated. An earlier version gave execution weight 0 and left it out
+         of the denominator, so four priced components reported 100% coverage on a board
+         with no execution evidence at all. */
+      + '<div class="kv"><span>max coverage here</span><b class="neg">'
+        +(m.max_coverage_on_this_plan!=null?m.max_coverage_on_this_plan.toFixed(1):"—")+'%</b></div>'
+      + '<div class="kv"><span>min to grade</span><b>'+(m.min_coverage||0)+'%</b></div>'
+      /* The contract, from the artifact, not restated here. */
+      + (m.score_definition ? '<div class="fa-h" style="margin-top:10px">WHAT EACH NUMBER IS</div>'
+          + ['score','coverage','effective','label'].map(k=>
+              '<div class="note" style="margin:4px 0"><b>'+rwEsc(k)+'</b> — '+rwEsc(m.score_definition[k]||"")+'</div>').join("")
+        : "")
+      + '<div class="note" style="margin-top:8px">'+rwEsc(m.note||"")+'</div>';
+  }
+
+  /* What the model could not see, named on screen. An absent input that is invisible is
+     a model nobody can audit. */
+  const ab=rwEl("rw-absent");
+  if(ab){
+    const f=RWA.feeds||{};
+    /* Anything that is not fully live, not just the two declared 401s. A `partial` feed
+       is the case this panel exists for — a rate-limited wrapper batch silently drops
+       every underlying it carried off the board, and filtering on "unavailable" alone
+       reported "Every declared feed answered" on exactly that night. */
+    /* SUMMARY first, evidence behind a disclosure. The raw 429 prose is real and is kept
+       verbatim, but a panel that leads with an endpoint path and an HTTP code is read as
+       noise by exactly the person who most needs the one-line answer. */
+    const run=RWA.run||{}, eq=RWA.equity_leg||{}, cal=RWA.calendar||{};
+    const st=(k)=>((f[k]||{}).status||"—").toUpperCase();
+    const cls=(v)=>v==="LIVE"||v==="VERIFIED"?"pos":(/UNAVAILABLE|PENDING|PARTIAL|REFUSED/.test(v)?"neg":"");
+    const yrs=((cal.detail||"").match(/(\d{4}-\d{4})/)||[])[1]||"";
+    const rows=[
+      ["Issuers", st("issuers"), (run.issuers_received!=null&&run.issuers_listed!=null)?run.issuers_received+"/"+run.issuers_listed:""],
+      ["Wrappers", st("wrappers"), (run.wrappers_priced!=null)?run.wrappers_priced+"/"+run.wrappers_in_graph:""],
+      ["Universe", st("markets"), (run.observed_n!=null)?run.observed_n+"/"+run.listed_n:""],
+      ["Execution", "UNAVAILABLE", "no ticker feed"],
+      ["Equity prints", (eq.status||"pending").toUpperCase(), eq.status==="live"?"":"no equity source"],
+      ["Calendar", cal.ok?"VERIFIED":"REFUSED", yrs?"through "+yrs.slice(-4):""],
+    ];
+    ab.innerHTML = rows.map(([k,v,d])=>
+        '<div class="kv"><span>'+rwEsc(k)+'</span><b class="'+cls(v)+'">'+rwEsc(v)
+        +(d?' <span class="muted" style="font-weight:400">· '+rwEsc(d)+'</span>':"")+'</b></div>').join("")
+      + '<details class="why"><summary>endpoint, error and provenance detail</summary><div class="note">'
+      + Object.keys(f).map(k=>'<div style="margin:4px 0"><b>'+rwEsc(k)+'</b> <span class="muted">'
+          +rwEsc(f[k].status)+(f[k].http_status?' · HTTP '+f[k].http_status:'')+'</span><br>'+rwEsc(f[k].detail)+'</div>').join("")
+      + (eq.detail?'<div style="margin:4px 0"><b>equity prints</b><br>'+rwEsc(eq.detail)+'</div>':"")
+      + (cal.detail?'<div style="margin:4px 0"><b>calendar</b><br>'+rwEsc(cal.detail)+(run.source_clock_lead_hours!=null?' · source clock leads run clock by '+run.source_clock_lead_hours+'h':'')+'</div>':"")
+      + '</div></details>';
+  }
+
+  const jn=rwEl("rw-join");
+  if(jn){
+    const c=g.join_rule_counts||{};
+    jn.innerHTML = Object.keys(c).filter(k=>c[k]).map(k=>
+      '<div class="kv"><span>'+rwEsc(k)+'</span><b>'+c[k]+'</b></div>').join("")
+      + '<div class="kv"><span>unresolved</span><b'+(g.unresolved_n?' class="neg"':'')+'>'
+      + (g.unresolved_n||0)+'</b></div>'
+      + (g.list_only_n ? '<div class="note" style="margin-top:6px">'+rwEsc(g.list_only_note)
+         +' ('+g.list_only_n+')</div>' : "");
+  }
+
+  const tb=rwEl("tbl-rwa").querySelector("tbody");
+  tb.innerHTML = rows.length ? rows.map((r,i)=>{
+    const fl=r.flow||{}, sel = RWA_SEL===r.id ? ' style="background:rgba(59,130,246,.12)"' : "";
+    /* ROVING tabindex, matching the pattern the board above already uses. Every row at 0
+       would add 247 tab stops between the nav and anything after the table. One row is
+       reachable; the arrow keys and the click do the rest. */
+    const rove = (RWA_SEL ? r.id===RWA_SEL : i===0) ? '0' : '-1';
+    return '<tr data-rwa="'+rwEsc(r.id)+'"'+sel+' tabindex="'+rove+'">'
+      +'<td class="muted">'+(i+1)+'</td>'
+      +'<td><b>'+rwEsc((r.symbol||"").toUpperCase())+'</b><span class="muted" style="display:block;font-size:9px">'+rwEsc(r.name||"")+'</span></td>'
+      +'<td class="muted">'+rwEsc(r.asset_type||"")+'</td>'
+      +'<td class="num">'+rwPrice(r.price)+'</td>'
+      +'<td class="num">'+rwSigned(r.price_chg_pct_24h)+'</td>'
+      +'<td class="num">'+rwUsd(r.market_cap)+'</td>'
+      +'<td class="num">'+rwUsd(r.total_volume)+'</td>'
+      +'<td class="num">'+rwSigned(fl.residual_pct_daily,2)+'<span class="imp '+rwEsc(fl.impulse||"")+'" style="display:block">'+rwEsc(fl.impulse||"")+'</span></td>'
+      +'<td class="num">'+(r.wrappers_live||0)+'/'+(r.wrappers_n||0)+'</td>'
+      +'<td class="num">'+(r.dislocation&&r.dislocation.dispersion_bps!=null?r.dislocation.dispersion_bps.toFixed(0)+"bp":'<span class="muted">—</span>')+'</td>'
+      /* Never a bare number. The qualifier is the share of declared evidence the score
+         was computed over, on every row, so 94 cannot read as 94 of a fully evidenced 100
+         while a fifth of the model is structurally unavailable. */
+      +'<td class="num"><b>'+(r.conviction==null?"—":r.conviction.toFixed(0))+'</b>'
+        +(r.coverage!=null?'<span class="muted" style="display:block;font-size:8px">on '+r.coverage.toFixed(0)+'% ev.</span>':"")+'</td>'
+      +'<td><span class="rwa-badge '+rwEsc(r.label||"")+'">'+rwEsc(r.label||"")+'</span>'
+      +(r.peer_set_complete===false
+          ? '<span class="ev ev-unavailable" data-tip="Not every wrapper on this underlying priced tonight. The median, the dispersion and the integrity component were computed from an incomplete peer set — which does not merely hide signal, it manufactures it.">degraded</span>'
+          : "")+'</td></tr>';
+  }).join("") : '<tr><td colspan="12" class="muted" style="padding:14px">No underlying cleared the board gate.</td></tr>';
+
+  renderRwaWrappers(); renderRwaIssuers(); renderRwaVenues();
+  renderRwaFlows(); renderRwaDisloc(); renderRwaIssuance(); renderRwaInspector();
+}
+
+function renderRwaWrappers(){
+  const tb=rwEl("tbl-rwa-wrap"); if(!tb) return;
+  const all=[];
+  ((RWA&&RWA.board)||[]).forEach(u=>(u.wrappers||[]).forEach(w=>all.push([u,w])));
+  all.sort((a,b)=>(rwNum(b[1].volume_24h)||0)-(rwNum(a[1].volume_24h)||0));
+  tb.querySelector("tbody").innerHTML = all.length ? all.slice(0,300).map(([u,w])=>
+    '<tr'+(w.live?"":' class="rw-dead"')+'>'
+    +'<td><b>'+rwEsc((w.symbol||"").toUpperCase())+'</b></td>'
+    +'<td class="muted">'+rwEsc((u.symbol||"").toUpperCase())+'</td>'
+    +'<td class="muted">'+rwEsc(w.issuer_name||w.issuer_id||"")+'</td>'
+    +'<td class="muted" data-tip="'+rwEsc((w.chains||[]).join(", "))+'">'+rwEsc(rwChains(w.chains))+'</td>'
+    +'<td class="num">'+rwPrice(w.price)+'</td>'
+    +'<td class="num">'+rwUsd(w.volume_24h)+'</td>'
+    +'<td class="num">'+(w.basis_bps!=null?rwSigned(w.basis_bps,0).replace("%","bp"):'<span class="muted">—</span>')+'</td>'
+    +'<td class="num">'+(w.score==null?'<span class="muted">not scored</span>':w.score.toFixed(0))+'</td>'
+    +'<td class="muted" style="font-size:9px">'+rwEsc(w.liveness||"")+'</td></tr>').join("")
+    : '<tr><td colspan="9" class="muted" style="padding:14px">No wrapper priced.</td></tr>';
+}
+
+function renderRwaIssuers(){
+  const tb=rwEl("tbl-rwa-iss"); if(!tb) return;
+  const rows=(RWA&&RWA.issuers)||[];
+  tb.querySelector("tbody").innerHTML = rows.length ? rows.map(r=>
+    '<tr><td><b>'+rwEsc(r.name||r.issuer_id)+'</b></td>'
+    +'<td class="num">'+rwUsd(r.market_cap)+'</td>'
+    +'<td class="num">'+rwSigned(rwNum(r.market_cap)&&rwNum(r.market_cap_change_24h)!=null
+        ? rwNum(r.market_cap_change_24h)/rwNum(r.market_cap)*100 : null)+'</td>'
+    +'<td class="num">'+rwUsd(r.volume_24h)+'</td>'
+    +'<td class="num">'+(r.tokens_n||0)+'</td>'
+    +'<td class="num'+((r.live_tokens_n||0)?"":' muted')+'">'+(r.live_tokens_n||0)+'</td>'
+    +'<td class="num">'+(r.underlyings_n||0)+'</td>'
+    +'<td class="num">'+(r.chains_n||0)+'</td></tr>').join("")
+    : '<tr><td colspan="8" class="muted" style="padding:14px">Issuer feed pending.</td></tr>';
+}
+
+/* VENUES is chains, and the panel says so rather than relabelling one as the other.
+   CEX and DEX venue rank, per-venue depth and trust score all live behind
+   /rwas/{id}/tickers. Naming a chain a venue would be the kind of quiet substitution
+   this project has already had to remove once. */
+function renderRwaVenues(){
+  const el=rwEl("rwa-venues"); if(!el) return;
+  const tally={};
+  ((RWA&&RWA.board)||[]).forEach(u=>(u.wrappers||[]).forEach(w=>{
+    (w.chains||[]).forEach(c=>{
+      const t=tally[c]||(tally[c]={chain:c,tokens:0,live:0,vol:0});
+      t.tokens++; if(w.live){ t.live++; t.vol += rwNum(w.volume_24h)||0; }
+    });
+  }));
+  const rows=Object.values(tally).sort((a,b)=>b.vol-a.vol);
+  el.innerHTML =
+    '<div class="absent">Venue-level data is unavailable on this plan. CEX/DEX venue rank, '
+    +'per-venue spread, depth and trust score all come from <code>/rwas/{id}/tickers</code>, '
+    +'which answers HTTP 401 below CoinGecko\'s Basic plan. What is shown below is the '
+    +'<b>chain</b> distribution, which is a different fact and is labelled as one.</div>'
+    + (rows.length ? '<table><thead><tr><th>Chain</th><th>Wrappers</th><th>Live</th>'
+      +'<th>Live 24H Vol</th></tr></thead><tbody>'
+      + rows.map(r=>'<tr><td><b>'+rwEsc(r.chain)+'</b></td><td class="num">'+r.tokens
+        +'</td><td class="num">'+r.live+'</td><td class="num">'+rwUsd(r.vol)+'</td></tr>').join("")
+      + '</tbody></table>' : '<div class="rwa-empty">No chain recorded.</div>');
+}
+
+function renderRwaFlows(){
+  const tb=rwEl("tbl-rwa-flow"); if(!tb) return;
+  const rows=((RWA&&RWA.board)||[]).slice()
+    .sort((a,b)=>Math.abs(rwNum((b.flow||{}).residual_pct_daily)||0)
+                -Math.abs(rwNum((a.flow||{}).residual_pct_daily)||0));
+  tb.querySelector("tbody").innerHTML = rows.length ? rows.map(r=>{
+    const f=r.flow||{};
+    const nights=f.chain_days||0;
+    return '<tr><td><b>'+rwEsc((r.symbol||"").toUpperCase())+'</b></td>'
+      +'<td class="num">'+rwSigned(f.price_chg_pct)+'</td>'
+      +'<td class="num">'+rwUsd(f.expected_mcap)+'</td>'
+      +'<td class="num">'+rwUsd(r.market_cap)+'</td>'
+      +'<td class="num">'+(f.residual_usd==null?'<span class="muted">—</span>'
+          :'<span class="'+(f.residual_usd>0?"pos":"neg")+'">'+rwUsd(f.residual_usd)+'</span>')+'</td>'
+      +'<td class="num">'+rwSigned(f.residual_pct,2)+'</td>'
+      +'<td class="num">'+rwSigned(f.residual_pct_daily,2)+'</td>'
+      +'<td><span class="imp '+rwEsc(f.impulse||"")+'">'+rwEsc(f.impulse||"")+'</span></td>'
+      +'<td class="num">'+(f.supply_index==null?"—":f.supply_index.toFixed(2))+'</td>'
+      +'<td class="num'+(nights?"":' muted')+'">'+(nights?nights:"accumulating")+'</td></tr>';
+  }).join("") : '<tr><td colspan="10" class="muted" style="padding:14px">Flow ledger pending.</td></tr>';
+}
+
+function renderRwaDisloc(){
+  const tb=rwEl("tbl-rwa-disloc"); if(!tb) return;
+  const tape=(RWA&&RWA.tape)||[];
+  tb.querySelector("tbody").innerHTML = tape.length ? tape.map(l=>
+    '<tr><td><b>'+rwEsc((l.symbol||"").toUpperCase())+'</b></td>'
+    +'<td class="muted">'+rwEsc((l.underlying_symbol||"").toUpperCase())+'</td>'
+    +'<td class="num">'+rwPrice(l.price)+'</td>'
+    +'<td class="num">'+rwPrice(l.median_price)+'</td>'
+    +'<td class="num"><span class="'+(l.basis_bps>0?"pos":"neg")+'">'
+      +(l.basis_bps>0?"+":"")+l.basis_bps.toFixed(0)+'bp</span></td>'
+    +'<td class="num">'+rwUsd(l.volume_24h)+'</td>'
+    +'<td class="num">'+(l.age_hours==null?"—":l.age_hours.toFixed(1)+"h")+'</td>'
+    +'<td class="num">'+(l.observation_evidence==null?"—":l.observation_evidence.toFixed(0))+'</td>'
+    +'<td><span class="ev ev-unavailable">UNAVAILABLE</span></td></tr>').join("")
+    : '<tr><td colspan="9" class="muted" style="padding:14px">No basis cleared the floor. '
+      +'A cross-section needs at least two live wrappers on the same underlying.</td></tr>';
+  const note=rwEl("rwa-disloc-note");
+  if(note){
+    const mixed=((RWA&&RWA.board)||[]).filter(r=>((r.dislocation||{}).other_denominations||[]).length);
+    note.innerHTML = rwEsc((RWA&&RWA.tape_note)||"")
+      + (mixed.length ? '<br><br><b>'+mixed.length+' underlying(s) are quoted in more than one '
+        + 'denomination</b> and only the deepest one is compared. PAX Gold is a troy ounce '
+        + 'and Kinesis Gold is a gram; their 31.1&#215; ratio is how many grams are in an '
+        + 'ounce, not a mispricing. CoinGecko publishes no unit metadata for RWA tokens, so '
+        + 'the other units are reported on each inspector rather than converted.' : "");
+  }
+}
+
+/* Deliberately not built. The brief defers the New-Issuance Radar, and a panel that
+   invented one would be worse than a panel that says what it is waiting for. The ledger
+   this feature needs is already accumulating, which is the part that could not be
+   deferred without cost. */
+function renderRwaIssuance(){
+  const el=rwEl("rwa-issuance"); if(!el) return;
+  const g=(RWA&&RWA.graph)||{};
+  el.innerHTML =
+    '<div class="absent"><b>Deferred, not missing.</b> The New-Issuance Radar — nightly '
+    +'diffs of the underlying, wrapper, issuer, chain and venue sets, with T+0/1/7/30 '
+    +'lifecycle tracking — is explicitly out of scope for this build. Nothing is '
+    +'estimated in its place.</div>'
+    +'<div class="note" style="padding:6px 10px">What it will read is already being '
+    +'recorded. <code>ledger/rwa_wrappers.csv</code> and <code>ledger/rwa_issuers.csv</code> '
+    +'accumulate one row per token and per issuer per night, so the diff this panel needs '
+    +'will have history behind it on the day it is built rather than starting from zero. '
+    +'Tonight\'s graph: <b>'+(g.wrappers_n||0)+'</b> wrapper(s) across <b>'
+    +(g.issuers_n||0)+'</b> issuer(s) over <b>'+(g.underlyings_with_wrappers||0)
+    +'</b> underlying(s).</div>';
+}
+
+function renderRwaInspector(){
+  const host=rwEl("rw-inspector"), sym=rwEl("rw-insp-sym"); if(!host) return;
+  const r=((RWA&&RWA.board)||[]).find(x=>x.id===RWA_SEL);
+  if(!r){
+    if(sym) sym.textContent="—";
+    host.innerHTML='<div class="muted" style="padding:22px 0">Select an underlying to see '
+      +'its wrapper set, its issuance chain and what the model could not price.</div>';
+    renderRwaOffhours(null); return;
+  }
+  if(sym) sym.textContent=(r.symbol||"").toUpperCase();
+  const f=r.flow||{}, d=r.dislocation||{}, comp=r.components||{};
+  host.innerHTML =
+    '<div class="kv"><span>RWA conviction<span class="ev ev-derived">normalized</span></span><b>'
+      +(r.conviction==null?"UNRATED":r.conviction.toFixed(1))
+      +(r.coverage!=null?' <span class="muted" style="font-weight:400">on '+r.coverage.toFixed(0)+'% ev.</span>':"")+'</b></div>'
+    +'<div class="kv"><span>RWA signal</span><b><span class="rwa-badge '+rwEsc(r.label)+'">'+rwEsc(r.label)+'</span></b></div>'
+    +'<div class="kv"><span>coverage-adjusted<span class="ev ev-derived">score × coverage</span></span><b>'
+      +(r.conviction_effective==null?"—":r.conviction_effective.toFixed(1))+'</b></div>'
+    +'<div class="kv"><span>model coverage</span><b>'+(r.coverage==null?"—":r.coverage.toFixed(1)+"%")
+      +(r.evidence_weight_priced!=null?' <span class="muted" style="font-weight:400">('+r.evidence_weight_priced+' of '+r.evidence_weight_declared+' declared)</span>':"")+'</b></div>'
+    + Object.keys(comp).map(k=>'<div class="kv"><span>'+rwEsc(k)
+        +'<span class="ev ev-derived">derived</span></span><b>'
+        +(comp[k]==null?'<span class="muted">not priced</span>':comp[k].toFixed(1))+'</b></div>').join("")
+    + '<div class="kv"><span>execution<span class="ev ev-unavailable">unavailable</span></span>'
+      +'<b class="neg">—</b></div>' 
+    + (r.absent&&r.absent.length?'<div class="absent">Not priced tonight: <b>'+rwEsc(r.absent.join(", "))
+        +'</b>. '+rwEsc(r.score_reason||"")+'</div>':"")
+    +'<div class="fa-h" style="margin-top:10px">TOKENIZATION IMPULSE <span class="ev ev-derived">DERIVED</span></div>'
+    +'<div class="kv"><span>since last night</span><b>'+rwSigned(f.residual_pct,2)+'</b></div>'
+    +'<div class="kv"><span>per day</span><b>'+rwSigned(f.residual_pct_daily,2)+'</b></div>'
+    +'<div class="kv"><span>reading</span><b class="imp '+rwEsc(f.impulse||"")+'">'+rwEsc(f.impulse||"")+'</b></div>'
+    +'<div class="kv"><span>supply index</span><b>'+(f.supply_index==null?"—":f.supply_index.toFixed(2))+'</b></div>'
+    +'<div class="kv"><span>nights recorded</span><b>'+(f.chain_days||0)+'</b></div>'
+    +'<div class="fa-h" style="margin-top:10px">WRAPPERS ('+(r.wrappers_live||0)+' live of '+(r.wrappers_n||0)+')</div>'
+    + ((r.wrappers||[]).map(w=>
+        '<div class="wrapline'+(w.live?"":" dead")+'">'
+        +'<div><span class="wl-sym">'+rwEsc((w.symbol||"").toUpperCase())+'</span>'
+        +'<span class="wl-iss">'+rwEsc(w.issuer_name||w.issuer_id||"")
+        +' &#183; '+rwEsc(rwChains(w.chains,4)!=="—"?rwChains(w.chains,4):"no chain listed")+'</span></div>'
+        +'<div class="num">'+rwPrice(w.price)+'</div>'
+        +'<div class="num muted">'+(w.live?rwUsd(w.volume_24h):rwEsc(w.liveness||""))+'</div>'
+        +'</div>').join("") || '<div class="rwa-empty">No wrapper resolved.</div>')
+    + (d.status==="live"
+        ? '<div class="kv" style="margin-top:8px"><span>live median</span><b>'+rwPrice(d.median_price)+'</b></div>'
+          +'<div class="kv"><span>same denomination</span><b>'+(d.comparable_n||0)+' of '+(d.live_n||0)+'</b></div>'
+          +'<div class="kv"><span>dispersion</span><b>'+(d.dispersion_bps==null?"—":d.dispersion_bps.toFixed(0)+"bp")+'</b></div>'
+        : '<div class="absent">'+rwEsc(d.detail||"no cross-section")+'</div>')
+    /* Reported, never converted. A market quoted in both ounces and grams is a real fact
+       about that market, and CoinGecko publishes no unit metadata anywhere in the RWA
+       endpoints — so the ratio is shown and the basis is withheld. */
+    + ((d.other_denominations||[]).length
+        ? '<div class="fa-h" style="margin-top:10px">OTHER DENOMINATIONS</div>'
+          + d.other_denominations.map(o=>{
+              const norm = o.kind==="denomination";
+              return '<div class="wrapline dead"><div><span class="wl-sym">'+rwEsc((o.symbol||"").toUpperCase())
+              +'<span class="ev '+(norm?'ev-normalized">normalized':'ev-unexplained">unexplained')+'</span>'
+              +'</span><span class="wl-iss">'+(o.ratio_to_reference!=null?o.ratio_to_reference.toPrecision(3):"?")
+              +'&#215; the deepest wrapper &#183; '+rwEsc(norm?(o.unit||"documented unit"):"no convention explains this")+'</span></div>'
+              +'<div class="num">'+rwPrice(o.price)+'</div><div class="num muted">'
+              +rwUsd(o.volume_24h)+'</div></div>'; }).join("")
+        : "");
+  renderRwaOffhours(r);
+}
+
+function renderRwaOffhours(r){
+  const el=rwEl("rw-offhours"); if(!el) return;
+  /* With nothing selected, show the widest off-hours moves on the board — the panel's
+     job is to say what the tape did while the cash market was shut, and that is a
+     market-level question before it is a single-name one. */
+  const board=(RWA&&RWA.board)||[];
+  const pool = r ? [r] : board.filter(x=>(x.offhours||{}).status==="live")
+      .sort((a,b)=>Math.abs(b.offhours.offhours_return_pct)-Math.abs(a.offhours.offhours_return_pct))
+      .slice(0,8);
+  if(!pool.length){ el.innerHTML='<div class="rwa-empty">No off-hours window open. '
+      +'Commodities trade against no cash session, and a reading is withheld while the '
+      +'cash market is trading.</div>'; return; }
+  el.innerHTML = pool.map(x=>{
+    const o=x.offhours||{};
+    if(o.status!=="live") return '<div class="wrapline"><div><span class="wl-sym">'
+      +rwEsc((x.symbol||"").toUpperCase())+'</span><span class="wl-iss">'+rwEsc(o.detail||"")
+      +'</span></div><div class="muted">—</div><div></div></div>';
+    const w=o.window||{};
+    return '<div class="wrapline"><div><span class="wl-sym">'+rwEsc((x.symbol||"").toUpperCase())
+      +'</span><span class="wl-iss">'+rwEsc(w.kind||"")+' &#183; '+(w.hours_closed||0).toFixed(0)+'h shut'
+      +' &#183; '+(o.wrappers_agree||0)+'/'+(o.wrappers_voting!=null?o.wrappers_voting:(o.wrappers_live||0))+' wrappers agree'
+      +(o.dispersion_bps!=null?' &#183; disp '+o.dispersion_bps.toFixed(0)+'bp':"")
+      +(o.volume_ratio!=null?' &#183; vol '+o.volume_ratio.toFixed(1)+'&#215;':"")
+      +'</span></div><div class="num">'+rwSigned(o.offhours_return_pct)+'</div>'
+      +'<div style="font-size:9px"><span class="ev ev-unavailable">gap pending</span></div></div>';
+  }).join("")
+  + '<div class="absent"><b>IMPLIED MONDAY GAP — '
+  + rwEsc(((RWA&&RWA.equity_leg)||{}).gap_state || "PENDING EQUITY PRINT HISTORY")
+  + '.</b> Withheld, not zero. Converting a tokenized drift into an expected cash-open gap '
+  + 'needs the underlying\'s own equity prints as the other half of the pair, and this '
+  + 'repository has none: no ledger carries a session close or an official opening print, '
+  + 'and no equity provider is configured. CoinGecko cannot supply it — its "underlying" '
+  + 'price is a blend of these same wrappers. <b>No vendor is being added for it.</b> The '
+  + 'tokenized inputs above are recorded nightly, so the study runs the day '
+  + '<code>' + rwEsc(((RWA&&RWA.equity_leg)||{}).artifact || "ledger/equity_sessions.csv")
+  + '</code> exists.</div>';
+}
+
+document.addEventListener("click",e=>{
+  const row=e.target.closest&&e.target.closest("tr[data-rwa]");
+  if(row){ RWA_SEL = RWA_SEL===row.dataset.rwa ? null : row.dataset.rwa; renderRwa(); }
+});
+document.addEventListener("keydown",e=>{
+  const row=e.target.closest&&e.target.closest("tr[data-rwa]");
+  if(!row) return;
+  if(e.key==="Enter"||e.key===" "){
+    e.preventDefault();
+    RWA_SEL=row.dataset.rwa; renderRwa();
+    /* renderRwa rebuilds the tbody wholesale, which destroys the focused node. Without
+       this the caret lands back on <body> after every Enter and the next Tab restarts at
+       the top of the document. */
+    const back=document.querySelector('tr[data-rwa="'+CSS.escape(row.dataset.rwa)+'"]');
+    if(back) back.focus();
+  } else if(e.key==="ArrowDown"||e.key==="ArrowUp"){
+    e.preventDefault();
+    const rows=[...document.querySelectorAll("tr[data-rwa]")];
+    const i=rows.indexOf(row);
+    const next=rows[e.key==="ArrowDown"?Math.min(i+1,rows.length-1):Math.max(i-1,0)];
+    if(next){ rows.forEach(x=>x.tabIndex=-1); next.tabIndex=0; next.focus(); }
+  }
+});
+(function(){
+  const f=rwEl("rw-filter");
+  if(f) f.addEventListener("input",()=>{ RWA_FILTER=f.value.trim(); renderRwa(); });
+})();
+
 // Before the first load, so the static markup's explanations are upgraded even if the
 // price fetch never returns. The observer then picks up everything the board renders.
 initTips();
 load(); setInterval(load,120000);
+/* The RWA artifact is fetched alongside the rest of the ledger and re-fetched on the
+   same 120s timer. It is a committed static file like the others and owes nothing to a
+   live CoinGecko call, so a rate-limited visitor keeps the whole workspace. */
+loadRwa().then(renderRwa);
+setInterval(()=>loadRwa().then(renderRwa),120000);
+/* Deep-link last, after every renderer is defined: a reader who bookmarked #rwa must
+   land there, and switchWorkspace calls into renderRwa on reveal. */
+switchWorkspace((location.hash||"").slice(1)||"crypto",false);
 </script>
 </body>
 </html>

@@ -373,6 +373,233 @@ def check_context_ledgers(ledger: Path) -> list[str]:
     return problems
 
 
+def check_rwa(ledger: Path) -> list[str]:
+    """The RWA ledgers, and one property that has no equivalent on the crypto side.
+
+    The tokenization-impulse series cannot be rebuilt. ``/rwas/{id}/market_chart`` answers HTTP
+    401 below the Basic plan, so a night that was not recorded is gone — not recoverable
+    later, not with a key, not at any price. Every other artifact in this directory can
+    be regenerated from a fresh fetch. That asymmetry is why these checks exist and why a
+    duplicate date here is failed rather than warned about: the supply index compounds
+    this file as a daily series, so one date recorded twice compounds one night's implied
+    supply change twice and every level after it is wrong.
+
+    Skipped entirely when the files are absent. The RWA workspace is optional in exactly
+    the way the Dune and Cryptometer feeds are, and a night where CoinGecko refused must
+    not fail the gate that lets the crypto ledger commit.
+    """
+    problems = []
+    # The artifact checks run FIRST and independently of the CSVs. They were nested under
+    # the flow-ledger early return, which meant a night that produced an rwa.json and no
+    # flow rows — exactly the night the artifact is least trustworthy — had every one of
+    # its claims go unexamined.
+    problems += _check_rwa_artifact(ledger)
+
+    flow = ledger / "rwa_flow.csv"
+    if not flow.exists():
+        return problems
+
+    rows = list(csv.DictReader(flow.open(newline="", encoding="utf-8")))
+    if not rows:
+        return ["rwa_flow.csv: exists and holds no rows — the writer ran and recorded "
+                "nothing, which is not the same as not having run"]
+
+    seen = Counter((r.get("date"), r.get("underlying_id")) for r in rows)
+    dupes = [k for k, n in seen.items() if n > 1]
+    if dupes:
+        problems.append(
+            f"rwa_flow.csv: {len(dupes)} duplicate (date, underlying_id) key(s), first "
+            f"{dupes[0]} — the supply index compounds this file as a daily series, so a "
+            f"repeated date compounds one night of issuance twice")
+
+    blank = sum(1 for r in rows if not (r.get("date") or "").strip()
+                or not (r.get("underlying_id") or "").strip())
+    if blank:
+        problems.append(f"rwa_flow.csv: {blank} row(s) cannot be placed in the series "
+                        f"(no date or no underlying_id)")
+
+    # A residual is a change in IMPLIED units. At or below -100% the implied count went
+    # to zero or negative, which is a write-path defect and not a market event.
+    # `_num(...) is not None` FIRST. Written the other way round, `(_num(x) or 0.0)`
+    # turns an unparseable or blank residual into 0.0 — which is not <= -100 — while a
+    # real -100 passes, so the check could only ever fire on a legitimately catastrophic
+    # row and never on the write-path defect it exists to catch.
+    impossible = [r for r in rows
+                  if _num(r.get("residual_pct")) is not None
+                  and _num(r.get("residual_pct")) <= -100.0]
+    if impossible:
+        problems.append(
+            f"rwa_flow.csv: {len(impossible)} row(s) record an implied supply change at or below "
+            f"-100%, first {impossible[0].get('date')}/{impossible[0].get('underlying_id')}"
+            f" — more units redeemed than existed is arithmetic, not a market")
+
+    # A crypto tier in this column means the two models have been crossed somewhere,
+    # which is the one thing the product decision forbids.
+    crypto_tiers = {"STRONG", "BUY", "HOLD", "WATCH", "AVOID"}
+    crossed = {(r.get("label") or "").strip() for r in rows} & crypto_tiers
+    if crossed:
+        problems.append(
+            f"rwa_flow.csv: crypto tier(s) {sorted(crossed)} appear in the RWA label "
+            f"column — the two models must never share a vocabulary")
+
+    # Every row carries the identity of the model that produced it, for the same reason
+    # every signals.csv row carries SPEC_HASH: a record spanning two thresholds is two
+    # datasets.
+    latest = max((r.get("date") or "") for r in rows)
+    unstamped = [r for r in rows if r.get("date") == latest
+                 and not (r.get("spec_hash") or "").strip()]
+    if unstamped:
+        problems.append(f"rwa_flow.csv: {len(unstamped)} row(s) on {latest} carry no "
+                        f"spec_hash and cannot be segmented")
+
+    # The evidence contract. These are the checks that make the historical record
+    # defensible rather than merely present.
+    runs_path = ledger / "rwa_runs.csv"
+    if runs_path.exists():
+        runs = list(csv.DictReader(runs_path.open(newline="", encoding="utf-8")))
+        for date in {r.get("date") for r in rows if r.get("date")}:
+            same = [r for r in runs if r.get("date") == date]
+            promoted = [r for r in same if (r.get("promoted") or "") == "1"]
+            if same and not promoted:
+                problems.append(
+                    f"rwa_flow.csv holds rows for {date} but rwa_runs.csv records no "
+                    f"promoted run for it — canonical history without a manifest entry "
+                    f"cannot be audited")
+            # The invariant, checked against the record rather than trusted.
+            best = max((r.get("run_status") for r in promoted), default=None,
+                       key=lambda st: {"failed": 0, "degraded": 1, "complete": 2}.get(st, -1))
+            later_worse = [r for r in same
+                           if (r.get("promoted") or "") == "1"
+                           and {"failed": 0, "degraded": 1, "complete": 2}.get(r.get("run_status"), -1)
+                           < {"failed": 0, "degraded": 1, "complete": 2}.get(best, -1)
+                           and r.get("run_ts", "") > max((q.get("run_ts", "") for q in promoted
+                                                          if q.get("run_status") == best), default="")]
+            if later_worse:
+                problems.append(
+                    f"rwa_runs.csv: {date} promoted a {later_worse[0].get('run_status')} run "
+                    f"after a {best} one — a degraded fetch replaced a complete canonical "
+                    f"observation, which is the invariant this contract exists for")
+    elif rows:
+        problems.append("rwa_flow.csv exists with no rwa_runs.csv manifest beside it — "
+                        "there is no record of what any run actually saw")
+
+    obs_path = ledger / "rwa_observed.csv"
+    if obs_path.exists():
+        obs = list(csv.DictReader(obs_path.open(newline="", encoding="utf-8")))
+        derived = {"residual_pct", "conviction", "label", "impulse", "supply_index"}
+        leaked = derived & set(obs[0].keys() if obs else ())
+        if leaked:
+            problems.append(
+                f"rwa_observed.csv carries derived column(s) {sorted(leaked)} — this file "
+                f"is the raw observation and mixing derivations into it destroys the one "
+                f"thing it is for")
+        undated = [r for r in obs if not (r.get("source_last_updated") or "").strip()]
+        if undated and len(undated) > len(obs) * 0.5:
+            problems.append(
+                f"rwa_observed.csv: {len(undated)}/{len(obs)} row(s) carry no vendor "
+                f"timestamp — our run time is not the observation time")
+
+    for name, key in (("rwa_issuers.csv", "issuer_id"), ("rwa_wrappers.csv", "token_id"),
+                      ("rwa_observed.csv", "underlying_id")):
+        path = ledger / name
+        if not path.exists():
+            continue
+        rs = list(csv.DictReader(path.open(newline="", encoding="utf-8")))
+        d = [k for k, n in Counter((r.get("date"), r.get(key)) for r in rs).items() if n > 1]
+        if d:
+            problems.append(f"{name}: {len(d)} duplicate (date, {key}) key(s), first {d[0]}")
+
+    return problems
+
+
+def _check_rwa_artifact(ledger: Path) -> list[str]:
+    """Everything rwa.json claims about its own evidence.
+
+    Separate from the CSV checks and never skipped because of them: these are the
+    assertions that stop the artifact promising execution evidence, a complete score, or
+    a confidence it has no basis for.
+    """
+    problems: list[str] = []
+    art = ledger / "rwa.json"
+    if not art.exists():
+        return problems
+    try:
+        j = json.loads(art.read_text())
+    except Exception as exc:  # noqa: BLE001
+        return [f"rwa.json unreadable: {exc}"]
+    try:
+        # The artifact must never claim an executable dislocation. Spread, depth and
+        # cost-to-move all live behind an endpoint this plan cannot call, so a tape row
+        # marked executable is a claim nobody measured.
+        bad = [l for l in (j.get("tape") or [])
+               if l.get("stage") != "PRE_EXECUTION"
+               or l.get("executable_after_friction") is not None
+               or l.get("execution_evidence", "").startswith("UNAVAILABLE") is False]
+        if bad:
+            problems.append(
+                f"rwa.json: {len(bad)} divergence row(s) are not marked PRE_EXECUTION with "
+                f"execution evidence UNAVAILABLE — executable means after bid/ask, depth "
+                f"and cost-to-move, none of which this model can see")
+        # A confidence figure beside an absent execution leg reads as confidence in a
+        # trade. The field was renamed for that reason and must not come back.
+        legacy = [l for l in (j.get("tape") or [])
+                  if "confidence" in l or "executable" in l]
+        if legacy:
+            problems.append(
+                f"rwa.json: {len(legacy)} tape row(s) carry a legacy `confidence` or "
+                f"`executable` field — those names asserted execution evidence the model "
+                f"does not have")
+        model = j.get("model") or {}
+        if (model.get("max_coverage_on_this_plan") or 0) >= 100.0:
+            problems.append(
+                "rwa.json: the model reports it can reach 100% coverage, which means the "
+                "unavailable execution component is being redistributed rather than "
+                "declared")
+        # A basis this large is a unit difference, not a market. The first live run
+        # published PAX Gold at +300,311bp against gold because the median was taken
+        # across ounce- and gram-denominated wrappers together; the engine now anchors on
+        # the deepest denomination, and this is what says so if that ever regresses.
+        absurd = [l for l in (j.get("tape") or [])
+                  if abs(_num(l.get("basis_bps")) or 0.0) > 5000.0]
+        if absurd:
+            problems.append(
+                f"rwa.json: {len(absurd)} tape row(s) report a basis beyond 5000bp, first "
+                f"{absurd[0].get('symbol')} at {absurd[0].get('basis_bps')}bp — a 50% "
+                f"spread between two tokens redeemable for the same thing is a "
+                f"denomination difference, not a dislocation")
+        graded = [r for r in (j.get("board") or []) if r.get("conviction") is not None]
+        if len(graded) > 20 and len({r.get("label") for r in graded}) == 1:
+            problems.append(
+                f"rwa.json: all {len(graded)} graded rows carry the label "
+                f"'{graded[0].get('label')}' — a board that only ever says one thing is "
+                f"not a board")
+        # The board's own run must be in the manifest, as promoted. The first release
+        # commit carried rwa.json and the derived ledgers without rwa_runs.csv or
+        # rwa_observed.csv — a git add that staged nothing — so the published board
+        # claimed a COMPLETE promoted run that no manifest row recorded. A board whose
+        # provenance is missing is what this validator exists to refuse.
+        run = j.get("run") or {}
+        manifest = ledger / "rwa_runs.csv"
+        if run.get("promoted") and run.get("run_ts"):
+            recorded = []
+            if manifest.exists():
+                with manifest.open(newline="", encoding="utf-8") as f:
+                    recorded = [r for r in csv.DictReader(f)
+                                if (r.get("run_ts") or "") == run["run_ts"]
+                                and (r.get("promoted") or "") == "1"]
+            if not recorded:
+                problems.append(
+                    f"rwa.json: its run at {run['run_ts']} ({run.get('status')}, "
+                    f"{run.get('coverage_pct')}% coverage) is not recorded as promoted "
+                    f"in rwa_runs.csv — the board was published without its manifest "
+                    f"row, so its provenance is missing")
+    except (AttributeError, TypeError) as exc:
+        # Report the shape problem rather than raising out of the validator.
+        problems.append(f"rwa.json parses but is not the expected shape: {exc}")
+    return problems
+
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -394,6 +621,7 @@ def main() -> int:
     problems += check_basket(ledger)
     problems += check_monitor(ledger)
     problems += check_context_ledgers(ledger)
+    problems += check_rwa(ledger)
 
     # Context, printed whether or not the gate passes — a validator that only speaks up
     # on failure teaches nobody what healthy looks like.
@@ -425,6 +653,17 @@ def main() -> int:
                   f"{len((j.get('sectors') or {}).get('sectors') or [])} sector(s)"
                   + (f", top {c['n']} names = {c['effective_n']} effective bet(s)"
                      if c.get("effective_n") is not None else ", correlation pending"))
+        except Exception:
+            pass
+    rwa_art = ledger / "rwa.json"
+    if rwa_art.exists():
+        try:
+            j = json.loads(rwa_art.read_text())
+            g, bg = j.get("graph") or {}, j.get("board_gate") or {}
+            print(f"rwa:         {bg.get('ranked', 0)} ranked / {bg.get('graded', 0)} "
+                  f"graded of {g.get('underlyings_ranked', 0)}, "
+                  f"{g.get('wrappers_priced', 0)}/{g.get('wrappers_n', 0)} wrapper(s) "
+                  f"priced, {g.get('unresolved_n', 0)} unresolved, spec {j.get('spec_hash')}")
         except Exception:
             pass
     breadth = ledger / "market_breadth.json"

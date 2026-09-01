@@ -12,7 +12,18 @@ on:
   push:
     branches: [main]
   pull_request:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      rwa_release:
+        # Off by default, and never set by a push or a pull request. When a dispatch
+        # sets it, the rwa-release job below runs the RWA Release Snapshot workflow
+        # after the suite is green. It is here because GitHub resolves a dispatch by
+        # file name against the default branch, so rwa_release.yml itself cannot be
+        # dispatched on a branch until it has merged — and the first keyed release run
+        # of a branch is exactly what has to happen before it merges.
+        description: "Publish a keyed RWA snapshot after the suite (RWA Release Snapshot)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -64,6 +75,22 @@ jobs:
         # cannot leave this green. A missing node is a FAILURE here rather than a skip.
         run: python tests/test_labels.py
 
+      - name: Workspace layout gate, standalone
+        # The four-screen nav wraps the entire existing terminal. The break it guards
+        # against — a wrapper that is not display:contents — collapses the three-column
+        # grid and de-activates every grid-column rule in the file, and it passes every
+        # other source-reading gate here because those read the CSS text rather than the
+        # render.
+        run: python tests/test_workspaces.py
+
+      - name: RWA model gate, standalone
+        # Runs here as well as under pytest above, for the same reason the parity gate
+        # does: this path has its own entrypoint and a green pytest run does not prove
+        # the standalone one still works. The property it holds that nothing else can —
+        # the residual IS the change in units outstanding, exactly — is the one the whole
+        # module rests on, and its failure mode is numbers rather than exceptions.
+        run: python tests/test_rwa.py
+
       - name: Parity gate, standalone
         # Also run the way the nightly runs it, because that path has its own
         # entrypoint and its own failure semantics, and a green pytest run does not
@@ -100,3 +127,15 @@ jobs:
         # rendered stop breaks the provenance half of the invariant without touching any
         # data at all.
         run: python tests/test_atr_eligibility.py
+
+  rwa-release:
+    # Only on an explicit dispatch that asks for it, and only after the suite passed.
+    # The called workflow commits ledger/rwa* and nothing else; write access to the
+    # repository is granted to this job alone, and the suite above keeps its
+    # read-only token.
+    if: github.event_name == 'workflow_dispatch' && inputs.rwa_release
+    needs: pytest
+    permissions:
+      contents: write
+    uses: ./.github/workflows/rwa_release.yml
+    secrets: inherit

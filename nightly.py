@@ -200,6 +200,12 @@ cryptometer = _load_sibling("cryptometer.py", "cm_client")
 # either — the reasoning in _load_funding applies to any sibling, not just the scored one.
 coingecko = _load_sibling("coingecko.py", "cm_coingecko")
 quant = _load_sibling("quant.py", "cm_quant")
+# The RWA workspace. Loaded the same way and, like the two above, captured in NO part of
+# SPEC_HASH — not because it has no thresholds, but because it has its own. rwa.spec_hash()
+# segments the RWA track record and nightly.SPEC_HASH segments the crypto one; a shared
+# digest would make every edit to either invalidate the history of both, which is the
+# opposite of what a specification hash is for.
+rwa = _load_sibling("rwa.py", "cm_rwa")
 
 
 # ---------------------------------------------------------------------------
@@ -3971,6 +3977,74 @@ def main() -> int:
             c = td["counts"]
             print(f"[tiers] {td['from']} -> {td['to']}: {c['tier_changes']} changed "
                   f"({c['real']} real, {c['marginal']} on <= {td['marginal_move']} pts)")
+
+    # ---------------------------------------------------------------------
+    # RWA workspace — deliberately LAST
+    # ---------------------------------------------------------------------
+    # Placement is the whole decision here. This adds about forty CoinGecko calls
+    # against a keyless ceiling of roughly ten to fifteen a rolling minute, so it is
+    # the feed most likely to meet a 429 tonight. Running it after every crypto
+    # artifact is on disk means a rate limit costs the RWA board and can never cost a
+    # page of the scored universe — the same priority argument the context feeds are
+    # ordered by further up, applied to a larger consumer.
+    #
+    # It is also why this is urgent rather than merely new: /rwas/{id}/market_chart
+    # answers 401 below the Basic plan, so the net-issuance series cannot be
+    # backfilled. Every night this does not run is a night that is gone.
+    #
+    # rwa.snapshot() never raises on a feed failure — every fetch returns a report and
+    # a failed report degrades the artifact — but the call is wrapped anyway, because
+    # main() has no exception handler and a defect in a module added today must not be
+    # able to stop a ledger that has been committing since August. A traceback here is
+    # printed and the run still returns 0.
+    try:
+        rwa_art = rwa.snapshot()
+        # .get(), not [] — snapshot()'s designed degradation path returns early when the
+        # underlying universe is unavailable, and that payload carries no "graph" or
+        # "board_gate". Indexing them turned the module's most careful behaviour into a
+        # KeyError, which the except below would then report as though the RWA build had
+        # crashed rather than declined.
+        g = rwa_art.get("graph") or {}
+        bg = rwa_art.get("board_gate") or {}
+        if rwa_art.get("status") == "unavailable":
+            print(f"[rwa] unavailable — {rwa_art.get('detail')}")
+        else:
+            print(f"[rwa] {rwa_art['status']} · {bg.get('ranked', 0)} ranked / "
+                  f"{bg.get('graded', 0)} graded of {g.get('underlyings_ranked', 0)} "
+                  f"underlying(s) · {g.get('wrappers_priced', 0)}/{g.get('wrappers_n', 0)} "
+                  f"wrapper(s) priced · {g.get('unresolved_n', 0)} unresolved "
+                  f"· spec {rwa_art.get('spec_hash')}")
+        for name, rep in (rwa_art.get("feeds") or {}).items():
+            if rep["status"] not in ("live", "unavailable"):
+                print(f"[rwa] {name}: {rep['status']} — {rep['detail']}")
+        run = rwa_art.get("run") or {}
+        if run:
+            print(f"[rwa] run {run.get('status')} · coverage {run.get('coverage_pct')}% · "
+                  f"promoted={run.get('promoted')} · {run.get('note')}")
+        if rwa_art.get("quarantined"):
+            q = rwa_art["quarantined"]
+            print(f"[rwa] QUARANTINED — {q.get('reason')}")
+            print(f"[rwa] tonight's canonical rows are unchanged; the attempt is kept in "
+                  f"{q.get('retained_in')}")
+        if rwa_art.get("written"):
+            print("[rwa] ledger: " + ", ".join(f"{k} {v} row(s)"
+                                               for k, v in sorted(rwa_art["written"].items())))
+        top = [r for r in (rwa_art.get("board") or [])
+               if r.get("conviction") is not None][:5]
+        if top:
+            print("[rwa] " + " | ".join(
+                f"{(r['symbol'] or '').upper()} {r['conviction']:.0f} {r['label']}"
+                for r in top))
+        board = rwa_art.get("board") or []
+        moved = [r for r in board
+                 if (r.get("flow") or {}).get("impulse") in (rwa.IMPULSE_MINTING,
+                                                             rwa.IMPULSE_STRONG,
+                                                             rwa.IMPULSE_REDEMPTION)]
+        print(f"[rwa] issuance: {len(moved)} underlying(s) minted or redeemed against "
+              f"{len(board)} on the board")
+    except Exception as e:  # noqa: BLE001
+        print(f"[rwa] FAILED — {type(e).__name__}: {e}")
+        print("[rwa] the crypto ledger above is unaffected; tonight's issuance row is lost")
 
     print(f"Nightly {today}: wrote {len(rows[:25])} signals, backfilled {updated}. "
           f"Ledger total: {len(all_rows)}.")
