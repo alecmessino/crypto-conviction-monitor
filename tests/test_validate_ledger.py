@@ -304,3 +304,56 @@ def test_a_warning_health_check_does_not_block(ledger):
     _monitor(ledger, health=[{"name": "Score dispersion", "status": "warn",
                               "detail": "compressed"}])
     assert v.check_monitor(ledger) == []
+
+
+# ---------------------------------------------------------------------------
+# the RWA board must carry its own provenance
+# ---------------------------------------------------------------------------
+def _rwa_artifact(path, run_ts="2026-09-01T21:29:18+00:00", promoted=True):
+    (path / "rwa.json").write_text(json.dumps({
+        "status": "live", "tape": [], "board": [],
+        "model": {"max_coverage_on_this_plan": 83.3},
+        "run": {"status": "complete", "coverage_pct": 100.0, "promoted": promoted,
+                "run_ts": run_ts},
+    }))
+
+
+def _rwa_manifest(path, rows):
+    fields = ["date", "run_ts", "run_status", "coverage_pct", "promoted"]
+    with (path / "rwa_runs.csv").open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        w.writeheader()
+        w.writerows(rows)
+
+
+def test_an_rwa_board_without_its_manifest_row_fails(tmp_path):
+    """The first RWA release commit (3394528) published rwa.json and the derived ledgers
+    but not rwa_runs.csv: a git add that staged nothing. The board claimed a COMPLETE
+    promoted run that no manifest row recorded. This is that ledger."""
+    _rwa_artifact(tmp_path)
+    _rwa_manifest(tmp_path, [{"date": "2026-09-01", "run_ts": "2026-09-01T18:46:44+00:00",
+                              "run_status": "degraded", "coverage_pct": "82.93",
+                              "promoted": "1"}])
+    problems = v._check_rwa_artifact(tmp_path)
+    assert any("not recorded as promoted in rwa_runs.csv" in p for p in problems), problems
+
+
+def test_an_rwa_board_with_no_manifest_at_all_fails(tmp_path):
+    _rwa_artifact(tmp_path)
+    assert any("provenance is missing" in p for p in v._check_rwa_artifact(tmp_path))
+
+
+def test_an_rwa_board_whose_run_is_in_the_manifest_passes(tmp_path):
+    _rwa_artifact(tmp_path)
+    _rwa_manifest(tmp_path, [{"date": "2026-09-01", "run_ts": "2026-09-01T21:29:18+00:00",
+                              "run_status": "complete", "coverage_pct": "100.0",
+                              "promoted": "1"}])
+    assert not any("rwa_runs.csv" in p for p in v._check_rwa_artifact(tmp_path))
+
+
+def test_a_quarantined_rwa_board_is_not_held_to_the_manifest(tmp_path):
+    """rwa.degraded.json is the refused run's board and never canonical; rwa.json with
+    promoted=false is the same state written by an older module. Neither claims a
+    promoted run, so neither is asked to prove one."""
+    _rwa_artifact(tmp_path, promoted=False)
+    assert not any("rwa_runs.csv" in p for p in v._check_rwa_artifact(tmp_path))

@@ -573,6 +573,26 @@ def _check_rwa_artifact(ledger: Path) -> list[str]:
                 f"rwa.json: all {len(graded)} graded rows carry the label "
                 f"'{graded[0].get('label')}' — a board that only ever says one thing is "
                 f"not a board")
+        # The board's own run must be in the manifest, as promoted. The first release
+        # commit carried rwa.json and the derived ledgers without rwa_runs.csv or
+        # rwa_observed.csv — a git add that staged nothing — so the published board
+        # claimed a COMPLETE promoted run that no manifest row recorded. A board whose
+        # provenance is missing is what this validator exists to refuse.
+        run = j.get("run") or {}
+        manifest = ledger / "rwa_runs.csv"
+        if run.get("promoted") and run.get("run_ts"):
+            recorded = []
+            if manifest.exists():
+                with manifest.open(newline="", encoding="utf-8") as f:
+                    recorded = [r for r in csv.DictReader(f)
+                                if (r.get("run_ts") or "") == run["run_ts"]
+                                and (r.get("promoted") or "") == "1"]
+            if not recorded:
+                problems.append(
+                    f"rwa.json: its run at {run['run_ts']} ({run.get('status')}, "
+                    f"{run.get('coverage_pct')}% coverage) is not recorded as promoted "
+                    f"in rwa_runs.csv — the board was published without its manifest "
+                    f"row, so its provenance is missing")
     except (AttributeError, TypeError) as exc:
         # Report the shape problem rather than raising out of the validator.
         problems.append(f"rwa.json parses but is not the expected shape: {exc}")
