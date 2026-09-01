@@ -124,10 +124,26 @@ def test_the_crypto_columns_are_byte_identical_to_canonical():
     subtree, which is exactly the kind of change this asserts against. The nav and the
     display:contents wrapper sit OUTSIDE this span."""
     import subprocess
-    canon = subprocess.run(["git", "show", "origin/main:index.html"],
-                           capture_output=True, text=True, cwd=ROOT).stdout
+
+    def canonical():
+        return subprocess.run(["git", "show", "origin/main:index.html"],
+                              capture_output=True, text=True, cwd=ROOT).stdout
+    canon = canonical()
     if not canon:
-        pytest.skip("origin/main not fetched in this checkout")
+        # A CI checkout is shallow and holds only the branch under test. Fetch the
+        # canonical file rather than skip: this gate skipping on exactly the machine
+        # that decides whether a pull request merges was a pass it had not earned, and
+        # in standalone mode the skip escaped as a traceback. Measured on the first
+        # dispatch of the release path.
+        # An explicit refspec: a single-branch clone's remote only maps its own branch,
+        # so a bare "fetch origin main" lands in FETCH_HEAD and origin/main stays
+        # unset. Measured in a --depth 1 -b clone.
+        subprocess.run(["git", "fetch", "--quiet", "--depth=1", "origin",
+                        "+refs/heads/main:refs/remotes/origin/main"],
+                       capture_output=True, text=True, cwd=ROOT)
+        canon = canonical()
+    assert canon, ("origin/main could not be read or fetched, so the byte-identity gate "
+                   "cannot run — and a gate that cannot run must not pass")
 
     def columns(t):
         a = t.index("  <!-- LEFT -->")
@@ -225,7 +241,14 @@ if __name__ == "__main__":
     for name, fn in fns:
         try:
             fn()
-        except Exception:  # noqa: BLE001
+        except (KeyboardInterrupt, SystemExit):
+            raise
+        except BaseException:  # noqa: BLE001
+            # BaseException, not Exception: pytest's Skipped is an OutcomeException
+            # under BaseException, and a skip that escaped this loop took the whole
+            # gate down with a traceback instead of a named failure. In standalone mode
+            # a skip IS a failure — the gate exists so that nothing here can pass
+            # without running.
             bad.append((name, traceback.format_exc()))
     for name, tb in bad:
         print(f"FAIL {name}\n{tb}")
