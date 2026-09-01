@@ -465,6 +465,27 @@ DECLARED_WEIGHTS = {"liquidity": W_LIQUIDITY, "distribution": W_DISTRIBUTION,
 # is exactly what "coverage" reports, and on the free tier it can never close.
 COMPONENT_WEIGHTS = {k: v for k, v in DECLARED_WEIGHTS.items() if k != "execution"}
 EXECUTION_UNAVAILABLE = "UNAVAILABLE — venue depth/spread feed not connected"
+SCORE_BASIS = "available_evidence_normalized"
+SCORE_DEFINITION = {
+    "score": ("AVAILABLE-EVIDENCE NORMALIZED: weighted mean of the components that "
+              "produced a value, rescaled to 0-100 over the weight of those components "
+              "only. A 94 is 94 on the evidence that was priced, not 94 of a fully "
+              "evidenced 100."),
+    "coverage": ("MODEL COVERAGE: priced declared weight / total declared weight. "
+                 "Execution (20) is in the denominator and is never priced on this plan, "
+                 "so the ceiling is 83.3% and the first night, with no impulse history, "
+                 "reads 62.5%."),
+    "effective": ("COVERAGE-ADJUSTED: score x coverage / 100. A plain product, published "
+                  "beside the score for anyone who wants absent evidence to count against "
+                  "the number. Not what the board ranks by."),
+    "label": ("RWA SIGNAL: the band of the normalized score. DEEP / SOUND / THIN / FRAGILE "
+              "/ DORMANT describe the tokenized market's structure and are the final "
+              "signal — not a liquidity sub-classification. UNRATED is a refusal."),
+    "wrapper_price_coverage": ("WRAPPER PRICE COVERAGE: wrappers priced / wrappers in the "
+                               "graph, per run. A different denominator from model "
+                               "coverage and reported separately."),
+    "execution_evidence": EXECUTION_UNAVAILABLE,
+}
 
 # The score is a weighted mean over the components that actually produced a value,
 # rescaled to 0-100, and stamped with the share of DECLARED weight that was priced. That
@@ -535,7 +556,7 @@ RWA_SPEC_CONSTANTS = (
     "DISLOCATION_MIN_LIVE", "DISLOCATION_MIN_BPS", "BOARD_MIN_LIVE_WRAPPERS",
     "W_W_LIQ", "W_W_INT", "W_W_DIST", "W_W_ISS", "W_W_EXEC",
     "DENOMINATION_TOLERANCE",
-    "SHELF_AFFIXES", "COMMODITY_NAME_PATTERNS", "EXCHANGE_SUFFIXES",
+    "SHELF_AFFIXES", "COMMODITY_NAME_PATTERNS", "EXCHANGE_SUFFIXES", "SCORE_BASIS",
 )
 
 
@@ -1300,10 +1321,6 @@ def dislocations(priced: list, now: datetime | None = None) -> dict:
         basis_bps = (_num(w["price"]) / med - 1.0) * 10_000.0
         if abs(basis_bps) < DISLOCATION_MIN_BPS:
             continue
-        # Confidence is about the READING, not about the trade. It rises with how many
-        # comparable wrappers formed the median, with how fresh this leg is and with how
-        # much volume stands behind it — and it is capped below certainty because the
-        # execution leg of the question was never asked.
         breadth = _clamp01((len(legs_in) - DISLOCATION_MIN_LIVE + 1) / 4.0)
         age = w["liveness"].get("age_hours")
         freshness = _clamp01(1.0 - (age or WRAPPER_STALE_HOURS) / WRAPPER_STALE_HOURS)
@@ -1430,10 +1447,13 @@ def wrapper_score(w: dict, peer: dict, issuer: dict | None = None) -> dict:
     priced_weight = W_W_LIQ + W_W_INT + W_W_DIST + W_W_ISS
     declared_weight = priced_weight + W_W_EXEC
     total = 100.0 * priced / priced_weight
+    coverage = 100.0 * priced_weight / declared_weight
     return {
         "score": round(total, 1),
         "label": rwa_label(total),
-        "coverage": round(100.0 * priced_weight / declared_weight, 1),
+        "score_basis": SCORE_BASIS,
+        "coverage": round(coverage, 1),
+        "effective": round(total * coverage / 100.0, 1),
         "absent": ["execution"],
         "components": {"liquidity": round(c_liq, 1), "integrity": round(c_int, 1),
                        "distribution": round(c_dist, 1), "issuer": round(c_iss, 1),
@@ -1577,8 +1597,29 @@ def rwa_conviction(components: dict) -> dict:
                            f"below the {RWA_MIN_COVERAGE:.0f}% floor — "
                            f"absent: {', '.join(absent) or 'none'}")}
     score = 100.0 * sum(got.values()) / priced
+    # THE CONTRACT, in the return value rather than in a comment, so the artifact carries
+    # it and the UI cannot render a bare number without the denominator beside it:
+    #
+    #   score        AVAILABLE-EVIDENCE NORMALIZED. The weighted mean of the components
+    #                that produced a value, rescaled to 0-100 over the weight of those
+    #                components only. 94 means "94 out of 100 on the evidence that was
+    #                priced" — it does NOT mean 94 of a fully evidenced 100.
+    #   coverage     Priced declared weight / total declared weight. Execution is in the
+    #                denominator and is never priced on this plan.
+    #   effective    score x coverage / 100. A plain product — the coverage-adjusted
+    #                reading for anyone who wants the absent evidence to count against
+    #                the number. Not a new formula; not what the board ranks by.
+    #   label        The RWA SIGNAL band of `score`, the normalized reading. One concept.
+    #
+    # The board ranks by `score` because a ranking across rows with identical coverage
+    # (every row, on any given night) is the same under either presentation, and the
+    # normalized reading is the one whose components a reader can inspect.
     return {"score": round(score, 1), "label": rwa_label(score),
+            "score_basis": SCORE_BASIS,
             "coverage": round(coverage, 1), "absent": absent,
+            "evidence_weight_priced": priced,
+            "evidence_weight_declared": total,
+            "effective": round(score * coverage / 100.0, 1),
             "max_coverage_on_this_plan": round(
                 100.0 * sum(COMPONENT_WEIGHTS.values()) / sum(DECLARED_WEIGHTS.values()), 1),
             "reason": (f"{coverage:.0f}% of declared model weight priced"
@@ -2366,7 +2407,11 @@ def assemble(underlying_rows: list, graph: dict, wrapper_prices: dict,
             "dislocation": disloc,
             "components": {k: (None if v is None else round(v, 2)) for k, v in comps.items()},
             "conviction": conv["score"], "label": conv["label"],
+            "conviction_basis": conv.get("score_basis"),
+            "conviction_effective": conv.get("effective"),
             "coverage": conv["coverage"], "absent": conv["absent"],
+            "evidence_weight_priced": conv.get("evidence_weight_priced"),
+            "evidence_weight_declared": conv.get("evidence_weight_declared"),
             "score_reason": conv["reason"],
             "offhours": oh,
             "wrappers": [{"token_id": w["token_id"], "symbol": w.get("symbol"),
@@ -2659,6 +2704,8 @@ def snapshot(session: dict | None = None, getter=None, sleep=None,
             "would_promote_it": "a token-supply or mint/burn feed to corroborate against",
         },
         "model": {
+            "score_definition": dict(SCORE_DEFINITION),
+            "score_basis": SCORE_BASIS,
             "declared_weights": dict(DECLARED_WEIGHTS),
             "priceable_weights": dict(COMPONENT_WEIGHTS),
             "execution_weight": W_EXECUTION,

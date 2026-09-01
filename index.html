@@ -464,6 +464,31 @@ canvas{display:block;width:100%}
 .ws-tab.on{color:var(--txt);background:rgba(59,130,246,.14);border-color:var(--border);
   box-shadow:inset 0 -2px 0 var(--blue)}
 .ws-tab:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+/* MOBILE. Both rules scoped so the canonical crypto mobile layout is untouched. The nav
+   becomes one horizontally scrollable row rather than wrapping METHOD onto a second line;
+   the RWA workspace reorders its grid children so the ranked board comes first, the
+   inspector second and the diagnostics last. `order` works because .ws is
+   display:contents and these are direct grid items of .wrap. */
+@media(max-width:560px){
+  .ws-nav{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;
+    scrollbar-width:none}
+  .ws-nav::-webkit-scrollbar{display:none}
+  .ws-tab{flex:0 0 auto}
+  [data-ws="rwa"] > .statuswrap{order:0}
+  [data-ws="rwa"] > main.col-center{order:1}
+  [data-ws="rwa"] > aside.rail{order:2}
+  [data-ws="rwa"] > aside.side{order:3}
+}
+/* Foldable RWA side cards: <details> with the card header as its summary. Open on
+   desktop, folded at the phone gate by the matchMedia hook, so the diagnostics sit
+   beneath the board as one-line disclosures rather than as several screens. */
+details.rwa-fold > summary{list-style:none;cursor:pointer}
+details.rwa-fold > summary::-webkit-details-marker{display:none}
+details.rwa-fold > summary::after{content:"▾";color:var(--tert);font-size:9px;margin-left:8px}
+details.rwa-fold:not([open]) > summary::after{content:"▸"}
+details.rwa-fold > summary:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+.tab.deferred{border-style:dashed;color:var(--tert);opacity:.75}
+.tab.deferred.on{opacity:1}
 .ws-tab .ext{color:var(--tert);font-size:8px;margin-left:5px}
 /* A routed panel is marked so the nav entry visibly did something. INDEX and PORTFOLIO
    scroll to panels that stay in the crypto workspace rather than moving into their own,
@@ -1025,33 +1050,34 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       <div class="ribbon glass statusbar">
         <div class="brand">TOKENIZED <span class="live">RWA</span> WORKSPACE</div>
         <div class="stat"><b id="rw-under" class="num">—</b><span>Underlyings Ranked</span></div>
-        <div class="stat"><b id="rw-wrap" class="num">—</b><span>Wrappers Priced</span></div>
+        <div class="stat"><b id="rw-wrap" class="num">—</b><span>Wrapper Price Coverage</span></div>
         <div class="stat"><b id="rw-iss" class="num">—</b><span>Issuers</span></div>
-        <div class="stat"><b id="rw-cov" class="num">—</b><span>Model Coverage</span></div>
+        <div class="stat"><b id="rw-cov" class="num">—</b><span>Model Coverage · of declared</span></div>
+        <div class="stat"><b id="rw-exec" class="num neg">UNAVAILABLE</b><span>Execution Evidence</span></div>
         <div class="stat"><b id="rwa-snap-date" class="num">—</b><span>Snapshot</span></div>
         <div class="stat"><b id="rwa-run" class="num">—</b><span>Run</span></div>
       </div>
     </div>
 
     <aside class="side">
-      <div class="glass">
-        <div class="card-h">RWA MODEL <span class="muted" id="rw-spec">—</span></div>
+      <details class="glass rwa-fold" open>
+        <summary class="card-h">RWA MODEL <span class="muted" id="rw-spec">—</span></summary>
         <div class="card-b" id="rw-model">
           <div class="muted">Artifact pending — <code>ledger/rwa.json</code> was not produced.</div>
         </div>
-      </div>
-      <div class="glass">
-        <div class="card-h">WHAT THIS MODEL CANNOT SEE</div>
+      </details>
+      <details class="glass rwa-fold" open>
+        <summary class="card-h">WHAT THIS MODEL CANNOT SEE</summary>
         <div class="card-b" id="rw-absent">
           <div class="muted">—</div>
         </div>
-      </div>
-      <div class="glass">
-        <div class="card-h">THE JOIN <span class="muted">wrapper &#8594; underlying</span></div>
+      </details>
+      <details class="glass rwa-fold" open>
+        <summary class="card-h">THE JOIN <span class="muted">wrapper &#8594; underlying</span></summary>
         <div class="card-b" id="rw-join">
           <div class="muted">—</div>
         </div>
-      </div>
+      </details>
     </aside>
 
     <main class="col-center">
@@ -1081,7 +1107,8 @@ canvas:focus-visible{outline:2px solid var(--blue)}
             <th title="DERIVED, not observed. The implied change in wrapper units since the last recorded night, recovered from the published price and market cap. The arithmetic is exact; reading it as issuance is an inference no available feed corroborates, so it is published as an impulse and never as a mint or a redemption.">Impulse</th>
             <th title="Live wrappers over total wrappers. Live means it cleared the 24h volume floor AND was updated inside the staleness window.">Wrappers</th>
             <th title="Standard deviation of live wrapper prices around their own median, in basis points. Two tokens redeemable for the same share should not disagree.">Disp</th>
-            <th>RWA Conv</th><th>Signal</th>
+            <th data-tip="AVAILABLE-EVIDENCE NORMALIZED. The weighted mean of the components that produced a value, rescaled to 0–100 over the weight of those components only. A 94 is 94 on the evidence that was priced — not 94 of a fully evidenced 100. The small figure beneath is the share of declared model weight that was priced.">RWA Conv</th>
+            <th data-tip="The RWA SIGNAL: the band of the normalized score. DEEP / SOUND / THIN / FRAGILE / DORMANT describe the tokenized market's structure and are the final signal, not a liquidity sub-classification. UNRATED is a refusal.">RWA Signal</th>
           </tr></thead><tbody></tbody></table>
         </div>
       </div>
@@ -1096,7 +1123,8 @@ canvas:focus-visible{outline:2px solid var(--blue)}
           <button class="tab" data-rwatab="venues" role="tab" aria-selected="false">Venues</button>
           <button class="tab" data-rwatab="flows" role="tab" aria-selected="false">Flows</button>
           <button class="tab" data-rwatab="disloc" role="tab" aria-selected="false">Divergence</button>
-          <button class="tab" data-rwatab="issuance" role="tab" aria-selected="false">New Issuance</button>
+          <button class="tab deferred" data-rwatab="issuance" role="tab" aria-selected="false"
+                  aria-disabled="true" data-tip="Deliberately not built in this change. The tab opens a statement of what it is waiting for, not a feature.">New Issuance <span class="ev ev-unavailable">deferred</span></button>
         </div>
         <div data-rwapane="wrappers">
           <div class="scroll-pane">
@@ -5129,6 +5157,13 @@ document.querySelectorAll("[data-ws-btn]").forEach(btn=>{
   btn.onclick=()=>switchWorkspace(btn.dataset.wsBtn,true);
 });
 window.addEventListener("hashchange",()=>switchWorkspace((location.hash||"").slice(1),false));
+/* Fold the RWA side cards at the phone gate and open them above it. Driven by the same
+   560px query as the CSS so the two cannot disagree. */
+(function(){
+  const mq=window.matchMedia("(max-width:560px)");
+  const apply=()=>document.querySelectorAll("details.rwa-fold").forEach(d=>{ d.open=!mq.matches; });
+  apply(); if(mq.addEventListener) mq.addEventListener("change",apply); else mq.addListener(apply);
+})();
 
 document.querySelectorAll("#rwa-tabs .tab").forEach(btn=>{
   btn.onclick=()=>{
@@ -5266,6 +5301,11 @@ function renderRwa(){
       + '<div class="kv"><span>max coverage here</span><b class="neg">'
         +(m.max_coverage_on_this_plan!=null?m.max_coverage_on_this_plan.toFixed(1):"—")+'%</b></div>'
       + '<div class="kv"><span>min to grade</span><b>'+(m.min_coverage||0)+'%</b></div>'
+      /* The contract, from the artifact, not restated here. */
+      + (m.score_definition ? '<div class="fa-h" style="margin-top:10px">WHAT EACH NUMBER IS</div>'
+          + ['score','coverage','effective','label'].map(k=>
+              '<div class="note" style="margin:4px 0"><b>'+rwEsc(k)+'</b> — '+rwEsc(m.score_definition[k]||"")+'</div>').join("")
+        : "")
       + '<div class="note" style="margin-top:8px">'+rwEsc(m.note||"")+'</div>';
   }
 
@@ -5278,11 +5318,30 @@ function renderRwa(){
        is the case this panel exists for — a rate-limited wrapper batch silently drops
        every underlying it carried off the board, and filtering on "unavailable" alone
        reported "Every declared feed answered" on exactly that night. */
-    const dead=Object.keys(f).filter(k=>f[k].status!=="live");
-    ab.innerHTML = dead.length
-      ? dead.map(k=>'<div class="absent"><b>'+rwEsc(k)+'</b> <span class="muted">'
-          +rwEsc(f[k].status)+'</span> — '+rwEsc(f[k].detail)+'</div>').join("")
-      : '<div class="muted">Every declared feed answered in full.</div>';
+    /* SUMMARY first, evidence behind a disclosure. The raw 429 prose is real and is kept
+       verbatim, but a panel that leads with an endpoint path and an HTTP code is read as
+       noise by exactly the person who most needs the one-line answer. */
+    const run=RWA.run||{}, eq=RWA.equity_leg||{}, cal=RWA.calendar||{};
+    const st=(k)=>((f[k]||{}).status||"—").toUpperCase();
+    const cls=(v)=>v==="LIVE"||v==="VERIFIED"?"pos":(/UNAVAILABLE|PENDING|PARTIAL|REFUSED/.test(v)?"neg":"");
+    const yrs=((cal.detail||"").match(/(\d{4}-\d{4})/)||[])[1]||"";
+    const rows=[
+      ["Issuers", st("issuers"), (run.issuers_received!=null&&run.issuers_listed!=null)?run.issuers_received+"/"+run.issuers_listed:""],
+      ["Wrappers", st("wrappers"), (run.wrappers_priced!=null)?run.wrappers_priced+"/"+run.wrappers_in_graph:""],
+      ["Universe", st("markets"), (run.observed_n!=null)?run.observed_n+"/"+run.listed_n:""],
+      ["Execution", "UNAVAILABLE", "no ticker feed"],
+      ["Equity prints", (eq.status||"pending").toUpperCase(), eq.status==="live"?"":"no equity source"],
+      ["Calendar", cal.ok?"VERIFIED":"REFUSED", yrs?"through "+yrs.slice(-4):""],
+    ];
+    ab.innerHTML = rows.map(([k,v,d])=>
+        '<div class="kv"><span>'+rwEsc(k)+'</span><b class="'+cls(v)+'">'+rwEsc(v)
+        +(d?' <span class="muted" style="font-weight:400">· '+rwEsc(d)+'</span>':"")+'</b></div>').join("")
+      + '<details class="why"><summary>endpoint, error and provenance detail</summary><div class="note">'
+      + Object.keys(f).map(k=>'<div style="margin:4px 0"><b>'+rwEsc(k)+'</b> <span class="muted">'
+          +rwEsc(f[k].status)+(f[k].http_status?' · HTTP '+f[k].http_status:'')+'</span><br>'+rwEsc(f[k].detail)+'</div>').join("")
+      + (eq.detail?'<div style="margin:4px 0"><b>equity prints</b><br>'+rwEsc(eq.detail)+'</div>':"")
+      + (cal.detail?'<div style="margin:4px 0"><b>calendar</b><br>'+rwEsc(cal.detail)+(run.source_clock_lead_hours!=null?' · source clock leads run clock by '+run.source_clock_lead_hours+'h':'')+'</div>':"")
+      + '</div></details>';
   }
 
   const jn=rwEl("rw-join");
@@ -5314,8 +5373,11 @@ function renderRwa(){
       +'<td class="num">'+rwSigned(fl.residual_pct_daily,2)+'<span class="imp '+rwEsc(fl.impulse||"")+'" style="display:block">'+rwEsc(fl.impulse||"")+'</span></td>'
       +'<td class="num">'+(r.wrappers_live||0)+'/'+(r.wrappers_n||0)+'</td>'
       +'<td class="num">'+(r.dislocation&&r.dislocation.dispersion_bps!=null?r.dislocation.dispersion_bps.toFixed(0)+"bp":'<span class="muted">—</span>')+'</td>'
+      /* Never a bare number. The qualifier is the share of declared evidence the score
+         was computed over, on every row, so 94 cannot read as 94 of a fully evidenced 100
+         while a fifth of the model is structurally unavailable. */
       +'<td class="num"><b>'+(r.conviction==null?"—":r.conviction.toFixed(0))+'</b>'
-        +(r.coverage!=null&&r.coverage<100?'<span class="muted" style="display:block;font-size:8px">'+r.coverage.toFixed(0)+'% priced</span>':"")+'</td>'
+        +(r.coverage!=null?'<span class="muted" style="display:block;font-size:8px">on '+r.coverage.toFixed(0)+'% ev.</span>':"")+'</td>'
       +'<td><span class="rwa-badge '+rwEsc(r.label||"")+'">'+rwEsc(r.label||"")+'</span>'
       +(r.peer_set_complete===false
           ? '<span class="ev ev-unavailable" data-tip="Not every wrapper on this underlying priced tonight. The median, the dispersion and the integrity component were computed from an incomplete peer set — which does not merely hide signal, it manufactures it.">degraded</span>'
@@ -5470,9 +5532,14 @@ function renderRwaInspector(){
   if(sym) sym.textContent=(r.symbol||"").toUpperCase();
   const f=r.flow||{}, d=r.dislocation||{}, comp=r.components||{};
   host.innerHTML =
-    '<div class="kv"><span>RWA conviction</span><b>'+(r.conviction==null?"UNRATED":r.conviction.toFixed(1))
-      +' <span class="rwa-badge '+rwEsc(r.label)+'">'+rwEsc(r.label)+'</span></b></div>'
-    +'<div class="kv"><span>coverage</span><b>'+(r.coverage==null?"—":r.coverage.toFixed(0)+"%")+'</b></div>'
+    '<div class="kv"><span>RWA conviction<span class="ev ev-derived">normalized</span></span><b>'
+      +(r.conviction==null?"UNRATED":r.conviction.toFixed(1))
+      +(r.coverage!=null?' <span class="muted" style="font-weight:400">on '+r.coverage.toFixed(0)+'% ev.</span>':"")+'</b></div>'
+    +'<div class="kv"><span>RWA signal</span><b><span class="rwa-badge '+rwEsc(r.label)+'">'+rwEsc(r.label)+'</span></b></div>'
+    +'<div class="kv"><span>coverage-adjusted<span class="ev ev-derived">score × coverage</span></span><b>'
+      +(r.conviction_effective==null?"—":r.conviction_effective.toFixed(1))+'</b></div>'
+    +'<div class="kv"><span>model coverage</span><b>'+(r.coverage==null?"—":r.coverage.toFixed(1)+"%")
+      +(r.evidence_weight_priced!=null?' <span class="muted" style="font-weight:400">('+r.evidence_weight_priced+' of '+r.evidence_weight_declared+' declared)</span>':"")+'</b></div>'
     + Object.keys(comp).map(k=>'<div class="kv"><span>'+rwEsc(k)
         +'<span class="ev ev-derived">derived</span></span><b>'
         +(comp[k]==null?'<span class="muted">not priced</span>':comp[k].toFixed(1))+'</b></div>').join("")

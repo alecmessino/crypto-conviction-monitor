@@ -1482,6 +1482,87 @@ def test_coverage_is_continuous_so_a_thinner_run_scores_lower():
                            (rwa.RUN_RANK[rwa.RUN_DEGRADED], fuller["coverage_pct"])) is False
 
 
+# ---------------------------------------------------------------------------
+# 12 — the score / coverage contract
+# ---------------------------------------------------------------------------
+# A 94 beside "63% coverage" beside "max 83.3%" reads as a contradiction unless every
+# denominator is stated. These pin what each number IS, so the surfaces cannot drift.
+def test_the_score_is_available_evidence_normalized_and_says_so():
+    comps = {"liquidity": 28.0, "distribution": 22.0, "integrity": 18.0, "impulse": None}
+    c = rwa.rwa_conviction(comps)
+    priced = rwa.W_LIQUIDITY + rwa.W_DISTRIBUTION + rwa.W_INTEGRITY
+    assert c["score_basis"] == rwa.SCORE_BASIS == "available_evidence_normalized"
+    assert c["score"] == pytest.approx(100.0 * (28 + 22 + 18) / priced, abs=0.05)
+    assert c["evidence_weight_priced"] == priced
+    assert c["evidence_weight_declared"] == sum(rwa.DECLARED_WEIGHTS.values())
+
+
+def test_coverage_is_priced_over_declared_and_execution_is_in_the_denominator():
+    c = rwa.rwa_conviction({"liquidity": 28.0, "distribution": 22.0, "integrity": 18.0,
+                            "impulse": 20.0})
+    declared = sum(rwa.DECLARED_WEIGHTS.values())
+    assert c["coverage"] == pytest.approx(100.0 * (declared - rwa.W_EXECUTION) / declared, abs=0.05)
+    assert c["coverage"] == c["max_coverage_on_this_plan"] < 100.0
+    night_one = rwa.rwa_conviction({"liquidity": 28.0, "distribution": 22.0, "integrity": 18.0})
+    assert night_one["coverage"] == pytest.approx(62.5, abs=0.05)
+
+
+def test_effective_is_a_plain_product_and_not_what_ranks_the_board():
+    """Coverage-adjusted, for anyone who wants absent evidence to count against the
+    number. A product, not a new formula — and the label follows the normalized score,
+    because the signal band and the evidence share are two concepts."""
+    c = rwa.rwa_conviction({"liquidity": 28.0, "distribution": 22.0, "integrity": 18.0})
+    assert c["effective"] == pytest.approx(c["score"] * c["coverage"] / 100.0, abs=0.1)
+    assert c["label"] == rwa.rwa_label(c["score"])
+    assert c["label"] != rwa.rwa_label(c["effective"]) or c["effective"] >= rwa.RWA_T_DEEP, (
+        "the check is meaningful only where the two bands differ; adjust the fixture")
+
+
+def test_one_concept_per_label():
+    """DEEP is the RWA SIGNAL band of the normalized score — the final signal — and not
+    a liquidity sub-classification. The liquidity COMPONENT is a number, never a word."""
+    d = rwa.SCORE_DEFINITION
+    assert "final" in d["label"] and "signal" in d["label"].lower()
+    assert "not a liquidity" in d["label"]
+    c = rwa.rwa_conviction({"liquidity": 5.0, "distribution": 25.0, "integrity": 20.0,
+                            "impulse": 25.0})
+    assert isinstance(c["label"], str) and c["label"] in rwa.RWA_LABELS
+    assert not any(isinstance(v, str) for v in
+                   {"liquidity": 5.0, "distribution": 25.0}.values())
+
+
+def test_the_wrapper_score_carries_the_same_contract():
+    w = rwa.wrapper_score(_priced("a", 100.0), {"total_volume": 1e7, "median_price": 101.0}, {})
+    assert w["score_basis"] == rwa.SCORE_BASIS
+    assert w["effective"] == pytest.approx(w["score"] * w["coverage"] / 100.0, abs=0.1)
+    assert w["coverage"] < 100.0 and "execution" in w["absent"]
+
+
+def test_the_artifact_publishes_the_definition_and_both_denominators(tmp_path):
+    routes = {
+        "/rwas/list": ("live", _LIST, 200),
+        "/rwas/markets": ("live", [_market_row()], 200),
+        "/rwas/issuers/list": ("live", _ISSUER_LIST, 200),
+        "/rwas/issuers/": ("live", _ISSUER, 200),
+        "/coins/markets": ("live", [{"id": "nvidia-xstock", "symbol": "nvdax",
+                                     "current_price": 200.0, "market_cap": 2e8,
+                                     "total_volume": 6.0e6, "last_updated": _stamp(0.5)}], 200),
+    }
+    art = rwa.snapshot(session={"plan": "keyless"}, getter=_routed_getter(routes),
+                       sleep=lambda *_: None, now=NOW, ledger_dir=tmp_path, write=False)
+    d = art["model"]["score_definition"]
+    for key in ("score", "coverage", "effective", "label", "wrapper_price_coverage",
+                "execution_evidence"):
+        assert key in d, f"the definition block omits {key}"
+    row = art["board"][0]
+    assert row["conviction_basis"] == rwa.SCORE_BASIS
+    assert row["conviction_effective"] == pytest.approx(
+        row["conviction"] * row["coverage"] / 100.0, abs=0.1)
+    # Two different denominators, reported separately.
+    assert art["run"]["wrappers_priced"] == 1 and art["run"]["wrappers_in_graph"] == 1
+    assert row["evidence_weight_declared"] == sum(rwa.DECLARED_WEIGHTS.values())
+
+
 # LAST in the file, deliberately. _standalone() reads the module namespace as it stands
 # when it fires, so an entrypoint placed above a later test block runs without it and
 # reports a pass over a smaller suite than exists. That is not hypothetical — it is what

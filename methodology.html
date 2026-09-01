@@ -369,14 +369,31 @@ book exposure = Σ over lines with a recorded ATR14</div>
     </table>
   </div>
 
-  <h3>7.7 · The off-hours tape, and the gap that is withheld</h3>
+  <h3>7.7 · What each number is: the score / coverage contract</h3>
+  <div class="glass">
+    <p>A <b>94</b> beside <b>63% coverage</b> beside <b>max 83.3%</b> reads as a contradiction unless every denominator is stated. They are all valid, and they are four different things:</p>
+    <table>
+      <thead><tr><th>Figure</th><th>Is exactly</th><th>Denominator</th></tr></thead>
+      <tbody>
+        <tr><td>RWA Conviction</td><td><b>Available-evidence normalized.</b> The weighted mean of the components that produced a value, rescaled to 0–100 over the weight of <i>those components only</i>. A 94 is 94 on the evidence that was priced. It is not 94 of a fully evidenced 100, and the board never prints it without the share beneath it.</td><td>Priced component weight</td></tr>
+        <tr><td>Model coverage</td><td>Priced declared weight over total declared weight. Execution's 20 points are in the denominator and never priced on this plan, so the ceiling is <b>83.3%</b>; the first night, with no impulse history yet, reads <b>62.5%</b>.</td><td>Declared weight (120)</td></tr>
+        <tr><td>Coverage-adjusted</td><td>Score × coverage ÷ 100. A plain product, published in the inspector for anyone who wants absent evidence to count against the number. Not a new formula, and <b>not what the board ranks by</b> — on any one night every row shares the same coverage, so the ranking is identical under either reading.</td><td>—</td></tr>
+        <tr><td>Wrapper price coverage</td><td>Wrappers priced over wrappers in the graph, per run. A completeness figure about the fetch, not about the model, and reported on its own stat.</td><td>Wrappers in the graph</td></tr>
+        <tr><td>Execution evidence</td><td><span class="tag c">UNAVAILABLE</span>, always, on this plan.</td><td>—</td></tr>
+        <tr><td>RWA Signal</td><td>The band of the normalized score. <b>DEEP / SOUND / THIN / FRAGILE / DORMANT</b> describe the tokenized market's structure and are the <i>final signal</i>, not a liquidity sub-classification — the liquidity component is a number, never a word. One concept per label.</td><td>—</td></tr>
+      </tbody>
+    </table>
+    <p>The contract is carried in the artifact (<code>model.score_definition</code>, <code>conviction_basis</code>, <code>evidence_weight_priced</code>, <code>evidence_weight_declared</code>) and pinned by tests, so a surface cannot drift from it without a gate noticing.</p>
+  </div>
+
+  <h3>7.8 · The off-hours tape, and the gap that is withheld</h3>
   <div class="glass">
     <p>The tokenized tape runs 24/7 and the underlying's cash market does not, so between Friday's close and Monday's open the only price discovery that happened anywhere is what this records: the off-hours return, how long the window has been open, how many wrappers agree on its direction, how far apart they are, and how tokenized volume compares to its own accumulated baseline. The session calendar is hand-maintained NYSE, stdlib only, and it <b>declares its own expiry</b> — past the last covered year every reading is withheld rather than measured against an assumed session. The refusal is the maintenance trigger.</p>
     <p>What is <b>not</b> published is an implied cash-open gap or a confidence in one. Converting a tokenized drift into an expected gap needs the underlying's own equity prints as the other half of the pair, and CoinGecko does not carry them — its "underlying" price is the blend described in 7.4. Publishing a gap from one side of that relationship would be inventing the side that was never measured. The inputs are recorded nightly so the study runs the day an equity feed is connected, rather than starting from zero then.</p>
     <p>One further honesty: <code>sparkline_in_7d</code> arrives as a bare array with no timestamps, so each point's hour is <b>inferred</b> backwards from <code>last_updated</code>. Every reading built on it says so, and the array length is checked against the band a 7-day hourly series falls in — 168 and 169 points were both observed live on the same day, so an equality check would fire on a feed that is behaving while a cadence change would slip through.</p>
   </div>
 
-  <h3>7.8 · Execution is declared, unavailable, and not redistributed</h3>
+  <h3>7.9 · Execution is declared, unavailable, and not redistributed</h3>
   <div class="glass">
     <p>Free wrapper pricing removed a paid dependency for liquidity, integrity and distribution. It did <b>not</b> complete the execution module, and the two must not be confused. Without <code>/rwas/{id}/tickers</code> there is no bid/ask, no cost-to-move, no venue depth and no stale/anomaly/trust field.</p>
     <p>So what the tape publishes is <b>Wrapper Price Divergence</b> at stage <code>PRE_EXECUTION</code>. It may not be called an executable dislocation, an executable basis, or an after-friction opportunity. Each row carries <code>execution_evidence: UNAVAILABLE — venue depth/spread feed not connected</code> and <code>executable_after_friction: null</code> — null rather than false, because false would assert a friction test ran and failed.</p>
@@ -385,7 +402,7 @@ book exposure = Σ over lines with a recorded ATR14</div>
     <p>A divergence is promoted to an <b>executable dislocation</b> only once a ticker feed exists <i>and</i> explicit spread, depth and friction gates pass. No code path in the module can set that state today.</p>
   </div>
 
-  <h3>7.9 · The write path: the dataset is the asset</h3>
+  <h3>7.10 · The write path: the dataset is the asset</h3>
   <div class="glass">
     <p>Every other artifact here can be rebuilt from a fresh fetch. The recorded impulse series cannot, so the write path carries a contract rather than a convention, and one invariant sits at the top of it:</p>
     <p style="text-align:center;font-size:14px;margin:14px 0"><code>A DEGRADED OR PARTIAL FETCH MAY NEVER REPLACE A COMPLETE CANONICAL OBSERVATION.</code></p>
