@@ -24,7 +24,52 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
+try:
+    import pytest
+except ImportError:
+    # Standalone mode, with no pytest on the machine. The nightly and the RWA release
+    # workflow never install it — a package install must not be able to fail the job
+    # that writes the ledger — and this file is one of their gates. The first dispatch
+    # of the release path died right here with ModuleNotFoundError, one step after a
+    # COMPLETE keyed snapshot, and the snapshot was lost with the runner. So the two
+    # names the tests use are shimmed: approx, equality within pytest's own tolerance
+    # rule, and mark.parametrize, which records the cases where _standalone() reads them.
+    import builtins as _builtins
+
+    class _Approx:
+        def __init__(self, expected, rel=None, abs=None):
+            self.expected = expected
+            self.rel = 1e-6 if rel is None else rel
+            self.abs = 1e-12 if abs is None else abs
+
+        def __eq__(self, other):
+            if other is None or self.expected is None:
+                return other is self.expected
+            tol = max(self.abs, self.rel * _builtins.abs(self.expected))
+            return _builtins.abs(other - self.expected) <= tol
+
+        def __ne__(self, other):
+            return not self.__eq__(other)
+
+        def __repr__(self):
+            return f"approx({self.expected!r} ± rel {self.rel} / abs {self.abs})"
+
+    class _Mark:
+        def __init__(self, name, args):
+            self.name, self.args = name, args
+
+    class _MarkNamespace:
+        @staticmethod
+        def parametrize(names, cases):
+            def deco(fn):
+                fn.pytestmark = list(getattr(fn, "pytestmark", [])) + [
+                    _Mark("parametrize", (names, cases))]
+                return fn
+            return deco
+
+    class pytest:  # noqa: N801 — the name the tests already use
+        approx = _Approx
+        mark = _MarkNamespace
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -1636,6 +1681,11 @@ def test_the_release_workflow_can_only_ever_commit_rwa_ledger_files():
     # the same files.
     assert "workflow_dispatch" in wf and "schedule:" not in wf
     assert "python rwa.py --snapshot" in wf
+    # The workflow installs nothing. The gate it runs is this file, so this file must
+    # import without pytest — the shim at the top is what the release job executes.
+    assert "pip install" not in wf
+    head = (ROOT / "tests" / "test_rwa.py").read_text(encoding="utf-8")[:4000]
+    assert "except ImportError:" in head and "import pytest" in head
     # The gates run BEFORE the push, in the file and not just in spirit.
     assert wf.index("python tests/test_rwa.py") < wf.index("git push")
     assert wf.index("scripts/validate_ledger.py") < wf.index("git push")

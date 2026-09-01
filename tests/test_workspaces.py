@@ -18,7 +18,12 @@ The properties this file exists to hold:
 import re
 from pathlib import Path
 
-import pytest
+try:
+    import pytest  # noqa: F401 — only the runner needs it; nothing below calls it
+except ImportError:
+    # A standalone gate must import without pytest: the ledger-writing workflows never
+    # install it, and a gate that cannot start is a job that cannot commit.
+    pytest = None
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
