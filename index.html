@@ -519,6 +519,24 @@ details.rwa-fold > summary:focus-visible{outline:2px solid var(--blue);outline-o
 .imp.REDEMPTION{color:var(--red)}
 .imp.NEUTRAL{color:var(--sec)}
 .imp.UNREADABLE{color:var(--tert)}
+/* Ordering control for the Flows tab. Reuses .tab so the focus ring, the hover and the
+   on-state are the ones the rest of the page already teaches; only the row that holds it
+   is new. Not a <select>: three options that change what the top of the table means
+   should be visible without opening anything. */
+.rw-order{display:flex;gap:2px;flex-wrap:wrap;align-items:center;padding:6px 10px;
+  border-bottom:1px solid var(--grid)}
+.rw-order .rw-order-l{font-size:8px;letter-spacing:1px;text-transform:uppercase;
+  color:var(--tert);margin-right:6px}
+.rw-order .tab{font-size:9px;padding:4px 9px;border-bottom-color:transparent}
+/* Off-hours grouping. The single-wrapper group is demoted by POSITION and by a header
+   that names why, never by opacity: these rows are uncorroborated, not dead, and dimming
+   the reason a number is weak is the one place this page cannot afford to be less
+   legible. */
+.oh-group{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--tert);
+  padding:9px 0 4px;border-bottom:1px solid var(--grid)}
+.oh-group b{color:var(--sec);font-weight:600;letter-spacing:.6px}
+.oh-group .oh-why{display:block;text-transform:none;letter-spacing:.2px;font-size:9px;
+  color:var(--tert);padding-top:3px}
 .wrapline{display:grid;grid-template-columns:1fr auto auto;gap:8px;padding:5px 0;
   border-bottom:1px solid var(--grid);font-size:11px;align-items:baseline}
 .wrapline .wl-sym{font-weight:700}
@@ -1159,13 +1177,29 @@ canvas:focus-visible{outline:2px solid var(--blue)}
           <div class="card-b" id="rwa-venues"><div class="rwa-empty">—</div></div>
         </div>
         <div data-rwapane="flows" hidden>
+          <!-- Ordering, above the table, because the default ordering is the claim this
+               panel makes. Ranked by percentage it opened on a $244K tokenized cap at
+               +1,724.8% a day: arithmetically correct, and the first thing a reader saw
+               was a number no desk would act on. Dollars first; the percentage view is
+               one click away and nothing is filtered out of either. -->
+          <div class="rw-order" role="group" aria-label="Flows ordering">
+            <span class="rw-order-l">order by</span>
+            <button type="button" class="tab" data-floworder="usd"
+              data-tip="Absolute residual in dollars — flow.residual_usd. Ranks by how much tokenized value the implied unit change is worth, which is what makes a row material.">residual&nbsp;$</button>
+            <button type="button" class="tab" data-floworder="pctd"
+              data-tip="Absolute daily residual — flow.residual_pct_daily, the Per Day column. Ranks by rate of change; on a small tokenized cap a large rate can be worth very little.">residual&nbsp;%/day</button>
+            <button type="button" class="tab" data-floworder="supply"
+              data-tip="flow.supply_index, highest first. A level in IMPLIED units, base 100 at the first recorded night — how far the implied unit count has travelled since this chain started, not how fast it moved last night.">supply&nbsp;index</button>
+          </div>
           <div class="scroll-pane">
             <table id="tbl-rwa-flow"><thead><tr>
               <th>Ticker</th><th>Price &#916;</th>
               <th title="OBSERVED price and market cap; the expected cap is DERIVED — what the same implied unit count would have been worth at today's price.">Expected Cap</th>
               <th>Actual Cap</th><th>Residual $</th>
               <th title="The implied change in units. The price term cancels exactly; the reading is still an inference, not an observed mint.">Implied Supply &#916;</th>
-              <th>Per Day</th><th>Reading</th>
+              <th>Per Day</th>
+              <th title="flow.span_days — nights between the previous observation and tonight's. At 1 the Per Day figure IS the observed residual. Above 1 the chain has a gap and Per Day is a geometric daily rate spread across it, which is a derived number and is marked as one on the row.">Span</th>
+              <th>Reading</th>
               <th title="A level in IMPLIED units, base 100 at the first recorded night. It compounds the raw residual, so a gap in the chain does not distort it.">Implied Supply Index</th>
               <th>Nights</th>
             </tr></thead><tbody></tbody></table>
@@ -5449,14 +5483,53 @@ function renderRwaVenues(){
       + '</tbody></table>' : '<div class="rwa-empty">No chain recorded.</div>');
 }
 
+/* Three orderings over the SAME 305 rows. Nothing is filtered at any setting; only the
+   order and the label change, which is the whole point — a microcap whose percentage is
+   uninformative is still a row someone may be looking for by name. */
+const RWA_FLOW_ORDERS = {
+  usd:    {key:r=>rwNum((r.flow||{}).residual_usd),       abs:true},
+  pctd:   {key:r=>rwNum((r.flow||{}).residual_pct_daily), abs:true},
+  supply: {key:r=>rwNum((r.flow||{}).supply_index),       abs:false},
+};
+/* Session, not local. An ordering is a reading posture for the tab you are in, not a
+   preference worth carrying into next week; sessionStorage is also the only storage that
+   answers the brief's "for the session only" literally. Wrapped because a browser with
+   site data blocked throws on the getter itself, not on the read. */
+let RWA_FLOW_ORDER = (()=>{ try{
+    const v=sessionStorage.getItem("rwaFlowOrder");
+    return RWA_FLOW_ORDERS[v] ? v : "usd";
+  }catch(e){ return "usd"; } })();
+
 function renderRwaFlows(){
   const tb=rwEl("tbl-rwa-flow"); if(!tb) return;
-  const rows=((RWA&&RWA.board)||[]).slice()
-    .sort((a,b)=>Math.abs(rwNum((b.flow||{}).residual_pct_daily)||0)
-                -Math.abs(rwNum((a.flow||{}).residual_pct_daily)||0));
+  const ord=RWA_FLOW_ORDERS[RWA_FLOW_ORDER]||RWA_FLOW_ORDERS.usd;
+  const val=r=>{ const n=ord.key(r); return n==null?null:(ord.abs?Math.abs(n):n); };
+  /* Nulls LAST, never as zero. The old comparator coerced a missing residual to 0 with
+     `||0`, which parked an unmeasured row in the middle of the ranking among the genuine
+     near-zeros — an absence rendered as a reading, which is the one substitution this
+     board exists to refuse. One row on tonight's artifact has no residual at all. */
+  const rows=((RWA&&RWA.board)||[]).slice().sort((a,b)=>{
+    const x=val(a), y=val(b);
+    if(x==null&&y==null) return 0;
+    if(x==null) return 1;
+    if(y==null) return -1;
+    return y-x;
+  });
+  document.querySelectorAll("[data-floworder]").forEach(b=>{
+    const on=b.dataset.floworder===RWA_FLOW_ORDER;
+    b.classList.toggle("on",on);
+    b.setAttribute("aria-pressed",on?"true":"false");
+  });
   tb.querySelector("tbody").innerHTML = rows.length ? rows.map(r=>{
     const f=r.flow||{};
     const nights=f.chain_days||0;
+    const span=rwNum(f.span_days);
+    /* The Per Day column is the observed residual when the chain has no gap, and a
+       geometric daily rate spread across the gap when it does. Those are two different
+       numbers printed in one column, and only the gapped one is derived — so only the
+       gapped one is marked. Tonight every row is span 1 and nothing marks, which is the
+       marker doing its job rather than a marker with nothing to say. */
+    const gapped = span!=null && span>1;
     return '<tr><td><b>'+rwEsc((r.symbol||"").toUpperCase())+'</b></td>'
       +'<td class="num">'+rwSigned(f.price_chg_pct)+'</td>'
       +'<td class="num">'+rwUsd(f.expected_mcap)+'</td>'
@@ -5465,10 +5538,15 @@ function renderRwaFlows(){
           :'<span class="'+(f.residual_usd>0?"pos":"neg")+'">'+rwUsd(f.residual_usd)+'</span>')+'</td>'
       +'<td class="num">'+rwSigned(f.residual_pct,2)+'</td>'
       +'<td class="num">'+rwSigned(f.residual_pct_daily,2)+'</td>'
+      +'<td class="num'+(span==null?' muted':'')+'">'+(span==null?"—":span)
+        +(gapped?'<span class="ev ev-derived" data-tip="The chain skipped '+(span-1)
+          +' night(s). Per Day is not an observed one-night residual here — it is the '
+          +'geometric daily rate that compounds to the '+span+'-night residual beside it.">'
+          +'derived rate</span>':"")+'</td>'
       +'<td><span class="imp '+rwEsc(f.impulse||"")+'">'+rwEsc(f.impulse||"")+'</span></td>'
       +'<td class="num">'+(f.supply_index==null?"—":f.supply_index.toFixed(2))+'</td>'
       +'<td class="num'+(nights?"":' muted')+'">'+(nights?nights:"accumulating")+'</td></tr>';
-  }).join("") : '<tr><td colspan="10" class="muted" style="padding:14px">Flow ledger pending.</td></tr>';
+  }).join("") : '<tr><td colspan="11" class="muted" style="padding:14px">Flow ledger pending.</td></tr>';
 }
 
 function renderRwaDisloc(){
@@ -5584,32 +5662,87 @@ function renderRwaInspector(){
   renderRwaOffhours(r);
 }
 
+/* wrappers_voting is the count of live wrappers that published a NON-ZERO 24h change —
+   the voters, not the population. Null means the run recorded no vote count at all, which
+   is not the same as counting zero voters, so it is never coerced to one. */
+const ohVoting=x=>rwNum((x.offhours||{}).wrappers_voting);
+const ohCorroborated=x=>{ const v=ohVoting(x); return v!=null && v>=2; };
+
+/* "1/1 wrappers agree" is not an agreement statistic — it is one wrapper agreeing with
+   itself, printed in the grammar of a consensus. 184 of tonight's 303 live windows read
+   that way, LULU at -19.28% among them, and a reader who checks one of them stops
+   trusting the panel. The string is withheld below two voters and the absence is named. */
+function ohCorrobText(o){
+  const v=rwNum(o.wrappers_voting), a=rwNum(o.wrappers_agree);
+  if(v==null) return "corroboration not recorded";
+  if(v>=2) return (a==null?"—":a)+"/"+v+" wrappers agree";
+  if(v>=1) return "single wrapper — no corroboration";
+  return "no wrapper published a move — no corroboration";
+}
+
+function ohLine(x){
+  const o=x.offhours||{}, sym=rwEsc((x.symbol||"").toUpperCase());
+  if(o.status!=="live") return '<div class="wrapline"><div><span class="wl-sym">'+sym
+    +'</span><span class="wl-iss">'+rwEsc(o.detail||"")+'</span></div>'
+    +'<div class="muted">—</div><div></div></div>';
+  const w=o.window||{};
+  const hrs=rwNum(w.hours_closed), disp=rwNum(o.dispersion_bps), vol=rwNum(o.volume_ratio);
+  return '<div class="wrapline"><div><span class="wl-sym">'+sym+'</span>'
+    /* The close price is read off a sparkline whose hourly timestamps were inferred
+       backwards from last_updated — every live window on tonight's artifact. The return
+       was being printed in the same typeface as an observed one. The provenance string is
+       carried verbatim rather than summarised: 51 of those windows say the cadence may
+       not be hourly at all, and that sentence is the one worth reading. */
+    +(w.inferred_hours ? '<span class="ev ev-derived" data-tip="'+rwEsc(w.sparkline||"")
+        +'">inferred close</span>' : "")
+    +'<span class="wl-iss">'+rwEsc(w.kind||"")+' &#183; '+(hrs==null?"—":hrs.toFixed(0)+"h")+' shut'
+    +' &#183; '+rwEsc(ohCorrobText(o))
+    +(disp!=null?' &#183; disp '+disp.toFixed(0)+'bp':"")
+    +(vol!=null?' &#183; vol '+vol.toFixed(1)+'&#215;':"")
+    +'</span></div><div class="num">'+rwSigned(o.offhours_return_pct)+'</div>'
+    +'<div style="font-size:9px"><span class="ev ev-unavailable">gap pending</span></div></div>';
+}
+
 function renderRwaOffhours(r){
   const el=rwEl("rw-offhours"); if(!el) return;
-  /* With nothing selected, show the widest off-hours moves on the board — the panel's
-     job is to say what the tape did while the cash market was shut, and that is a
-     market-level question before it is a single-name one. */
   const board=(RWA&&RWA.board)||[];
-  const pool = r ? [r] : board.filter(x=>(x.offhours||{}).status==="live")
-      .sort((a,b)=>Math.abs(b.offhours.offhours_return_pct)-Math.abs(a.offhours.offhours_return_pct))
-      .slice(0,8);
-  if(!pool.length){ el.innerHTML='<div class="rwa-empty">No off-hours window open. '
-      +'Commodities trade against no cash session, and a reading is withheld while the '
-      +'cash market is trading.</div>'; return; }
-  el.innerHTML = pool.map(x=>{
-    const o=x.offhours||{};
-    if(o.status!=="live") return '<div class="wrapline"><div><span class="wl-sym">'
-      +rwEsc((x.symbol||"").toUpperCase())+'</span><span class="wl-iss">'+rwEsc(o.detail||"")
-      +'</span></div><div class="muted">—</div><div></div></div>';
-    const w=o.window||{};
-    return '<div class="wrapline"><div><span class="wl-sym">'+rwEsc((x.symbol||"").toUpperCase())
-      +'</span><span class="wl-iss">'+rwEsc(w.kind||"")+' &#183; '+(w.hours_closed||0).toFixed(0)+'h shut'
-      +' &#183; '+(o.wrappers_agree||0)+'/'+(o.wrappers_voting!=null?o.wrappers_voting:(o.wrappers_live||0))+' wrappers agree'
-      +(o.dispersion_bps!=null?' &#183; disp '+o.dispersion_bps.toFixed(0)+'bp':"")
-      +(o.volume_ratio!=null?' &#183; vol '+o.volume_ratio.toFixed(1)+'&#215;':"")
-      +'</span></div><div class="num">'+rwSigned(o.offhours_return_pct)+'</div>'
-      +'<div style="font-size:9px"><span class="ev ev-unavailable">gap pending</span></div></div>';
-  }).join("")
+  const live=board.filter(x=>(x.offhours||{}).status==="live");
+  const widest=(list,n)=>list.slice().sort((a,b)=>
+      (Math.abs(rwNum(b.offhours.offhours_return_pct)||0))
+    - (Math.abs(rwNum(a.offhours.offhours_return_pct)||0))).slice(0,n);
+  /* Both caps are stated on their own header rather than being a silent slice. Every
+     other absence on this page is counted on screen; a list that quietly shows five of
+     115 would be the one that is not. */
+  const CORR_N=5, SOLO_N=3;
+  const grp=(title,shown,total,why)=>
+    '<div class="oh-group"><b>'+title+'</b> &#183; widest '+shown+' of '+total
+    +'<span class="oh-why">'+why+'</span></div>';
+
+  let body;
+  if(r){
+    body = ohLine(r);
+  } else if(!live.length){
+    body = '<div class="rwa-empty">No off-hours window open. Commodities trade against no '
+      +'cash session, and a reading is withheld while the cash market is trading.</div>';
+  } else {
+    /* Corroborated FIRST. The panel used to rank the whole board on the size of the move
+       alone, which put a single-wrapper -19.28% at the top and a genuinely corroborated
+       move below it. Size of move is the wrong first sort when the evidence behind the
+       moves differs this much. */
+    const corr=live.filter(ohCorroborated), solo=live.filter(x=>!ohCorroborated(x));
+    body =
+      grp("Corroborated", Math.min(CORR_N,corr.length), corr.length,
+          "Two or more live wrappers published a move, so the direction the underlying's "
+        + "own tape reports has a second opinion behind it.")
+      + (corr.length ? widest(corr,CORR_N).map(ohLine).join("")
+         : '<div class="rwa-empty">No underlying had two wrappers publish a move tonight.</div>')
+      + grp("Single wrapper", Math.min(SOLO_N,solo.length), solo.length,
+          "Demoted, not hidden: the return is measured the same way, but nothing "
+        + "corroborates its direction. One voter is not an agreement statistic.")
+      + (solo.length ? widest(solo,SOLO_N).map(ohLine).join("")
+         : '<div class="rwa-empty">Every live window tonight had two or more voting wrappers.</div>');
+  }
+  el.innerHTML = body
   + '<div class="absent"><b>IMPLIED MONDAY GAP — '
   + rwEsc(((RWA&&RWA.equity_leg)||{}).gap_state || "PENDING EQUITY PRINT HISTORY")
   + '.</b> Withheld, not zero. Converting a tokenized drift into an expected cash-open gap '
@@ -5649,6 +5782,16 @@ document.addEventListener("keydown",e=>{
   const f=rwEl("rw-filter");
   if(f) f.addEventListener("input",()=>{ RWA_FILTER=f.value.trim(); renderRwa(); });
 })();
+/* Only the Flows tbody is rebuilt. A full renderRwa() here would rebuild the underlyings
+   board as well and throw away the reader's scroll position and their focused row for a
+   change that cannot affect either. */
+document.querySelectorAll("[data-floworder]").forEach(btn=>{
+  btn.onclick=()=>{
+    RWA_FLOW_ORDER = RWA_FLOW_ORDERS[btn.dataset.floworder] ? btn.dataset.floworder : "usd";
+    try{ sessionStorage.setItem("rwaFlowOrder",RWA_FLOW_ORDER); }catch(e){}
+    renderRwaFlows();
+  };
+});
 
 // Before the first load, so the static markup's explanations are upgraded even if the
 // price fetch never returns. The observer then picks up everything the board renders.

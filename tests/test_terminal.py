@@ -890,3 +890,82 @@ def test_the_collapsed_expand_is_display_none_not_merely_hidden():
     the collapsed panel was 136px of invisible chrome in flow, and is an invisible
     click-blocker over the board now that it is positioned."""
     assert ".statuspanel[hidden]{display:none}" in HTML
+
+
+# ---------------------------------------------------------------------------
+# RWA flows: materiality, not percentage
+# ---------------------------------------------------------------------------
+def test_the_flows_tab_ranks_by_dollars_and_not_by_percentage():
+    """The default ordering is the claim the panel makes. Sorted on the daily percentage
+    it opened on TMO at +1,724.8% against a $244K tokenized cap, followed by four more
+    sub-$100K names: arithmetically exact and useless, and the first thing a reader saw."""
+    assert 'RWA_FLOW_ORDERS = {' in CODE
+    assert re.search(r'let RWA_FLOW_ORDER\s*=', CODE), "the ordering is no longer a variable"
+    default = re.search(r'return RWA_FLOW_ORDERS\[v\] \? v : "(\w+)"', CODE)
+    assert default and default.group(1) == "usd", "the default ordering is not residual $"
+    assert 'usd:' in CODE and 'residual_usd' in CODE
+
+
+def test_the_flow_ordering_never_coerces_a_missing_residual_to_zero():
+    """Nulls last, never as zero. `||0` parked an unmeasured row in the middle of the
+    ranking among the genuine near-zeros, which renders an absence as a reading."""
+    body = re.search(r"function renderRwaFlows\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "if(x==null) return 1;" in body and "if(y==null) return -1;" in body
+    assert "residual_pct_daily)||0)" not in body, "the old zero-coercing comparator is back"
+
+
+def test_the_flows_table_declares_its_span_and_keeps_the_error_row_spanning():
+    """span_days is what says whether Per Day is the observed one-night residual or a
+    geometric rate spread across a gap. A stale colspan leaves a ragged failure cell."""
+    header = re.search(r'<table id="tbl-rwa-flow"><thead><tr>(.*?)</tr>', HTML, re.S).group(1)
+    assert ">Span</th>" in header
+    cols = header.count("<th")
+    span = int(re.search(r'<td colspan="(\d+)" class="muted" style="padding:14px">Flow ledger', HTML).group(1))
+    assert cols == span, f"{cols} columns but the flow failure row spans {span}"
+
+
+# ---------------------------------------------------------------------------
+# RWA off-hours: an agreement statistic needs more than one voter
+# ---------------------------------------------------------------------------
+def test_no_row_asserts_agreement_over_a_single_voter():
+    """"1/1 wrappers agree" is one wrapper agreeing with itself, printed in the grammar
+    of a consensus. 184 of the 303 live windows read that way and LULU printed -19.28%
+    on exactly that basis."""
+    body = re.search(r"function ohCorrobText\((.*?)\n\}", CODE, re.S).group(1)
+    assert 'if(v>=2) return' in body, "the agreement string is no longer gated on the voter count"
+    assert "single wrapper — no corroboration" in body
+    # a null vote count is not a count of zero voters
+    assert 'if(v==null)' in body and body.index('if(v==null)') < body.index('if(v>=2)')
+
+
+def test_the_offhours_panel_leads_with_corroborated_windows():
+    """Ranked on the size of the move alone, a single-wrapper -19.28% sat above every
+    corroborated move on the board. Size is the wrong first sort when the evidence
+    behind the moves differs this much."""
+    body = re.search(r"function renderRwaOffhours\(r\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "const corr=live.filter(ohCorroborated)" in body
+    assert body.index('grp("Corroborated"') < body.index('grp("Single wrapper"')
+    # corroboration is >= 2 VOTERS, never >= 2 live wrappers: AMC has two live wrappers
+    # and one voter, and counting the silent one printed a second opinion that nobody gave.
+    rule = re.search(r"const ohCorroborated=(.*?\};)", CODE, re.S).group(1)
+    assert "wrappers_voting" in CODE and "v!=null && v>=2" in rule
+
+
+def test_the_single_wrapper_group_is_demoted_and_never_hidden():
+    """Nothing is filtered out silently. Both groups state how many of their population
+    they are showing, so neither cap is a silent slice."""
+    body = re.search(r"function renderRwaOffhours\(r\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "solo.length" in body, "the single-wrapper group is not counted on screen"
+    assert "widest '+shown+' of '+total" in body
+
+
+def test_an_inferred_close_is_marked_as_derived_with_its_provenance_verbatim():
+    """Every live window tonight derives its close from a sparkline whose hourly stamps
+    were inferred backwards from last_updated, and the return was printed in the same
+    typeface as an observed one. 51 of those strings say the cadence may not be hourly
+    at all, which is why the detail is carried whole rather than summarised."""
+    body = re.search(r"function ohLine\(x\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert 'w.inferred_hours ?' in body
+    assert 'ev ev-derived' in body and '>inferred close</span>' in body
+    assert 'rwEsc(w.sparkline||"")' in body, "the provenance string is not carried verbatim"
+    assert "title=" not in body, "a native title renders on no phone; data-tip is the contract"
