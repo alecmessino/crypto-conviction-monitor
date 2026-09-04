@@ -549,6 +549,11 @@ th[aria-sort="descending"]::after{content:"\2193";opacity:1;color:var(--blue)}
 .rw-order .rw-order-l{font-size:8px;letter-spacing:1px;text-transform:uppercase;
   color:var(--tert);margin-right:6px}
 .rw-order .tab{font-size:9px;padding:4px 9px;border-bottom-color:transparent}
+/* Said once for the panel rather than repeated on every row. A chip on all eight rows
+   distinguished nothing when every window on the plan is inferred. */
+.oh-preamble{font-size:10px;color:var(--sec);line-height:1.5;padding:2px 0 8px;
+  border-bottom:1px solid var(--grid)}
+.oh-preamble code{font-size:9px;color:var(--tert)}
 /* Off-hours grouping. The single-wrapper group is demoted by POSITION and by a header
    that names why, never by opacity: these rows are uncorroborated, not dead, and dimming
    the reason a number is weak is the one place this page cannot afford to be less
@@ -1231,9 +1236,9 @@ canvas:focus-visible{outline:2px solid var(--blue)}
               <th title="OBSERVED price and market cap; the expected cap is DERIVED — what the same implied unit count would have been worth at today's price.">Expected Cap</th>
               <th>Actual Cap</th><th>Residual $</th>
               <th title="The implied change in units. The price term cancels exactly; the reading is still an inference, not an observed mint.">Implied Supply &#916;</th>
-              <th>Per Day</th>
+              <th data-tip="The geometric daily rate the residual beside it compounds to. At span 1 it IS that residual; above 1 the chain has a gap and this is spread across it, which the row marks.">Per Day</th>
               <th title="flow.span_days — nights between the previous observation and tonight's. At 1 the Per Day figure IS the observed residual. Above 1 the chain has a gap and Per Day is a geometric daily rate spread across it, which is a derived number and is marked as one on the row.">Span</th>
-              <th>Reading</th>
+              <th data-tip="The impulse band rwa.py assigned. SORTING THIS COLUMN GROUPS THE BANDS AND RANKS NOTHING — it is alphabetical, which is deliberately arbitrary. rwa.py publishes no order among the five bands and there is no single axis to infer one from: the two supply-growth bands cover the same daily-residual range end to end and are told apart by whether the PRICE leg was flat, not by the size of the supply move. Sort Per Day for the magnitude.">Reading</th>
               <th title="A level in IMPLIED units, base 100 at the first recorded night. It compounds the raw residual, so a gap in the chain does not distort it.">Implied Supply Index</th>
               <th>Nights</th>
             </tr></thead><tbody></tbody></table>
@@ -1258,6 +1263,11 @@ canvas:focus-visible{outline:2px solid var(--blue)}
             answers HTTP&nbsp;401 on this plan. A row is promoted to EXECUTABLE only once
             that feed exists <i>and</i> the spread, depth and friction gates pass.
           </div>
+          <!-- The cap rwa.py applies before the artifact is written. A truncation the
+               consumer cannot see is the same violation whether it happens in the browser
+               or on the server; this reads tape_cap and tape_total_n rather than
+               restating a number that would go stale the moment rwa.py retuned it. -->
+          <div class="rw-note" id="rw-disloc-cap"></div>
           <div class="scroll-pane">
             <table id="tbl-rwa-disloc"><thead><tr>
               <th>Wrapper</th><th>Underlying</th><th>Price</th>
@@ -5669,7 +5679,11 @@ function renderRwa(force){
 function renderRwaWrappers(){
   const tb=rwEl("tbl-rwa-wrap"); if(!tb) return;
   const every=[];
-  ((RWA&&RWA.board)||[]).forEach(u=>(u.wrappers||[]).forEach(w=>every.push([u,w])));
+  /* rwaRows(), not RWA.board. This table read the whole board directly, so a reader who
+     filtered the board above it saw this one unchanged and read it as filtered — the
+     wrapper set of a different universe, presented as the wrapper set of the rows on
+     screen. The filter box sits above both. */
+  rwaRows().forEach(u=>(u.wrappers||[]).forEach(w=>every.push([u,w])));
   /* The hardcoded volume sort that used to live here is now RWA_SORT_DEFAULTS, so the
      table's opening order and every order a reader can ask for run through one
      comparator with one null rule. */
@@ -5691,10 +5705,18 @@ function renderRwaWrappers(){
        reader finds and cannot resolve. The gated remainder is named here rather than left
        to be inferred. */
     const g=(RWA&&RWA.graph)||{}, gate=(RWA&&RWA.board_gate)||{};
-    const inGraph=rwNum(g.wrappers_n), off=(inGraph==null?null:inGraph-all.length);
+    /* The gated remainder is a property of the SNAPSHOT, not of the current filter, so it
+       is counted off the whole board. Counted off the filtered set instead, typing "gold"
+       reported 1,053 wrappers "on gated underlyings" when 373 are gated and the rest were
+       simply filtered out — a real number attached to the wrong cause. */
+    let onBoard=0;
+    ((RWA&&RWA.board)||[]).forEach(u=>{ onBoard += (u.wrappers||[]).length; });
+    const inGraph=rwNum(g.wrappers_n), off=(inGraph==null?null:inGraph-onBoard);
+    const hidden=onBoard-all.length;
     cap.innerHTML = (shown<all.length
         ? 'showing <b>'+shown+'</b> of <b>'+all.length+'</b> wrappers, ranked'+rwEsc(by)
         : 'showing all <b>'+all.length+'</b> wrappers, ranked'+rwEsc(by))
+      + (hidden>0 ? ' &#183; <b>'+hidden+'</b> more on underlyings the filter is hiding' : "")
       + (off ? ' &#183; <span data-tip="This panel reads the board, so its universe is the '
           +'wrappers on underlyings that cleared the gate. The other '+off+' belong to the '
           +(gate.excluded!=null?gate.excluded:"gated")+' underlying(s) the board excluded, '
@@ -6068,6 +6090,25 @@ function renderRwaDisloc(){
   const tb=rwEl("tbl-rwa-disloc"); if(!tb) return;
   const tape=rwaSortRows("tbl-rwa-disloc",(RWA&&RWA.tape)||[]);
   rwaSyncHeaders("tbl-rwa-disloc");
+  rwaAnnounce("Divergence",tape.length,"tbl-rwa-disloc");
+  const dcap=rwEl("rw-disloc-cap");
+  if(dcap){
+    const total=rwNum(RWA&&RWA.tape_total_n), cap=rwNum(RWA&&RWA.tape_cap);
+    dcap.innerHTML = total==null
+      /* Not "no cap". An artifact written before rwa.py published these fields cannot
+         say whether it was truncated, and saying nothing would let a reader assume it
+         was not. */
+      ? 'showing <b>'+tape.length+'</b> legs &#183; <span class="ev ev-unavailable" '
+        +'data-tip="This artifact predates tape_total_n, so whether rwa.py truncated the '
+        +'published tape cannot be read from it. The next nightly states it.">'
+        +'cap unstated</span>'
+      : (total>tape.length
+          ? 'showing <b>'+tape.length+'</b> of <b>'+total+'</b> legs, the widest by '
+            +'absolute basis &#183; capped at <b>'+(cap==null?"—":cap)+'</b> before the '
+            +'artifact was written, not filtered here'
+          : 'showing all <b>'+total+'</b> legs &#183; under the '
+            +(cap==null?"":'<b>'+cap+'</b>-leg ')+'cap rwa.py applies');
+  }
   tb.querySelector("tbody").innerHTML = tape.length ? tape.map(l=>
     '<tr><td><b>'+rwEsc((l.symbol||"").toUpperCase())+'</b></td>'
     +'<td class="muted">'+rwEsc((l.underlying_symbol||"").toUpperCase())+'</td>'
@@ -6200,6 +6241,22 @@ function ohCorrobText(o){
   return "no wrapper published a move — no corroboration";
 }
 
+/* Whether THIS window's inference is degraded, read from the field rwa.py publishes
+   beside the prose. It used to be undecidable here: every live window is inferred, so the
+   only way to separate an ordinary one from one whose cadence is in doubt was to
+   string-match the sentence in window.sparkline — a classification living in two places,
+   eventually disagreeing with itself. rwa.py now decides it in the same branch that
+   writes the sentence.
+
+   An artifact written before that field existed reports null, and null is not false: the
+   panel says the distinction is unavailable rather than quietly calling every window
+   sound. */
+const ohDegraded=w=>{
+  if(!w) return null;
+  if(typeof w.inference_degraded==="boolean") return w.inference_degraded;
+  return null;
+};
+
 function ohLine(x){
   const o=x.offhours||{}, sym=rwEsc((x.symbol||"").toUpperCase());
   if(o.status!=="live") return '<div class="wrapline"><div><span class="wl-sym">'+sym
@@ -6207,14 +6264,17 @@ function ohLine(x){
     +'<div class="muted">—</div><div></div></div>';
   const w=o.window||{};
   const hrs=rwNum(w.hours_closed), disp=rwNum(o.dispersion_bps), vol=rwNum(o.volume_ratio);
+  const deg=ohDegraded(w);
   return '<div class="wrapline"><div><span class="wl-sym">'+sym+'</span>'
-    /* The close price is read off a sparkline whose hourly timestamps were inferred
-       backwards from last_updated — every live window on tonight's artifact. The return
-       was being printed in the same typeface as an observed one. The provenance string is
-       carried verbatim rather than summarised: 51 of those windows say the cadence may
-       not be hourly at all, and that sentence is the one worth reading. */
-    +(w.inferred_hours ? '<span class="ev ev-derived" data-tip="'+rwEsc(w.sparkline||"")
-        +'">inferred close</span>' : "")
+    /* Per-ROW marking is reserved for the degraded windows. Every live window on this
+       plan derives its close from an inferred series, so a chip on every row was a chip
+       that distinguished nothing — the panel-level statement below says it once, and this
+       marks only the windows where the cadence itself is in doubt. The provenance string
+       is still carried verbatim on the row it belongs to. */
+    +(deg===true ? '<span class="ev ev-unexplained" data-tip="'+rwEsc(w.sparkline||"")
+        +'">cadence unverified</span>'
+      : (deg===null && w.inferred_hours ? '<span class="ev ev-derived" data-tip="'
+        +rwEsc(w.sparkline||"")+'">inferred close</span>' : ""))
     +'<span class="wl-iss">'+rwEsc(w.kind||"")+' &#183; '+(hrs==null?"—":hrs.toFixed(0)+"h")+' shut'
     +' &#183; '+rwEsc(ohCorrobText(o))
     +(disp!=null?' &#183; disp '+disp.toFixed(0)+'bp':"")
@@ -6237,6 +6297,30 @@ function renderRwaOffhours(r){
   const grp=(title,shown,total,why)=>
     '<div class="oh-group"><b>'+title+'</b> &#183; widest '+shown+' of '+total
     +'<span class="oh-why">'+why+'</span></div>';
+
+  /* Said ONCE, for the panel, because it is true of every window on it. Counted from the
+     artifact rather than asserted: if a night ever arrives where some windows are
+     observed, this sentence stops claiming they all are. */
+  const inf=live.filter(x=>((x.offhours||{}).window||{}).inferred_hours).length;
+  const degN=live.filter(x=>ohDegraded((x.offhours||{}).window)===true).length;
+  const unknown=live.length && live.every(x=>ohDegraded((x.offhours||{}).window)===null);
+  const preamble = live.length ? '<div class="oh-preamble">'
+    + (inf===live.length
+        ? 'Every close on this panel is <b>derived</b>, not observed'
+        : '<b>'+inf+'</b> of <b>'+live.length+'</b> closes are derived, not observed')
+    + ' — read off a 7-day sparkline whose hourly timestamps CoinGecko does not publish '
+    + 'and which are inferred backwards from <code>last_updated</code>.'
+    + (unknown
+        ? ' <span class="ev ev-unavailable" data-tip="This artifact was written before '
+          + 'rwa.py published window.inference_quality, so the ordinary case and the one '
+          + 'where the cadence itself is in doubt cannot be told apart here. Each row '
+          + 'still carries its own provenance sentence. The next nightly resolves it.">'
+          + 'cadence unclassified</span>'
+        : (degN ? ' <b>'+degN+'</b> of them fall outside the point count a 7-day hourly '
+                + 'series has, so their cadence may not be hourly at all; those rows are '
+                + 'marked.'
+                : ' The point count is in band on all of them.'))
+    + '</div>' : "";
 
   let body;
   if(r){
@@ -6262,7 +6346,7 @@ function renderRwaOffhours(r){
       + (solo.length ? widest(solo,SOLO_N).map(ohLine).join("")
          : '<div class="rwa-empty">Every live window tonight had two or more voting wrappers.</div>');
   }
-  el.innerHTML = body
+  el.innerHTML = (r ? "" : preamble) + body
   + '<div class="absent"><b>IMPLIED MONDAY GAP — '
   + rwEsc(((RWA&&RWA.equity_leg)||{}).gap_state || "PENDING EQUITY PRINT HISTORY")
   + '.</b> Withheld, not zero. Converting a tokenized drift into an expected cash-open gap '
@@ -6301,6 +6385,8 @@ document.addEventListener("keydown",e=>{
 (function(){
   const f=rwEl("rw-filter");
   if(f) f.addEventListener("input",()=>{ RWA_FILTER=f.value.trim(); renderRwa(true); });
+  /* renderRwa(true) already rebuilds every pane including this one; the note above is
+     what makes the wrapper table part of that rebuild rather than a stale survivor. */
 })();
 /* Only the Flows tbody is rebuilt. A full renderRwa() here would rebuild the underlyings
    board as well and throw away the reader's scroll position and their focused row for a

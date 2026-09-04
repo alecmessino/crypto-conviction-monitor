@@ -498,6 +498,54 @@ SCORE_DEFINITION = {
 # it is a model that cannot run in the only configuration it has.
 RWA_MIN_COVERAGE = 50.0
 
+# The published tape is the widest divergences, not every leg. Named here rather than
+# written inline at the slice, so the artifact can report the same number it applied.
+TAPE_CAP = 200
+
+# WHICH KIND OF EVIDENCE EACH PUBLISHED FIELD IS, keyed by the field's own path on a board
+# row. The terminal marks its column headers from this map.
+#
+# It is published rather than inferred because the distinction is one only this file can
+# make. `price` and `market_cap` arrive from the vendor; `dispersion_bps` is computed here
+# from a peer set this file assembled; `conviction` is rescaled over whichever components
+# produced a value. Nothing in the shape of the numbers says which is which, and a
+# column-to-evidence map written in JavaScript would be a second opinion about this file's
+# own provenance — the exact substitution the evidence vocabulary exists to prevent.
+#
+# The vocabulary is the five states the terminal already uses. Only three appear here:
+# `unavailable` and `unexplained` are properties of a particular row, never of a column.
+EVIDENCE_OBSERVED = "observed"      # the vendor published this number
+EVIDENCE_DERIVED = "derived"        # computed here from observed inputs
+EVIDENCE_NORMALIZED = "normalized"  # rescaled or banded by the model
+FIELD_EVIDENCE = {
+    "symbol": EVIDENCE_OBSERVED,
+    "name": EVIDENCE_OBSERVED,
+    "asset_type": EVIDENCE_OBSERVED,
+    "price": EVIDENCE_OBSERVED,
+    "price_chg_pct_24h": EVIDENCE_OBSERVED,
+    "market_cap": EVIDENCE_OBSERVED,
+    "total_volume": EVIDENCE_OBSERVED,
+    # Recovered from two observed series by an identity that is exact; reading it as
+    # issuance is the inference, and impulse_provenance carries that argument in full.
+    "flow.residual_usd": EVIDENCE_DERIVED,
+    "flow.residual_pct": EVIDENCE_DERIVED,
+    "flow.residual_pct_daily": EVIDENCE_DERIVED,
+    "flow.expected_mcap": EVIDENCE_DERIVED,
+    "flow.supply_index": EVIDENCE_DERIVED,
+    "flow.impulse": EVIDENCE_DERIVED,
+    "flow.span_days": EVIDENCE_DERIVED,
+    "flow.chain_days": EVIDENCE_DERIVED,
+    # Counts against a liveness gate this file applies, not a figure anyone published.
+    "wrappers_live": EVIDENCE_DERIVED,
+    "wrappers_n": EVIDENCE_DERIVED,
+    "dislocation.dispersion_bps": EVIDENCE_DERIVED,
+    "dislocation.median_price": EVIDENCE_DERIVED,
+    "conviction": EVIDENCE_NORMALIZED,
+    "conviction_effective": EVIDENCE_NORMALIZED,
+    "coverage": EVIDENCE_NORMALIZED,
+    "label": EVIDENCE_NORMALIZED,
+}
+
 # Liquidity is scored on a log scale because tokenized volume spans six orders of
 # magnitude — $8 of Dinari inventory and $12M of wrapped NVDA are both in the universe —
 # and a linear scale would put 640 rows in the bottom percent of the axis.
@@ -1831,6 +1879,18 @@ def market_open_now(now: datetime) -> bool:
     return bool(bounds and bounds[0] <= et <= bounds[1])
 
 
+# The inference quality of a sparkline, as a DISCRETE field rather than a sentence the
+# consumer has to pattern-match. The terminal marks a degraded window differently from a
+# merely inferred one; before this it could only have done that by string-matching the
+# prose in `detail`, which is a classification living in two places and eventually
+# disagreeing with itself. rwa.py owns the classification; the prose explains it.
+SPARK_HOURLY = "hourly_inferred"            # anchored, and the point count is in band
+SPARK_CADENCE_UNVERIFIED = "cadence_unverified"   # anchored, but the cadence may not be hourly
+SPARK_UNANCHORED = "unanchored"             # no last_updated to hang the series on
+SPARK_ABSENT = "absent"                     # no usable sparkline at all
+SPARK_DEGRADED = (SPARK_CADENCE_UNVERIFIED, SPARK_UNANCHORED, SPARK_ABSENT)
+
+
 def sparkline_hours(prices: list, last_updated, now: datetime | None = None) -> dict:
     """Attach an inferred UTC hour to each sparkline point.
 
@@ -1844,19 +1904,26 @@ def sparkline_hours(prices: list, last_updated, now: datetime | None = None) -> 
     vals = [_num(p) for p in (prices or [])]
     if not vals or any(v is None for v in vals):
         return {"points": [], "inferred": True, "n": len(vals),
+                "quality": SPARK_ABSENT,
                 "detail": "sparkline absent or contained an unparseable value"}
     end = _iso(last_updated) or now
     if end is None:
         return {"points": [], "inferred": True, "n": len(vals),
+                "quality": SPARK_UNANCHORED,
                 "detail": "no last_updated to anchor the sparkline to"}
     n = len(vals)
     pts = [{"t": end - timedelta(hours=(n - 1 - i)), "price": v} for i, v in enumerate(vals)]
     detail = f"{n} hourly point(s) inferred backwards from last_updated"
+    quality = SPARK_HOURLY
     if not SPARKLINE_MIN_POINTS <= n <= SPARKLINE_MAX_POINTS:
+        quality = SPARK_CADENCE_UNVERIFIED
         detail += (f" — outside the {SPARKLINE_MIN_POINTS}-{SPARKLINE_MAX_POINTS} band a "
                    f"7-day hourly series falls in, so the cadence may not be hourly and "
                    f"every hour in this window may be misplaced")
-    return {"points": pts, "inferred": True, "n": n, "detail": detail}
+    # The flag and the prose are composed in the SAME branch, on the same condition, so
+    # they cannot come to disagree. The terminal reads `quality` and shows `detail`; a
+    # reader of either is reading the same decision.
+    return {"points": pts, "inferred": True, "n": n, "quality": quality, "detail": detail}
 
 
 def _price_at(points: list, when: datetime):
@@ -1932,7 +1999,12 @@ def offhours_reading(row: dict, wrappers_live: list, dispersion_bps,
                    "hours_closed": round(hours_closed, 1),
                    "kind": "weekend" if hours_closed >= WEEKEND_MIN_HOURS else "overnight",
                    "close_price_from": round(drift_h, 2) if drift_h is not None else None,
-                   "sparkline": spark["detail"], "inferred_hours": spark["inferred"]},
+                   "sparkline": spark["detail"], "inferred_hours": spark["inferred"],
+                   # The discrete form of the sentence beside it. Every live window on
+                   # this plan is inferred, so `inferred_hours` alone cannot separate the
+                   # ordinary case from the one where the cadence itself is in doubt.
+                   "inference_quality": spark.get("quality"),
+                   "inference_degraded": spark.get("quality") in SPARK_DEGRADED},
         "offhours_return_pct": round(ret_pct, 3),
         "price_at_close": at_close,
         "price_now": price_now,
@@ -2706,6 +2778,15 @@ def snapshot(session: dict | None = None, getter=None, sleep=None,
         "model": {
             "score_definition": dict(SCORE_DEFINITION),
             "score_basis": SCORE_BASIS,
+            # Per-FIELD, not per-column: this file has no opinion about the terminal's
+            # layout, and a column map published from here would go stale the first time
+            # a column moved.
+            "field_evidence": dict(FIELD_EVIDENCE),
+            "evidence_vocabulary": {
+                EVIDENCE_OBSERVED: "the vendor published this number",
+                EVIDENCE_DERIVED: "computed here from observed inputs",
+                EVIDENCE_NORMALIZED: "rescaled or banded by the model",
+            },
             "declared_weights": dict(DECLARED_WEIGHTS),
             "priceable_weights": dict(COMPONENT_WEIGHTS),
             "execution_weight": W_EXECUTION,
@@ -2747,7 +2828,13 @@ def snapshot(session: dict | None = None, getter=None, sleep=None,
                      f"${WRAPPER_LIVE_VOL_USD:,.0f} of 24h volume within "
                      f"{WRAPPER_STALE_HOURS:.0f}h. They are in the ledger, not the ranking."),
         },
-        "tape": built["tape"][:200],
+        "tape": built["tape"][:TAPE_CAP],
+        # A truncation the consumer cannot see is the same violation whether it happens
+        # in the browser or here. The terminal declares the wrapper cap it applies itself;
+        # it can only declare this one if the artifact says the cap exists and how many
+        # legs it dropped.
+        "tape_total_n": len(built["tape"]),
+        "tape_cap": TAPE_CAP,
         "tape_kind": "wrapper_price_divergence",
         "tape_stage": DIVERGENCE_STAGE,
         "tape_note": ("WRAPPER PRICE DIVERGENCE — pre-execution. Wrapper against wrapper, "

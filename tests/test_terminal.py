@@ -1277,3 +1277,69 @@ def test_the_dislocation_basis_can_no_longer_take_out_its_own_tbody():
     assert 'rwSigned(l.basis_bps,0)' in body
     assert "l.age_hours.toFixed" not in body
     assert "l.observation_evidence.toFixed" not in body
+
+
+# ---------------------------------------------------------------------------
+# a classification the page displays is published, never inferred here
+# ---------------------------------------------------------------------------
+def test_the_page_never_string_matches_a_classification_out_of_prose():
+    """The rule: any classification the page displays must arrive as a discrete field.
+    Separating an ordinary inferred window from one whose cadence is in doubt was only
+    possible by pattern-matching the sentence in window.sparkline — a classification
+    living in two places, eventually disagreeing with itself."""
+    body = re.search(r"const ohDegraded=w=>\{(.*?)\n\};", CODE, re.S).group(1)
+    assert 'typeof w.inference_degraded==="boolean"' in body
+    # The prose is DISPLAYED, never parsed. Every read of window.sparkline goes straight
+    # into rwEsc for a data-tip; none of them is a comparison. (The panel's own sentence
+    # quotes the same wording, which is display text and not a match against the field.)
+    for use in re.finditer(r"w\.sparkline", CODE):
+        ctx = CODE[max(0, use.start() - 12):use.end() + 14]
+        assert "rwEsc(w.sparkline" in ctx, f"window.sparkline is being read, not escaped: {ctx!r}"
+    for probe in ("sparkline.includes", "sparkline.indexOf", "sparkline.match",
+                  "sparkline.search", "sparkline.startsWith", "sparkline==="):
+        assert probe not in CODE, probe
+
+
+def test_an_artifact_without_the_new_fields_says_so_rather_than_guessing():
+    """null is not false. An artifact written before rwa.py published the field cannot
+    say whether a window is degraded, and quietly calling them all sound would be the
+    substitution this page exists to refuse."""
+    body = re.search(r"const ohDegraded=w=>\{(.*?)\n\};", CODE, re.S).group(1)
+    assert "return null;" in body
+    assert "cadence unclassified" in CODE and "cap unstated" in CODE
+    # and the degraded marker is reserved for a positive answer
+    line = re.search(r"const deg=ohDegraded\(w\);", CODE)
+    assert line and "deg===true ?" in CODE and "deg===null &&" in CODE
+
+
+def test_the_offhours_inference_statement_is_made_once_for_the_panel():
+    """A chip on all eight rows distinguished nothing when every window on the plan is
+    inferred. It is counted from the artifact, so a night where some closes are observed
+    stops the sentence claiming they all are."""
+    assert ".oh-preamble{" in HTML
+    body = re.search(r"function renderRwaOffhours\(r\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "inf===live.length" in body and "of <b>'+live.length+'</b> closes are derived" in body
+    # per-row marking survives only for the degraded ones
+    assert "cadence unverified" in CODE
+
+
+def test_the_server_side_tape_cap_is_declared_like_the_client_side_one():
+    """A truncation the consumer cannot see is the same violation whether it happens in
+    the browser or on the server."""
+    assert 'id="rw-disloc-cap"' in HTML
+    body = re.search(r"function renderRwaDisloc\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "RWA.tape_total_n" in body and "RWA.tape_cap" in body
+    # read, never restated: a literal 200 here goes stale the moment rwa.py retunes it
+    assert "200" not in body
+
+
+def test_the_wrapper_table_honours_the_board_filter():
+    """A reader who filtered the board above it saw this table unchanged and read it as
+    filtered — the wrapper set of a different universe, presented as the wrapper set of
+    the rows on screen."""
+    body = re.search(r"function renderRwaWrappers\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "rwaRows().forEach" in body
+    assert "RWA.board)||[]).forEach(u=>(u.wrappers||[]).forEach(w=>every.push" not in body
+    # but the gated remainder is still counted off the WHOLE board, not the filtered set
+    assert "onBoard += (u.wrappers||[]).length" in body
+    assert "the filter is hiding" in body
