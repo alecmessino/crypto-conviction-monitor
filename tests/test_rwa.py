@@ -1675,6 +1675,7 @@ def test_the_release_flag_is_wired_and_the_smoke_is_still_the_default():
 
 def test_the_release_workflow_can_only_ever_commit_rwa_ledger_files():
     import re
+    import yaml
     wf = (ROOT / ".github" / "workflows" / "rwa_release.yml").read_text(encoding="utf-8")
     nightly = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
     # Dispatch only. The schedule belongs to the nightly; two schedules would race on
@@ -1711,6 +1712,23 @@ def test_the_release_workflow_can_only_ever_commit_rwa_ledger_files():
     for text in (wf, nightly):
         assert "python scripts/write_manifest.py" in text
         assert text.index("scripts/write_manifest.py") < text.index("git add ledger/")
+    # Two writers on one file. Without serialisation the crypto job can push between this
+    # job's checkout and its push, and this job then publishes a manifest whose signals
+    # hash describes the file it checked out — which every client reads as "unchanged"
+    # and nobody refetches again until the next night.
+    for text in (wf, nightly):
+        cfg = yaml.safe_load(text)
+        assert cfg["concurrency"]["group"] == "ledger-publish", cfg.get("concurrency")
+        # cancelling a nightly mid-run loses rwa_flow.csv, which market_chart cannot
+        # backfill at any price
+        assert cfg["concurrency"]["cancel-in-progress"] is False
+        # and the belt-and-braces: rebase, then regenerate UNCONDITIONALLY. git merges
+        # the two manifests cleanly (they touch different lines of the same JSON) and
+        # produces a file describing neither tree, with no conflict to catch.
+        assert "git rebase" in text
+        rebase, regen = text.index("git rebase"), text.rindex("write_manifest.py")
+        assert rebase < regen, "the manifest is not regenerated after the rebase"
+        assert text.index("git commit --amend", regen) > regen
     # git add is all-or-nothing over its pathspecs. One optional file per `|| true`
     # line, in both workflows: three on one line staged nothing while the quarantine
     # file did not exist, and the first release commit (3394528) carried the board

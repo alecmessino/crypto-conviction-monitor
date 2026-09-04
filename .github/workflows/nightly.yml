@@ -9,6 +9,19 @@ on:
 permissions:
   contents: write
 
+# Both publishing paths write ledger/manifest.json, so they must never overlap. Without
+# this, the crypto job could push between the RWA job's checkout and its push: the RWA
+# job would then publish a manifest whose signals hash describes the file it checked out
+# rather than the one on the branch, every client would read that stale hash as "signals
+# unchanged", and nobody would refetch the crypto ledger again until the next night.
+#
+# cancel-in-progress is FALSE on purpose. Cancelling a nightly mid-run loses the whole
+# night's ledger — including rwa_flow.csv, which /rwas/{id}/market_chart cannot backfill
+# at any price. A queued run that waits is always cheaper than a killed one.
+concurrency:
+  group: ledger-publish
+  cancel-in-progress: false
+
 jobs:
   ledger:
     runs-on: ubuntu-latest
@@ -225,6 +238,33 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
+            BRANCH="${GITHUB_REF_NAME}"
             git commit -m "nightly ledger snapshot $(date -u +%Y-%m-%d)"
-            git push
+          # Rebase onto anything that landed while this job was building, then rewrite
+          # the manifest from the REBASED tree. The concurrency group above should make
+          # this unnecessary; it is here because "should" is not a guarantee and the
+          # failure is silent — a manifest describing a file the rebase replaced tells
+          # every client the artifact is unchanged, and no client asks again.
+          #
+          # The regeneration is UNCONDITIONAL, not a conflict handler, and simulating
+          # the race is what showed why: git merges the two manifests CLEANLY — the two
+          # jobs touch different lines of the same JSON — and produces a file describing
+          # neither tree, with no conflict to notice and no exit code to catch. A
+          # conflict here would at least be loud. The clean merge is the dangerous case,
+          # so the file is rebuilt from the rebased tree every time and both sides of it
+          # are discarded regardless of how git resolved them.
+          git fetch origin "$BRANCH"
+          if ! git rebase "origin/$BRANCH"; then
+            git checkout --theirs ledger/manifest.json 2>/dev/null \
+              || git checkout --ours ledger/manifest.json 2>/dev/null || true
+            git add ledger/manifest.json
+            GIT_EDITOR=true git rebase --continue
+          fi
+          python scripts/write_manifest.py
+          git add ledger/manifest.json
+          # --amend so the manifest stays in the same commit as the artifacts it
+          # describes, which is the property that makes it impossible for it to describe
+          # a night that was not published.
+          git commit --amend --no-edit
+          git push origin "HEAD:$BRANCH"
           fi

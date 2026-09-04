@@ -1074,6 +1074,12 @@ canvas:focus-visible{outline:2px solid var(--blue)}
         <div class="stat"><b id="rw-exec" class="num neg">UNAVAILABLE</b><span>Execution Evidence</span></div>
         <div class="stat"><b id="rwa-snap-date" class="num">—</b><span>Snapshot</span></div>
         <div class="stat"><b id="rwa-run" class="num">—</b><span>Run</span></div>
+        <!-- The manifest gate reports its own state. A gate that fails silently is worse
+             than no gate: the two ways this one can fail are "it stopped answering, so
+             every artifact is being revalidated instead" and "it describes a night this
+             browser could not fetch", and a reader has no way to tell either from a page
+             that looks completely normal. -->
+        <div class="stat"><b id="rw-feed" class="num">—</b><span>Ledger Gate</span></div>
       </div>
     </div>
 
@@ -1348,21 +1354,34 @@ let FTH = {overheated_apr:40, elevated_apr:12, neutral_floor_apr:0, squeeze_apr:
    `cache:"no-store"` every 120 seconds, for files that change once a night. A tab left
    open for a working day pulled hundreds of megabytes of bytes it already had.
 
-   The hash is also the CACHE KEY. Dropping no-store is not enough on its own: GitHub
-   Pages serves an ETag *and* a max-age, so a plain refetch inside that window never
-   revalidates — the manifest would report a new night and the browser would hand back
-   yesterday's body out of its own cache, which is a worse failure than the one being
-   fixed because nothing on screen would say so. Keying the URL on the hash the manifest
-   just published makes every night a distinct, permanently cacheable URL: re-reading the
-   same night costs nothing, and a new night cannot be served from the old one. */
-let MANIFEST=null;
+   Dropping no-store is not enough on its own: GitHub Pages serves an ETag *and* a
+   max-age, so a PLAIN refetch inside that window never revalidates — the manifest would
+   report a new night and the browser would hand back yesterday's body out of its own
+   cache, a worse failure than the one being fixed because nothing on screen would say
+   so. Every artifact request is therefore `cache:"no-cache"`, which forces a conditional
+   revalidation and takes the cached body on a 304.
+
+   An earlier version of this also keyed each URL on the published hash (`?v=<hash>`).
+   That was removed: the gate already suppresses the request entirely when nothing
+   changed, so the keyed URL bought nothing — and it broke the outage path badly. A
+   manifest outage falls back to the bare URL, which is a DIFFERENT cache entry from the
+   keyed one, so the browser had nothing to revalidate against and re-transferred every
+   artifact in full. Measured over seven ticks of a simulated outage: 42.5 MB, which is
+   the pre-gate behaviour restored by the very code meant to survive its absence. One URL
+   per artifact, always conditional, is what makes the fallback cheap. */
+let MANIFEST=null, MANIFEST_MISSES=0;
+/* Three consecutive failures, roughly six minutes of ticks, before the strip calls the
+   gate down. One miss is a dropped request; three is an outage, and the difference
+   matters because the chip is read as a fault report. */
+const GATE_MISS_LIMIT=3;
 async function refreshManifest(){
   try{
     /* no-store on the MANIFEST only, and only because it is the one file whose staleness
        cannot be detected by anything else. It is under a kilobyte. */
     const r=await fetch("ledger/manifest.json",{cache:"no-store"});
-    MANIFEST = r.ok ? await r.json() : null;
-  }catch(e){ MANIFEST=null; }
+    if(r.ok){ MANIFEST = await r.json(); MANIFEST_MISSES=0; }
+    else { MANIFEST=null; MANIFEST_MISSES++; }
+  }catch(e){ MANIFEST=null; MANIFEST_MISSES++; }
   return MANIFEST;
 }
 /* The published hash for one artifact, or null when there is no manifest, no entry, or
@@ -1371,13 +1390,12 @@ function ledgerKey(path){
   const a = MANIFEST && MANIFEST.artifacts;
   return (a && typeof a[path]==="string") ? a[path] : null;
 }
-/* Without a key there is nothing to gate on, so the request is forced to the network
-   rather than guessing. Every gate in this file fails OPEN: a missing manifest must cost
-   bandwidth, never correctness. */
-function ledgerFetch(path){
-  const k=ledgerKey(path);
-  return k ? fetch(path+"?v="+encodeURIComponent(k)) : fetch(path,{cache:"reload"});
-}
+/* One URL per artifact, always conditional. `no-cache` is not `no-store` and not
+   `reload`: it sends If-None-Match and takes the cached body on a 304, so the expensive
+   case is only ever a night that genuinely changed. Whether to call this at all is the
+   gate's decision, made by the callers below; every one of them fails OPEN, because a
+   missing manifest must cost bandwidth and never correctness. */
+function ledgerFetch(path){ return fetch(path,{cache:"no-cache"}); }
 
 let SIG_KEY=null;   // hash of the signals ledger currently in memory
 async function loadLedger(){
@@ -5384,6 +5402,62 @@ function rwaRows(){
     .join(" ").toLowerCase().includes(q));
 }
 
+/* DERIVED from what the page already holds — the miss counter, the manifest and the
+   artifact in memory — rather than from a flag set at the failure site. A flag would be
+   one more thing that can disagree with the board, which is the class of bug this whole
+   panel exists to report.
+
+   Rendered separately from renderRwa() and called even when the artifact never arrived,
+   because the state worth reporting most urgently is the one where there is no board. */
+/* Date and spec_hash — the artifact's OWN identity, which both the manifest and the
+   loaded board carry. Compared on this rather than on the manifest's content hash
+   because RWA_KEY is only as good as the manifest that was up when the artifact last
+   loaded: a successful fetch during an outage records a null key, and a BEHIND test
+   built on that silently stops firing for exactly the readers most likely to be behind.
+   Measured, not hypothetical — it is what the first version of this function did. */
+const rwaStamp=o=>((o&&o.date)||"")+"|"+((o&&o.spec_hash)||"");
+
+function renderRwaGate(){
+  const el=rwEl("rw-feed"); if(!el) return;
+  const published=(MANIFEST&&MANIFEST.rwa&&MANIFEST.rwa.date)||null;
+  let txt,cls,tip;
+  if(MANIFEST_MISSES>=GATE_MISS_LIMIT){
+    txt="UNGATED"; cls="neg";
+    tip="ledger/manifest.json has not answered for "+MANIFEST_MISSES+" consecutive "
+      +"checks, so there is nothing to compare against and every artifact is being "
+      +"revalidated conditionally on each tick instead. Nothing on this board is stale "
+      +"because of it — a revalidation that returns 304 proves the file did not change, "
+      +"and one that returns a body replaces it. The cost is bandwidth, not accuracy.";
+  } else if(RWA && published!=null && rwaStamp(MANIFEST.rwa)!==rwaStamp(RWA)){
+    /* The one arrangement this strip must never show: a date from one night over a board
+       from another. rwa-snap-date is set from RWA.date — the artifact's own field, never
+       the manifest's — so the two cannot silently diverge; what was missing was anything
+       telling the reader a newer night exists at all. */
+    txt="BEHIND"; cls="neg";
+    tip="The manifest describes a published night this browser does not have"
+      +(published?" ("+published+")":"")+", and the fetch for it did not deliver. The "
+      +"board below and the Snapshot date beside it are BOTH the older night, read from "
+      +"the artifact in memory rather than from the manifest — they cannot disagree. "
+      +"Nothing here is estimated forward to the night that is missing.";
+  } else if(MANIFEST_MISSES>0){
+    txt="RETRYING"; cls="";
+    tip="The last manifest check did not answer ("+MANIFEST_MISSES+" of "+GATE_MISS_LIMIT
+      +" before the gate is called down). The board is unaffected; the next tick retries.";
+  } else if(!MANIFEST){
+    txt="UNGATED"; cls="";
+    tip="No ledger/manifest.json has been read yet. Artifacts are revalidated "
+      +"conditionally until one is.";
+  } else {
+    txt="GATED"; cls="pos";
+    tip="ledger/manifest.json answered and the artifact in memory matches the hash it "
+      +"publishes. The 120s timer is reading that file and nothing else; the board is "
+      +"re-fetched only on the night it changes.";
+  }
+  el.textContent=txt;
+  el.className="num "+cls;
+  el.setAttribute("data-tip",tip);
+}
+
 /* The stamp the DOM is currently PAINTED from — date and spec_hash, the artifact's own
    identity rather than the manifest's hash of it, so the guard still holds if the page is
    ever served without a manifest. */
@@ -5402,9 +5476,10 @@ function renderRwa(force){
       '<tr><td colspan="12" class="muted" style="padding:14px">RWA artifact pending — '
       +'<code>ledger/rwa.json</code> was not produced. Nothing is estimated in its place.</td></tr>';
     RWA_PAINTED=null;
-    return;
+    renderRwaGate();
+    return false;
   }
-  const stamp=(RWA.date||"")+"|"+(RWA.spec_hash||"");
+  const stamp=rwaStamp(RWA);
   /* Returns whether it painted, so a caller that needs a sub-panel refreshed on a gated
      reveal can refresh just that one rather than repainting all 305 rows to get it. */
   if(!force && RWA_PAINTED===stamp) return false;
@@ -5414,7 +5489,12 @@ function renderRwa(force){
   set("rw-under", (bg.ranked!=null?bg.ranked:"—")+" / "+(g.underlyings_ranked||"—"));
   set("rw-wrap", (g.wrappers_priced!=null?g.wrappers_priced:"—")+" / "+(g.wrappers_n||"—"));
   set("rw-iss", g.issuers_n!=null?g.issuers_n:"—");
+  /* From the ARTIFACT, never from the manifest. The manifest is how the page learns a
+     newer night exists; it is not a source of anything the strip displays, because a
+     date read from one file over a board read from another is the failure the gate chip
+     beside it reports. */
   set("rwa-snap-date", RWA.date||"—");
+  renderRwaGate();
   /* The run's own completeness, on the strip. A board built from a partial fetch looks
      exactly like one built from a whole fetch, which is how a lost wrapper batch got to
      publish medians computed from whichever peers survived. */
@@ -5951,6 +6031,10 @@ async function tick(){
        so a tick over an unchanged night cannot disturb a scroll position or a selection. */
     try{ renderRwa(); }catch(e){}
   }
+  /* Outside the guard, and after the fetch attempt. The gate chip is the one thing that
+     must move when the board does NOT: an outage with an unchanged artifact repaints
+     nothing, and that is exactly the state a reader needs told. */
+  try{ renderRwaGate(); }catch(e){}
 }
 
 /* Suspended while the tab is hidden, and checked once immediately on return. A

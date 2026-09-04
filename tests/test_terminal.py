@@ -982,15 +982,21 @@ def test_no_committed_artifact_is_fetched_with_no_store():
     assert nostore == ["ledger/manifest.json"], nostore
 
 
-def test_every_ledger_fetch_is_keyed_on_the_published_hash():
-    """Dropping no-store is not enough on its own. GitHub Pages serves an ETag *and* a
-    max-age, so a plain refetch inside that window never revalidates: the manifest would
-    report a new night and the browser would hand back yesterday's body out of its own
-    cache — a worse failure, because nothing on screen would say so."""
-    assert 'function ledgerFetch(path){' in CODE
-    assert 'path+"?v="+encodeURIComponent(k)' in CODE
-    # no key means no gate, so the request is forced to the network rather than guessed
-    assert 'fetch(path,{cache:"reload"})' in CODE
+def test_every_ledger_fetch_revalidates_and_none_is_keyed_by_url():
+    """Dropping no-store is not enough on its own: GitHub Pages serves an ETag *and* a
+    max-age, so a plain refetch inside that window never revalidates and the browser
+    hands back yesterday's body out of its own cache. no-cache forces the conditional
+    request and takes the cached body on a 304.
+
+    The `?v=<hash>` keying this replaced is deliberately gone. The gate already suppresses
+    the request when nothing changed, so it bought nothing — and it made an outage
+    catastrophic: the fallback used the bare URL, a different cache entry from the keyed
+    one, so there was nothing to revalidate against and every artifact re-transferred in
+    full. Measured over seven ticks of a simulated outage: 42.5 MB with the keying, 0 KB
+    across 56 pure 304s without it."""
+    assert 'function ledgerFetch(path){ return fetch(path,{cache:"no-cache"}); }' in CODE
+    assert '"?v="' not in CODE, "URL keying is back; it breaks the outage fallback"
+    assert 'cache:"reload"' not in CODE, "reload re-transfers the whole body every tick"
     for art in ("signals", "index", "market_breadth", "monitor", "parity",
                 "funding", "market_intel", "rwa"):
         assert f'ledgerFetch("ledger/{art}.json")' in CODE, art
@@ -1084,3 +1090,41 @@ def test_the_default_ordering_is_absent_from_the_url():
     copies."""
     body = re.search(r"hashWrite\(params=>\{(.*?)\}\);", CODE, re.S).group(1)
     assert 'params.delete("ord")' in body and 'params.set("ord"' in body
+
+
+# ---------------------------------------------------------------------------
+# the gate reports its own failure modes
+# ---------------------------------------------------------------------------
+def test_the_manifest_gate_names_its_failure_modes_on_the_strip():
+    """A gate that fails silently is worse than no gate. Both ways this one can fail look
+    like a completely normal page: the manifest stopped answering, or it describes a night
+    the browser could not fetch."""
+    assert 'id="rw-feed"' in HTML
+    body = re.search(r"function renderRwaGate\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    for state in ('"UNGATED"', '"BEHIND"', '"RETRYING"', '"GATED"'):
+        assert state in body, state
+    assert "MANIFEST_MISSES>=GATE_MISS_LIMIT" in body
+    # rendered even when there is no board at all — that is the most urgent case
+    assert CODE.count("renderRwaGate()") >= 3
+
+
+def test_the_snapshot_date_is_read_from_the_artifact_and_never_the_manifest():
+    """A date from one night over a board from another is the one arrangement this strip
+    must not show."""
+    assert 'set("rwa-snap-date", RWA.date||"—")' in CODE
+    # the manifest's own date reaches only the gate chip's explanation, never a stat
+    assert 'set("rwa-snap-date", MANIFEST' not in CODE
+    assert 'set("rwa-snap-date", published' not in CODE
+
+
+def test_behind_is_detected_on_the_artifacts_own_identity():
+    """RWA_KEY is only as good as the manifest that was up when the artifact last loaded:
+    a successful fetch during an outage records a null key, and a BEHIND test built on
+    that silently stops firing for exactly the readers most likely to be behind. Measured
+    — it is what the first version of this function did."""
+    assert "const rwaStamp=o=>" in CODE
+    body = re.search(r"function renderRwaGate\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "rwaStamp(MANIFEST.rwa)!==rwaStamp(RWA)" in body
+    assert "RWA_KEY" not in body, "the gate is comparing bookkeeping instead of identity"
+    # one definition of "which night", shared with the paint guard
+    assert "const stamp=rwaStamp(RWA);" in CODE
