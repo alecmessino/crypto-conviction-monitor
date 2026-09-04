@@ -1695,7 +1695,22 @@ def test_the_release_workflow_can_only_ever_commit_rwa_ledger_files():
                 for p in line.replace("|| true", "").replace("2>/dev/null", "").split()
                 if p.startswith("ledger/")}
     ours = added(wf)
-    assert ours and all(p.startswith("ledger/rwa") for p in ours), ours
+    # ledger/manifest.json is the ONE file outside the RWA set this workflow may stage,
+    # and it is named rather than allowed by a looser pattern. It is derived from the
+    # artifacts on disk by scripts/write_manifest.py, carries no reading of its own, and
+    # this workflow has to rewrite it: the terminal gates its 2 MB rwa.json refetch on
+    # that file, so a release that publishes a new board without refreshing the manifest
+    # publishes a board every browser goes on ignoring, with nothing on screen saying so.
+    # The crypto-file check below is unchanged and still the real guarantee.
+    MANIFEST = "ledger/manifest.json"
+    assert MANIFEST in ours, \
+        "the release path publishes a board the manifest never describes"
+    assert ours and all(p.startswith("ledger/rwa") for p in ours - {MANIFEST}), ours
+    # Derived, therefore written by BOTH publishing paths and written before the commit
+    # that carries it — a manifest staged after the commit describes the previous night.
+    for text in (wf, nightly):
+        assert "python scripts/write_manifest.py" in text
+        assert text.index("scripts/write_manifest.py") < text.index("git add ledger/")
     # git add is all-or-nothing over its pathspecs. One optional file per `|| true`
     # line, in both workflows: three on one line staged nothing while the quarantine
     # file did not exist, and the first release commit (3394528) carried the board
@@ -1708,7 +1723,7 @@ def test_the_release_workflow_can_only_ever_commit_rwa_ledger_files():
     assert "grep -q '^ledger/rwa_runs.csv$'" in wf
     assert wf.index("rwa_runs.csv did not record this run") < wf.index("git commit")
     # Exactly the RWA set the nightly commits: the two paths publish the same files.
-    assert ours == {p for p in added(nightly) if p.startswith("ledger/rwa")}
+    assert ours - {MANIFEST} == {p for p in added(nightly) if p.startswith("ledger/rwa")}
     # And no crypto ledger file is so much as named.
     for crypto in ("signals.csv", "signals.json", "index.csv", "index.json", "basket.json",
                    "funding.json", "market_intel.json", "market_breadth.json",

@@ -61,6 +61,14 @@ jobs:
         # manifest and promotion invariants) alongside everything else.
         run: python scripts/validate_ledger.py
 
+      - name: Write the ledger manifest
+        # This workflow publishes a new rwa.json on its own schedule, without touching
+        # the crypto ledger. Without this step the manifest would keep describing the
+        # previous board, and every browser would decide the 2 MB artifact had not
+        # changed and go on rendering yesterday's night with nothing on screen saying so.
+        # Two writers, one manifest.
+        run: python scripts/write_manifest.py
+
       - name: Commit RWA ledger
         run: |
           git config user.name "conviction-bot"
@@ -78,6 +86,7 @@ jobs:
           git add ledger/rwa_observed.csv || true
           git add ledger/rwa_runs.csv || true
           git add ledger/rwa_quarantine.csv || true
+          git add ledger/manifest.json
           # Every run appends a manifest row, so a commit without rwa_runs.csv is a
           # commit whose provenance is missing. Refuse it.
           if ! git diff --cached --name-only | grep -q '^ledger/rwa_runs.csv$'; then
@@ -88,7 +97,14 @@ jobs:
           # Refuse to commit anything that is not an RWA ledger file. This is the
           # guarantee that makes the workflow safe to dispatch on any branch: it cannot
           # write a crypto ledger row, even by accident.
-          if git diff --cached --name-only | grep -v '^ledger/rwa' | grep -q .; then
+          #
+          # manifest.json is the single exception, and it is named rather than allowed by
+          # a looser pattern: it is derived from the artifacts on disk, it carries no
+          # reading of its own, and this workflow MUST rewrite it or the board it just
+          # published stays invisible to every browser. Nothing else outside ledger/rwa*
+          # is permitted.
+          if git diff --cached --name-only | grep -v '^ledger/rwa' \
+               | grep -v '^ledger/manifest\.json$' | grep -q .; then
             echo "refusing to commit: a non-RWA file is staged"
             git diff --cached --name-only
             exit 1

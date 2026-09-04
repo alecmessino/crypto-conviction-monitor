@@ -140,6 +140,15 @@ jobs:
         # a missing package can never skip it.
         run: python tests/test_atr_eligibility.py
 
+      - name: Write the ledger manifest
+        # LAST, after every gate and immediately before the commit, so it describes the
+        # artifacts actually being staged rather than the ones this run intended to
+        # write. rwa.py above is continue-on-error: on a night it fails, rwa.json on disk
+        # is still last night's, and a manifest that reported today because today is when
+        # the job ran would tell every browser the 2 MB file had changed when it had not.
+        # Derived from the bytes, never declared.
+        run: python scripts/write_manifest.py
+
       - name: Commit ledger
         run: |
           git config user.name "conviction-bot"
@@ -208,6 +217,11 @@ jobs:
           git add ledger/rwa_runs.csv || true
           git add ledger/rwa_quarantine.csv || true
           git add ledger/index.legacy.csv 2>/dev/null || true
+          # manifest.json is the gate the browser reads before deciding whether any of
+          # the above is worth re-fetching. It is staged in the SAME commit as the files
+          # it describes, which is the only thing that makes it impossible for it to
+          # describe a night that was not published.
+          git add ledger/manifest.json
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
