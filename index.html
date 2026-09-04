@@ -63,6 +63,12 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 .hp.act{cursor:pointer}
 .hp.act:hover{background:rgba(59,130,246,.16);border-color:var(--blue)}
 .hp .dotc{width:6px;height:6px;border-radius:50%}
+/* A stat that acts. Same metrics as .stat so the strip does not gain a row, and a real
+   <button> so the keyboard reaches it with nothing added. */
+.stat-btn{background:transparent;border:0;padding:0;margin:0;font:inherit;text-align:left;
+  cursor:pointer;display:flex;flex-direction:column;line-height:1.05}
+.stat-btn:hover b{text-decoration:underline}
+.stat-btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:3px}
 .ribbon .brand{font-weight:700;font-size:13px;letter-spacing:1px;margin-right:auto;white-space:nowrap}
 /* On a wrapped ribbon the auto margin would strand a single stat on its own row, so it
    is dropped once the row is already breaking. */
@@ -141,6 +147,17 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 .tier.L2{background:rgba(123,201,160,.16);color:var(--green)}
 .tier.ALT{background:rgba(148,163,184,.10);color:var(--sec)}
 .pos{color:var(--green)} .neg{color:var(--red)} .neu{color:var(--sec)}
+/* NOT a sign class. Green and red belong to signed numbers alone; .warn is for a stated
+   limitation — something the build decided not to have, which is a different fact from a
+   number going down and must not borrow that number's colour. */
+.warn{color:var(--amber)}
+/* `.ribbon .stat b{color:#FFFFFF}` is (0,2,1) and outranks a bare state class, so NOTHING
+   on a status strip has ever carried its state colour — rw-exec's `.neg` was rendering
+   white, not red, for as long as it has existed. Amber is re-enabled here for the one
+   state that needs it, scoped to this workspace so the crypto strip keeps the uniform
+   white it was designed with. .pos and .neg are deliberately NOT re-enabled: a run status
+   or a gate state is not a signed number, and green and red are reserved for those. */
+[data-ws="rwa"] .ribbon .stat b.warn{color:var(--amber)}
 .badge{display:inline-block;padding:2px 7px;border-radius:3px;font-size:9px;font-weight:700}
 /* A signal that changed overnight on a move too small to mean anything. The caveat
    lives on the label it qualifies rather than in a separate panel, because the moment
@@ -506,14 +523,37 @@ details.rwa-fold > summary:focus-visible{outline:2px solid var(--blue);outline-o
 .rwa-sub{display:flex;gap:2px;flex-wrap:wrap;padding:6px 10px;
   border-bottom:1px solid var(--border);background:rgba(30,41,59,.18)}
 .rwa-sub .tab{font-size:9px;padding:4px 9px;border-bottom-color:transparent}
-.rwa-badge{font-size:8px;letter-spacing:.8px;padding:2px 7px;border-radius:9px;
-  border:1px solid var(--border);color:var(--tert);white-space:nowrap}
-.rwa-badge.DEEP{color:var(--green);border-color:rgba(123,201,160,.45)}
-.rwa-badge.SOUND{color:#9FD8BC;border-color:rgba(123,201,160,.28)}
-.rwa-badge.THIN{color:var(--amber);border-color:rgba(224,179,114,.4)}
-.rwa-badge.FRAGILE{color:var(--red);border-color:rgba(232,145,127,.4)}
-.rwa-badge.DORMANT{color:var(--tert)}
-.rwa-badge.UNRATED{color:var(--tert);border-style:dashed}
+/* THE SIGNAL BAND, AS A WEIGHT RAMP RATHER THAN A HUE RAMP.
+   It ran green-through-red for DEEP -> SOUND -> THIN -> FRAGILE while .pos/.neg ran the
+   same green and red for price direction one column away, so a DEEP badge beside a red
+   -3% read as internally contradictory at a glance. Green and red are now reserved
+   exclusively for signed numbers, and the band is carried by ink and border instead:
+   filled, tinted, outlined, faint-outlined, dashed. That ordering survives grayscale, it
+   survives a screenshot, and it does not compete with the sign column.
+   The text labels are unchanged — they were never the problem. */
+.rwa-badge{font-size:10px;letter-spacing:.6px;padding:2px 7px;border-radius:9px;
+  border:1px solid var(--border);color:var(--tert);white-space:nowrap;
+  font-weight:600;line-height:1.35}
+.rwa-badge.DEEP{background:var(--txt);color:#0B0F19;border-color:var(--txt);font-weight:700}
+.rwa-badge.SOUND{background:rgba(255,255,255,.22);color:var(--txt);
+  border-color:rgba(255,255,255,.42)}
+.rwa-badge.THIN{background:transparent;color:var(--txt);border-color:rgba(255,255,255,.5)}
+.rwa-badge.FRAGILE{background:transparent;color:var(--sec);border-color:rgba(255,255,255,.24)}
+.rwa-badge.DORMANT{background:transparent;color:var(--tert);border-style:dashed;
+  border-color:rgba(255,255,255,.2);font-weight:400}
+/* UNRATED is a REFUSAL, not the bottom of the band. Dashed like DORMANT, per the ramp,
+   but dotted-thin and italic so the two are not read as neighbouring grades. */
+.rwa-badge.UNRATED{background:transparent;color:var(--tert);border-style:dotted;
+  border-color:rgba(255,255,255,.28);font-weight:400;font-style:italic}
+/* The ramp is weight and border, so it must not evaporate when the reader asks for more
+   contrast — under forced contrast the tints are what a UA is most likely to flatten. */
+@media(prefers-contrast:more){
+  .rwa-badge{border-width:1px;color:var(--txt)}
+  .rwa-badge.SOUND{background:rgba(255,255,255,.3);border-color:#fff}
+  .rwa-badge.THIN{border-color:#fff}
+  .rwa-badge.FRAGILE{border-color:rgba(255,255,255,.55);color:var(--txt)}
+  .rwa-badge.DORMANT,.rwa-badge.UNRATED{border-color:rgba(255,255,255,.5);color:var(--sec)}
+}
 .imp{font-size:9px;letter-spacing:.5px;white-space:nowrap}
 .imp.MINTING,.imp.STRONG_ADOPTION{color:var(--green)}
 .imp.REDEMPTION{color:var(--red)}
@@ -523,6 +563,32 @@ details.rwa-fold > summary:focus-visible{outline:2px solid var(--blue);outline-o
    sees and the state a screen reader announces are the same attribute and cannot drift.
    No `position` here: thead th is already position:sticky and re-declaring it would
    unstick every header on the page. */
+/* 4.1 — SCOPED, never global. .scroll-pane{max-height:34vh} at the top of this file is
+   what the crypto workspace's stacked panels are built around; changing it there would
+   reflow a screen this change has no business touching. On a 1440px display the flagship
+   305-row board was showing about eleven rows, which turns the main event into a scroll
+   pane inside a page inside a workspace. */
+[data-ws="rwa"] .board-pane{max-height:min(62vh,720px)}
+/* The plate below keeps the shorter pane: two tall scrollers stacked is worse than one. */
+[data-ws="rwa"] [data-rwapane] .scroll-pane{max-height:34vh}
+.plate-fold > summary{list-style:none;cursor:pointer}
+.plate-fold > summary:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+/* A disclosure with no marker gives a keyboard reader nothing to read state from, and the
+   card header is the only thing on screen that can carry it. */
+.plate-fold > summary::after{content:"  \25BE";color:var(--tert);font-size:10px}
+.plate-fold:not([open]) > summary::after{content:"  \25B8"}
+.plate-fold > summary::-webkit-details-marker{display:none}
+.plate-fold[hidden]{display:none}
+
+/* The per-column evidence chip. Sits UNDER the header label rather than beside it, so a
+   twelve-column head does not grow twelve chips wide.
+
+   inline-block after a <br>, not display:block: th is text-align:right on every column but
+   the first, and a block-level chip with width:max-content pinned itself to the left edge
+   of its cell — which put each column's chip visually under the PREVIOUS column's label.
+   As inline content it inherits whatever alignment the header already has, including the
+   :first-child left override, with no per-column rule to keep in step. */
+.ev-col{display:inline-block;margin:2px 0 0;font-weight:400;letter-spacing:.3px}
 th[aria-sort]{cursor:pointer;user-select:none}
 th[aria-sort]:hover{color:var(--sec)}
 th[aria-sort]:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
@@ -580,6 +646,32 @@ tr.rw-dead td{opacity:.45}
    we computed from it, what a documented convention let us normalise, what we could not
    buy and what we could not explain is the most valuable thing this workspace reports —
    more so than filling every cell. */
+/* 10px FLOOR ACROSS THIS WORKSPACE. .ev was 7px and the coverage sub-line 8px — those
+   annotations ARE the reasoning, and they were the least legible thing on the page. The
+   space is bought back from vertical padding and leading, not from density: no column
+   was dropped and no row got shorter in content. */
+[data-ws="rwa"]{font-size:11px}
+[data-ws="rwa"] .ev{font-size:10px;letter-spacing:.4px;padding:0 5px}
+[data-ws="rwa"] .imp,
+[data-ws="rwa"] .wrapline .wl-iss,
+[data-ws="rwa"] .rwa-sub .tab,
+[data-ws="rwa"] .rw-order .tab,
+[data-ws="rwa"] .rw-note button,
+[data-ws="rwa"] .oh-group,
+[data-ws="rwa"] .oh-group .oh-why,
+[data-ws="rwa"] .oh-preamble code,
+[data-ws="rwa"] .ev-legend,
+[data-ws="rwa"] .absent,
+[data-ws="rwa"] .ribbon .stat span,
+[data-ws="rwa"] details.why > summary,
+[data-ws="rwa"] .sub{font-size:10px}
+[data-ws="rwa"] .imp{letter-spacing:.3px}
+[data-ws="rwa"] .oh-group{letter-spacing:.7px}
+/* Bought back from padding. .wrapline carried 5px of vertical padding around 9px text;
+   at 10px it carries 4px, so the row is one pixel taller and the text is a point larger. */
+[data-ws="rwa"] .wrapline{padding:4px 0;line-height:1.4}
+[data-ws="rwa"] .rwa-sub .tab,[data-ws="rwa"] .rw-order .tab{padding:3px 9px}
+[data-ws="rwa"] td,[data-ws="rwa"] th{padding-top:4px;padding-bottom:4px}
 .ev{font-size:7px;letter-spacing:.9px;padding:1px 5px;border-radius:3px;
   border:1px solid var(--border);color:var(--tert);white-space:nowrap;margin-left:5px;
   text-transform:uppercase;vertical-align:middle}
@@ -1096,8 +1188,14 @@ canvas:focus-visible{outline:2px solid var(--blue)}
         <div class="stat"><b id="rw-under" class="num">—</b><span>Underlyings Ranked</span></div>
         <div class="stat"><b id="rw-wrap" class="num">—</b><span>Wrapper Price Coverage</span></div>
         <div class="stat"><b id="rw-iss" class="num">—</b><span>Issuers</span></div>
-        <div class="stat"><b id="rw-cov" class="num">—</b><span>Model Coverage · of declared</span></div>
-        <div class="stat"><b id="rw-exec" class="num neg">UNAVAILABLE</b><span>Execution Evidence</span></div>
+        <!-- The "of declared" qualifier moved into the explanation rather than being
+             dropped: at 1280px this label was 197px wide against a 30px value and was the
+             single reason the strip needed a second row. The denominator is the whole
+             point of the number, so it is stated here and on the model card, not lost. -->
+        <div class="stat" data-tip="The mean share of DECLARED model weight that was actually priced, taken across the whole board rather than the filtered view. Execution is 20 of the 100 declared points and can never be priced on this plan, so the ceiling on this figure is 83.3% and a night with no impulse history reads 62.5%."><b id="rw-cov" class="num">—</b><span>Model Coverage</span></div>
+        <!-- AMBER, not red. Red reads as a system that fell over; this is a scoped plan
+             limitation that was designed in and is stated everywhere it applies. -->
+        <div class="stat"><b id="rw-exec" class="num warn" data-tip="Venue depth, spread, cost-to-move and the stale/anomaly/trust fields all come from /rwas/{id}/tickers, which answers HTTP 401 below CoinGecko&#39;s Basic plan. Nothing failed: the endpoint was never available on this plan, the execution component carries 20 of the 100 declared model weight, and it is in the coverage denominator rather than quietly dropped from it.">NOT ON THIS PLAN</b><span>Execution Evidence</span></div>
         <div class="stat"><b id="rwa-snap-date" class="num">—</b><span>Snapshot</span></div>
         <div class="stat"><b id="rwa-run" class="num">—</b><span>Run</span></div>
         <!-- The manifest gate reports its own state. A gate that fails silently is worse
@@ -1106,6 +1204,11 @@ canvas:focus-visible{outline:2px solid var(--blue)}
              browser could not fetch", and a reader has no way to tell either from a page
              that looks completely normal. -->
         <div class="stat"><b id="rw-feed" class="num">—</b><span>Ledger Gate</span></div>
+        <!-- 4.5: the absences stay visible as a COUNT while their prose is folded. A real
+             button, because it does something: it opens the card and moves focus there. -->
+        <button type="button" class="stat stat-btn" id="rw-absent-chip"
+                data-tip="What the model could not see tonight, counted from the same rows the card renders so the two can never disagree. Opens the card that names each one.">
+          <b class="num warn" id="rw-absent-n">—</b><span>Absences</span></button>
       </div>
     </div>
 
@@ -1116,8 +1219,14 @@ canvas:focus-visible{outline:2px solid var(--blue)}
           <div class="muted">Artifact pending — <code>ledger/rwa.json</code> was not produced.</div>
         </div>
       </details>
-      <details class="glass rwa-fold" open>
-        <summary class="card-h">WHAT THIS MODEL CANNOT SEE</summary>
+      <!-- FOLDED by default, with a live count on the status strip that opens it. The
+           absences are the most valuable thing this workspace publishes and they were also
+           the first screen of it; a reader needs the weights to interpret the score in
+           front of them before they need the caveats. The count keeps the absences visible
+           as a number while the prose is one click away. -->
+      <details class="glass rwa-fold" id="rw-absent-card" data-fold-default="closed">
+        <summary class="card-h">WHAT THIS MODEL CANNOT SEE
+          <span class="muted" id="rw-absent-sum">—</span></summary>
         <div class="card-b" id="rw-absent">
           <div class="muted">—</div>
         </div>
@@ -1148,9 +1257,10 @@ canvas:focus-visible{outline:2px solid var(--blue)}
           <span><span class="ev ev-normalized">normalized</span> documented unit convention</span>
           <span><span class="ev ev-unavailable">unavailable</span> paid/external evidence missing</span>
           <span><span class="ev ev-unexplained">unexplained</span> divergence we cannot safely normalize</span>
+          <span id="rw-ev-note"></span>
         </div>
-        <div class="scroll-pane">
-          <table id="tbl-rwa"><thead><tr>
+        <div class="scroll-pane board-pane">
+            <table id="tbl-rwa"><thead><tr>
             <th>#</th><th>Ticker</th><th>Type</th><th>Price</th><th>24H &#916;</th>
             <th title="Tokenized market cap. This is the ONCHAIN aggregate across every wrapper CoinGecko tracks, not a TradFi market cap.">Tokenized Cap</th>
             <th>24H Vol</th>
@@ -1163,7 +1273,15 @@ canvas:focus-visible{outline:2px solid var(--blue)}
         </div>
       </div>
 
-      <div class="glass">
+      <!-- Collapsible so the board above can have its height back without the plate
+           pushing the page to two screens. Default OPEN: the tabs are the second half of
+           the workspace, and a reader who has to discover them has been given a worse
+           screen, not a tidier one. State lives in the hash like every other view
+           setting, so a folded plate can be sent to someone. -->
+      <details class="glass plate-fold" id="rw-plate" open>
+        <summary class="card-h" style="cursor:pointer">
+          DETAIL PLATE <span class="muted" id="rw-plate-note">wrappers, issuers, venues, flows, divergence</span>
+        </summary>
         <!-- ONE tabbed plate. The subnav the brief specifies, minus the two entries the
              dominant board above already is: OVERVIEW is the status strip and the model
              card, UNDERLYINGS is the board itself. -->
@@ -1255,7 +1373,7 @@ canvas:focus-visible{outline:2px solid var(--blue)}
         </div>
         <div data-rwapane="disloc" hidden>
           <div class="absent" id="rwa-exec-banner">
-            <b>EXECUTION UNAVAILABLE — venue depth/spread feed not connected.</b>
+            <b>EXECUTION — NOT ON THIS PLAN.</b>
             Everything below is a <b>pre-execution price divergence</b> measured on last
             prices. It is not an executable dislocation, not an executable basis, and not
             an after-friction opportunity. Bid/ask, cost-to-move, venue depth and the
@@ -1290,17 +1408,15 @@ canvas:focus-visible{outline:2px solid var(--blue)}
         <div data-rwapane="issuance" hidden>
           <div class="card-b" id="rwa-issuance"><div class="rwa-empty">—</div></div>
         </div>
-      </div>
+      </details>
     </main>
 
     <aside class="rail">
-      <div class="glass">
-        <div class="card-h">INSPECTOR <span class="muted" id="rw-insp-sym">—</span></div>
-        <div class="card-b" id="rw-inspector">
-          <div class="muted" style="padding:22px 0">Select an underlying to see its wrapper set,
-            its issuance chain and what the model could not price.</div>
-        </div>
-      </div>
+      <!-- ABOVE the inspector. Once Phase 1 separated corroborated windows from
+           single-wrapper ones this became the most distinctive panel on the
+           workspace, and it was sitting at the bottom of the rail beneath one that
+           opens empty. It answers a market-level question with nothing selected, so
+           it is the one that should be readable on arrival. -->
       <div class="glass">
         <div class="card-h">OFF-HOURS TAPE <span class="muted" id="rw-oh-note">24/7 against a shut cash market</span></div>
         <div class="card-b" id="rw-offhours"><div class="rwa-empty">—</div></div>
@@ -1310,6 +1426,13 @@ canvas:focus-visible{outline:2px solid var(--blue)}
           confidence in one: converting a tokenized drift into an expected gap needs the underlying's own equity prints as
           the other half of the pair, and CoinGecko does not carry them. The inputs are recorded so the study becomes
           possible the night an equity feed is connected.</div></details>
+      </div>
+      <div class="glass">
+        <div class="card-h">INSPECTOR <span class="muted" id="rw-insp-sym">—</span></div>
+        <div class="card-b" id="rw-inspector">
+          <div class="muted" style="padding:22px 0">Select an underlying to see its wrapper set,
+            its issuance chain and what the model could not price.</div>
+        </div>
       </div>
     </aside>
   </div><!-- /ws rwa -->
@@ -5349,7 +5472,11 @@ window.addEventListener("hashchange",()=>switchWorkspace(hashParse().ws,false));
    560px query as the CSS so the two cannot disagree. */
 (function(){
   const mq=window.matchMedia("(max-width:560px)");
-  const apply=()=>document.querySelectorAll("details.rwa-fold").forEach(d=>{ d.open=!mq.matches; });
+  /* [data-fold-default] opts a card OUT of this. The absences card is folded on purpose at
+     every width — a reader needs the weights before the caveats — and this sweep was
+     re-opening it on load at anything above the phone gate, silently undoing 4.5. */
+  const apply=()=>document.querySelectorAll("details.rwa-fold:not([data-fold-default])")
+    .forEach(d=>{ d.open=!mq.matches; });
   apply(); if(mq.addEventListener) mq.addEventListener("change",apply); else mq.addListener(apply);
 })();
 
@@ -5462,7 +5589,7 @@ function renderRwaGate(){
   const published=(MANIFEST&&MANIFEST.rwa&&MANIFEST.rwa.date)||null;
   let txt,cls,tip;
   if(MANIFEST_MISSES>=GATE_MISS_LIMIT){
-    txt="UNGATED"; cls="neg";
+    txt="UNGATED"; cls="warn";
     tip="ledger/manifest.json has not answered for "+MANIFEST_MISSES+" consecutive "
       +"checks, so there is nothing to compare against and every artifact is being "
       +"revalidated conditionally on each tick instead. Nothing on this board is stale "
@@ -5473,7 +5600,7 @@ function renderRwaGate(){
        from another. rwa-snap-date is set from RWA.date — the artifact's own field, never
        the manifest's — so the two cannot silently diverge; what was missing was anything
        telling the reader a newer night exists at all. */
-    txt="BEHIND"; cls="neg";
+    txt="BEHIND"; cls="warn";
     tip="The manifest describes a published night this browser does not have"
       +(published?" ("+published+")":"")+", and the fetch for it did not deliver. The "
       +"board below and the Snapshot date beside it are BOTH the older night, read from "
@@ -5501,7 +5628,14 @@ function renderRwaGate(){
 /* The stamp the DOM is currently PAINTED from — date and spec_hash, the artifact's own
    identity rather than the manifest's hash of it, so the guard still holds if the page is
    ever served without a manifest. */
-let RWA_PAINTED=null;
+let RWA_PAINTED=null, RWA_FIRST_PAINT=false;
+/* Whether the current selection was CHOSEN or merely defaulted. The two look identical to
+   the inspector and must not to the off-hours panel: 4.5 populates the inspector on
+   arrival so the rail does not open empty, but that selection is not a reader saying "show
+   me this name", and collapsing the off-hours panel to one row on it would throw away the
+   corroborated/single-wrapper grouping that is the reason the panel sits at the top of the
+   rail at all. Cleared by the first real click or keypress. */
+let RWA_SEL_DEFAULTED=false;
 /* `force` is for the paths whose output depends on something other than the artifact:
    the filter box, the row selection and the Flows ordering. Everything else — a reveal,
    a timer, a workspace round trip — is gated.
@@ -5542,7 +5676,9 @@ function renderRwa(force){
   const runEl=rwEl("rwa-run");
   if(runEl){
     runEl.textContent=(run.status||"—").toUpperCase();
-    runEl.className="num "+(run.status==="complete"?"pos":(run.status==="degraded"?"neg":""));
+    /* warn, not neg: a degraded run is a stated shortfall in the evidence, not a number
+       that went down, and this strip's green/red are reserved for signed numbers. */
+    runEl.className="num "+(run.status==="complete"?"pos":(run.status==="degraded"?"warn":""));
     /* data-tip, never a native title: initTips() upgrades these into the explanation
        layer, and a native title renders on no phone. Set after the text so the observer
        picks it up. */
@@ -5556,6 +5692,18 @@ function renderRwa(force){
     else { runEl.removeAttribute("data-tip"); }
   }
   set("rw-spec", "spec "+(RWA.spec_hash||"—"));
+  /* FIRST PAINT ONLY, only when nothing is selected, and only when the hash carries no
+     selection of its own. A default that clobbers a deep-linked row, or that reappears
+     when the nightly refresh lands and quietly moves the reader back to row one, is worse
+     than the empty panel it replaces — so it is guarded on all three and the flag is set
+     whether or not a default was actually applied. */
+  if(!RWA_FIRST_PAINT){
+    RWA_FIRST_PAINT=true;
+    if(RWA_SEL==null && !hashParse().id){
+      const first=((RWA.board||[])[0]||{}).id;
+      if(first!=null){ RWA_SEL=first; RWA_SEL_DEFAULTED=true; }
+    }
+  }
   const rows=rwaSortRows("tbl-rwa",rwaRows());
   /* From the WHOLE board, never the filtered view. Every other stat in this strip is a
      property of the snapshot, and a status figure that moves while you type in a filter
@@ -5618,6 +5766,15 @@ function renderRwa(force){
       ["Equity prints", (eq.status||"pending").toUpperCase(), eq.status==="live"?"":"no equity source"],
       ["Calendar", cal.ok?"VERIFIED":"REFUSED", yrs?"through "+yrs.slice(-4):""],
     ];
+    /* Counted from the SAME rows the card renders, so the chip and the card can never
+       report different numbers. Anything not fully live counts — a `partial` feed is the
+       case this panel exists for. */
+    const absent=rows.filter(([k,v])=>!(v==="LIVE"||v==="VERIFIED")).length;
+    const chipN=rwEl("rw-absent-n"), chipSum=rwEl("rw-absent-sum");
+    if(chipN){ chipN.textContent=absent; chipN.className="num "+(absent?"warn":"pos"); }
+    if(chipSum) chipSum.textContent = absent
+      ? absent+" of "+rows.length+" inputs unavailable"
+      : "every declared input answered";
     ab.innerHTML = rows.map(([k,v,d])=>
         '<div class="kv"><span>'+rwEsc(k)+'</span><b class="'+cls(v)+'">'+rwEsc(v)
         +(d?' <span class="muted" style="font-weight:400">· '+rwEsc(d)+'</span>':"")+'</b></div>').join("")
@@ -5642,6 +5799,7 @@ function renderRwa(force){
 
   const tb=rwEl("tbl-rwa").querySelector("tbody");
   rwaSyncHeaders("tbl-rwa");
+  rwaMarkEvidence();
   rwaAnnounce("Underlyings",rows.length,"tbl-rwa");
   tb.innerHTML = rows.length ? rows.map((r,i)=>{
     const fl=r.flow||{}, sel = RWA_SEL===r.id ? ' style="background:rgba(59,130,246,.12)"' : "";
@@ -5651,7 +5809,7 @@ function renderRwa(force){
     const rove = (RWA_SEL ? r.id===RWA_SEL : i===0) ? '0' : '-1';
     return '<tr data-rwa="'+rwEsc(r.id)+'"'+sel+' tabindex="'+rove+'">'
       +'<td class="muted">'+(i+1)+'</td>'
-      +'<td><b>'+rwEsc((r.symbol||"").toUpperCase())+'</b><span class="muted" style="display:block;font-size:9px">'+rwEsc(r.name||"")+'</span></td>'
+      +'<td><b>'+rwEsc((r.symbol||"").toUpperCase())+'</b><span class="muted" style="display:block;font-size:10px">'+rwEsc(r.name||"")+'</span></td>'
       +'<td class="muted">'+rwEsc(r.asset_type||"")+'</td>'
       +'<td class="num">'+rwPrice(r.price)+'</td>'
       +'<td class="num">'+rwSigned(r.price_chg_pct_24h)+'</td>'
@@ -5664,7 +5822,7 @@ function renderRwa(force){
          was computed over, on every row, so 94 cannot read as 94 of a fully evidenced 100
          while a fifth of the model is structurally unavailable. */
       +'<td class="num"><b>'+(r.conviction==null?"—":r.conviction.toFixed(0))+'</b>'
-        +(r.coverage!=null?'<span class="muted" style="display:block;font-size:8px">on '+r.coverage.toFixed(0)+'% ev.</span>':"")+'</td>'
+        +(r.coverage!=null?'<span class="muted" style="display:block;font-size:10px">on '+r.coverage.toFixed(0)+'% ev.</span>':"")+'</td>'
       +'<td><span class="rwa-badge '+rwEsc(r.label||"")+'">'+rwEsc(r.label||"")+'</span>'
       +(r.peer_set_complete===false
           ? '<span class="ev ev-unavailable" data-tip="Not every wrapper on this underlying priced tonight. The median, the dispersion and the integrity component were computed from an incomplete peer set — which does not merely hide signal, it manufactures it.">degraded</span>'
@@ -5745,7 +5903,7 @@ function renderRwaWrappers(){
     +'<td class="num">'+rwUsd(w.volume_24h)+'</td>'
     +'<td class="num">'+(w.basis_bps!=null?rwSigned(w.basis_bps,0).replace("%","bp"):'<span class="muted">—</span>')+'</td>'
     +'<td class="num">'+(w.score==null?'<span class="muted">not scored</span>':w.score.toFixed(0))+'</td>'
-    +'<td class="muted" style="font-size:9px">'+rwEsc(w.liveness||"")+'</td></tr>').join("")
+    +'<td class="muted" style="font-size:10px">'+rwEsc(w.liveness||"")+'</td></tr>').join("")
     : '<tr><td colspan="9" class="muted" style="padding:14px">No wrapper priced.</td></tr>';
 }
 
@@ -5780,9 +5938,10 @@ function renderRwaVenues(){
   }));
   const rows=Object.values(tally).sort((a,b)=>b.vol-a.vol);
   el.innerHTML =
-    '<div class="absent">Venue-level data is unavailable on this plan. CEX/DEX venue rank, '
+    '<div class="absent"><b>VENUE DATA — NOT ON THIS PLAN.</b> CEX/DEX venue rank, '
     +'per-venue spread, depth and trust score all come from <code>/rwas/{id}/tickers</code>, '
-    +'which answers HTTP 401 below CoinGecko\'s Basic plan. What is shown below is the '
+    +'which answers HTTP&nbsp;401 below CoinGecko\'s Basic plan. Nothing failed and nothing '
+    +'is pending: the endpoint was never available here. What is shown below is the '
     +'<b>chain</b> distribution, which is a different fact and is labelled as one.</div>'
     + (rows.length ? '<table><thead><tr><th>Chain</th><th>Wrappers</th><th>Live</th>'
       +'<th>Live 24H Vol</th></tr></thead><tbody>'
@@ -5820,21 +5979,21 @@ const RWA_COLS={
   "tbl-rwa":[
     null,  /* the rank ordinal. It is the row's POSITION, so sorting by it would be
               sorting by the current sort; it renumbers instead. */
-    {id:"symbol",   get:r=>rwLower(r.symbol), text:true},
-    {id:"type",     get:r=>rwLower(r.asset_type), text:true},
-    {id:"price",    get:r=>rwNum(r.price)},
-    {id:"chg24h",   get:r=>rwNum(r.price_chg_pct_24h)},
-    {id:"mcap",     get:r=>rwNum(r.market_cap)},
-    {id:"vol",      get:r=>rwNum(r.total_volume)},
+    {id:"symbol",   field:"symbol",            get:r=>rwLower(r.symbol), text:true},
+    {id:"type",     field:"asset_type",        get:r=>rwLower(r.asset_type), text:true},
+    {id:"price",    field:"price",             get:r=>rwNum(r.price)},
+    {id:"chg24h",   field:"price_chg_pct_24h", get:r=>rwNum(r.price_chg_pct_24h)},
+    {id:"mcap",     field:"market_cap",        get:r=>rwNum(r.market_cap)},
+    {id:"vol",      field:"total_volume",      get:r=>rwNum(r.total_volume)},
     /* The cell prints the daily residual above the impulse band. The number is what is
        sortable; the band beneath it is not an axis — see the Reading column on Flows. */
-    {id:"impulse",  get:r=>rwNum((r.flow||{}).residual_pct_daily)},
+    {id:"impulse",  field:"flow.residual_pct_daily", get:r=>rwNum((r.flow||{}).residual_pct_daily)},
     /* "3/5" is two numbers. Sorted on the LIVE count, which is the one a reader is
        scanning for; the total is one row away in the inspector. */
-    {id:"wrappers", get:r=>rwNum(r.wrappers_live)},
-    {id:"disp",     get:r=>rwNum((r.dislocation||{}).dispersion_bps)},
-    {id:"conv",     get:r=>rwNum(r.conviction)},
-    {id:"signal",   get:r=>rwBandRank(r.label)},
+    {id:"wrappers", field:"wrappers_live",     get:r=>rwNum(r.wrappers_live)},
+    {id:"disp",     field:"dislocation.dispersion_bps", get:r=>rwNum((r.dislocation||{}).dispersion_bps)},
+    {id:"conv",     field:"conviction",        get:r=>rwNum(r.conviction)},
+    {id:"signal",   field:"label",             get:r=>rwBandRank(r.label)},
   ],
   "tbl-rwa-wrap":[
     {id:"wrapper",    get:p=>rwLower(p[1].symbol), text:true},
@@ -5922,6 +6081,50 @@ function rwaSortRows(tableId, rows){
    header says so with both numbers; null means the reader lifted it. */
 const WRAP_CAP_DEFAULT=300;
 let RWA_WRAP_CAP=WRAP_CAP_DEFAULT;
+
+/* 4.3 — EVIDENCE AT THE COLUMN HEADER, from model.field_evidence.
+   The five-state vocabulary is the strongest idea on this page and the board barely used
+   it: Price, Cap, Vol and Disp all printed identically whether the number was observed or
+   computed, and the only place a reader learned Impulse is derived was inside a header
+   tooltip. Per-CELL marking would be noise on 305 rows; per-column survives a screenshot.
+
+   The class is looked up, never judged here. RWA_COLS names which artifact field each
+   column reads — it has to, since that is the field it sorts — and rwa.py publishes what
+   kind of evidence that field is. A column-to-evidence map written in this file would be
+   a second opinion about rwa.py's own provenance, which is exactly the substitution the
+   vocabulary exists to prevent. */
+function rwaMarkEvidence(){
+  const t=rwEl("tbl-rwa"); if(!t) return;
+  const map=(((RWA||{}).model)||{}).field_evidence;
+  const vocab=(((RWA||{}).model)||{}).evidence_vocabulary||{};
+  const specs=RWA_COLS["tbl-rwa"]||[];
+  const ths=[...t.querySelectorAll("thead th")];
+  ths.forEach((th,i)=>{
+    /* The <br> goes with it: renderRwa repaints on every filter keystroke, and a chip
+       removed without its break leaves a blank line that accumulates one per keystroke. */
+    const old=th.querySelector(".ev-col");
+    if(old){ const br=old.previousSibling;
+             if(br && br.nodeName==="BR") br.remove();
+             old.remove(); }
+    const f=specs[i]&&specs[i].field; if(!f) return;
+    const cls=map ? map[f] : undefined;
+    /* An artifact written before field_evidence existed marks nothing rather than
+       guessing. The legend below the board says so once; twelve "unclassified" chips
+       would be the noise this design is avoiding. */
+    if(!cls) return;
+    th.appendChild(document.createElement("br"));
+    const chip=document.createElement("span");
+    chip.className="ev ev-col ev-"+cls;
+    chip.textContent=cls;
+    chip.setAttribute("data-tip",(vocab[cls]||cls)+" — this column reads "+f+".");
+    th.appendChild(chip);
+  });
+  const note=rwEl("rw-ev-note");
+  if(note) note.innerHTML = map ? ""
+    : '<span class="ev ev-unavailable">unclassified</span> This artifact predates '
+      +'<code>model.field_evidence</code>, so the board\'s columns cannot be marked. '
+      +'The next nightly publishes it.';
+}
 
 /* Headers are wired ONCE. thead is static markup — only the tbody is ever rebuilt — so
    the listeners survive every render and there is nothing to re-attach. A column with no
@@ -6123,7 +6326,9 @@ function renderRwaDisloc(){
     +'<td class="num">'+rwUsd(l.volume_24h)+'</td>'
     +'<td class="num">'+(rwNum(l.age_hours)==null?"—":rwNum(l.age_hours).toFixed(1)+"h")+'</td>'
     +'<td class="num">'+(rwNum(l.observation_evidence)==null?"—":rwNum(l.observation_evidence).toFixed(0))+'</td>'
-    +'<td><span class="ev ev-unavailable">UNAVAILABLE</span></td></tr>').join("")
+    +'<td><span class="ev ev-unexplained" data-tip="Bid/ask, depth, cost-to-move and the '
+      +'trust fields all need /rwas/{id}/tickers, which answers HTTP 401 on this plan. A '
+      +'scoped limitation of the plan, not a feed that fell over.">NOT ON THIS PLAN</span></td></tr>').join("")
     : '<tr><td colspan="9" class="muted" style="padding:14px">No basis cleared the floor. '
       +'A cross-section needs at least two live wrappers on the same underlying.</td></tr>';
   const note=rwEl("rwa-disloc-note");
@@ -6182,8 +6387,8 @@ function renderRwaInspector(){
     + Object.keys(comp).map(k=>'<div class="kv"><span>'+rwEsc(k)
         +'<span class="ev ev-derived">derived</span></span><b>'
         +(comp[k]==null?'<span class="muted">not priced</span>':comp[k].toFixed(1))+'</b></div>').join("")
-    + '<div class="kv"><span>execution<span class="ev ev-unavailable">unavailable</span></span>'
-      +'<b class="neg">—</b></div>' 
+    + '<div class="kv"><span>execution<span class="ev ev-unexplained">not on this plan</span></span>'
+      +'<b class="warn">—</b></div>' 
     + (r.absent&&r.absent.length?'<div class="absent">Not priced tonight: <b>'+rwEsc(r.absent.join(", "))
         +'</b>. '+rwEsc(r.score_reason||"")+'</div>':"")
     +'<div class="fa-h" style="margin-top:10px">TOKENIZATION IMPULSE <span class="ev ev-derived">DERIVED</span></div>'
@@ -6220,7 +6425,8 @@ function renderRwaInspector(){
               +'<div class="num">'+rwPrice(o.price)+'</div><div class="num muted">'
               +rwUsd(o.volume_24h)+'</div></div>'; }).join("")
         : "");
-  renderRwaOffhours(r);
+  /* Market view while the selection is only a default. An explicit selection narrows it. */
+  renderRwaOffhours(RWA_SEL_DEFAULTED ? null : r);
 }
 
 /* wrappers_voting is the count of live wrappers that published a NON-ZERO 24h change —
@@ -6280,7 +6486,7 @@ function ohLine(x){
     +(disp!=null?' &#183; disp '+disp.toFixed(0)+'bp':"")
     +(vol!=null?' &#183; vol '+vol.toFixed(1)+'&#215;':"")
     +'</span></div><div class="num">'+rwSigned(o.offhours_return_pct)+'</div>'
-    +'<div style="font-size:9px"><span class="ev ev-unavailable">gap pending</span></div></div>';
+    +'<div style="font-size:10px"><span class="ev ev-unavailable">gap pending</span></div></div>';
 }
 
 function renderRwaOffhours(r){
@@ -6361,14 +6567,15 @@ function renderRwaOffhours(r){
 
 document.addEventListener("click",e=>{
   const row=e.target.closest&&e.target.closest("tr[data-rwa]");
-  if(row){ RWA_SEL = RWA_SEL===row.dataset.rwa ? null : row.dataset.rwa; renderRwa(true); }
+  if(row){ RWA_SEL = RWA_SEL===row.dataset.rwa ? null : row.dataset.rwa;
+           RWA_SEL_DEFAULTED=false; renderRwa(true); }
 });
 document.addEventListener("keydown",e=>{
   const row=e.target.closest&&e.target.closest("tr[data-rwa]");
   if(!row) return;
   if(e.key==="Enter"||e.key===" "){
     e.preventDefault();
-    RWA_SEL=row.dataset.rwa; renderRwa(true);
+    RWA_SEL=row.dataset.rwa; RWA_SEL_DEFAULTED=false; renderRwa(true);
     /* renderRwa rebuilds the tbody wholesale, which destroys the focused node. Without
        this the caret lands back on <body> after every Enter and the next Tab restarts at
        the top of the document. */
@@ -6392,6 +6599,29 @@ document.addEventListener("keydown",e=>{
    board as well and throw away the reader's scroll position and their focused row for a
    change that cannot affect either. */
 rwaWireHeaders();
+/* The chip is the folded card's handle. Focus follows, or a keyboard reader activates a
+   control and is left where they were with no way to know anything happened. */
+(function(){
+  const chip=rwEl("rw-absent-chip");
+  if(!chip) return;
+  chip.onclick=()=>{
+    const card=rwEl("rw-absent-card"); if(!card) return;
+    card.open=true;
+    const sum=card.querySelector("summary");
+    if(sum){ sum.setAttribute("tabindex","-1"); sum.focus(); sum.scrollIntoView({block:"nearest"}); }
+  };
+})();
+/* 4.1 — the plate's folded state is view state, so it lives in the hash beside the sort
+   and not in storage. Absent from the URL while it is open, which is the default. */
+(function(){
+  const plate=rwEl("rw-plate"); if(!plate) return;
+  const fromHash=()=>{ plate.open = hashParse().params.get("plate")!=="0"; };
+  fromHash();
+  plate.addEventListener("toggle",()=>{
+    hashWrite(params=>{ if(plate.open) params.delete("plate"); else params.set("plate","0"); });
+  });
+  window.addEventListener("hashchange",fromHash);
+})();
 /* Delegated: the button is rewritten by every render of the panel it sits in, so a
    listener bound to the node would be lost on the first click it handled. */
 document.addEventListener("click",e=>{

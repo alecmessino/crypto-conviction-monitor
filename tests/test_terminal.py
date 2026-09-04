@@ -1343,3 +1343,117 @@ def test_the_wrapper_table_honours_the_board_filter():
     # but the gated remainder is still counted off the WHOLE board, not the filtered set
     assert "onBoard += (u.wrappers||[]).length" in body
     assert "the filter is hiding" in body
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 — the visual pass
+# ---------------------------------------------------------------------------
+def test_the_scroll_pane_height_change_is_scoped_to_the_rwa_workspace():
+    """.scroll-pane{max-height:34vh} is what the crypto workspace's stacked panels are
+    built around. On a 1440px display the 305-row board showed about eleven rows, which
+    turns the main event into a scroll pane inside a page inside a workspace."""
+    assert ".scroll-pane{max-height:34vh;overflow:auto}" in HTML, "the global value moved"
+    assert '[data-ws="rwa"] .board-pane{max-height:min(62vh,720px)}' in HTML
+    # the plate below keeps the shorter pane; two tall scrollers stacked is worse than one
+    assert '[data-ws="rwa"] [data-rwapane] .scroll-pane{max-height:34vh}' in HTML
+    # and only the board carries the class
+    assert HTML.count('class="scroll-pane board-pane"') == 1
+
+
+def test_green_and_red_are_reserved_for_signed_numbers():
+    """The band ran green-through-red for DEEP -> FRAGILE while .pos/.neg ran the same
+    green and red for price direction one column away, so a DEEP badge beside a red -3%
+    read as internally contradictory at a glance."""
+    ramp = re.search(r"\.rwa-badge\{.*?(?=\n@media\(prefers-contrast)", HTML, re.S).group(0)
+    for hue in ("var(--green)", "var(--red)", "var(--amber)", "123,201,160",
+                "232,145,127", "224,179,114", "#9FD8BC"):
+        assert hue not in ramp, f"{hue} is back in the signal band"
+    # the ramp is carried by weight and border instead
+    for band, cue in [("DEEP", "background:var(--txt)"), ("SOUND", "background:rgba(255,255,255,.22)"),
+                      ("THIN", "background:transparent"), ("FRAGILE", "background:transparent"),
+                      ("DORMANT", "border-style:dashed"), ("UNRATED", "border-style:dotted")]:
+        m = re.search(rf"\.rwa-badge\.{band}\{{([^}}]*)\}}", ramp)
+        assert m and cue in m.group(1), (band, cue)
+    # and it must survive a forced-contrast request
+    assert "@media(prefers-contrast:more)" in HTML
+    assert ".warn{color:var(--amber)}" in HTML, "amber has no class of its own"
+
+
+def test_the_rwa_workspace_holds_a_ten_pixel_type_floor():
+    """.ev was 7px and the coverage sub-line 8px. Those annotations ARE the reasoning and
+    they were the least legible thing on the page."""
+    scoped = re.findall(r'\[data-ws="rwa"\][^{]*\{([^}]*)\}', HTML)
+    for block in scoped:
+        for m in re.finditer(r"font-size:(\d+(?:\.\d+)?)px", block):
+            assert float(m.group(1)) >= 10, f"{m.group(0)} in an RWA-scoped rule"
+    # and the inline sizes inside the RWA renderers. Sliced from the first RWA renderer
+    # onward — comments are stripped from CODE, so the section banner is not a landmark,
+    # and the crypto renderers above legitimately still use 9px.
+    rwa_js = CODE[CODE.index("function renderRwa("):]
+    for m in re.finditer(r"font-size:(\d+)px", rwa_js):
+        assert int(m.group(1)) >= 10, f"inline {m.group(0)} in an RWA renderer"
+
+
+def test_the_column_evidence_marks_are_looked_up_and_never_judged_here():
+    """A column-to-evidence map written in this file would be a second opinion about
+    rwa.py's own provenance — the exact substitution the vocabulary exists to prevent."""
+    body = re.search(r"function rwaMarkEvidence\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "model)||{}).field_evidence" in body
+    for verdict in ('"observed"', '"derived"', '"normalized"'):
+        assert verdict not in body, f"{verdict} is hardcoded in the marker"
+    # every marked column names the artifact field it reads
+    cols = re.search(r'"tbl-rwa":\[(.*?)\n  \],', CODE, re.S).group(1)
+    assert cols.count("field:") == 11, "a board column lost its field name"
+    # an artifact without the map marks nothing and says so once
+    assert "if(!cls) return;" in body
+    assert "rw-ev-note" in body and "predates" in body
+
+
+def test_the_default_selection_never_overrides_a_reader():
+    """A default that clobbers a deep-linked row, or reappears when the nightly refresh
+    lands and moves the reader back to row one, is worse than the empty panel."""
+    body = re.search(r"if\(!RWA_FIRST_PAINT\)\{(.*?)\n  \}", CODE, re.S).group(1)
+    assert "RWA_SEL==null" in body and "!hashParse().id" in body
+    # the flag is set whether or not a default was applied, so it cannot fire twice
+    assert body.index("RWA_FIRST_PAINT=true") < body.index("RWA_SEL==null")
+
+
+def test_a_defaulted_selection_does_not_collapse_the_offhours_panel():
+    """4.5 populates the inspector on arrival; that is not a reader saying "show me this
+    name". Narrowing the off-hours panel to one row on it throws away the corroborated /
+    single-wrapper grouping that is the reason the panel sits at the top of the rail."""
+    assert "renderRwaOffhours(RWA_SEL_DEFAULTED ? null : r)" in CODE
+    # cleared by the first real interaction, on both routes into a selection
+    assert "RWA_SEL_DEFAULTED=false; renderRwa(true);" in CODE          # keyboard
+    assert "RWA_SEL_DEFAULTED=false; renderRwa(true); }" in CODE        # click
+
+
+def test_the_offhours_tape_sits_above_the_inspector():
+    ws = HTML[HTML.index('<div class="ws" data-ws="rwa"'):HTML.index("<!-- /ws rwa -->")]
+    rail = ws[ws.index('<aside class="rail">'):]
+    rail = rail[:rail.index("</aside>")]
+    assert rail.index("OFF-HOURS TAPE") < rail.index("INSPECTOR")
+
+
+def test_the_absences_card_is_folded_and_counted_on_the_strip():
+    """The absences are the most valuable thing this workspace publishes and they were
+    also the first screen of it."""
+    assert 'id="rw-absent-card" data-fold-default="closed"' in HTML
+    assert 'id="rw-absent-card"' in HTML and ' open>' not in re.search(
+        r'<details class="glass rwa-fold" id="rw-absent-card"[^>]*>', HTML).group(0)
+    # the 560px sweep must not re-open it
+    assert 'details.rwa-fold:not([data-fold-default])' in CODE
+    # counted from the same rows the card renders, so the two cannot disagree
+    assert "const absent=rows.filter(([k,v])=>!(v===\"LIVE\"||v===\"VERIFIED\")).length;" in CODE
+    assert 'id="rw-absent-chip"' in HTML and "<button" in re.search(
+        r'<button[^>]*id="rw-absent-chip"', HTML).group(0)
+
+
+def test_the_execution_gap_is_amber_and_never_red():
+    """Red reads as a system that fell over. This is a scoped plan limitation that was
+    designed in, and it is stated the same way everywhere it applies."""
+    exec_stat = re.search(r'<[^>]*id="rw-exec"[^>]*>', HTML).group(0)
+    assert "warn" in exec_stat and "neg" not in exec_stat
+    assert HTML.count("NOT ON THIS PLAN") >= 3, "the strip, the banner and the venues panel"
+    # the endpoint and the status code are named wherever the label appears
+    assert "/rwas/{id}/tickers" in HTML and "401" in HTML
