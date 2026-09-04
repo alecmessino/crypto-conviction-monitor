@@ -1339,10 +1339,60 @@ let FTH = {overheated_apr:40, elevated_apr:12, neutral_floor_apr:0, squeeze_apr:
            overheated_price_chg:10, squeeze_rsi:45, squeeze_rsi_full:60,
            max_penalty:0.85, max_boost:1.15, unconfirmed_weight:0.5,
            squeeze_saturation_apr:-40};
-async function loadLedger(){
+/* ===================== MANIFEST GATE =====================
+   ledger/manifest.json is written by scripts/write_manifest.py from the artifacts on
+   disk, in the same commit that publishes them. It carries a content hash per artifact,
+   and it is the only thing the 120s timer fetches.
+
+   What this replaces: 3.26 MB of signals.json and 2.0 MB of rwa.json, re-fetched with
+   `cache:"no-store"` every 120 seconds, for files that change once a night. A tab left
+   open for a working day pulled hundreds of megabytes of bytes it already had.
+
+   The hash is also the CACHE KEY. Dropping no-store is not enough on its own: GitHub
+   Pages serves an ETag *and* a max-age, so a plain refetch inside that window never
+   revalidates — the manifest would report a new night and the browser would hand back
+   yesterday's body out of its own cache, which is a worse failure than the one being
+   fixed because nothing on screen would say so. Keying the URL on the hash the manifest
+   just published makes every night a distinct, permanently cacheable URL: re-reading the
+   same night costs nothing, and a new night cannot be served from the old one. */
+let MANIFEST=null;
+async function refreshManifest(){
   try{
-    const r=await fetch("ledger/signals.json",{cache:"no-store"});
-    if(!r.ok) return;
+    /* no-store on the MANIFEST only, and only because it is the one file whose staleness
+       cannot be detected by anything else. It is under a kilobyte. */
+    const r=await fetch("ledger/manifest.json",{cache:"no-store"});
+    MANIFEST = r.ok ? await r.json() : null;
+  }catch(e){ MANIFEST=null; }
+  return MANIFEST;
+}
+/* The published hash for one artifact, or null when there is no manifest, no entry, or
+   the manifest names the file as absent. Null means "cannot tell", never "unchanged". */
+function ledgerKey(path){
+  const a = MANIFEST && MANIFEST.artifacts;
+  return (a && typeof a[path]==="string") ? a[path] : null;
+}
+/* Without a key there is nothing to gate on, so the request is forced to the network
+   rather than guessing. Every gate in this file fails OPEN: a missing manifest must cost
+   bandwidth, never correctness. */
+function ledgerFetch(path){
+  const k=ledgerKey(path);
+  return k ? fetch(path+"?v="+encodeURIComponent(k)) : fetch(path,{cache:"reload"});
+}
+
+let SIG_KEY=null;   // hash of the signals ledger currently in memory
+async function loadLedger(){
+  const key=ledgerKey("ledger/signals.json");
+  /* The whole crypto ledger set is written by one nightly commit, so the signals hash
+     gates all seven files. A re-run on the same date changes the bytes and therefore the
+     hash, which a date comparison would have missed. */
+  if(key!=null && key===SIG_KEY) return;
+  /* Only a COMPLETE pass records the key. A transient failure on one sub-artifact used
+     to be retried on the next 120s tick; gating on the night alone would have parked the
+     page on that failure until tomorrow. */
+  let ok=true;
+  try{
+    const r=await ledgerFetch("ledger/signals.json");
+    if(!r.ok){ ok=false; return; }
     const j=await r.json();
     // Every recorded night, keyed by date, so the rewind scrubber has something to
     // scrub. Built from the FULL row set rather than the Module-B-filtered LEDGER
@@ -1371,25 +1421,25 @@ async function loadLedger(){
     const dune=$("#sys-dune");
     if(LEDGER.length){ dune.className="pos"; dune.textContent="LIVE ("+LEDGER.length+" tk)"; }
     else { dune.className="neu"; dune.textContent="OFF"; }
-  }catch(e){ /* ledger absent — Module B stays OFF */ }
+  }catch(e){ ok=false; /* ledger absent — Module B stays OFF */ }
   try{
-    const ri=await fetch("ledger/index.json",{cache:"no-store"});
+    const ri=await ledgerFetch("ledger/index.json");
     if(ri.ok) INDEX = await ri.json();
-  }catch(e){ /* index absent — track record pending */ }
+  }catch(e){ ok=false; /* index absent — track record pending */ }
   try{
-    const rb=await fetch("ledger/market_breadth.json",{cache:"no-store"});
+    const rb=await ledgerFetch("ledger/market_breadth.json");
     if(rb.ok){ BREADTH = await rb.json(); CHOP = BREADTH.chop || {}; }
-  }catch(e){ /* breadth absent — change feed pending */ }
+  }catch(e){ ok=false; /* breadth absent — change feed pending */ }
   try{
-    const rm=await fetch("ledger/monitor.json",{cache:"no-store"});
+    const rm=await ledgerFetch("ledger/monitor.json");
     if(rm.ok) MONITOR = await rm.json();
-  }catch(e){ /* monitor absent — the panel says so rather than rendering defaults */ }
+  }catch(e){ ok=false; /* monitor absent — the panel says so rather than rendering defaults */ }
   try{
-    const rp=await fetch("ledger/parity.json",{cache:"no-store"});
+    const rp=await ledgerFetch("ledger/parity.json");
     if(rp.ok) PARITY = await rp.json();
-  }catch(e){ /* parity artifact absent — the bar reports unknown, never PASS */ }
+  }catch(e){ ok=false; /* parity artifact absent — the bar reports unknown, never PASS */ }
   try{
-    const rf=await fetch("ledger/funding.json",{cache:"no-store"});
+    const rf=await ledgerFetch("ledger/funding.json");
     if(rf.ok){
       FUNDING = await rf.json();
       (FUNDING.assets||[]).forEach(a=>{ if(a.symbol) FUND[a.symbol.toUpperCase()]=a; });
@@ -1398,14 +1448,14 @@ async function loadLedger(){
       // moment someone tunes one the board colours a regime the score did not apply.
       if(FUNDING.thresholds) FTH = Object.assign({}, FTH, FUNDING.thresholds);
     }
-  }catch(e){ /* funding artifact absent — Module E says so rather than rendering zeros */ }
+  }catch(e){ ok=false; /* funding artifact absent — Module E says so rather than rendering zeros */ }
   try{
-    const rx=await fetch("ledger/market_intel.json",{cache:"no-store"});
+    const rx=await ledgerFetch("ledger/market_intel.json");
     if(rx.ok){
       INTEL = await rx.json();
       INTEL_TH = INTEL.thresholds || {};
     }
-  }catch(e){ /* intel artifact absent — every Module F-J panel renders its pending state */ }
+  }catch(e){ ok=false; /* intel artifact absent — every Module F-J panel renders its pending state */ }
   // Trend structure is recorded per row in signals.csv rather than in the intel
   // artifact, because it is one reading per asset and belongs beside the asset. Read
   // from the same rows the board is built from so the column can never describe a
@@ -1430,6 +1480,7 @@ async function loadLedger(){
     if(a!=null) ATR14[sy]={v:a, date:r.date||null, bars:n(r,"adx_bars")};
     const z=n(r,"turnover_z"); if(z!=null) TURN_Z[sy]=z; });
   buildMarginal();
+  if(ok) SIG_KEY=key;
 }
 
 /* Signals that crossed a tier threshold overnight on a move of MARGINAL_MOVE points or
@@ -5144,6 +5195,36 @@ const WS_ROUTES = {
 
 function revealFor(want){ return (WS_ROUTES[want] || {}).ws || want; }
 
+/* ===================== HASH STATE =====================
+   The hash is the only state this page has ever serialised, and it is now the only place
+   view state lives — no sessionStorage, no localStorage for anything a reader might want
+   to send to a colleague. Grammar:
+
+       #<workspace>[/<id>][?k=v&k=v]
+
+   The parser has to be tolerant of the trailing parts because switchWorkspace reads the
+   hash on every load and every hashchange: before this, "#rwa?ord=pctd" did not match any
+   [data-ws] and silently fell back to the crypto workspace, which is how a shared link
+   would have landed a colleague on the wrong screen with no error anywhere. */
+function hashParse(){
+  const raw=(location.hash||"").replace(/^#/,"");
+  const q=raw.indexOf("?");
+  const path=q<0?raw:raw.slice(0,q);
+  const seg=path.split("/");
+  return {ws:seg[0]||"", id:seg[1]?decodeURIComponent(seg[1]):null,
+          params:new URLSearchParams(q<0?"":raw.slice(q+1))};
+}
+/* replaceState, never pushState: the 120s tick and the ordering control must not be able
+   to write history entries a reader then has to press Back through. Same reason the
+   workspace switch has always used it. */
+function hashWrite(mut){
+  const st=hashParse();
+  mut(st.params, st);
+  const qs=st.params.toString();
+  const next="#"+st.ws+(st.id?"/"+encodeURIComponent(st.id):"")+(qs?"?"+qs:"");
+  if(location.hash!==next) history.replaceState(null,"",next);
+}
+
 function switchWorkspace(want, push){
   const known=[...document.querySelectorAll("[data-ws]")].map(w=>w.dataset.ws);
   if(known.indexOf(want)<0 && !WS_ROUTES[want]) want="crypto";
@@ -5166,7 +5247,22 @@ function switchWorkspace(want, push){
          if(typeof renderParser==="function") renderParser();
          if(typeof factorQuad==="function") factorQuad(); }catch(e){}
   }
-  if(reveal==="rwa"){ try{ renderRwa(); }catch(e){} }
+  /* LAZY. The 2 MB artifact is fetched on the first reveal of this workspace and never
+     for a reader who does not open it — which is most of them. switchWorkspace already
+     owns the #rwa deep link, so the bookmark path and the nav path are the same path.
+     The gated render below is what makes a workspace round trip free: coming back to a
+     board that has not changed must not rebuild it under the reader's scroll. */
+  if(reveal==="rwa"){
+    /* Re-read on every reveal and every hashchange, so a link someone was sent opens on
+       the ordering it was sent with rather than on the default. */
+    RWA_FLOW_ORDER = rwaFlowOrderFromHash();
+    try{ rwaEnsure().then(()=>{
+      /* Only when the board itself was gated: a full render already applied the ordering,
+         and repainting 305 rows twice on every reveal to reach one panel is the cost this
+         phase exists to remove. */
+      try{ if(!renderRwa()) renderRwaFlows(); }catch(e){}
+    }); }catch(e){}
+  }
   const route=WS_ROUTES[want];
   if(route){
     const el=document.getElementById(route.anchor);
@@ -5185,12 +5281,12 @@ function switchWorkspace(want, push){
   /* The hash is the only state this page has ever serialised. Written on an explicit
      switch and never on the 120s refresh, so a reload lands where the reader left off
      without the timer rewriting history under them. */
-  if(push && location.hash!=="#"+want){ history.replaceState(null,"","#"+want); }
+  if(push){ hashWrite((params,st)=>{ st.ws=want; }); }
 }
 document.querySelectorAll("[data-ws-btn]").forEach(btn=>{
   btn.onclick=()=>switchWorkspace(btn.dataset.wsBtn,true);
 });
-window.addEventListener("hashchange",()=>switchWorkspace((location.hash||"").slice(1),false));
+window.addEventListener("hashchange",()=>switchWorkspace(hashParse().ws,false));
 /* Fold the RWA side cards at the phone gate and open them above it. Driven by the same
    560px query as the CSS so the two cannot disagree. */
 (function(){
@@ -5256,11 +5352,28 @@ function rwSigned(v,dp){ const n=rwNum(v); if(n==null) return '<span class="mute
   const c=n>0?"pos":(n<0?"neg":"muted"); return '<span class="'+c+'">'+rwPct(n,dp)+'</span>'; }
 const rwEsc=t=>String(t==null?"":t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
+/* RWA_KEY is the manifest hash of the artifact currently in memory; RWA_INFLIGHT is the
+   promise of a fetch already running. Two fetches of the same 2 MB, started by a reader
+   toggling workspaces twice before the first returned, is the failure the guard exists
+   for — not a hypothetical one, it is one keystroke. */
+let RWA_KEY=null, RWA_INFLIGHT=null;
 async function loadRwa(){
   try{
-    const r=await fetch("ledger/rwa.json",{cache:"no-store"});
-    if(r.ok) RWA = await r.json();
+    const r=await ledgerFetch("ledger/rwa.json");
+    if(r.ok){ RWA = await r.json(); RWA_KEY = ledgerKey("ledger/rwa.json"); }
   }catch(e){ /* artifact absent — every panel renders its pending state, never zeros */ }
+}
+/* The lazy entry point. Fetches at most once per published night, and at most once at a
+   time. Returns a promise so the caller can render when it lands. */
+function rwaEnsure(){
+  if(RWA_INFLIGHT) return RWA_INFLIGHT;
+  const key=ledgerKey("ledger/rwa.json");
+  /* Null key means no manifest — refetch rather than assume. Present and matching means
+     the artifact in memory IS the published night, and 2 MB would buy nothing. */
+  if(RWA && key!=null && key===RWA_KEY) return Promise.resolve();
+  RWA_INFLIGHT = loadRwa().then(()=>{ RWA_INFLIGHT=null; },
+                                ()=>{ RWA_INFLIGHT=null; });
+  return RWA_INFLIGHT;
 }
 
 function rwaRows(){
@@ -5271,13 +5384,31 @@ function rwaRows(){
     .join(" ").toLowerCase().includes(q));
 }
 
-function renderRwa(){
+/* The stamp the DOM is currently PAINTED from — date and spec_hash, the artifact's own
+   identity rather than the manifest's hash of it, so the guard still holds if the page is
+   ever served without a manifest. */
+let RWA_PAINTED=null;
+/* `force` is for the paths whose output depends on something other than the artifact:
+   the filter box, the row selection and the Flows ordering. Everything else — a reveal,
+   a timer, a workspace round trip — is gated.
+
+   The 120s rebuild this replaces threw away the reader's scroll position inside every
+   .scroll-pane, killed any in-progress text selection and dropped focus off the focused
+   row, twice a minute, to repaint the identical 305 rows. The manifest gate already
+   stops the refetch; this stops a future caller reintroducing the repaint without it. */
+function renderRwa(force){
   if(!RWA){
     const t=rwEl("tbl-rwa"); if(t) t.querySelector("tbody").innerHTML=
       '<tr><td colspan="12" class="muted" style="padding:14px">RWA artifact pending — '
       +'<code>ledger/rwa.json</code> was not produced. Nothing is estimated in its place.</td></tr>';
+    RWA_PAINTED=null;
     return;
   }
+  const stamp=(RWA.date||"")+"|"+(RWA.spec_hash||"");
+  /* Returns whether it painted, so a caller that needs a sub-panel refreshed on a gated
+     reveal can refresh just that one rather than repainting all 305 rows to get it. */
+  if(!force && RWA_PAINTED===stamp) return false;
+  RWA_PAINTED=stamp;
   const g=RWA.graph||{}, bg=RWA.board_gate||{}, m=RWA.model||{};
   const set=(id,v)=>{const e=rwEl(id); if(e) e.textContent=v;};
   set("rw-under", (bg.ranked!=null?bg.ranked:"—")+" / "+(g.underlyings_ranked||"—"));
@@ -5420,6 +5551,7 @@ function renderRwa(){
 
   renderRwaWrappers(); renderRwaIssuers(); renderRwaVenues();
   renderRwaFlows(); renderRwaDisloc(); renderRwaIssuance(); renderRwaInspector();
+  return true;
 }
 
 function renderRwaWrappers(){
@@ -5491,14 +5623,15 @@ const RWA_FLOW_ORDERS = {
   pctd:   {key:r=>rwNum((r.flow||{}).residual_pct_daily), abs:true},
   supply: {key:r=>rwNum((r.flow||{}).supply_index),       abs:false},
 };
-/* Session, not local. An ordering is a reading posture for the tab you are in, not a
-   preference worth carrying into next week; sessionStorage is also the only storage that
-   answers the brief's "for the session only" literally. Wrapped because a browser with
-   site data blocked throws on the getter itself, not on the read. */
-let RWA_FLOW_ORDER = (()=>{ try{
-    const v=sessionStorage.getItem("rwaFlowOrder");
-    return RWA_FLOW_ORDERS[v] ? v : "usd";
-  }catch(e){ return "usd"; } })();
+/* In the HASH, not in storage. An ordering that lives in sessionStorage cannot be sent
+   to anyone: the colleague who opens the link gets the default and a different top row,
+   and neither of you can tell. It is also the first consumer of the ?k=v grammar the
+   rest of the view state will use. */
+const rwaFlowOrderFromHash=()=>{
+  const v=hashParse().params.get("ord");
+  return RWA_FLOW_ORDERS[v] ? v : "usd";
+};
+let RWA_FLOW_ORDER = rwaFlowOrderFromHash();
 
 function renderRwaFlows(){
   const tb=rwEl("tbl-rwa-flow"); if(!tb) return;
@@ -5757,14 +5890,14 @@ function renderRwaOffhours(r){
 
 document.addEventListener("click",e=>{
   const row=e.target.closest&&e.target.closest("tr[data-rwa]");
-  if(row){ RWA_SEL = RWA_SEL===row.dataset.rwa ? null : row.dataset.rwa; renderRwa(); }
+  if(row){ RWA_SEL = RWA_SEL===row.dataset.rwa ? null : row.dataset.rwa; renderRwa(true); }
 });
 document.addEventListener("keydown",e=>{
   const row=e.target.closest&&e.target.closest("tr[data-rwa]");
   if(!row) return;
   if(e.key==="Enter"||e.key===" "){
     e.preventDefault();
-    RWA_SEL=row.dataset.rwa; renderRwa();
+    RWA_SEL=row.dataset.rwa; renderRwa(true);
     /* renderRwa rebuilds the tbody wholesale, which destroys the focused node. Without
        this the caret lands back on <body> after every Enter and the next Tab restarts at
        the top of the document. */
@@ -5780,7 +5913,7 @@ document.addEventListener("keydown",e=>{
 });
 (function(){
   const f=rwEl("rw-filter");
-  if(f) f.addEventListener("input",()=>{ RWA_FILTER=f.value.trim(); renderRwa(); });
+  if(f) f.addEventListener("input",()=>{ RWA_FILTER=f.value.trim(); renderRwa(true); });
 })();
 /* Only the Flows tbody is rebuilt. A full renderRwa() here would rebuild the underlyings
    board as well and throw away the reader's scroll position and their focused row for a
@@ -5788,7 +5921,10 @@ document.addEventListener("keydown",e=>{
 document.querySelectorAll("[data-floworder]").forEach(btn=>{
   btn.onclick=()=>{
     RWA_FLOW_ORDER = RWA_FLOW_ORDERS[btn.dataset.floworder] ? btn.dataset.floworder : "usd";
-    try{ sessionStorage.setItem("rwaFlowOrder",RWA_FLOW_ORDER); }catch(e){}
+    /* The default is absent from the URL rather than spelled out in it. A hash that says
+       ?ord=usd on every page load is noise in every link anyone copies. */
+    hashWrite(params=>{ if(RWA_FLOW_ORDER==="usd") params.delete("ord");
+                        else params.set("ord",RWA_FLOW_ORDER); });
     renderRwaFlows();
   };
 });
@@ -5796,15 +5932,47 @@ document.querySelectorAll("[data-floworder]").forEach(btn=>{
 // Before the first load, so the static markup's explanations are upgraded even if the
 // price fetch never returns. The observer then picks up everything the board renders.
 initTips();
-load(); setInterval(load,120000);
-/* The RWA artifact is fetched alongside the rest of the ledger and re-fetched on the
-   same 120s timer. It is a committed static file like the others and owes nothing to a
-   live CoinGecko call, so a rate-limited visitor keeps the whole workspace. */
-loadRwa().then(renderRwa);
-setInterval(()=>loadRwa().then(renderRwa),120000);
+
+/* ===================== THE TICK =====================
+   One timer, not two. Each tick reads the manifest once and hands the same answer to
+   both gates, so the 120s cost of an idle tab is one sub-kilobyte file plus the live
+   price call the crypto board exists to make. The committed artifacts are re-fetched
+   only on the night they change.
+
+   The RWA leg runs only once the workspace has been opened. A reader who never opens it
+   never pays for it, on the first load or on any tick after. */
+async function tick(){
+  await refreshManifest();
+  await load();
+  if(RWA){
+    const key=ledgerKey("ledger/rwa.json");
+    if(key==null || key!==RWA_KEY){ await rwaEnsure(); }
+    /* Unforced: renderRwa is a no-op unless the artifact's own date or spec_hash moved,
+       so a tick over an unchanged night cannot disturb a scroll position or a selection. */
+    try{ renderRwa(); }catch(e){}
+  }
+}
+
+/* Suspended while the tab is hidden, and checked once immediately on return. A
+   backgrounded tab that keeps polling is the same waste as the refetch, spread over a
+   working day; setInterval in a background tab is throttled but not stopped. */
+let TICK_TIMER=null;
+function startTicking(){ if(TICK_TIMER==null) TICK_TIMER=setInterval(tick,120000); }
+function stopTicking(){ if(TICK_TIMER!=null){ clearInterval(TICK_TIMER); TICK_TIMER=null; } }
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden){ stopTicking(); }
+  else { startTicking(); tick(); }
+});
+
+/* The manifest before the first ledger read, so the cold load already has its cache keys
+   and the first tick is not a second full fetch. The live price call inside load() is
+   not gated by anything here — it is the one thing on this page that is supposed to
+   change between two ticks. */
+refreshManifest().then(()=>{ load(); if(!document.hidden) startTicking(); });
+
 /* Deep-link last, after every renderer is defined: a reader who bookmarked #rwa must
-   land there, and switchWorkspace calls into renderRwa on reveal. */
-switchWorkspace((location.hash||"").slice(1)||"crypto",false);
+   land there, and switchWorkspace drives the lazy load on reveal. */
+switchWorkspace(hashParse().ws||"crypto",false);
 </script>
 </body>
 </html>

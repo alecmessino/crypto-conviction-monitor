@@ -969,3 +969,118 @@ def test_an_inferred_close_is_marked_as_derived_with_its_provenance_verbatim():
     assert 'ev ev-derived' in body and '>inferred close</span>' in body
     assert 'rwEsc(w.sparkline||"")' in body, "the provenance string is not carried verbatim"
     assert "title=" not in body, "a native title renders on no phone; data-tip is the contract"
+
+
+# ---------------------------------------------------------------------------
+# fetch discipline: the manifest gate
+# ---------------------------------------------------------------------------
+def test_no_committed_artifact_is_fetched_with_no_store():
+    """3.26 MB of signals.json and 2.0 MB of rwa.json were re-fetched with no-store every
+    120 seconds for files that change once a night. The manifest is the only no-store
+    fetch left, and it is the one file whose staleness nothing else can detect."""
+    nostore = re.findall(r'fetch\("([^"]+)"\s*,\s*\{cache:"no-store"\}\)', CODE)
+    assert nostore == ["ledger/manifest.json"], nostore
+
+
+def test_every_ledger_fetch_is_keyed_on_the_published_hash():
+    """Dropping no-store is not enough on its own. GitHub Pages serves an ETag *and* a
+    max-age, so a plain refetch inside that window never revalidates: the manifest would
+    report a new night and the browser would hand back yesterday's body out of its own
+    cache — a worse failure, because nothing on screen would say so."""
+    assert 'function ledgerFetch(path){' in CODE
+    assert 'path+"?v="+encodeURIComponent(k)' in CODE
+    # no key means no gate, so the request is forced to the network rather than guessed
+    assert 'fetch(path,{cache:"reload"})' in CODE
+    for art in ("signals", "index", "market_breadth", "monitor", "parity",
+                "funding", "market_intel", "rwa"):
+        assert f'ledgerFetch("ledger/{art}.json")' in CODE, art
+
+
+def test_a_missing_manifest_fails_open_and_never_serves_a_stale_board():
+    """Null means "cannot tell", never "unchanged". A gate that cannot read its own key
+    must cost bandwidth, not correctness."""
+    body = re.search(r"function ledgerKey\(path\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert 'typeof a[path]==="string"' in body and "null" in body
+    ledger = re.search(r"async function loadLedger\(\)\{(.*?)\n  try\{", CODE, re.S).group(1)
+    assert "if(key!=null && key===SIG_KEY) return;" in ledger
+
+
+def test_a_partial_ledger_load_does_not_record_itself_as_complete():
+    """Before the gate, a transient failure on one sub-artifact was retried on the next
+    120s tick. Gating on the night alone would have parked the page on that failure until
+    tomorrow."""
+    assert re.search(r"if\(ok\)\s*SIG_KEY=key;", CODE)
+    assert CODE.count("}catch(e){ ok=false;") == 7
+
+
+def test_the_rwa_artifact_is_not_fetched_until_the_workspace_is_opened():
+    """2.0 MB on every page load, for every visitor including the ones who never open the
+    RWA workspace — which is most of them."""
+    assert "loadRwa().then(renderRwa)" not in CODE, "the unconditional module-scope load is back"
+    assert "setInterval(()=>loadRwa()" not in CODE, "the second 120s RWA timer is back"
+    assert "function rwaEnsure(){" in CODE
+    ws = re.search(r'if\(reveal==="rwa"\)\{(.*?)\n  \}', CODE, re.S).group(1)
+    assert "rwaEnsure()" in ws, "the reveal no longer drives the lazy load"
+
+
+def test_two_reveals_cannot_start_two_fetches_of_the_same_two_megabytes():
+    """A reader toggling workspaces twice before the first fetch returned is one
+    keystroke, not a hypothetical."""
+    body = re.search(r"function rwaEnsure\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "if(RWA_INFLIGHT) return RWA_INFLIGHT;" in body
+    assert "RWA_INFLIGHT=null;" in body
+
+
+def test_the_board_is_not_rebuilt_when_the_artifact_did_not_change():
+    """The 120s innerHTML rebuild threw away the reader's scroll position inside every
+    .scroll-pane, killed any in-progress text selection and dropped focus off the focused
+    row, twice a minute, to repaint the identical 305 rows."""
+    assert "function renderRwa(force){" in CODE
+    assert "if(!force && RWA_PAINTED===stamp) return false;" in CODE
+    # it reports whether it painted, so a gated reveal can refresh one sub-panel instead
+    # of repainting all 305 rows to reach it
+    assert "if(!renderRwa()) renderRwaFlows();" in CODE
+    # the paths whose output depends on something other than the artifact must force
+    assert "RWA_FILTER=f.value.trim(); renderRwa(true);" in CODE
+    assert CODE.count("renderRwa(true)") == 3, "a selection or filter path stopped forcing"
+
+
+def test_the_timers_are_suspended_while_the_tab_is_hidden():
+    """A backgrounded tab that keeps polling is the same waste spread over a working day;
+    setInterval in a background tab is throttled but not stopped."""
+    assert 'document.addEventListener("visibilitychange"' in CODE
+    body = re.search(r'visibilitychange",\(\)=>\{(.*?)\n\}\);', CODE, re.S).group(1)
+    assert "stopTicking()" in body and "startTicking()" in body
+    assert "tick()" in body, "there is no immediate check on returning to the tab"
+    assert CODE.count("setInterval(tick,120000)") == 1, "there must be exactly one timer"
+
+
+# ---------------------------------------------------------------------------
+# view state lives in the hash, nowhere else
+# ---------------------------------------------------------------------------
+def test_no_view_state_is_held_in_browser_storage():
+    """An ordering held in sessionStorage cannot be sent to anyone: the colleague who
+    opens the link gets the default and a different top row, and neither of you can
+    tell. The sizing inputs are a reader's own numbers, not a view of the board."""
+    calls = re.findall(r"(sessionStorage|localStorage)\.\w+\(\"([^\"]+)\"", CODE)
+    assert all(store == "localStorage" and key.startswith("sz")
+               for store, key in calls), calls
+
+
+def test_the_hash_parser_tolerates_the_id_and_query_it_will_carry():
+    """Before this, "#rwa?ord=pctd" matched no [data-ws] and silently fell back to the
+    crypto workspace — a shared link landing a colleague on the wrong screen with no
+    error anywhere."""
+    assert "function hashParse(){" in CODE and "function hashWrite(" in CODE
+    assert 'switchWorkspace(hashParse().ws' in CODE
+    assert '(location.hash||"").slice(1)' not in CODE, "a raw hash reader survived"
+    # the tick and the ordering control must not write history entries
+    assert "pushState" not in CODE
+    assert 'history.replaceState(null,"",next)' in CODE
+
+
+def test_the_default_ordering_is_absent_from_the_url():
+    """A hash that says ?ord=usd on every page load is noise in every link anyone
+    copies."""
+    body = re.search(r"hashWrite\(params=>\{(.*?)\}\);", CODE, re.S).group(1)
+    assert 'params.delete("ord")' in body and 'params.set("ord"' in body
