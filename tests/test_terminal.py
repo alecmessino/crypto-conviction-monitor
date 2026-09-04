@@ -899,19 +899,23 @@ def test_the_flows_tab_ranks_by_dollars_and_not_by_percentage():
     """The default ordering is the claim the panel makes. Sorted on the daily percentage
     it opened on TMO at +1,724.8% against a $244K tokenized cap, followed by four more
     sub-$100K names: arithmetically exact and useless, and the first thing a reader saw."""
-    assert 'RWA_FLOW_ORDERS = {' in CODE
-    assert re.search(r'let RWA_FLOW_ORDER\s*=', CODE), "the ordering is no longer a variable"
-    default = re.search(r'return RWA_FLOW_ORDERS\[v\] \? v : "(\w+)"', CODE)
-    assert default and default.group(1) == "usd", "the default ordering is not residual $"
-    assert 'usd:' in CODE and 'residual_usd' in CODE
+    d = re.search(r'"tbl-rwa-flow":\{col:(\d+),dir:"(\w+)"\}', CODE)
+    assert d, "the Flows table has no default sort"
+    col, direction = int(d.group(1)), d.group(2)
+    assert direction == "desc"
+    # and column `col` really is the dollar residual, read from the artifact
+    cols = re.search(r'"tbl-rwa-flow":\[(.*?)\n  \],', CODE, re.S).group(1)
+    ids = re.findall(r'\{id:"(\w+)"', cols)
+    assert ids[col] == "residual_usd", f"the default sorts on {ids[col]}, not residual_usd"
 
 
 def test_the_flow_ordering_never_coerces_a_missing_residual_to_zero():
     """Nulls last, never as zero. `||0` parked an unmeasured row in the middle of the
     ranking among the genuine near-zeros, which renders an absence as a reading."""
-    body = re.search(r"function renderRwaFlows\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    # one comparator now, shared by every sortable column of all four tables
+    body = re.search(r"function rwaSortRows\(tableId, rows\)\{(.*?)\n\}", CODE, re.S).group(1)
     assert "if(x==null) return 1;" in body and "if(y==null) return -1;" in body
-    assert "residual_pct_daily)||0)" not in body, "the old zero-coercing comparator is back"
+    assert "residual_pct_daily)||0)" not in CODE, "the old zero-coercing comparator is back"
 
 
 def test_the_flows_table_declares_its_span_and_keeps_the_error_row_spanning():
@@ -1048,7 +1052,8 @@ def test_the_board_is_not_rebuilt_when_the_artifact_did_not_change():
     assert "if(!renderRwa()) renderRwaFlows();" in CODE
     # the paths whose output depends on something other than the artifact must force
     assert "RWA_FILTER=f.value.trim(); renderRwa(true);" in CODE
-    assert CODE.count("renderRwa(true)") == 3, "a selection or filter path stopped forcing"
+    # filter, row click, keyboard select, and a header sort of the board itself
+    assert CODE.count("renderRwa(true)") == 4, "a selection, filter or sort path stopped forcing"
 
 
 def test_the_timers_are_suspended_while_the_tab_is_hidden():
@@ -1086,10 +1091,11 @@ def test_the_hash_parser_tolerates_the_id_and_query_it_will_carry():
 
 
 def test_the_default_ordering_is_absent_from_the_url():
-    """A hash that says ?ord=usd on every page load is noise in every link anyone
-    copies."""
-    body = re.search(r"hashWrite\(params=>\{(.*?)\}\);", CODE, re.S).group(1)
-    assert 'params.delete("ord")' in body and 'params.set("ord"' in body
+    """A hash that spells out the default on every page load is noise in every link
+    anyone copies."""
+    body = re.search(r"function rwaSortToHash\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert 'params.delete("sort")' in body and 'params.set("sort"' in body
+    assert "st.col===d.col && st.dir===d.dir" in body, "the default is still serialized"
 
 
 # ---------------------------------------------------------------------------
@@ -1128,3 +1134,146 @@ def test_behind_is_detected_on_the_artifacts_own_identity():
     assert "RWA_KEY" not in body, "the gate is comparing bookkeeping instead of identity"
     # one definition of "which night", shared with the paint guard
     assert "const stamp=rwaStamp(RWA);" in CODE
+
+
+# ---------------------------------------------------------------------------
+# RWA sorting: one state, one comparator, one null rule
+# ---------------------------------------------------------------------------
+def _rwa_cols():
+    """The RWA_COLS table, as {table: [column id or None]}."""
+    block = re.search(r"const RWA_COLS=\{(.*?)\n\};", CODE, re.S).group(1)
+    out = {}
+    for tm in re.finditer(r'"(tbl-rwa[\w-]*)":\[(.*?)\n  \],', block, re.S):
+        entries = []
+        depth = 0
+        cur = ""
+        for ch in tm.group(2):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            if ch == "," and depth == 0:
+                entries.append(cur)
+                cur = ""
+            else:
+                cur += ch
+        entries.append(cur)
+        ids = []
+        for e in entries:
+            if not e.strip():
+                continue
+            m = re.search(r'id:"(\w+)"', e)
+            ids.append(m.group(1) if m else None)
+        out[tm.group(1)] = ids
+    return out
+
+
+def test_all_four_rwa_tables_are_sortable():
+    """305 underlyings across 12 columns in one fixed order was the largest practical gap
+    on the screen. The model's own ranking is exactly the ordering an analyst wants to
+    argue with."""
+    cols = _rwa_cols()
+    assert set(cols) == {"tbl-rwa", "tbl-rwa-wrap", "tbl-rwa-flow", "tbl-rwa-disloc"}
+    for table, ids in cols.items():
+        header = re.search(rf'<table id="{table}"><thead><tr>(.*?)</tr>', HTML, re.S).group(1)
+        assert len(ids) == header.count("<th"), \
+            f"{table}: {len(ids)} column specs against {header.count('<th')} headers"
+        assert sum(1 for i in ids if i) >= len(ids) - 1, f"{table} has more than one dead column"
+
+
+def test_the_two_unsortable_columns_are_deliberate_and_the_only_ones():
+    """A rank ordinal is the row's POSITION, so sorting by it sorts by the current sort.
+    Execution is a constant chip on every row. Everything else sorts."""
+    cols = _rwa_cols()
+    assert cols["tbl-rwa"][0] is None, "the rank ordinal became sortable"
+    assert cols["tbl-rwa-disloc"][8] is None, "the constant Execution chip became sortable"
+    for table, ids in cols.items():
+        for i, cid in enumerate(ids):
+            if cid is None:
+                assert (table, i) in {("tbl-rwa", 0), ("tbl-rwa-disloc", 8)}, (table, i)
+
+
+def test_nulls_sort_last_in_both_directions_and_never_as_zero():
+    """A missing dispersion is not a dispersion of zero — 193 of 305 board rows have none,
+    beside one genuine 0.0 — and this codebase has already had to remove one substitution
+    of that kind. Floating them to the top on ascending is that same substitution."""
+    body = re.search(r"function rwaSortRows\(tableId, rows\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "if(x==null&&y==null) return 0;" in body
+    assert "if(x==null) return 1;" in body and "if(y==null) return -1;" in body
+    # the sign is applied AFTER the null branches, so direction cannot move a null
+    assert body.index("if(y==null) return -1;") < body.index("return c*sign;")
+    assert "||0" not in body, "a zero coercion is back in the comparator"
+
+
+def test_the_signal_band_rank_is_read_from_the_artifact():
+    """A band list in JavaScript is a second set of thresholds, and the day someone
+    retunes one the column sorts a model that did not run. UNRATED is a refusal rather
+    than a band: it has no floor in model.labels and must sort with the nulls, not as a
+    zero below DORMANT."""
+    body = re.search(r"function rwBandRank\(label\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "model)||{}).labels" in body
+    assert "hasOwnProperty.call(L,label)" in body and "null" in body
+    for band in ("DEEP", "SOUND", "THIN", "FRAGILE", "DORMANT"):
+        assert f'"{band}"' not in body, f"{band} is hardcoded in the comparator"
+
+
+def test_the_reading_column_groups_the_bands_and_ranks_nothing():
+    """rwa.py publishes no order among the impulse bands and there is no axis to infer
+    one from: MINTING and STRONG_ADOPTION span the same daily residual range end to end
+    and are told apart by the PRICE leg. Alphabetical is visibly arbitrary, which is the
+    honest way to claim nothing about which band is higher."""
+    cols = re.search(r'"tbl-rwa-flow":\[(.*?)\n  \],', CODE, re.S).group(1)
+    # the entry, to the end of its line — a lazy brace match stops inside (r.flow||{})
+    reading = re.search(r'\{id:"reading",[^\n]*', cols).group(0)
+    assert "impulse" in reading and "text:true" in reading
+    assert "MINTING" not in reading and "REDEMPTION" not in reading
+
+
+def test_the_active_flows_preset_is_derived_from_the_sort_state():
+    """One source of truth. Two copies of "which ordering is active" is two things that
+    can disagree, and the one on screen would be the wrong one."""
+    body = re.search(r"function rwaActivePreset\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert 'RWA_SORT["tbl-rwa-flow"]' in body and "RWA_FLOW_PRESETS[k].col===st.col" in body
+    # the preset name is never stored, only computed
+    assert not re.search(r"(let|var)\s+RWA_(FLOW_ORDER|ACTIVE_PRESET)\b", CODE)
+    # and the presets write the shared state rather than an ordering of their own
+    click = re.search(r'data-floworder\]"\)\.forEach\(btn=>\{(.*?)\n\}\);', CODE, re.S).group(1)
+    assert 'RWA_SORT["tbl-rwa-flow"]={col:p.col,dir:p.dir}' in click
+
+
+def test_sorting_is_announced_and_the_header_state_is_one_attribute():
+    """The arrow a sighted reader sees and the state a screen reader announces are the
+    same aria-sort, so they cannot drift."""
+    assert 'th[aria-sort="ascending"]::after' in HTML and 'th[aria-sort="descending"]::after' in HTML
+    sync = re.search(r"function rwaSyncHeaders\(tableId\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert 'th.setAttribute("aria-sort"' in sync
+    wire = re.search(r"function rwaWireHeaders\(\)\{(.*?)\n\}\n", CODE, re.S).group(1)
+    assert "if(!specs[i]) return;" in wire, "unsortable headers are being wired as controls"
+    assert 'e.key==="Enter"||e.key===" "' in wire and "e.preventDefault()" in wire
+    ann = re.search(r"function rwaAnnounce\(name,n,tableId\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert 'setAttribute("role","status")' in ann and 'aria-live","polite"' in ann
+
+
+def test_the_wrapper_cap_is_declared_with_all_three_numbers():
+    """Every other absence on this page is named. A note reading "300 of 1,077" would be
+    wrong — this panel iterates the board, so its universe is the wrappers on ranked
+    underlyings — and "300 of 704" beside a strip saying 1,077 is a discrepancy a careful
+    reader finds and cannot resolve."""
+    assert 'id="rw-wrap-cap"' in HTML
+    body = re.search(r"function renderRwaWrappers\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "all.slice(0,shown)" in body and "RWA_WRAP_CAP==null" in body
+    assert "more on gated underlyings" in body
+    assert "g.wrappers_n" in body, "the graph total is not named beside the panel total"
+    # and the caption follows the ordering rather than restating one
+    assert 'rwaSortSpec("tbl-rwa-wrap")' in body
+
+
+def test_the_dislocation_basis_can_no_longer_take_out_its_own_tbody():
+    """l.basis_bps.toFixed(0) and l.basis_bps>0 ran with no null check, unlike every
+    sibling renderer. One null in RWA.tape threw inside the .map() and took the whole
+    tbody with it — a blank panel, no message, nothing naming the cause."""
+    body = re.search(r"function renderRwaDisloc\(\)\{(.*?)\n\}", CODE, re.S).group(1)
+    assert "l.basis_bps.toFixed" not in body and "l.basis_bps>0" not in body
+    assert 'rwSigned(l.basis_bps,0)' in body
+    assert "l.age_hours.toFixed" not in body
+    assert "l.observation_evidence.toFixed" not in body

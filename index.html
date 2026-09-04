@@ -519,6 +519,27 @@ details.rwa-fold > summary:focus-visible{outline:2px solid var(--blue);outline-o
 .imp.REDEMPTION{color:var(--red)}
 .imp.NEUTRAL{color:var(--sec)}
 .imp.UNREADABLE{color:var(--tert)}
+/* SORTABLE HEADERS. The arrow is CSS reading aria-sort, so the state a sighted reader
+   sees and the state a screen reader announces are the same attribute and cannot drift.
+   No `position` here: thead th is already position:sticky and re-declaring it would
+   unstick every header on the page. */
+th[aria-sort]{cursor:pointer;user-select:none}
+th[aria-sort]:hover{color:var(--sec)}
+th[aria-sort]:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+th[aria-sort]::after{content:"\2195";opacity:.3;margin-left:4px;font-size:9px;font-weight:400}
+th[aria-sort="ascending"]::after{content:"\2191";opacity:1;color:var(--blue)}
+th[aria-sort="descending"]::after{content:"\2193";opacity:1;color:var(--blue)}
+/* A note bar above a table: the wrapper cap, the row count, the ordering control. Same
+   metrics as .rw-order so the two read as one band when a pane carries both. */
+.rw-note{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;padding:6px 10px;
+  border-bottom:1px solid var(--grid);font-size:10px;color:var(--tert)}
+.rw-note b{color:var(--sec);font-weight:600}
+.rw-note button{background:transparent;color:var(--blue);border:1px solid var(--border);
+  border-radius:3px;font-family:inherit;font-size:9px;letter-spacing:.5px;padding:3px 8px;
+  cursor:pointer;text-transform:uppercase}
+.rw-note button:hover{border-color:var(--blue)}
+.rw-note button:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+
 /* Ordering control for the Flows tab. Reuses .tab so the focus ring, the hover and the
    on-state are the ones the rest of the page already teaches; only the row that holds it
    is new. Not a <select>: three options that change what the top of the table means
@@ -1129,9 +1150,9 @@ canvas:focus-visible{outline:2px solid var(--blue)}
             <th title="Tokenized market cap. This is the ONCHAIN aggregate across every wrapper CoinGecko tracks, not a TradFi market cap.">Tokenized Cap</th>
             <th>24H Vol</th>
             <th title="DERIVED, not observed. The implied change in wrapper units since the last recorded night, recovered from the published price and market cap. The arithmetic is exact; reading it as issuance is an inference no available feed corroborates, so it is published as an impulse and never as a mint or a redemption.">Impulse</th>
-            <th title="Live wrappers over total wrappers. Live means it cleared the 24h volume floor AND was updated inside the staleness window.">Wrappers</th>
+            <th data-tip="Live wrappers over total wrappers. Live means it cleared the 24h volume floor AND was updated inside the staleness window. SORTS ON THE LIVE COUNT — the cell is two numbers and no single field backs the pair, so the one a reader scans for is the axis; the total is on every row of the inspector.">Wrappers</th>
             <th title="Standard deviation of live wrapper prices around their own median, in basis points. Two tokens redeemable for the same share should not disagree.">Disp</th>
-            <th data-tip="AVAILABLE-EVIDENCE NORMALIZED. The weighted mean of the components that produced a value, rescaled to 0–100 over the weight of those components only. A 94 is 94 on the evidence that was priced — not 94 of a fully evidenced 100. The small figure beneath is the share of declared model weight that was priced.">RWA Conv</th>
+            <th data-tip="AVAILABLE-EVIDENCE NORMALIZED. The weighted mean of the components that produced a value, rescaled to 0–100 over the weight of those components only. A 94 is 94 on the evidence that was priced — not 94 of a fully evidenced 100. The small figure beneath is the share of declared model weight that was priced. SORTS ON RAW conviction, so a 94 computed on 83% of the evidence ranks above an 88 computed on all of it — that is the stated choice, not an oversight. The coverage-adjusted figure, conviction_effective, is on every row of the inspector and is the alternative if that ranking is the wrong one for what you are asking.">RWA Conv</th>
             <th data-tip="The RWA SIGNAL: the band of the normalized score. DEEP / SOUND / THIN / FRAGILE / DORMANT describe the tokenized market's structure and are the final signal, not a liquidity sub-classification. UNRATED is a refusal.">RWA Signal</th>
           </tr></thead><tbody></tbody></table>
         </div>
@@ -1151,12 +1172,19 @@ canvas:focus-visible{outline:2px solid var(--blue)}
                   aria-disabled="true" data-tip="Deliberately not built in this change. The tab opens a statement of what it is waiting for, not a feature.">New Issuance <span class="ev ev-unavailable">deferred</span></button>
         </div>
         <div data-rwapane="wrappers">
+          <!-- The cap, stated. Every other absence on this page is named — 345 gated
+               underlyings, 8 unresolved joins, execution at 401, the calendar refusal —
+               and this was the one that was not, which makes it the one a skeptical
+               reader finds and holds against the rest. -->
+          <div class="rw-note" id="rw-wrap-cap"></div>
           <div class="scroll-pane">
             <table id="tbl-rwa-wrap"><thead><tr>
-              <th>Wrapper</th><th>Underlying</th><th>Issuer</th><th>Chains</th>
+              <th>Wrapper</th><th>Underlying</th><th>Issuer</th>
+              <th data-tip="The first two chains and a count of the rest; the whole list is on the cell's own tooltip and in the inspector. SORTS ON THE NUMBER OF CHAINS — the names are alphabetical noise at this width, and no per-wrapper chain count exists in the artifact to sort instead.">Chains</th>
               <th>Price</th><th>24H Vol</th>
               <th title="Distance from the median of the live wrappers on this underlying.">Basis</th>
-              <th>Score</th><th>State</th>
+              <th>Score</th>
+              <th data-tip="Why the wrapper is or is not live. SORTS AS TEXT, which groups the three states — live, below the volume floor, and below the floor while stale. The hour figure inside a stale label is part of that sentence and not a sort axis: sorting brings the stale rows together but does not order them by how stale they are.">State</th>
             </tr></thead><tbody></tbody></table>
           </div>
           <details class="why"><summary>Why this panel exists</summary><div class="note">"Which implementation of this exposure is structurally best", not "is the company going up".
@@ -1232,8 +1260,10 @@ canvas:focus-visible{outline:2px solid var(--blue)}
           </div>
           <div class="scroll-pane">
             <table id="tbl-rwa-disloc"><thead><tr>
-              <th>Wrapper</th><th>Underlying</th><th>Price</th><th>Live Median</th>
-              <th>Basis</th><th>24H Vol</th><th>Age</th>
+              <th>Wrapper</th><th>Underlying</th><th>Price</th>
+              <th data-tip="The median of the LIVE wrappers on this underlying — a per-underlying value, repeated on every leg of that underlying rather than a property of the leg it sits on. 75 distinct values over tonight's 130 rows.">Live Median</th>
+              <th data-tip="SORTS SIGNED, so premiums and discounts separate to opposite ends. The tape's own order — restored by a third click on any header here — is by ABSOLUTE basis, which is the widest divergences first regardless of direction.">Basis</th>
+              <th>24H Vol</th><th>Age</th>
               <th title="How well EVIDENCED the divergence reading is — comparable wrappers, freshness, depth. NOT a confidence in a trade.">Obs. Evidence</th>
               <th title="Bid/ask, depth, cost-to-move and the trust fields all need /rwas/{id}/tickers, which answers 401 on this plan.">Execution</th>
             </tr></thead><tbody></tbody></table>
@@ -5273,7 +5303,7 @@ function switchWorkspace(want, push){
   if(reveal==="rwa"){
     /* Re-read on every reveal and every hashchange, so a link someone was sent opens on
        the ordering it was sent with rather than on the default. */
-    RWA_FLOW_ORDER = rwaFlowOrderFromHash();
+    rwaSortFromHash();
     try{ rwaEnsure().then(()=>{
       /* Only when the board itself was gated: a full render already applied the ordering,
          and repainting 305 rows twice on every reveal to reach one panel is the cost this
@@ -5516,7 +5546,7 @@ function renderRwa(force){
     else { runEl.removeAttribute("data-tip"); }
   }
   set("rw-spec", "spec "+(RWA.spec_hash||"—"));
-  const rows=rwaRows();
+  const rows=rwaSortRows("tbl-rwa",rwaRows());
   /* From the WHOLE board, never the filtered view. Every other stat in this strip is a
      property of the snapshot, and a status figure that moves while you type in a filter
      box is not a status figure. */
@@ -5601,6 +5631,8 @@ function renderRwa(force){
   }
 
   const tb=rwEl("tbl-rwa").querySelector("tbody");
+  rwaSyncHeaders("tbl-rwa");
+  rwaAnnounce("Underlyings",rows.length,"tbl-rwa");
   tb.innerHTML = rows.length ? rows.map((r,i)=>{
     const fl=r.flow||{}, sel = RWA_SEL===r.id ? ' style="background:rgba(59,130,246,.12)"' : "";
     /* ROVING tabindex, matching the pattern the board above already uses. Every row at 0
@@ -5636,10 +5668,52 @@ function renderRwa(force){
 
 function renderRwaWrappers(){
   const tb=rwEl("tbl-rwa-wrap"); if(!tb) return;
-  const all=[];
-  ((RWA&&RWA.board)||[]).forEach(u=>(u.wrappers||[]).forEach(w=>all.push([u,w])));
-  all.sort((a,b)=>(rwNum(b[1].volume_24h)||0)-(rwNum(a[1].volume_24h)||0));
-  tb.querySelector("tbody").innerHTML = all.length ? all.slice(0,300).map(([u,w])=>
+  const every=[];
+  ((RWA&&RWA.board)||[]).forEach(u=>(u.wrappers||[]).forEach(w=>every.push([u,w])));
+  /* The hardcoded volume sort that used to live here is now RWA_SORT_DEFAULTS, so the
+     table's opening order and every order a reader can ask for run through one
+     comparator with one null rule. */
+  const all=rwaSortRows("tbl-rwa-wrap",every);
+  const shown=RWA_WRAP_CAP==null ? all.length : Math.min(RWA_WRAP_CAP,all.length);
+  const cap=rwEl("rw-wrap-cap");
+  if(cap){
+    /* Named by the CURRENT ordering, read off the sort state rather than restating "24h
+       volume" — the moment the table became sortable a fixed caption would have been
+       describing an order the reader had already changed. */
+    const st=RWA_SORT["tbl-rwa-wrap"], sp=rwaSortSpec("tbl-rwa-wrap");
+    const ths=(rwEl("tbl-rwa-wrap")||{querySelectorAll:()=>[]}).querySelectorAll("thead th");
+    const by = sp ? " by "+((ths[st.col]||{}).textContent||sp.id).trim().toLowerCase()
+                    +" "+(st.dir==="asc"?"ascending":"descending") : "";
+    /* THREE numbers, because two of them would mislead. This panel iterates the board,
+       so its universe is the 704 wrappers on the 305 ranked underlyings — not the 1,077
+       in the graph. A note reading "300 of 1,077" would be wrong, and one reading "300 of
+       704" beside a strip that says 1,077 wrappers priced is the discrepancy a careful
+       reader finds and cannot resolve. The gated remainder is named here rather than left
+       to be inferred. */
+    const g=(RWA&&RWA.graph)||{}, gate=(RWA&&RWA.board_gate)||{};
+    const inGraph=rwNum(g.wrappers_n), off=(inGraph==null?null:inGraph-all.length);
+    cap.innerHTML = (shown<all.length
+        ? 'showing <b>'+shown+'</b> of <b>'+all.length+'</b> wrappers, ranked'+rwEsc(by)
+        : 'showing all <b>'+all.length+'</b> wrappers, ranked'+rwEsc(by))
+      + (off ? ' &#183; <span data-tip="This panel reads the board, so its universe is the '
+          +'wrappers on underlyings that cleared the gate. The other '+off+' belong to the '
+          +(gate.excluded!=null?gate.excluded:"gated")+' underlying(s) the board excluded, '
+          +'which is why this figure and the '+inGraph+' on the status strip differ.">'
+          +off+' more on gated underlyings</span>' : "")
+      + (all.length>WRAP_CAP_DEFAULT
+        ? ' <button type="button" id="rw-wrap-cap-btn" data-tip="'
+          +(RWA_WRAP_CAP==null
+             ? 'Return to the first '+WRAP_CAP_DEFAULT+'. The full tape is '+all.length
+               +' rows and renders as one DOM node per cell, which is what the cap is for.'
+             : 'Render all '+all.length+' rows. Slower to paint and to scroll; nothing '
+               +'about the data changes.')+'">'
+          +(RWA_WRAP_CAP==null?'show first '+WRAP_CAP_DEFAULT:'show all '+all.length)
+          +'</button>'
+        : "");
+  }
+  rwaAnnounce("Wrappers",shown,"tbl-rwa-wrap");
+  rwaSyncHeaders("tbl-rwa-wrap");
+  tb.querySelector("tbody").innerHTML = all.length ? all.slice(0,shown).map(([u,w])=>
     '<tr'+(w.live?"":' class="rw-dead"')+'>'
     +'<td><b>'+rwEsc((w.symbol||"").toUpperCase())+'</b></td>'
     +'<td class="muted">'+rwEsc((u.symbol||"").toUpperCase())+'</td>'
@@ -5695,44 +5769,272 @@ function renderRwaVenues(){
       + '</tbody></table>' : '<div class="rwa-empty">No chain recorded.</div>');
 }
 
-/* Three orderings over the SAME 305 rows. Nothing is filtered at any setting; only the
-   order and the label change, which is the whole point — a microcap whose percentage is
-   uninformative is still a row someone may be looking for by name. */
-const RWA_FLOW_ORDERS = {
-  usd:    {key:r=>rwNum((r.flow||{}).residual_usd),       abs:true},
-  pctd:   {key:r=>rwNum((r.flow||{}).residual_pct_daily), abs:true},
-  supply: {key:r=>rwNum((r.flow||{}).supply_index),       abs:false},
-};
-/* In the HASH, not in storage. An ordering that lives in sessionStorage cannot be sent
-   to anyone: the colleague who opens the link gets the default and a different top row,
-   and neither of you can tell. It is also the first consumer of the ?k=v grammar the
-   rest of the view state will use. */
-const rwaFlowOrderFromHash=()=>{
-  const v=hashParse().params.get("ord");
-  return RWA_FLOW_ORDERS[v] ? v : "usd";
-};
-let RWA_FLOW_ORDER = rwaFlowOrderFromHash();
+/* ===================== RWA COLUMN SORTING =====================
+   One {col, dir} per table, and EVERY ordering a reader can produce goes through it —
+   the column headers and the Flows presets alike. The presets are named entry points
+   that set this state; which one is lit is derived from it on each render and never
+   stored beside it, because two copies of "which ordering is active" is two things that
+   can disagree and the one on screen would be the wrong one.
 
-function renderRwaFlows(){
-  const tb=rwEl("tbl-rwa-flow"); if(!tb) return;
-  const ord=RWA_FLOW_ORDERS[RWA_FLOW_ORDER]||RWA_FLOW_ORDERS.usd;
-  const val=r=>{ const n=ord.key(r); return n==null?null:(ord.abs?Math.abs(n):n); };
-  /* Nulls LAST, never as zero. The old comparator coerced a missing residual to 0 with
-     `||0`, which parked an unmeasured row in the middle of the ranking among the genuine
-     near-zeros — an absence rendered as a reading, which is the one substitution this
-     board exists to refuse. One row on tonight's artifact has no residual at all. */
-  const rows=((RWA&&RWA.board)||[]).slice().sort((a,b)=>{
-    const x=val(a), y=val(b);
+   Sort keys are read from the ARTIFACT, never from the rendered cell. Sorting on
+   innerText would put "$900.0K" above "$1.2M", rank a bare em-dash as a value, and order
+   "+1,724.83%" by its leading character. */
+const rwLower=v=>{ const t=(v==null?"":String(v)).trim(); return t===""?null:t.toLowerCase(); };
+
+/* The RWA SIGNAL rank comes from model.labels — the score floors rwa.py published beside
+   the board — never from a band order written out here. A band list in JavaScript is a
+   second set of thresholds, and the day someone retunes one the column would sort a model
+   that did not run. UNRATED is deliberately absent from that map: it is a refusal rather
+   than a band, so it has no floor and sorts with the nulls. */
+function rwBandRank(label){
+  const L=(((RWA||{}).model)||{}).labels||{};
+  return Object.prototype.hasOwnProperty.call(L,label) ? rwNum(L[label]) : null;
+}
+
+/* Every sortable column: a stable id (what reaches the URL), how to read the value, and
+   whether it compares as text. A null entry is a column that is not sortable, and each
+   one is that way for a stated reason rather than an oversight. */
+const RWA_COLS={
+  "tbl-rwa":[
+    null,  /* the rank ordinal. It is the row's POSITION, so sorting by it would be
+              sorting by the current sort; it renumbers instead. */
+    {id:"symbol",   get:r=>rwLower(r.symbol), text:true},
+    {id:"type",     get:r=>rwLower(r.asset_type), text:true},
+    {id:"price",    get:r=>rwNum(r.price)},
+    {id:"chg24h",   get:r=>rwNum(r.price_chg_pct_24h)},
+    {id:"mcap",     get:r=>rwNum(r.market_cap)},
+    {id:"vol",      get:r=>rwNum(r.total_volume)},
+    /* The cell prints the daily residual above the impulse band. The number is what is
+       sortable; the band beneath it is not an axis — see the Reading column on Flows. */
+    {id:"impulse",  get:r=>rwNum((r.flow||{}).residual_pct_daily)},
+    /* "3/5" is two numbers. Sorted on the LIVE count, which is the one a reader is
+       scanning for; the total is one row away in the inspector. */
+    {id:"wrappers", get:r=>rwNum(r.wrappers_live)},
+    {id:"disp",     get:r=>rwNum((r.dislocation||{}).dispersion_bps)},
+    {id:"conv",     get:r=>rwNum(r.conviction)},
+    {id:"signal",   get:r=>rwBandRank(r.label)},
+  ],
+  "tbl-rwa-wrap":[
+    {id:"wrapper",    get:p=>rwLower(p[1].symbol), text:true},
+    {id:"underlying", get:p=>rwLower(p[0].symbol), text:true},
+    {id:"issuer",     get:p=>rwLower(p[1].issuer_name||p[1].issuer_id), text:true},
+    /* The cell shows two chains and a "+N". The count is the fact behind it; the names
+       are alphabetical noise at this width. */
+    {id:"chains",     get:p=>(p[1].chains||[]).length},
+    {id:"price",      get:p=>rwNum(p[1].price)},
+    {id:"vol",        get:p=>rwNum(p[1].volume_24h)},
+    {id:"basis",      get:p=>rwNum(p[1].basis_bps)},
+    {id:"score",      get:p=>rwNum(p[1].score)},
+    {id:"state",      get:p=>rwLower(p[1].liveness), text:true},
+  ],
+  "tbl-rwa-flow":[
+    {id:"symbol",       get:r=>rwLower(r.symbol), text:true},
+    {id:"price_chg",    get:r=>rwNum((r.flow||{}).price_chg_pct)},
+    {id:"expected",     get:r=>rwNum((r.flow||{}).expected_mcap)},
+    {id:"actual",       get:r=>rwNum(r.market_cap)},
+    {id:"residual_usd", get:r=>rwNum((r.flow||{}).residual_usd)},
+    {id:"residual_pct", get:r=>rwNum((r.flow||{}).residual_pct)},
+    {id:"per_day",      get:r=>rwNum((r.flow||{}).residual_pct_daily)},
+    {id:"span",         get:r=>rwNum((r.flow||{}).span_days)},
+    /* GROUPS the bands, and does not rank them. rwa.py publishes no order among
+       MINTING / STRONG_ADOPTION / NEUTRAL / REDEMPTION / UNREADABLE, and there is no
+       single axis to infer one from: MINTING and STRONG_ADOPTION span the same daily
+       residual range end to end (0.5% to over 1000% on tonight's board) and are told
+       apart by the PRICE leg, not the supply leg. Alphabetical is visibly arbitrary,
+       which is the honest way to say "this brings the bands together and claims nothing
+       about which is higher". */
+    {id:"reading",      get:r=>rwLower((r.flow||{}).impulse), text:true},
+    {id:"supply_index", get:r=>rwNum((r.flow||{}).supply_index)},
+    {id:"nights",       get:r=>rwNum((r.flow||{}).chain_days)},
+  ],
+  "tbl-rwa-disloc":[
+    {id:"wrapper",    get:l=>rwLower(l.symbol), text:true},
+    {id:"underlying", get:l=>rwLower(l.underlying_symbol), text:true},
+    {id:"price",      get:l=>rwNum(l.price)},
+    {id:"median",     get:l=>rwNum(l.median_price)},
+    {id:"basis",      get:l=>rwNum(l.basis_bps)},
+    {id:"vol",        get:l=>rwNum(l.volume_24h)},
+    {id:"age",        get:l=>rwNum(l.age_hours)},
+    {id:"evidence",   get:l=>rwNum(l.observation_evidence)},
+    null,  /* Execution is a constant UNAVAILABLE chip on every row. Sorting a column
+              with one value is a control that does nothing. */
+  ],
+};
+
+/* Where the table has an artifact order worth returning to, the third click clears the
+   sort: the model's own ranking on the board, the tape's own order on Divergence. The
+   other two have no such state — their default IS a column sort — so a "none" there
+   would be a lie about where they started, and they toggle instead. */
+const RWA_SORT_CLEARS={"tbl-rwa":true,"tbl-rwa-disloc":true};
+const RWA_SORT_DEFAULTS={
+  "tbl-rwa-wrap":{col:5,dir:"desc"},   /* 24H Vol — the order this tape has always been in */
+  "tbl-rwa-flow":{col:4,dir:"desc"},   /* Residual $ — materiality, not percentage */
+};
+const RWA_SORT=Object.assign({},RWA_SORT_DEFAULTS);
+
+function rwaSortSpec(tableId){
+  const st=RWA_SORT[tableId];
+  return st ? (RWA_COLS[tableId]||[])[st.col] : null;
+}
+/* A COPY, and a stable sort: equal keys keep the artifact's own order underneath, which
+   on the board is the model's ranking and is the only tiebreak that is not invented. */
+function rwaSortRows(tableId, rows){
+  const st=RWA_SORT[tableId], spec=rwaSortSpec(tableId);
+  if(!spec) return rows;
+  const sign = st.dir==="asc" ? 1 : -1;
+  return rows.slice().sort((a,b)=>{
+    const x=spec.get(a), y=spec.get(b);
+    /* Nulls LAST in BOTH directions, never as zero. A missing dispersion is not a
+       dispersion of zero, and this codebase has already had to remove one substitution of
+       that kind; floating the missing ones to the top on ascending would be the same
+       substitution wearing a different hat. */
     if(x==null&&y==null) return 0;
     if(x==null) return 1;
     if(y==null) return -1;
-    return y-x;
+    const c = spec.text ? String(x).localeCompare(String(y)) : (x<y?-1:(x>y?1:0));
+    return c*sign;
   });
+}
+
+/* 1,077 wrappers tonight. The cap is a rendering budget, not a filter, and the panel
+   header says so with both numbers; null means the reader lifted it. */
+const WRAP_CAP_DEFAULT=300;
+let RWA_WRAP_CAP=WRAP_CAP_DEFAULT;
+
+/* Headers are wired ONCE. thead is static markup — only the tbody is ever rebuilt — so
+   the listeners survive every render and there is nothing to re-attach. A column with no
+   spec gets no role, no tabindex and no aria-sort: an unsortable header that announces
+   itself as a sort control is worse than one that stays quiet. */
+function rwaWireHeaders(){
+  Object.keys(RWA_COLS).forEach(tableId=>{
+    const t=rwEl(tableId); if(!t) return;
+    const specs=RWA_COLS[tableId]||[];
+    [...t.querySelectorAll("thead th")].forEach((th,i)=>{
+      if(!specs[i]) return;
+      th.tabIndex=0;
+      th.setAttribute("aria-sort","none");
+      th.addEventListener("click",()=>rwaSortBy(tableId,i));
+      /* Enter AND Space. A th is not a button, so neither key arrives as a click and
+         both have to be handled; Space is preventDefault-ed or the pane scrolls under
+         the reader instead of sorting. */
+      th.addEventListener("keydown",e=>{
+        if(e.key==="Enter"||e.key===" "||e.key==="Spacebar"){
+          e.preventDefault(); rwaSortBy(tableId,i);
+        }
+      });
+    });
+  });
+}
+
+/* desc -> asc -> (back to the artifact order, where there is one). Descending first
+   because every numeric column on this page is read largest-first; an ascending first
+   click would open the board on the smallest tokenized caps. */
+function rwaSortBy(tableId,col){
+  const st=RWA_SORT[tableId];
+  if(!st || st.col!==col)          RWA_SORT[tableId]={col,dir:"desc"};
+  else if(st.dir==="desc")         RWA_SORT[tableId]={col,dir:"asc"};
+  else if(RWA_SORT_CLEARS[tableId]) delete RWA_SORT[tableId];
+  else                             RWA_SORT[tableId]={col,dir:"desc"};
+  if(tableId==="tbl-rwa-flow") rwaSortToHash();
+  /* Only the table that moved. renderRwa() would rebuild all four and the inspector with
+     them, discarding the reader's scroll in three panes to reorder one. */
+  if(tableId==="tbl-rwa") renderRwa(true);
+  else if(tableId==="tbl-rwa-wrap") renderRwaWrappers();
+  else if(tableId==="tbl-rwa-flow") renderRwaFlows();
+  else if(tableId==="tbl-rwa-disloc") renderRwaDisloc();
+}
+
+/* One attribute drives both the arrow and the announcement, so the state a sighted reader
+   sees and the state a screen reader reads are the same fact. */
+function rwaSyncHeaders(tableId){
+  const t=rwEl(tableId); if(!t) return;
+  const st=RWA_SORT[tableId], specs=RWA_COLS[tableId]||[];
+  [...t.querySelectorAll("thead th")].forEach((th,i)=>{
+    if(!specs[i]) return;
+    th.setAttribute("aria-sort", (st && st.col===i)
+      ? (st.dir==="asc"?"ascending":"descending") : "none");
+  });
+}
+
+/* The row count, announced when a filter or a sort changes it. Reuses the crypto side's
+   role=status / aria-live=polite pattern rather than introducing a second one. The node
+   is created on demand and lives beside its table, so a table added later gets one
+   without anything here changing. */
+function rwaAnnounce(name,n,tableId){
+  const t=rwEl(tableId); if(!t) return;
+  let live=document.getElementById(tableId+"-live");
+  if(!live){
+    live=document.createElement("div");
+    live.id=tableId+"-live";
+    live.setAttribute("role","status");
+    live.setAttribute("aria-live","polite");
+    /* Visually hidden, not display:none — a display:none live region announces nothing. */
+    live.style.cssText="position:absolute;width:1px;height:1px;overflow:hidden;"
+      +"clip:rect(0 0 0 0);white-space:nowrap";
+    (t.parentNode||t).insertBefore(live,t);
+  }
+  const st=RWA_SORT[tableId], spec=rwaSortSpec(tableId);
+  const th=spec ? (rwEl(tableId).querySelectorAll("thead th")[st.col]||{}) : {};
+  const by = spec ? (", sorted by "+((th.textContent||spec.id).trim())
+                     +" "+(st.dir==="asc"?"ascending":"descending")) : "";
+  const msg=name+": "+n+" row"+(n===1?"":"s")+by;
+  if(live.textContent!==msg) live.textContent=msg;
+}
+
+/* The three presets, as {col, dir} into the SAME sort state the column headers write.
+   They are named entry points, not a second ordering mechanism: nothing about the Flows
+   table knows whether its current order arrived from a preset or from a header click. */
+const RWA_FLOW_PRESETS={
+  usd:    {col:4, dir:"desc"},   /* Residual $ */
+  pctd:   {col:6, dir:"desc"},   /* Per Day */
+  supply: {col:9, dir:"desc"},   /* Implied Supply Index */
+};
+/* DERIVED on every render, never stored. Which preset is lit is a question about
+   {col, dir}, and the answer is recomputed from it — so a header click that happens to
+   land on Residual $ descending lights that preset, and one that lands anywhere else
+   lights none, with no bookkeeping to keep in step. */
+function rwaActivePreset(){
+  const st=RWA_SORT["tbl-rwa-flow"];
+  if(!st) return null;
+  return Object.keys(RWA_FLOW_PRESETS).find(k=>
+    RWA_FLOW_PRESETS[k].col===st.col && RWA_FLOW_PRESETS[k].dir===st.dir) || null;
+}
+
+/* ONE serialized value, and it is the sort state rather than the preset name: a preset
+   name could not express a header click, and carrying both would be the two-sources-of-
+   truth this was collapsed to avoid. Written as the column's stable id so the link stays
+   readable and survives a column moving. */
+function rwaSortToHash(){
+  const st=RWA_SORT["tbl-rwa-flow"], d=RWA_SORT_DEFAULTS["tbl-rwa-flow"];
+  hashWrite(params=>{
+    if(!st || (st.col===d.col && st.dir===d.dir)){ params.delete("sort"); return; }
+    const spec=(RWA_COLS["tbl-rwa-flow"]||[])[st.col];
+    if(spec) params.set("sort", spec.id+"."+st.dir); else params.delete("sort");
+  });
+}
+function rwaSortFromHash(){
+  const v=hashParse().params.get("sort");
+  const d=RWA_SORT_DEFAULTS["tbl-rwa-flow"];
+  if(!v){ RWA_SORT["tbl-rwa-flow"]={col:d.col,dir:d.dir}; return; }
+  const dot=v.lastIndexOf("."), id=dot<0?v:v.slice(0,dot), dir=dot<0?"desc":v.slice(dot+1);
+  const col=(RWA_COLS["tbl-rwa-flow"]||[]).findIndex(c=>c&&c.id===id);
+  /* An unreadable ?sort= falls back to the default rather than to no sort at all. A link
+     from an older column set must still open on a board, not on an unordered one. */
+  RWA_SORT["tbl-rwa-flow"] = (col<0 || (dir!=="asc"&&dir!=="desc"))
+    ? {col:d.col,dir:d.dir} : {col,dir};
+}
+
+function renderRwaFlows(){
+  const tb=rwEl("tbl-rwa-flow"); if(!tb) return;
+  const rows=rwaSortRows("tbl-rwa-flow",(RWA&&RWA.board)||[]);
+  const active=rwaActivePreset();
   document.querySelectorAll("[data-floworder]").forEach(b=>{
-    const on=b.dataset.floworder===RWA_FLOW_ORDER;
+    const on=b.dataset.floworder===active;
     b.classList.toggle("on",on);
     b.setAttribute("aria-pressed",on?"true":"false");
   });
+  rwaSyncHeaders("tbl-rwa-flow");
+  rwaAnnounce("Flows",rows.length,"tbl-rwa-flow");
   tb.querySelector("tbody").innerHTML = rows.length ? rows.map(r=>{
     const f=r.flow||{};
     const nights=f.chain_days||0;
@@ -5764,17 +6066,22 @@ function renderRwaFlows(){
 
 function renderRwaDisloc(){
   const tb=rwEl("tbl-rwa-disloc"); if(!tb) return;
-  const tape=(RWA&&RWA.tape)||[];
+  const tape=rwaSortRows("tbl-rwa-disloc",(RWA&&RWA.tape)||[]);
+  rwaSyncHeaders("tbl-rwa-disloc");
   tb.querySelector("tbody").innerHTML = tape.length ? tape.map(l=>
     '<tr><td><b>'+rwEsc((l.symbol||"").toUpperCase())+'</b></td>'
     +'<td class="muted">'+rwEsc((l.underlying_symbol||"").toUpperCase())+'</td>'
     +'<td class="num">'+rwPrice(l.price)+'</td>'
     +'<td class="num">'+rwPrice(l.median_price)+'</td>'
-    +'<td class="num"><span class="'+(l.basis_bps>0?"pos":"neg")+'">'
-      +(l.basis_bps>0?"+":"")+l.basis_bps.toFixed(0)+'bp</span></td>'
+    /* Through rwNum like every sibling renderer. This called l.basis_bps.toFixed(0) and
+       l.basis_bps>0 with no null check, so a single null anywhere in RWA.tape threw
+       inside the .map() and took the whole tbody with it — a blank panel, no message, and
+       nothing on screen naming the cause. The comparator that now sorts this column
+       already routes nulls to the end; rendering them had to stop being the exception. */
+    +'<td class="num">'+rwSigned(l.basis_bps,0).replace("%","bp")+'</td>'
     +'<td class="num">'+rwUsd(l.volume_24h)+'</td>'
-    +'<td class="num">'+(l.age_hours==null?"—":l.age_hours.toFixed(1)+"h")+'</td>'
-    +'<td class="num">'+(l.observation_evidence==null?"—":l.observation_evidence.toFixed(0))+'</td>'
+    +'<td class="num">'+(rwNum(l.age_hours)==null?"—":rwNum(l.age_hours).toFixed(1)+"h")+'</td>'
+    +'<td class="num">'+(rwNum(l.observation_evidence)==null?"—":rwNum(l.observation_evidence).toFixed(0))+'</td>'
     +'<td><span class="ev ev-unavailable">UNAVAILABLE</span></td></tr>').join("")
     : '<tr><td colspan="9" class="muted" style="padding:14px">No basis cleared the floor. '
       +'A cross-section needs at least two live wrappers on the same underlying.</td></tr>';
@@ -5998,13 +6305,21 @@ document.addEventListener("keydown",e=>{
 /* Only the Flows tbody is rebuilt. A full renderRwa() here would rebuild the underlyings
    board as well and throw away the reader's scroll position and their focused row for a
    change that cannot affect either. */
+rwaWireHeaders();
+/* Delegated: the button is rewritten by every render of the panel it sits in, so a
+   listener bound to the node would be lost on the first click it handled. */
+document.addEventListener("click",e=>{
+  if(e.target && e.target.id==="rw-wrap-cap-btn"){
+    RWA_WRAP_CAP = RWA_WRAP_CAP==null ? WRAP_CAP_DEFAULT : null;
+    renderRwaWrappers();
+    const back=document.getElementById("rw-wrap-cap-btn"); if(back) back.focus();
+  }
+});
 document.querySelectorAll("[data-floworder]").forEach(btn=>{
   btn.onclick=()=>{
-    RWA_FLOW_ORDER = RWA_FLOW_ORDERS[btn.dataset.floworder] ? btn.dataset.floworder : "usd";
-    /* The default is absent from the URL rather than spelled out in it. A hash that says
-       ?ord=usd on every page load is noise in every link anyone copies. */
-    hashWrite(params=>{ if(RWA_FLOW_ORDER==="usd") params.delete("ord");
-                        else params.set("ord",RWA_FLOW_ORDER); });
+    const p=RWA_FLOW_PRESETS[btn.dataset.floworder]||RWA_FLOW_PRESETS.usd;
+    RWA_SORT["tbl-rwa-flow"]={col:p.col,dir:p.dir};
+    rwaSortToHash();
     renderRwaFlows();
   };
 });
