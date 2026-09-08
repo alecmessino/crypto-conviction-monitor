@@ -202,6 +202,12 @@ def run_checks() -> tuple:
             f"chart data tables are missing or empty: {charts}"))
 
         # --- the sizer refuses a stop it cannot derive, and computes one it can --
+        # The position tools moved to the Portfolio workspace, so the workspace has to be
+        # showing before any of this is measured: innerText returns "" for a subtree that
+        # is not rendered, and every assertion below would fail describing a display rule
+        # rather than the sizer. Switching to it is also what a reader does.
+        page.evaluate("() => switchWorkspace('portfolio', false)")
+        page.wait_for_timeout(200)
         no_atr = page.evaluate("""() => { renderSizing();
             return document.querySelector('#sz-out').innerText; }""")
         check("a missing ATR14 is refused, not approximated", lambda: _assert(
@@ -330,6 +336,46 @@ def run_checks() -> tuple:
                   and "no listed contract" not in sizer_unmapped.lower(),
                   "the sizer claims Coinbase lists no contract for an unmapped symbol"))
 
+        # Run with the Portfolio workspace showing: renderSizing() writes into #sz-out,
+        # which lives there now, and a probe that samples the first VISIBLE group while
+        # that subtree is hidden finds no group at all and asserts nothing.
+        # The invariant has to hold in the window between a re-render and the queued
+        # roving pass, not merely once things have settled. CI caught a ten-member group
+        # reporting ten tab stops here, because makeReachable handed every re-rendered
+        # member tabindex 0 and left the collapse to a scheduled pass that had not run
+        # yet. A local run missed it purely on timing. Sampling after the MutationObserver
+        # (a microtask) but before the setTimeout(0) grouping pass (a macrotask) puts the
+        # test inside that window deterministically instead of racing for it.
+        window = page.evaluate("""async () => {
+          const sample = () => {
+            const g = [...document.querySelectorAll('[data-tip-group]')]
+                      .find(n => n.checkVisibility());
+            if (!g) return null;
+            const items = [...g.children].filter(n => n.matches('[data-tip][tabindex]'));
+            return {size: items.length,
+                    stops: items.filter(n => n.getAttribute('tabindex') === '0').length};
+          };
+          const out = [];
+          for (let i = 0; i < 3; i++) {
+            renderSizing();
+            await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+            out.push(sample());
+          }
+          return out;
+        }""")
+        offenders = [s for s in window if s and s["size"] > 0 and s["stops"] != 1]
+        check("a group stays one tab stop across a re-render", lambda: _assert(
+            any(s and s["size"] > 0 for s in window) and not offenders,
+            f"between a re-render and the grouping pass the group exposes several tab "
+            f"stops: {offenders}. The collapse must be decided when the member is wired, "
+            f"not left to a scheduled pass."))
+
+        # Back to the board. Everything from here down — the explanation audit, the
+        # roving groups, the matrix rows and the drawer — is about the crypto workspace,
+        # and leaving the Portfolio screen up would measure a hidden subtree.
+        page.evaluate("() => switchWorkspace('crypto', false)")
+        page.wait_for_timeout(200)
+
         # --- zero orphaned explanations -----------------------------------------
         # Counting upgraded [data-tip] nodes proves nothing about reach. Tips inside
         # tr.row are deliberately neither focusable nor individually tappable, so the
@@ -381,8 +427,15 @@ def run_checks() -> tuple:
         rove = page.evaluate("""() => {
           // A visible group: an element inside a hidden tab pane cannot take focus, so
           // testing one would report "arrows do not work" about a display rule.
+          //
+          // checkVisibility(), not offsetParent. Chromium renders the contents of a
+          // CLOSED <details> with content-visibility, which keeps the layout box — so
+          // offsetParent is non-null, the probe picked a group nobody can focus, and the
+          // gate reported "arrows do not work" about a disclosure that was shut. The
+          // overflow panels behind the two `details.tools` disclosures are exactly that
+          // case. checkVisibility accounts for it.
           const g = [...document.querySelectorAll('[data-tip-group]')]
-                    .find(n => n.offsetParent !== null);
+                    .find(n => n.checkVisibility());
           if (!g) return {skip: true};
           // The group's managed set is its DIRECT explained children; nested elements
           // in sub-containers are other groups' business.
@@ -399,36 +452,6 @@ def run_checks() -> tuple:
                   rove.get("skip") or (rove["stops"] == 1 and rove["moved"]),
                   f"roving group is not navigable: {rove}"))
 
-        # The invariant has to hold in the window between a re-render and the queued
-        # roving pass, not merely once things have settled. CI caught a ten-member group
-        # reporting ten tab stops here, because makeReachable handed every re-rendered
-        # member tabindex 0 and left the collapse to a scheduled pass that had not run
-        # yet. A local run missed it purely on timing. Sampling after the MutationObserver
-        # (a microtask) but before the setTimeout(0) grouping pass (a macrotask) puts the
-        # test inside that window deterministically instead of racing for it.
-        window = page.evaluate("""async () => {
-          const sample = () => {
-            const g = [...document.querySelectorAll('[data-tip-group]')]
-                      .find(n => n.offsetParent !== null);
-            if (!g) return null;
-            const items = [...g.children].filter(n => n.matches('[data-tip][tabindex]'));
-            return {size: items.length,
-                    stops: items.filter(n => n.getAttribute('tabindex') === '0').length};
-          };
-          const out = [];
-          for (let i = 0; i < 3; i++) {
-            renderSizing();
-            await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-            out.push(sample());
-          }
-          return out;
-        }""")
-        offenders = [s for s in window if s and s["size"] > 0 and s["stops"] != 1]
-        check("a group stays one tab stop across a re-render", lambda: _assert(
-            any(s and s["size"] > 0 for s in window) and not offenders,
-            f"between a re-render and the grouping pass the group exposes several tab "
-            f"stops: {offenders}. The collapse must be decided when the member is wired, "
-            f"not left to a scheduled pass."))
 
         # --- keyboard: the row drawer, and the notes it has to carry -------------
         drawer = page.evaluate("""() => {
@@ -471,7 +494,20 @@ def run_checks() -> tuple:
 
         # A DYNAMIC row-cell caveat, not a static column header: the header is in the
         # source and would pass even if nothing the board renders were reachable.
-        dyn = mob.query_selector("#sz-out [data-tip]") or mob.query_selector("tbody [data-tip]")
+        #
+        # And a VISIBLE one. The position sizer moved into the Portfolio workspace, which
+        # is hidden on load, so #sz-out still renders its explanations and none of them
+        # can be tapped — the element existed, the tap timed out, and the gate reported a
+        # timeout rather than the thing it is here to measure. Requiring visibility is
+        # what this always meant: an explanation nobody can see is not a reachable one.
+        def _first_visible(*selectors):
+            for sel in selectors:
+                for el in mob.query_selector_all(sel):
+                    if el.is_visible():
+                        return el
+            return None
+
+        dyn = _first_visible("#insp [data-tip]", "tbody [data-tip]", "#sz-out [data-tip]")
         check("there is a rendered, non-static explanation to reach",
               lambda: _assert(dyn is not None, "no dynamically rendered explanation found"))
         if dyn:

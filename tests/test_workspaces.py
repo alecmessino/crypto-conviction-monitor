@@ -30,8 +30,8 @@ ROOT = HERE.parent
 HTML = (ROOT / "index.html").read_text(encoding="utf-8")
 MARKUP = HTML[:HTML.find("<script>")]
 
-WORKSPACES = ("crypto", "rwa")          # own a subtree
-ROUTES = ("index", "portfolio")         # scroll to a panel that stays in crypto
+WORKSPACES = ("crypto", "rwa", "portfolio")   # own a subtree
+ROUTES = ("index",)                           # scrolls to a panel that stays in crypto
 
 
 def _strip_js_comments(src: str) -> str:
@@ -45,8 +45,15 @@ def _strip_js_comments(src: str) -> str:
 
 def test_every_nav_entry_reaches_something():
     """A nav with a dead entry is worse than a shorter nav — but reaching something does
-    not require owning a subtree. CRYPTO and RWA are workspaces; INDEX and PORTFOLIO are
-    routes to panels that stay exactly where the canonical layout puts them."""
+    not require owning a subtree. CRYPTO, RWA and PORTFOLIO are workspaces; INDEX is a
+    route to the basket chart, which lives in the crypto rail because the basket it
+    tracks is the crypto board's own.
+
+    PORTFOLIO was a route until it became a book. A nav entry that scrolls to a sizer is
+    not the same promise as one that opens a screen with its own NAV, its own positions
+    table and its own tools, and the position sizer, funding parser and carry screener
+    moved with it — all three are about a position already decided on, and none of them
+    belongs above a ranked board."""
     buttons = set(re.findall(r'data-ws-btn="([\w-]+)"', MARKUP))
     roots = set(re.findall(r'<div class="ws" data-ws="([\w-]+)"', MARKUP))
     assert buttons == set(WORKSPACES) | set(ROUTES), f"nav buttons are {sorted(buttons)}"
@@ -113,50 +120,75 @@ def test_the_rwa_workspace_ships_no_canvas():
     assert "<canvas" not in rwa_block
 
 
+def _crypto():
+    return MARKUP[MARKUP.index('<div class="ws" data-ws="crypto"'):
+                  MARKUP.index("<!-- /ws crypto -->")]
+
+
 def test_the_crypto_board_and_its_inspector_did_not_move():
     """The locked layout: a dominant ranked board, a persistent inspector, one tabbed
     plate. All three must still be inside the crypto workspace."""
-    block = MARKUP[MARKUP.index('<div class="ws" data-ws="crypto"'):
-                   MARKUP.index("<!-- /ws crypto -->")]
-    for needle in ('id="tbl-conv"', 'id="sec-tabs"', 'id="fb"', "CONVICTION MATRIX"):
+    block = _crypto()
+    for needle in ('id="tbl-conv"', 'id="sec-tabs"', 'id="fb"', 'id="insp"',
+                   "CONVICTION BOARD"):
         assert needle in block, f"{needle} left the crypto workspace"
 
 
-def test_the_crypto_columns_are_byte_identical_to_canonical():
-    """THE load-bearing test of this whole change. RWA is additive; crypto is not
-    redesigned as collateral work. An earlier version physically re-parented four panels
-    out of the sidebar and the rail to make the INDEX and PORTFOLIO nav entries own a
-    subtree, which is exactly the kind of change this asserts against. The nav and the
-    display:contents wrapper sit OUTSIDE this span."""
-    import subprocess
+def test_the_first_screen_is_the_strip_the_board_and_the_inspector():
+    """THE load-bearing test of the density pass, and the replacement for the
+    byte-identity gate this file used to carry.
 
-    def canonical():
-        return subprocess.run(["git", "show", "origin/main:index.html"],
-                              capture_output=True, text=True, cwd=ROOT).stdout
-    canon = canonical()
-    if not canon:
-        # A CI checkout is shallow and holds only the branch under test. Fetch the
-        # canonical file rather than skip: this gate skipping on exactly the machine
-        # that decides whether a pull request merges was a pass it had not earned, and
-        # in standalone mode the skip escaped as a traceback. Measured on the first
-        # dispatch of the release path.
-        # An explicit refspec: a single-branch clone's remote only maps its own branch,
-        # so a bare "fetch origin main" lands in FETCH_HEAD and origin/main stays
-        # unset. Measured in a --depth 1 -b clone.
-        subprocess.run(["git", "fetch", "--quiet", "--depth=1", "origin",
-                        "+refs/heads/main:refs/remotes/origin/main"],
-                       capture_output=True, text=True, cwd=ROOT)
-        canon = canonical()
-    assert canon, ("origin/main could not be read or fetched, so the byte-identity gate "
-                   "cannot run — and a gate that cannot run must not pass")
+    That gate existed because an earlier change re-parented four crypto panels as
+    collateral damage while adding the RWA workspace: RWA was additive, and crypto was
+    not supposed to be redesigned to make a nav entry real. Pinning the columns byte for
+    byte was the cheapest way to say so.
 
-    def columns(t):
-        a = t.index("  <!-- LEFT -->")
-        b = t.index("</aside>", t.index("  <!-- RIGHT -->")) + len("</aside>")
-        return t[a:b]
+    The crypto columns are now DELIBERATELY different — a ten-column board, an inspector
+    at the head of the rail, and thirteen peer panels folded behind two disclosures — so
+    a byte comparison against main can only fail. What has to hold instead is the
+    PROPERTY that gate was protecting: that the first screen is the trust strip, the
+    ranked board and the inspector, and that nothing was deleted to get there."""
+    block = _crypto()
+    side = block[block.index("<!-- LEFT -->"):block.index("<!-- CENTER -->")]
+    # The sidebar is SYSTEM and the tier counts. Every position tool left for Portfolio.
+    for gone in ("sz-notional", "pp-contract", "pf-input", "tbl-carry"):
+        assert f'id="{gone}"' not in side, (
+            f"#{gone} is still in the crypto sidebar, above the board")
+    # The board is the first thing in the centre column, before the tabbed plate.
+    centre = block[block.index("<!-- CENTER -->"):block.index("<!-- RIGHT -->")]
+    assert centre.index('id="tbl-conv"') < centre.index('id="sec-tabs"'), \
+        "the tabbed plate is above the board"
+    # The inspector is the first thing in the rail.
+    rail = block[block.index("<!-- RIGHT -->"):]
+    assert rail.index('id="inspector"') < rail.index('id="idx"'), \
+        "the inspector is not the first panel in the rail"
 
-    assert columns(HTML) == columns(canon), (
-        "the crypto sidebar, board column or rail differs from origin/main")
+
+def test_nothing_was_deleted_to_reach_that_first_screen():
+    """Folded, not dropped. Every panel that left the crypto columns has to still exist
+    somewhere in the document, with the host id its renderer writes into — otherwise the
+    density pass silently removed a feed and every renderer for it became a no-op."""
+    hosts = ["tmd", "fallen", "tbl-lavl", "chg-feed", "breadth", "persist", "edge",
+             "monitor", "quad", "alpha", "fquad", "corr",
+             "sz-out", "pp-out", "tbl-carry"]
+    for h in hosts:
+        assert f'id="{h}"' in MARKUP, f"#{h} was deleted rather than relocated"
+
+
+def test_the_overflow_panels_are_folded_and_their_canvases_are_redrawn():
+    """A <canvas> measured inside a closed <details> has a clientWidth of zero, and a
+    chart drawn at zero registers its points at zero — which empties the accessible table
+    it publishes. Two defences, and both are required: a nominal-width fallback so the
+    folded state is still correct, and a redraw on open so the revealed state is."""
+    assert 'details class="tools"' in MARKUP, "the overflow panels are not folded"
+    script = _strip_js_comments(HTML)
+    for fn in ("quad", "alphaMap", "factorQuad"):
+        body = script[script.index(f"function {fn}()"):]
+        body = body[:body.index("\n}")]
+        assert "clientWidth||360" in body.replace(" ", ""), (
+            f"{fn}() has no nominal-width fallback, so it draws at zero while folded")
+    assert 'details.tools' in script and 'addEventListener("toggle"' in script, \
+        "opening a disclosure does not redraw the canvases inside it"
 
 
 def test_the_rwa_workspace_never_calls_the_crypto_inspector():
@@ -227,15 +259,21 @@ def test_every_workspace_gets_a_reveal_hook():
 
 
 def test_a_route_redraws_the_panel_it_scrolls_to():
-    """INDEX and PORTFOLIO reveal the crypto workspace, so the crypto branch is what has
-    to redraw the index chart and the position tools — otherwise the nav entry scrolls to
-    a panel that was last drawn at width zero."""
+    """INDEX reveals the crypto workspace, so the crypto branch is what has to redraw the
+    index chart — otherwise the nav entry scrolls to a panel last drawn at width zero.
+
+    The position tools are no longer in that list because they are no longer in that
+    workspace: renderSizing and renderParser moved to the portfolio reveal along with the
+    panels they write into."""
     script = _strip_js_comments(HTML)
     switch = script[script.index("function switchWorkspace"):]
     switch = switch[:switch.index("\n}")]
     crypto = switch[switch.index('reveal==="crypto"'):]
-    for fn in ("renderIndex", "renderSizing", "renderParser", "quad", "alphaMap"):
+    for fn in ("renderIndex", "quad", "alphaMap", "factorQuad"):
         assert fn in crypto, f"the crypto reveal does not redraw {fn}"
+    book = switch[switch.index('reveal==="portfolio"'):]
+    for fn in ("renderBook", "renderSizing", "renderParser", "renderCarry"):
+        assert fn in book, f"the portfolio reveal does not redraw {fn}"
 
 
 if __name__ == "__main__":

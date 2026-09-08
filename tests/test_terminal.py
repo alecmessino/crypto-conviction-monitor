@@ -14,7 +14,8 @@ from pathlib import Path
 
 import pytest
 
-HTML = (Path(__file__).resolve().parent.parent / "index.html").read_text(encoding="utf-8")
+ROOT = Path(__file__).resolve().parent.parent
+HTML = (ROOT / "index.html").read_text(encoding="utf-8")
 SCRIPT = re.search(r"<script>(.*?)</script>", HTML, re.S).group(1)
 # Comments stripped, for assertions that must not be satisfied — or defeated — by
 # prose. A comment explaining why a pattern is forbidden necessarily contains that
@@ -381,12 +382,71 @@ def test_the_sizer_caps_a_correlated_book_and_prices_the_entry():
     assert "dragMissing" in SCRIPT, "unestimatable lines must be counted, not averaged in as free"
 
 
+BOARD_COLUMNS = ["#", "Ticker", "Signal", "Conv", "Price", "24H", "7D", "Vol/MCap",
+                 "Flag", "\u29c9"]
+
+
+def test_the_board_scans_in_the_order_a_reader_asks():
+    """The density pass. Fourteen columns became ten, and the ORDER is the claim: who,
+    what signal, how strong, at what price, moving which way today, over the week, how
+    liquid, and one derived flag.
+
+    Five columns left for the inspector -- the liquidity bar, the all-time-range Z, the
+    supply multiplier, the funding carry and the regime badge. None was deleted; every
+    one of them is asserted present in the inspector by
+    test_the_removed_board_columns_landed_in_the_inspector below, because a column that
+    is dropped rather than relocated is a column of information the page no longer
+    carries."""
+    headers = re.search(r'<table id="tbl-conv"><thead><tr>(.*?)</tr>', HTML, re.S).group(1)
+    labels = [re.sub(r"<[^>]+>", "", h).split("\u0394")[0].strip()
+              for h in re.split(r"<th\b", headers)[1:]]
+    labels = [l.split(">")[-1].strip() for l in labels]
+    assert labels == BOARD_COLUMNS, labels
+
+
 def test_the_new_columns_did_not_break_the_error_row_span():
     """The failure row spans the table. A stale colspan leaves a ragged cell that reads
     as a rendering bug at exactly the moment the page is already reporting a problem."""
     headers = re.search(r'<table id="tbl-conv"><thead><tr>(.*?)</tr>', HTML, re.S).group(1)
-    assert headers.count("<th") == 14
-    assert 'colspan="14"' in HTML
+    cols = headers.count("<th")
+    assert cols == len(BOARD_COLUMNS)
+    span = int(re.search(r'<td colspan="(\d+)" class="err">Live fetch failed',
+                         HTML).group(1))
+    assert span == cols, f"error row spans {span} of {cols} columns"
+
+
+def test_the_removed_board_columns_landed_in_the_inspector():
+    """The whole justification for a ten-column board. Every reading that left the table
+    has to be reachable without a second gesture, or the density pass is a deletion."""
+    insp = SCRIPT[SCRIPT.index("function renderInspectorBase("):]
+    insp = insp[:insp.index("\n}")]
+    for call, what in (("supplyCell(t)", "the Module F supply multiplier"),
+                       ("fundingCell(t.sym,t)", "the funding carry"),
+                       ("regimeCell(t.sym,t)", "the regime badge"),
+                       ("t.z", "the all-time-range position"),
+                       ("liquidityFit(", "the liquidity fit")):
+        assert call in insp, f"{what} left the board and did not arrive in the inspector"
+
+
+def test_the_inspector_is_never_empty():
+    """An inspector that waits for a click is a rail of placeholder text on every load,
+    which is the failure the brief names outright."""
+    assert "function seedInspector(" in SCRIPT
+    tables = SCRIPT[SCRIPT.index("function renderTables()"):]
+    tables = tables[:tables.index("\n}\n")]
+    assert "seedInspector()" in tables, "the board does not seed its own inspector"
+
+
+def test_the_inspector_refuses_live_fundamentals_for_a_recorded_row():
+    """/coins/{id} answers about tonight. Painting tonight's all-time high under a row
+    recorded three weeks ago is the same silent-disagreement failure the rewind refuses
+    everywhere else, and it would look entirely normal."""
+    fetch = SCRIPT[SCRIPT.index("function inspectorFetch("):]
+    fetch = fetch[:fetch.index("\n}")]
+    assert "t._rewound" in fetch, "the inspector fetches live fundamentals for a rewound row"
+    cg = SCRIPT[SCRIPT.index("function renderInspectorCG("):]
+    cg = cg[:cg.index("\n}\n")]
+    assert "_rewound" in cg, "the fundamentals half does not say why it is absent"
 
 
 # ---------------------------------------------------------------------------
@@ -890,3 +950,141 @@ def test_the_collapsed_expand_is_display_none_not_merely_hidden():
     the collapsed panel was 136px of invisible chrome in flow, and is an invisible
     click-blocker over the board now that it is positioned."""
     assert ".statuspanel[hidden]{display:none}" in HTML
+
+
+# ---------------------------------------------------------------------------
+# the CoinGecko enrichment layer: one fetch path, cached, and never in the way
+# ---------------------------------------------------------------------------
+def test_every_live_call_goes_through_one_fetch_helper():
+    """A rate limit is one fact. Eight panels each running their own fetch discover it
+    eight times, back off eight different ways, and render eight flavours of broken."""
+    helper = SCRIPT[SCRIPT.index("async function cgJson("):]
+    helper = helper[:helper.index("\n}")]
+    assert "fetch(url" in helper, "cgJson does not fetch"
+    assert "429" in helper and "CG_BLOCKED_UNTIL" in helper, (
+        "cgJson does not treat a 429 as a shared backoff")
+    assert "catch" in helper and "return hit ? hit.v : null" in helper, (
+        "cgJson can reject, which would take out whatever else awaited it")
+    # Counting fetch() calls would count the eight ledger reads, which are local static
+    # files and the whole point of the fallback. What must be true is narrower: the only
+    # bare fetches carrying a CoinGecko URL are cgJson's own and the markets call in
+    # load(). Every enrichment endpoint reaches the network through CG_URL + cgJson.
+    remote = [m.group(1) for m in
+              re.finditer(r"(?<![.\w])fetch\s*\(\s*([^,)]+)", SCRIPT)
+              if "ledger/" not in m.group(1)]
+    assert sorted(remote) == ["API", "url"], (
+        f"a CoinGecko URL is fetched outside cgJson: {remote}")
+    assert "CG_URL." in SCRIPT and SCRIPT.count("CG_BASE +") >= 8, (
+        "endpoints are assembled at the call site rather than in CG_URL")
+
+
+def test_the_enrichment_calls_are_never_awaited_by_the_board():
+    """THE resilience property. The ledger is the source of truth for scores and the
+    board owes nothing to /global, /coins/categories or /search/trending. Awaiting any of
+    them — even collectively — puts the slowest of the three in front of the ranked
+    board for no gain, since each writes to its own host."""
+    load = SCRIPT[SCRIPT.index("async function load(){"):]
+    load = load[:load.index("\n}\n")]
+    for fn in ("loadGlobal()", "loadCategories()", "loadTrending()"):
+        assert fn in load, f"{fn} is never started"
+        assert f"await {fn}" not in load, f"{fn} is awaited, so it can delay the board"
+    assert "Promise.all" not in load or "await Promise.all([\n    cgJson" not in load
+
+
+def test_the_markets_call_asks_for_the_sparkline_and_keeps_every_scoring_window():
+    """sparkline=true is what makes the 7d column a week of prices rather than a shape
+    modelled from the 24h change. 14d and 200d feed the blended relative strength the
+    score is built on, so dropping either silently rewrites every conviction."""
+    api = re.search(r'const API = ([^;]+);', SCRIPT, re.S).group(1)
+    assert "sparkline=true" in api
+    for window in ("1h", "24h", "7d", "14d", "30d", "200d"):
+        assert window in api, f"the {window} window left the markets call"
+
+
+def test_the_categories_order_is_the_one_the_endpoint_accepts():
+    """/coins/categories rejects `market_cap_change_percentage_24h_desc` with HTTP 400 —
+    the obvious name, and the one the markets endpoint uses for the same idea. A 400 here
+    is indistinguishable from a rate limit at the call site: the sector heat would fall
+    back to the recorded snapshot permanently and silently."""
+    url = SCRIPT[SCRIPT.index("categories: ()"):]
+    url = url[:url.index("\n")]
+    assert "order=market_cap_change_24h_desc" in url
+    assert "percentage" not in url
+
+
+def test_the_live_sector_list_uses_the_nightly_floors():
+    """Two copies of a threshold that can disagree is two panels claiming to be one.
+    /coins/categories returns 758 rows and most are not sectors — a jurisdiction, a legal
+    status, or a restatement of the whole market — so unfiltered the leaderboard is a
+    nine-million-dollar four-coin category every night."""
+    cg = (ROOT / "coingecko.py").read_text(encoding="utf-8")
+    floor = re.search(r"SECTOR_MIN_MCAP\s*=\s*([\d_]+)", cg).group(1).replace("_", "")
+    assert f"const SECTOR_MIN_MCAP = {floor}" in SCRIPT, (
+        f"the terminal's sector floor has drifted from coingecko.py's {floor}")
+    nightly_ex = re.search(r"SECTOR_EXCLUDE_SUBSTRINGS = \((.*?)\)", cg, re.S).group(1)
+    for token in re.findall(r'"([^"]+)"', nightly_ex):
+        assert f'"{token}"' in SCRIPT, (
+            f"the exclusion {token!r} is in coingecko.py and not in the terminal")
+
+
+def test_the_sector_ends_are_taken_from_the_whole_ordered_set():
+    """The bug this holds against: slicing the payload to its first 40 rows — already
+    ordered by 24h change — and then taking the bottom five of THOSE as capital rotating
+    out. Against a live payload that produced a rotating-out list reading +4.7%, +5.3%,
+    +5.5%. Every number correct, and the panel lying."""
+    fn = SCRIPT[SCRIPT.index("function renderSectors(){"):]
+    fn = fn[:fn.index("\n}\n")]
+    assert ".slice(0, 40)" not in fn and ".slice(0,40)" not in fn, (
+        "the category list is truncated before the head and tail are taken")
+    assert "rows.slice(0,N)" in fn and "rows.slice(-N)" in fn, (
+        "the two ends are not the same size, so a broad rally cannot be told from a "
+        "rotation")
+
+
+def test_the_inspector_never_fires_one_request_per_row():
+    """Fifty /coins/{id} calls on first paint is the whole minute's budget spent before
+    the board has been read once."""
+    load = SCRIPT[SCRIPT.index("async function load(){"):]
+    load = load[:load.index("\n}\n")]
+    assert "CG_URL.coin(" not in load, "the load path fetches per-asset fundamentals"
+    fetch = SCRIPT[SCRIPT.index("function inspectorFetch("):]
+    fetch = fetch[:fetch.index("\n}")]
+    assert "setTimeout" in fetch, "the inspector fetch is not debounced"
+    pre = SCRIPT[SCRIPT.index("function prefetchNeighbours("):]
+    pre = pre[:pre.index("\n}")]
+    assert "rows[i-1]" in pre and "rows[i+1]" in pre, (
+        "the prefetch is not bounded to the neighbouring rows")
+
+
+def test_the_portfolio_prices_the_whole_book_in_two_requests():
+    """A book of forty names must not be forty requests. One /simple/price for the
+    valuation and one /coins/markets?ids= for the rows, with BTC riding along in the same
+    payload so the vs-BTC residual is not two fetches compared as though they were one."""
+    fn = SCRIPT[SCRIPT.index("async function priceBook(){"):]
+    fn = fn[:fn.index("\n}\n")]
+    assert "CG_URL.simple(withBtc)" in fn and "CG_URL.marketsBy(withBtc)" in fn
+    assert "Promise.all" in fn, "the two book calls are serialised"
+    assert '"bitcoin"' in fn, "BTC does not ride along in the book's own payload"
+    chart = SCRIPT[SCRIPT.index("async function fetchNavTrack(){"):]
+    chart = chart[:chart.index("\n}\n")]
+    assert "BOOK_CHART_CAP" in chart, "the NAV track has no call cap"
+
+
+def test_a_position_with_no_cost_basis_reports_no_open_pl():
+    """Defaulting the cost to today's price makes every such line show exactly zero open
+    P/L, which looks like a measurement and is the absence of one."""
+    fn = SCRIPT[SCRIPT.index("function bookRows(){"):]
+    fn = fn[:fn.index("\n}\n")]
+    assert "cost!=null" in fn.replace(" ", ""), (
+        "open P/L is computed without checking that a cost basis exists")
+
+
+def test_holdings_never_leave_the_browser():
+    """The only thing that goes over the wire is a list of CoinGecko ids, which is what
+    pricing an asset requires. Quantities and costs are not in any query string."""
+    for fn in ("simple:", "marketsBy:"):
+        url = SCRIPT[SCRIPT.index(fn):]
+        url = url[:url.index("\n")]
+        for leak in ("qty", "cost", "b.qty", "b.cost"):
+            assert leak not in url, f"{leak} is being sent to CoinGecko"
+    assert "localStorage.setItem(BOOK_KEY" in SCRIPT, "the book is not kept locally"

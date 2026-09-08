@@ -478,6 +478,22 @@ canvas{display:block;width:100%}
   [data-ws="rwa"] > main.col-center{order:1}
   [data-ws="rwa"] > aside.rail{order:2}
   [data-ws="rwa"] > aside.side{order:3}
+  /* The crypto and portfolio workspaces get the same order, which they could not have
+     while the crypto columns were pinned byte-for-byte to main. Stacked in source order
+     a phone showed the SYSTEM card and the tier counts — 900 pixels of diagnostics —
+     before the ranked board, on the screen where scrolling costs the most.
+
+     Board first, then the inspector, then everything else. Same rule as RWA above and
+     for the same reason; `order` works because .ws is display:contents and these are
+     direct grid items of .wrap. */
+  [data-ws="crypto"] > .statuswrap,
+  [data-ws="portfolio"] > .statuswrap{order:0}
+  [data-ws="crypto"] > main.col-center,
+  [data-ws="portfolio"] > main.col-center{order:1}
+  [data-ws="crypto"] > aside.rail,
+  [data-ws="portfolio"] > aside.rail{order:2}
+  [data-ws="crypto"] > aside.side,
+  [data-ws="portfolio"] > aside.side{order:3}
 }
 /* Foldable RWA side cards: <details> with the card header as its summary. Open on
    desktop, folded at the phone gate by the matchMedia hook, so the diagnostics sit
@@ -612,6 +628,171 @@ canvas:focus-visible{outline:2px solid var(--blue)}
 .lab.quiet{background:rgba(123,201,160,.16);color:var(--green)}
 .lab.aligned{background:rgba(148,163,184,.12);color:var(--sec)}
 .lab.unranked{background:rgba(148,163,184,.08);color:var(--tert)}
+
+/* ===================== DENSITY PASS 2 — the visual brief =====================
+
+   Five rules, and every block below is one of them:
+
+   1. The first screen is the trust strip, the ranked board and the inspector. Anything
+      that is not one of those three is either inside the tabbed plate or behind a
+      `details.tools` disclosure. Nothing was deleted to get there.
+   2. The board scans left to right in the order a reader actually asks: who, what
+      signal, how strong, at what price, moving which way, over the week, how liquid,
+      and one derived flag. Everything the board used to carry in its other five columns
+      is now in the inspector, where there is room to say what it means.
+   3. One hue axis. Signed quantities — deltas, P/L, funding — run green through grey to
+      red on the same ramp. Signal badges are the only saturated chips on the board.
+   4. Provenance recesses. It is still there, one disclosure away, never above the data.
+   5. Live enrichment never blocks the ledger. Every CoinGecko-derived surface below has
+      a pending state that names what it is waiting for. */
+
+/* The regime line. NOT a second ribbon: these chips sit inside the single status strip,
+   which is the whole point — "what regime am I in" belongs beside "can I trust this
+   board", not stacked above it. Quiet by construction, because the board is what the
+   reader came for and the regime is the frame around it. */
+.glstrip{display:flex;gap:10px;align-items:center;flex-wrap:wrap;
+  padding-left:12px;border-left:1px solid var(--border)}
+.gl{display:inline-flex;flex-direction:column;line-height:1.05;white-space:nowrap}
+.gl .gl-l{font-size:7.5px;color:var(--tert);text-transform:uppercase;letter-spacing:.9px}
+.gl .gl-v{font-size:11px;font-variant-numeric:tabular-nums;color:var(--txt)}
+.gl.pending .gl-v{color:var(--tert)}
+@media(max-width:1280px){.glstrip{border-left:none;padding-left:0}}
+
+/* The 7d sparkline, inline SVG rather than the canvas the board used to draw. A canvas
+   per row is a canvas per row: 50 contexts, 50 device-pixel-ratio scalings, and nothing
+   that survives a copy, a print or a zoom. The SVG is ~200 bytes, scales with the page
+   and carries its own accessible title. Colour is the sign of the 7d move, on the same
+   ramp as the delta column, so the spark and the number beside it cannot disagree. */
+.sparksvg{display:block;overflow:visible}
+.sparksvg .sp-line{fill:none;stroke-width:1.2;vector-effect:non-scaling-stroke}
+.sparksvg .sp-base{stroke:var(--grid);stroke-width:1;stroke-dasharray:2 2;vector-effect:non-scaling-stroke}
+.sp-modelled{opacity:.55}
+/* The 1h leading tick. Deliberately shown ONLY when |1h| is large: a column of quiet
+   one-hour noise beside a 24h number trains the eye to skip both. */
+.tick1h{font-size:8px;font-variant-numeric:tabular-nums;margin-right:5px;letter-spacing:-.2px}
+
+/* The derived flag. One column, one chip, and it is NOT a signal: signal badges are the
+   only saturated chips on this board and a second saturated vocabulary beside them
+   would read as a second score. Flags are outlined and quiet; the hue says which
+   direction the flag leans on the same axis as everything else signed. */
+.flag{display:inline-block;padding:1px 6px;border-radius:3px;font-size:8.5px;
+  font-weight:700;letter-spacing:.4px;border:1px solid currentColor;
+  background:transparent;cursor:help}
+.flag.f-none{border-color:transparent;color:var(--grid);cursor:default}
+
+/* THE INSPECTOR. The deep-dive surface, and the reason five columns left the board.
+   An empty inspector is a failure state, so it opens on the top-ranked name rather than
+   waiting for a click. */
+.insp-h{display:flex;align-items:baseline;gap:8px;padding:7px 12px;
+  border-bottom:1px solid var(--grid);flex-wrap:wrap}
+.insp-sym{font-size:15px;font-weight:700;letter-spacing:.5px}
+.insp-name{font-size:10px;color:var(--tert);overflow:hidden;text-overflow:ellipsis}
+.insp-px{margin-left:auto;font-size:13px;font-variant-numeric:tabular-nums}
+.insp-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 12px;padding:7px 12px}
+.insp-k{display:flex;justify-content:space-between;gap:8px;padding:3px 0;
+  border-bottom:1px solid var(--grid);font-size:10.5px;min-width:0}
+.insp-k>span{color:var(--sec);white-space:nowrap}
+.insp-k>b{color:var(--txt);font-variant-numeric:tabular-nums;text-align:right;
+  overflow:hidden;text-overflow:ellipsis}
+.insp-wide{grid-column:1/-1}
+/* The 24h range marker. A high and a low as two numbers make a reader do the division;
+   drawn, the position in the day's range is the number. */
+.rng{position:relative;height:5px;border-radius:3px;background:var(--grid);margin:5px 0 2px}
+.rng-fill{position:absolute;top:0;bottom:0;left:0;border-radius:3px;
+  background:linear-gradient(90deg,rgba(232,145,127,.5),rgba(148,163,184,.35),rgba(123,201,160,.5))}
+.rng-mk{position:absolute;top:-3px;width:2px;height:11px;background:var(--txt);border-radius:1px}
+.rng-lbl{display:flex;justify-content:space-between;font-size:8.5px;color:var(--tert);
+  font-variant-numeric:tabular-nums}
+/* % from ATH and FDV/MCap: the two numbers the brief singles out, because they are what
+   turns a HOLD into an AVOID. Given their own row and their own size. */
+.insp-two{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:6px 12px}
+.insp-big{border:1px solid var(--border);border-radius:5px;padding:6px 8px;background:rgba(148,163,184,.05)}
+.insp-big .lbl{font-size:7.5px;color:var(--tert);text-transform:uppercase;letter-spacing:.8px;display:block}
+.insp-big b{font-size:16px;font-variant-numeric:tabular-nums;display:block;line-height:1.25}
+.insp-big .sub{font-size:9px;color:var(--sec)}
+.insp-cats{padding:2px 12px 8px;display:flex;gap:4px;flex-wrap:wrap}
+.insp-cat{font-size:8.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--border);
+  color:var(--sec);cursor:pointer;background:transparent}
+.insp-cat:hover{border-color:var(--blue);color:var(--txt)}
+.insp-stale{padding:5px 12px;font-size:9.5px;color:var(--amber);
+  background:rgba(224,179,114,.07);border-left:2px solid var(--amber)}
+
+/* The overflow disclosure. Everything the board is not: the diagnostics, the research
+   screens and the two scatter plates. Kept — every one of these renders on every load
+   and none of them lost a code path — but folded, because thirteen peer panels below a
+   ranked board is a scan cost paid on every visit for a panel read once a week. */
+details.tools{margin:0}
+details.tools>summary{list-style:none;cursor:pointer;display:flex;align-items:center;
+  gap:8px;padding:7px 12px;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;
+  color:var(--sec);background:rgba(30,41,59,.25);border:1px solid var(--border);
+  border-radius:8px}
+details.tools[open]>summary{border-radius:8px 8px 0 0;border-bottom-color:transparent}
+details.tools>summary::-webkit-details-marker{display:none}
+details.tools>summary::before{content:"▸";font-size:8px;color:var(--tert)}
+details.tools[open]>summary::before{content:"▾"}
+details.tools>summary:hover{color:var(--txt)}
+details.tools>summary:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
+details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5px;
+  text-transform:none;font-size:9px}
+.tools-body{display:flex;flex-direction:column;gap:10px;padding:10px 0 0}
+
+/* ===================== PORTFOLIO WORKSPACE =====================
+   A book, not a parser. NAV, day P/L, open P/L against a cost basis and weights that
+   sum to the book — the four numbers that answer "what did the book do today", which no
+   amount of conviction overlay ever did. The conviction column is a column. */
+.pf-head{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;
+  padding:10px 12px}
+.pf-stat{border:1px solid var(--border);border-radius:5px;padding:7px 9px;
+  background:rgba(148,163,184,.05)}
+.pf-stat .lbl{font-size:7.5px;color:var(--tert);text-transform:uppercase;letter-spacing:.9px;display:block}
+.pf-stat b{font-size:18px;font-variant-numeric:tabular-nums;display:block;line-height:1.3}
+.pf-stat .sub{font-size:9px;color:var(--sec)}
+.pf-form{display:grid;grid-template-columns:1fr;gap:6px;padding:8px 12px}
+.pf-form textarea{background:#0c1320;color:var(--txt);border:1px solid var(--border);
+  border-radius:4px;font-family:inherit;font-size:10px;padding:6px;width:100%;resize:vertical}
+.pf-form textarea:focus{outline:none;border-color:var(--blue)}
+.pf-btn{background:rgba(59,130,246,.18);color:var(--txt);border:1px solid var(--blue);
+  border-radius:4px;padding:6px;cursor:pointer;font-family:inherit;font-size:10px;
+  letter-spacing:.5px}
+.pf-btn:hover{background:rgba(59,130,246,.28)}
+.pf-btn.ghost{background:transparent;border-color:var(--border);color:var(--sec)}
+.pf-row2{display:flex;gap:6px}
+.pf-row2 .pf-btn{flex:1}
+/* The weight bar. Proportional to the position's share of NAV, on the neutral axis —
+   a weight is a magnitude, and colouring it green would make a large position read as
+   a good one. */
+.wbar{display:inline-block;height:7px;border-radius:2px;background:rgba(148,163,184,.35);
+  vertical-align:middle;min-width:1px}
+.pf-note{padding:8px 12px;color:var(--tert);font-size:10px;line-height:1.5}
+.pf-err{padding:8px 12px;color:var(--amber);font-size:10.5px;line-height:1.5}
+/* The NAV spark, capped to the top holdings by call budget rather than by preference —
+   /market_chart is one request per asset and the free tier is ten to thirty a minute. */
+.navspark{padding:6px 12px 10px}
+
+/* The sectors heat list, replacing the prose rotation panel. Category, cap, 24h and how
+   many of its names this board actually scores — that last column is the one that says
+   whether a hot sector is reachable from here or is entirely off this universe. */
+.heat-row{display:grid;grid-template-columns:1fr 58px 54px 34px;gap:6px;align-items:center;
+  padding:3px 0;border-bottom:1px solid var(--grid);font-size:10.5px;cursor:pointer}
+.heat-row:hover{background:rgba(59,130,246,.10)}
+.heat-row.on{background:rgba(59,130,246,.16);box-shadow:inset 2px 0 0 var(--blue)}
+.heat-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt)}
+.heat-row .num{font-variant-numeric:tabular-nums;text-align:right}
+.heat-ov{font-size:9px;color:var(--tert);text-align:right}
+.heat-h{display:grid;grid-template-columns:1fr 58px 54px 34px;gap:6px;font-size:7.5px;
+  color:var(--tert);text-transform:uppercase;letter-spacing:.7px;padding-bottom:3px;
+  border-bottom:1px solid var(--border)}
+.heat-h span:not(:first-child){text-align:right}
+
+/* Trending, as a ranked list rather than a count. The useful row is the disagreement —
+   a name the crowd is searching that this board scores WATCH or AVOID — so that is the
+   row that carries the mark. */
+.tr-row{display:grid;grid-template-columns:22px 1fr 52px 42px 62px;gap:6px;align-items:center;
+  padding:3px 0;border-bottom:1px solid var(--grid);font-size:10.5px}
+.tr-rank{color:var(--tert);font-size:9px;font-variant-numeric:tabular-nums}
+.tr-row .num{font-variant-numeric:tabular-nums;text-align:right}
+.tr-row.disagree{background:rgba(224,179,114,.07);box-shadow:inset 2px 0 0 var(--amber)}
+
 </style>
 </head>
 <body>
@@ -651,6 +832,26 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       <div class="stat"><b id="rb-upd" class="num">—</b><span>Last Update</span></div>
       <div class="stat"><b id="rb-lev" class="num">—</b><span>Board Leverage</span></div>
       <div class="stat"><b id="status">INIT…</b><span>Feed</span></div>
+
+      <!-- THE REGIME LINE — GET /global.
+
+           The question this page could not answer was the first one anyone asks: what
+           market am I reading this board in. Total cap, whether it moved, how much
+           actually traded, and where the two majors sit in it.
+
+           Deliberately inside the ONE status strip rather than above or below it. A
+           second band would be the fourth ribbon this layout has already removed twice,
+           and the regime is not a separate trust question — it is the frame around the
+           same one. It renders PENDING and stays pending when /global is throttled: the
+           board below it owes nothing to this call. -->
+      <div class="glstrip" id="glstrip">
+        <span class="gl pending" id="gl-cap"><span class="gl-l">Total Cap</span><b class="gl-v">—</b></span>
+        <span class="gl pending" id="gl-chg"><span class="gl-l">Cap 24h</span><b class="gl-v">—</b></span>
+        <span class="gl pending" id="gl-vol"><span class="gl-l">24h Vol</span><b class="gl-v">—</b></span>
+        <span class="gl pending" id="gl-btc"><span class="gl-l">BTC.D</span><b class="gl-v">—</b></span>
+        <span class="gl pending" id="gl-eth"><span class="gl-l">ETH.D</span><b class="gl-v">—</b></span>
+        <span class="gl pending" id="gl-regime"><span class="gl-l">Regime</span><b class="gl-v">—</b></span>
+      </div>
 
       <!-- Compact rewind. Same control and the same ids the tests and the renderer use;
            only the chrome around it shrank. -->
@@ -706,76 +907,31 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       </div>
     </div>
     <div class="glass">
-      <div class="card-h">POSITION SIZING <span class="muted" id="sz-sub">liquidity-constrained</span></div>
-      <div class="card-b">
-        <div class="sz-in">
-          <label class="muted">Book $</label>
-          <input id="sz-notional" type="number" min="0" step="1000" value="100000" style="flex:1">
-          <label class="muted" data-tip="Share of 24h volume you are willing to be. Above a few percent your own order is the price.">ADV %</label>
-          <input id="sz-participation" type="number" min="0.1" max="25" step="0.5" value="2" style="width:52px">
-        </div>
-        <div class="sz-in">
-          <label class="muted" data-tip="Stop distance in multiples of the recorded 14-bar ATR. 2 is a convention, not a measurement: it is wide enough that ordinary daily range does not take you out and narrow enough to bound the loss. Change it and every risk figure below moves with it.">Stop ATR x</label>
-          <input id="sz-stopk" type="number" min="0.25" max="10" step="0.25" value="2" style="width:52px">
-          <label class="muted" data-tip="Initial margin as a percent of notional, from your exchange. Optional: supply it and the panel reports implied leverage and how far an adverse move can travel before the posted margin is gone. Leave it blank and those two lines are absent rather than assumed.">Margin %</label>
-          <input id="sz-margin" type="number" min="0" max="100" step="0.5" placeholder="—" style="width:52px">
-        </div>
-        <div id="sz-out"></div>
-      </div>
-    </div>
-    <!-- Recovers a comparable rate from the dollar figure an exchange UI shows. Coinbase
-         Advanced reports accumulated funding as a running dollar total against an open
-         position and never as a rate, and that number is not comparable to anything:
-         it scales with position size and with how long the position has been open, so
-         $40 on one screen and $12 on another say nothing about which market pays more. -->
-    <div class="glass">
-      <div class="card-h">POSITION FUNDING PARSER <span class="muted">$ accrual → APR</span></div>
-      <div class="card-b">
-        <div class="fin">
-          <label class="wide" data-tip="Every Coinbase Derivatives contract is a fixed quantity of the underlying, not one unit of it. Only perpetual-style contracts pay funding, so only those are listed here. Pick the contract and the multiplier fills itself in. Pick 'no verified perpetual mapping' and the parser refuses to compute rather than assuming 1.">Contract
-            <select id="pp-contract"></select></label>
-          <div class="wide spec-snap" id="pp-snapshot"></div>
-          <label data-tip="Units of the underlying per contract. Autofilled from the pinned specification table; editable, because a table that cannot be overridden is a table that is wrong in exactly the case you needed it.">Multiplier
-            <input id="pp-mult" type="number" min="0" step="any" value="0.1"></label>
-          <label data-tip="The contract count as the exchange reports it, not a quantity of the underlying.">Contracts
-            <input id="pp-contracts" type="number" min="0" step="any" value="10"></label>
-          <label>Mark price $
-            <input id="pp-price" type="number" min="0" step="any" value="3000"></label>
-          <label data-tip="Copy the accumulated funding figure straight from the exchange. Sign matters: a negative value on a LONG means the position received funding.">Accrued $
-            <input id="pp-accrued" type="number" step="any" value="-40"></label>
-          <label>Over (hours)
-            <input id="pp-hours" type="number" min="0" step="any" value="24"></label>
-          <label class="wide">Side
-            <select id="pp-side"><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select></label>
-        </div>
-        <div class="pp-out" id="pp-out"></div>
-      </div>
-    </div>
-    <div class="glass">
-      <div class="card-h">PORTFOLIO OVERLAY</div>
-      <div class="card-b">
-        <div class="muted" style="margin-bottom:6px">Paste holdings as JSON: {"BTC":0.5,"SOL":20} — overlays your bags on the matrix.</div>
-        <textarea id="pf-input" rows="3" style="width:100%;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:6px" placeholder='{"BTC":0.5,"SOL":20}'></textarea>
-        <button id="pf-btn" style="margin-top:6px;width:100%;background:rgba(59,130,246,.18);color:var(--txt);border:1px solid var(--blue);border-radius:4px;padding:5px;cursor:pointer;font-family:inherit;font-size:10px">OVERLAY HOLDINGS</button>
-        <div id="pf-out" class="muted" style="margin-top:8px"></div>
-      </div>
-    </div>
-    <div class="glass">
       <div class="card-h">CONVICTION TIERS</div>
       <div class="card-b" id="tiers"></div>
-    </div>
-    <div class="glass">
-      <div class="card-h">MODULE B — VESTING</div>
-      <div class="card-b note">ERA (token emission ÷ network adoption) needs an on-chain unlock feed.
-        Connect a Dune query via repository secrets to activate this module. Until then, vesting risk
-        is shown as unavailable rather than estimated.</div>
     </div>
   </aside>
 
   <!-- CENTER -->
   <main class="col-center">
     <div class="glass">
-      <div class="card-h">CONVICTION MATRIX <span id="cm-note" class="muted">top 10 · scroll · click a row</span></div>
+      <!-- THE BOARD. Ten columns, in the order a reader actually asks them:
+
+           who (ticker + tier), what the model says (signal), how strongly (score), at
+           what price, moving which way today, over the week, how liquid, and one derived
+           flag. Then the copy affordance.
+
+           Five columns LEFT this table for the inspector — the liquidity bar, the
+           all-time-range Z, the supply multiplier, the funding carry and the regime
+           badge. None of them was deleted and none is less true than it was; all five
+           were being read one row at a time by someone who had already decided which row
+           mattered, which is the definition of a deep-dive rather than a scan. Fourteen
+           columns is also what made this page the widest thing in the file: it is what
+           put a horizontal scrollbar on a phone.
+
+           The delta column keeps id="th-delta" and the timeframe switch keeps working
+           on it. The spark is now an inline SVG rather than a canvas — see spark(). -->
+      <div class="card-h">CONVICTION BOARD <span id="cm-note" class="muted">top 10 · scroll · click a row</span></div>
       <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--sec);cursor:pointer;user-select:none">
           <input type="checkbox" id="hide-nq" style="accent-color:#7BC9A0;cursor:pointer"> <b style="color:var(--green)">HIDE NON-QUALIFIED</b>
@@ -788,12 +944,12 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       </div>
       <div class="scroll-pane">
         <table id="tbl-conv"><thead><tr>
-          <th>#</th><th>Ticker</th><th>Price</th><th id="th-delta">24H Δ</th><th>Spark</th>
-          <th>Turnover</th><th>Liquidity</th><th>Z(ATH)</th>
-          <th title="Fully diluted valuation over market cap, as a score multiplier. This one DOES reach conviction: a token whose supply still has to be issued is marked down on a curve capped at a 10% haircut. A token whose FDV the feed does not publish is NOT marked down — unknown is not the same as fully circulating. See Module F.">Supply</th>
-          <th title="Annualised funding carry from the recorded perp feed. This one DOES reach conviction: the regime it falls in sets a multiplier on the score, gated on a confirming price or RSI leg. See Module E.">Funding</th>
-          <th title="Choppiness index and Wilder ADX over accumulated daily bars, resolved to the book each suits. Observational — none of it feeds conviction.">Regime</th>
-          <th>Conv</th><th>Signal</th><th>⧉</th>
+          <th>#</th><th>Ticker</th><th>Signal</th><th>Conv</th><th>Price</th>
+          <th id="th-delta">24H Δ</th>
+          <th title="Seven days of price, drawn from the sparkline the markets endpoint returns. Coloured by the sign of the 7d move, on the same ramp as the delta beside it. A dashed line means the payload carried no sparkline and the shape is modelled from the 24h change — a stated approximation, not a week of ticks.">7D</th>
+          <th title="24h volume over market cap. The board's liquidity column: 30-60% is the band the score treats as healthy participation, above 90% is wash-like turnover, below 15% is a book too thin to size into.">Vol/MCap</th>
+          <th title="One derived flag per row, the most consequential of the readings that did not earn a column: funding extremes, distance from the all-time high, supply overhang, accumulation divergence and wash turnover. The full set is in the inspector.">Flag</th>
+          <th>⧉</th>
         </tr></thead><tbody></tbody></table>
       </div>
     </div>
@@ -857,163 +1013,116 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       </div>
     </div>
     </div>
-    
-    
 
-    <div class="glass">
-      <div class="card-h">TRENDING vs CONVICTION
-        <span class="muted" id="tmd-note">search rank against model rank</span></div>
-      <div class="card-b" id="tmd">
-        <div class="muted">Trending feed pending — <code>ledger/market_intel.json</code> was not produced.</div>
-      </div>
-      <details class="why"><summary>Why this panel exists</summary><div class="note">The two rankings are compared <b>within their overlap</b> — the names that are both
-        trending and scored — so each percentile is over the same population. Ranking each side against its own
-        population instead looks reasonable and is not: the trending list is a top-15 slice while the board is
-        the whole universe, and the mismatch tipped eleven of fifteen names into a single label on a live run.
-        <b class="neg">FOMO_CROWDED</b> means the crowd ranks a name well above this
-        model; <b class="pos">QUIET_ACCUMULATION</b> means the reverse. Neither is an instruction — a crowded
-        name is not automatically a short, and a quiet one is not automatically early.</div></details>
-    </div>
+    <!-- THE OVERFLOW. Thirteen peer panels used to sit below the board, each one a
+         full card competing with it for the same scan. Every one of them is still here
+         and still renders on every load — no renderer lost its host and no code path
+         became conditional on this being open — but a reader who came for the ranked
+         board no longer scrolls past nine screens of diagnostics to leave.
 
-    <div class="glass">
-      <div class="card-h">FALLEN QUALITY KINGS <span class="muted" id="fk-note">drawdown with exhaustion</span></div>
-      <div class="card-b" id="fallen">
-        <div class="muted">Screen pending — <code>ledger/market_intel.json</code> was not produced.</div>
-      </div>
-      <details class="why"><summary>Why this panel exists</summary><div class="note">Names that held a top-25 market-cap rank on most of their recorded nights and are now
-        10–40% off their <b>recorded</b> peak with either an oversold RSI or a bullish momentum divergence.
-        Both drawdown bounds matter: below the floor nothing is dislocated, and past the ceiling the market
-        is usually repricing something real, where "mean reversion" is a bet against information. The peak is
-        the highest close <b>this pipeline recorded</b>, not the all-time high — the bar count is shown on
-        every row so a 12% drawdown off a 19-night peak is never read as 12% off the cycle high.</div></details>
-    </div>
-
-    <div class="glass">
-      <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
-      <div class="card-b" style="padding:0">
-        <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko; RiskMult<sub>perp</sub> from Module E.
-        <details class="why" style="margin-left:0"><summary>what RiskMult is doing</summary>
-          <div class="body">It is <b>not</b> neutral, despite the older note here that said so. It reads the cross-venue annualised carry and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do — continuously, with no step at any threshold. Assets inside the inert funding band, and assets with no perpetual market at all, sit at exactly 1.0: a real reading, not a placeholder.</div></details></div></details>
-        <div class="scroll-pane">
-          <table id="tbl-lavl"><thead><tr>
-            <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>RiskMult</th><th>LAVL</th><th>Regime</th>
-          </tr></thead><tbody></tbody></table>
+         The position tools, the funding parser and the carry screener are NOT here:
+         they moved to the Portfolio workspace, which is where a book is priced. -->
+    <details class="tools" id="tools-research">
+      <summary>Research &amp; diagnostics <span class="cnt">trending · fallen kings · LAVL · breadth · persistence · edge · pipeline</span></summary>
+      <div class="tools-body">
+        <div class="glass">
+          <div class="card-h">TRENDING vs CONVICTION
+            <span class="muted" id="tmd-note">search rank against model rank</span></div>
+          <div class="card-b" id="tmd">
+            <div class="muted">Trending feed pending — <code>ledger/market_intel.json</code> was not produced.</div>
+          </div>
+          <details class="why"><summary>Why this panel exists</summary><div class="note">The two rankings are compared <b>within their overlap</b> — the names that are both
+            trending and scored — so each percentile is over the same population. Ranking each side against its own
+            population instead looks reasonable and is not: the trending list is a top-15 slice while the board is
+            the whole universe, and the mismatch tipped eleven of fifteen names into a single label on a live run.
+            <b class="neg">FOMO_CROWDED</b> means the crowd ranks a name well above this
+            model; <b class="pos">QUIET_ACCUMULATION</b> means the reverse. Neither is an instruction — a crowded
+            name is not automatically a short, and a quiet one is not automatically early.</div></details>
+        </div>
+        <div class="glass">
+          <div class="card-h">FALLEN QUALITY KINGS <span class="muted" id="fk-note">drawdown with exhaustion</span></div>
+          <div class="card-b" id="fallen">
+            <div class="muted">Screen pending — <code>ledger/market_intel.json</code> was not produced.</div>
+          </div>
+          <details class="why"><summary>Why this panel exists</summary><div class="note">Names that held a top-25 market-cap rank on most of their recorded nights and are now
+            10–40% off their <b>recorded</b> peak with either an oversold RSI or a bullish momentum divergence.
+            Both drawdown bounds matter: below the floor nothing is dislocated, and past the ceiling the market
+            is usually repricing something real, where "mean reversion" is a bet against information. The peak is
+            the highest close <b>this pipeline recorded</b>, not the all-time high — the bar count is shown on
+            every row so a 12% drawdown off a 19-night peak is never read as 12% off the cycle high.</div></details>
+        </div>
+        <div class="glass">
+          <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
+          <div class="card-b" style="padding:0">
+            <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko; RiskMult<sub>perp</sub> from Module E.
+            <details class="why" style="margin-left:0"><summary>what RiskMult is doing</summary>
+              <div class="body">It is <b>not</b> neutral, despite the older note here that said so. It reads the cross-venue annualised carry and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do — continuously, with no step at any threshold. Assets inside the inert funding band, and assets with no perpetual market at all, sit at exactly 1.0: a real reading, not a placeholder.</div></details></div></details>
+            <div class="scroll-pane">
+              <table id="tbl-lavl"><thead><tr>
+                <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>RiskMult</th><th>LAVL</th><th>Regime</th>
+              </tr></thead><tbody></tbody></table>
+            </div>
+          </div>
+        </div>
+        <div class="glass">
+          <div class="card-h">CONVICTION CHANGE FEED <span class="muted">Δ10d · largest movers</span></div>
+          <div class="card-b" id="chg-feed">
+            <div class="muted" style="padding:8px 12px">Conviction time-series pending — accrues with the nightly ledger.</div>
+          </div>
+        </div>
+        <div class="glass">
+          <div class="card-h">CONVICTION BREADTH <span class="muted">market-level signal</span></div>
+          <div class="card-b" id="breadth" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px">
+            <div class="muted" style="padding:8px 12px;grid-column:1/-1">Breadth / dispersion pending — accrues with the nightly ledger.</div>
+          </div>
+        </div>
+        <div class="glass">
+          <div class="card-h">CONVICTION PERSISTENCE <span class="muted" id="pers-sub">who holds the score, who spikes</span></div>
+          <div class="card-b" id="persist">
+            <div class="muted" style="padding:8px 12px">Persistence pending — accrues with the nightly ledger.</div>
+          </div>
+        </div>
+        <div class="glass">
+          <div class="card-h">SELECTION EDGE <span class="muted" id="edge-sub">does conviction predict tomorrow?</span></div>
+          <div class="card-b" id="edge">
+            <div class="muted" style="padding:8px 12px">Edge measurement pending — accrues with the nightly ledger.</div>
+          </div>
+        </div>
+        <div class="glass">
+          <div class="card-h">PIPELINE HEALTH <span class="muted" id="mon-obs">operational condition, not predictive power</span></div>
+          <div class="card-b" id="monitor">
+            <div class="muted" style="padding:8px 12px">Monitor pending — <code>ledger/monitor.json</code> was not produced.</div>
+          </div>
+        </div>
+        <div class="glass">
+          <div class="card-h">MODULE B — VESTING</div>
+          <div class="card-b note">ERA (token emission ÷ network adoption) needs an on-chain unlock feed.
+            Connect a Dune query via repository secrets to activate this module. Until then, vesting risk
+            is shown as unavailable rather than estimated.</div>
         </div>
       </div>
-    </div>
-
-    <!-- MODULE E — the funding heatmap. Unlike Modules 1 and 2, this one is NOT
-         observational: the regime sets a multiplier on the conviction score, and the
-         panel says so in its own header rather than leaving the reader to infer it from
-         a matching number elsewhere on the board. -->
-    
-
-    <div class="glass">
-      <div class="card-h">CASH-AND-CARRY SCREENER
-        <span class="muted" id="cc-note">net of execution drag</span></div>
-      <div class="card-b" style="padding:0">
-        <div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
-          <label style="font-size:8px;color:var(--tert);text-transform:uppercase;letter-spacing:.6px;display:flex;align-items:center;gap:5px">
-            Hold (days)
-            <input id="cc-hold" type="number" min="1" max="365" step="1" value="30"
-                   style="width:56px;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:3px 5px">
-          </label>
-          <span class="muted" id="cc-basis" style="flex:1"></span>
-        </div>
-        <div class="scroll-pane">
-          <table id="tbl-carry"><thead><tr>
-            <th>Ticker</th>
-            <th title="Annualised funding the delta-neutral position collects: long spot, short perp.">Gross APR</th>
-            <th title="Round-trip execution amortised over the holding period. Four fills — buy spot, short perp, then unwind both — so the cost is charged once and spread across however long the position is held.">Drag</th>
-            <th title="Gross carry minus execution drag. This is the number the trade actually earns.">Net APR</th>
-            <th title="Mean funding APR over the nights recorded so far, and how many of those nights it was positive. A carry is held for weeks; one settlement print is a noisy estimate of what it pays. A high gross next to a thin persistence is one hot night, not a regime.">Trailing</th>
-            <th title="How long the position must be held for the funding to pay for the fills. Below this the trade loses money however good the headline rate looks.">B/E days</th>
-            <th title="Open interest on the venue reporting it. Assets below the depth floor are excluded; assets with no reading are kept and marked, because an absent number is not evidence of a thin book.">Open Int.</th>
-            <th>Regime</th>
-          </tr></thead><tbody></tbody></table>
-        </div>
-        <div class="note" id="cc-foot"></div>
-      </div>
-    </div>
-    <div class="glass">
-      <div class="card-h">CONVICTION CHANGE FEED <span class="muted">Δ10d · largest movers</span></div>
-      <div class="card-b" id="chg-feed">
-        <div class="muted" style="padding:8px 12px">Conviction time-series pending — accrues with the nightly ledger.</div>
-      </div>
-    </div>
-    <div class="glass">
-      <div class="card-h">CONVICTION BREADTH <span class="muted">market-level signal</span></div>
-      <div class="card-b" id="breadth" style="display:grid;grid-template-columns:1fr 1fr;gap:6px 14px">
-        <div class="muted" style="padding:8px 12px;grid-column:1/-1">Breadth / dispersion pending — accrues with the nightly ledger.</div>
-      </div>
-    </div>
-    <div class="glass">
-      <div class="card-h">CONVICTION PERSISTENCE <span class="muted" id="pers-sub">who holds the score, who spikes</span></div>
-      <div class="card-b" id="persist">
-        <div class="muted" style="padding:8px 12px">Persistence pending — accrues with the nightly ledger.</div>
-      </div>
-    </div>
-    <div class="glass">
-      <div class="card-h">SELECTION EDGE <span class="muted" id="edge-sub">does conviction predict tomorrow?</span></div>
-      <div class="card-b" id="edge">
-        <div class="muted" style="padding:8px 12px">Edge measurement pending — accrues with the nightly ledger.</div>
-      </div>
-    </div>
-    <div class="glass">
-      <div class="card-h">PIPELINE HEALTH <span class="muted" id="mon-obs">operational condition, not predictive power</span></div>
-      <div class="card-b" id="monitor">
-        <div class="muted" style="padding:8px 12px">Monitor pending — <code>ledger/monitor.json</code> was not produced.</div>
-      </div>
-    </div>
+    </details>
   </main>
 
   <!-- RIGHT -->
   <aside class="rail">
-    <div class="glass">
-      <div class="card-h">LIQUIDITY × VOLUME QUADRANT</div>
-      <div class="chart-box"><canvas id="quad" aria-label="Conviction against relative strength versus BTC" height="200" style="height:200px"></canvas>
-        <div class="muted" id="quad-legend">X: Turnover % · Y: 24H Vol (log) · bubble: mkt cap</div></div>
-    </div>
-    <div class="glass">
-      <div class="card-h">CONVICTION × 7D ALPHA MAP</div>
-      <div class="chart-box"><canvas id="alpha" aria-label="Basket alpha against benchmark, by night" height="210" style="height:210px"></canvas>
-        <div class="muted" id="alpha-legend">X: 7D return % · Y: Conviction (0–100) · color: MVRV Z · size: dilution</div></div>
-    </div>
-    <!-- The four-quadrant factor map. Distinct from the alpha map above it, which plots
-         a raw 7d return against conviction: this one plots the two FACTORS conviction is
-         built from against each other, so a name's position says which half of its score
-         it earned. The quadrant labels are drawn on the canvas rather than kept in a
-         legend, because a quadrant chart whose quadrants are unnamed is a scatter plot. -->
-    <div class="glass">
-      <div class="card-h">FACTOR QUADRANT <span class="muted" id="fq-note">quality × momentum</span></div>
-      <div class="chart-box"><canvas id="fquad" aria-label="Factor quadrant: momentum against quality" height="230" style="height:230px"></canvas>
-        <div class="muted" id="fquad-legend">X: confirmation (blended RS vs BTC) · Y: quality × liquidity · size: mkt cap</div></div>
-      <details class="why"><summary>Why this panel exists</summary><div class="note">Both axes are the score's own components, not restatements of price. <b>Y</b> is
-        structural quality — log-market-cap depth, times the liquidity-fit haircut, times the Module F supply
-        multiplier — and <b>X</b> is market
-        confirmation, the blended relative strength against BTC that the score reads. A name high on both is
-        backed by structure and by the tape; high on X alone is momentum without the depth to hold a position;
-        high on Y alone is a quality asset the market has not confirmed. The dividing lines are the board's
-        own medians, so this is a statement about tonight's universe rather than against fixed cut-offs.</div></details>
-    </div>
+    <div class="glass" id="inspector">
+      <!-- THE INSPECTOR — the deep-dive surface the board's five removed columns moved
+           into, plus the fundamentals that were never on this page at all.
 
-    <div class="glass">
-      <div class="card-h">CORRELATION &amp; SYSTEMIC RISK <span class="muted" id="corr-note">—</span></div>
-      <div class="card-b" id="corr">
-        <div class="muted">Correlation pending — <code>ledger/market_intel.json</code> was not produced.</div>
-      </div>
-      <details class="why"><summary>Why this panel exists</summary><div class="note">Pearson correlation of daily log returns across the top names by conviction, over the
-        nights actually recorded. The number that matters is <b>effective breadth</b>: N&sup2; divided by the
-        sum of the correlation matrix, which returns N for an uncorrelated book and 1 for a perfectly
-        correlated one. A fifteen-name book whose members move together is not fifteen positions, and every
-        per-position risk statistic computed as though it were is wrong in the same direction. Pairs with too
-        few overlapping nights are excluded from the mean rather than imputed into it.</div></details>
-    </div>
+           GET /coins/{id}?localization=false&tickers=false, on selection, debounced and
+           cached by id. Never on first paint and never N+1: one request for the row a
+           reader actually chose, and one prefetch of its neighbours so arrow-keying the
+           board does not stutter.
 
-    <div class="glass">
-      <div class="card-h">FACTOR BREAKDOWN <span class="muted" id="fb-sym">—</span></div>
-      <div class="fb-wrap" id="fb"><div class="muted" style="padding:30px 12px">Select a token to see its factor tilt.</div></div>
-      <div class="muted" style="padding:4px 12px 10px">DFA/AQR factor readout (0–100). Size·Value·Quality·Momentum·Liquidity — explains the Conviction Score.</div>
+           An EMPTY inspector is a failure state, so this opens on the top-ranked name
+           rather than waiting for a click. When CoinGecko refuses the call the panel
+           says "fundamentals stale" and keeps every ledger-derived row below it: the
+           score decomposition owes nothing to this fetch. -->
+      <div class="card-h">INSPECTOR <span class="muted" id="fb-sym">—</span></div>
+      <div id="insp"><div class="muted" style="padding:14px 12px">Select a row on the board.</div></div>
+      <div class="fb-wrap" id="fb"><div class="muted" style="padding:14px 12px">Select a token to see its factor tilt.</div></div>
+      <div class="muted" style="padding:4px 12px 10px">DFA/AQR factor readout. Size·Value·Quality·Momentum·Liquidity — explains the Conviction Score.</div>
     </div>
     <div class="glass">
       <div class="card-h">CONVICTION-WEIGHTED INDEX <span class="muted" id="idx-rebal">—</span>
@@ -1025,6 +1134,59 @@ canvas:focus-visible{outline:2px solid var(--blue)}
       <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
       <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:4px 12px 10px">Nightly Top-10 basket (06:17 UTC snapshot), score-proportional weights. The <b>live</b> conviction leaders in the Alpha Map use the same formula but diverge slightly on intraday price moves. Paper return is chained from the recorded signals ledger — weights from the earlier night, priced at both ends — against BTC, with the equal-weight universe as the control that separates selection from market beta.</div></details>
     </div>
+
+    <!-- The scatter plates and the correlation matrix. Folded for the same reason as
+         the diagnostics above: three canvases and a fourteen-by-fourteen matrix are
+         study surfaces, and they were the first thing beside the board.
+
+         All four still render on every load. quad() and alphaMap() now carry the same
+         `clientWidth||360` fallback factorQuad() always had, so the points they
+         register — and therefore the accessible tables they publish — are correct even
+         while this is closed; opening it redraws them at the real width. -->
+    <details class="tools" id="tools-charts">
+      <summary>Charts &amp; correlation <span class="cnt">liquidity · alpha · factor · systemic risk</span></summary>
+      <div class="tools-body">
+        <div class="glass">
+          <div class="card-h">LIQUIDITY × VOLUME QUADRANT</div>
+          <div class="chart-box"><canvas id="quad" aria-label="Conviction against relative strength versus BTC" height="200" style="height:200px"></canvas>
+            <div class="muted" id="quad-legend">X: Turnover % · Y: 24H Vol (log) · bubble: mkt cap</div></div>
+        </div>
+        <div class="glass">
+          <div class="card-h">CONVICTION × 7D ALPHA MAP</div>
+          <div class="chart-box"><canvas id="alpha" aria-label="Basket alpha against benchmark, by night" height="210" style="height:210px"></canvas>
+            <div class="muted" id="alpha-legend">X: 7D return % · Y: Conviction (0–100) · color: MVRV Z · size: dilution</div></div>
+        </div>
+        <!-- The four-quadrant factor map. Distinct from the alpha map above it, which plots
+             a raw 7d return against conviction: this one plots the two FACTORS conviction is
+             built from against each other, so a name's position says which half of its score
+             it earned. The quadrant labels are drawn on the canvas rather than kept in a
+             legend, because a quadrant chart whose quadrants are unnamed is a scatter plot. -->
+        <div class="glass">
+          <div class="card-h">FACTOR QUADRANT <span class="muted" id="fq-note">quality × momentum</span></div>
+          <div class="chart-box"><canvas id="fquad" aria-label="Factor quadrant: momentum against quality" height="230" style="height:230px"></canvas>
+            <div class="muted" id="fquad-legend">X: confirmation (blended RS vs BTC) · Y: quality × liquidity · size: mkt cap</div></div>
+          <details class="why"><summary>Why this panel exists</summary><div class="note">Both axes are the score's own components, not restatements of price. <b>Y</b> is
+            structural quality — log-market-cap depth, times the liquidity-fit haircut, times the Module F supply
+            multiplier — and <b>X</b> is market
+            confirmation, the blended relative strength against BTC that the score reads. A name high on both is
+            backed by structure and by the tape; high on X alone is momentum without the depth to hold a position;
+            high on Y alone is a quality asset the market has not confirmed. The dividing lines are the board's
+            own medians, so this is a statement about tonight's universe rather than against fixed cut-offs.</div></details>
+        </div>
+        <div class="glass">
+          <div class="card-h">CORRELATION &amp; SYSTEMIC RISK <span class="muted" id="corr-note">—</span></div>
+          <div class="card-b" id="corr">
+            <div class="muted">Correlation pending — <code>ledger/market_intel.json</code> was not produced.</div>
+          </div>
+          <details class="why"><summary>Why this panel exists</summary><div class="note">Pearson correlation of daily log returns across the top names by conviction, over the
+            nights actually recorded. The number that matters is <b>effective breadth</b>: N&sup2; divided by the
+            sum of the correlation matrix, which returns N for an uncorrelated book and 1 for a perfectly
+            correlated one. A fifteen-name book whose members move together is not fifteen positions, and every
+            per-position risk statistic computed as though it were is wrong in the same direction. Pairs with too
+            few overlapping nights are excluded from the mean rather than imputed into it.</div></details>
+        </div>
+      </div>
+    </details>
   </aside>
   </div><!-- /ws crypto -->
 
@@ -1234,6 +1396,217 @@ canvas:focus-visible{outline:2px solid var(--blue)}
     </aside>
   </div><!-- /ws rwa -->
 
+  <!-- PORTFOLIO WORKSPACE — a book, not an overlay.
+
+       What was here before was a textarea that tinted rows on the crypto matrix. It
+       could not tell you what the book was worth, what it made today, what it made
+       since you bought it, or which position was carrying the result — which is every
+       question anyone opens a portfolio screen to ask.
+
+       It owns a subtree now rather than scrolling to a panel in the crypto workspace,
+       because a book has its own board, its own inspector column and its own tools. The
+       nav entry means what it says.
+
+       HOLDINGS STAY LOCAL. They are parsed in the browser, held in memory and
+       localStorage, and never leave it. The only thing sent anywhere is a list of
+       CoinGecko ids in a query string, which is what pricing an asset requires.
+
+       Priced by:
+         /simple/price?ids=…&include_market_cap=true&include_24hr_change=true   (NAV, day P/L)
+         /coins/markets?ids=…&sparkline=true&price_change_percentage=1h,24h,7d,30d (rows)
+         /coins/{id}/history?date=dd-mm-yyyy  (cost basis, only when a date was given
+                                               and no manual cost was)
+         /coins/{id}/market_chart?days=90&interval=daily (NAV spark, top holdings only)
+
+       Every one of those is batched or capped. A book of forty names is two requests
+       plus at most three chart calls, not forty-three. -->
+  <div class="ws" data-ws="portfolio" hidden>
+    <div class="statuswrap">
+      <div class="ribbon glass statusbar">
+        <div class="brand">PORTFOLIO <span class="live">BOOK</span></div>
+        <div class="stat"><b id="pf-nav" class="num">—</b><span>NAV</span></div>
+        <div class="stat"><b id="pf-day" class="num">—</b><span>Day P/L</span></div>
+        <div class="stat"><b id="pf-open" class="num">—</b><span>Open P/L</span></div>
+        <div class="stat"><b id="pf-pos" class="num">—</b><span>Positions</span></div>
+        <div class="stat"><b id="pf-status" class="num">NO BOOK</b><span>Pricing</span></div>
+      </div>
+    </div>
+
+    <aside class="side">
+      <div class="glass">
+        <div class="card-h">HOLDINGS <span class="muted">local only</span></div>
+        <div class="pf-form">
+          <div class="muted">One line per position, or JSON. Quantity is required; cost
+            and date are optional.
+            <code>btc 0.5 @ 41000</code> ·
+            <code>solana 20 @ 2025-11-04</code> ·
+            <code>{"ethereum":3}</code></div>
+          <textarea id="pf-input" rows="7" spellcheck="false"
+            placeholder="bitcoin 0.5 @ 41000&#10;ethereum 3 @ 2025-11-04&#10;solana 20"></textarea>
+          <div class="pf-row2">
+            <button id="pf-btn" class="pf-btn">PRICE THE BOOK</button>
+            <button id="pf-clear" class="pf-btn ghost">CLEAR</button>
+          </div>
+          <div id="pf-out" class="muted"></div>
+        </div>
+        <details class="why"><summary>how a line is read</summary><div class="note">A name
+          resolves against the scored universe first (so <code>BTC</code> works) and against
+          CoinGecko ids second (so <code>bitcoin</code> and <code>lido-dao</code> work).
+          <b>@ 41000</b> is a unit cost. <b>@ 2025-11-04</b> is a purchase date, and the
+          cost is then fetched from <code>/coins/{id}/history</code> for that date — one
+          request per dated line, made once and cached. A line with neither has no cost
+          basis, so it shows a weight and a day move and NO open P/L, rather than an open
+          P/L measured from a number nobody supplied.</div></details>
+      </div>
+      <div class="glass">
+        <div class="card-h">BOOK RISK <span class="muted" id="pf-risk-note">concentration</span></div>
+        <div class="card-b" id="pf-risk"><div class="muted">Price the book to see weights,
+          concentration and the conviction mix.</div></div>
+      </div>
+    </aside>
+
+    <main class="col-center">
+      <div class="glass">
+        <div class="card-h">POSITIONS <span class="muted" id="pf-rows-note">click a row to inspect it on the crypto board</span></div>
+        <div class="scroll-pane">
+          <table id="tbl-book"><thead><tr>
+            <th>#</th><th>Ticker</th><th>Qty</th><th>Price</th>
+            <th title="Position value in USD at the live price.">Value</th>
+            <th title="Share of net asset value. The bar is proportional to the same number — a weight is a magnitude, so it is drawn on the neutral axis rather than coloured as though large were good.">Weight</th>
+            <th title="Today's move on this position in dollars: quantity times the 24h price change. Summed, this is the Day P/L on the strip above.">Day P/L</th>
+            <th title="Value minus cost basis, where a cost basis exists. A line with no cost — no manual price and no purchase date — shows a dash rather than an open P/L measured from today's price, which would always read zero.">Open P/L</th>
+            <th title="The conviction score this board publishes for the name, if it is in the scored universe. A column, not the headline: this is a book screen and what the book did today is the headline.">Conv</th>
+            <th>7D</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+        <div class="pf-note" id="pf-foot">No book priced yet.</div>
+      </div>
+
+      <div class="glass">
+        <div class="card-h">NAV TRACK <span class="muted" id="pf-nav-note">90 days · top holdings only</span></div>
+        <div class="navspark" id="pf-navspark">
+          <div class="muted">Price a book with at least one position to draw its 90-day
+            track. <code>/coins/{id}/market_chart</code> is one request per asset, so this
+            is capped at the largest holdings by weight and says which ones it drew.</div>
+        </div>
+      </div>
+
+      <!-- The position tools. They were the crypto sidebar's first three cards, above
+           the fold, on a screen whose job is a ranked board — and every one of them is
+           about a position you have already decided to take. They are unchanged: same
+           ids, same renderers, same inputs. -->
+      <!-- Open by default, unlike the two crypto disclosures. Those fold panels that
+           compete with a ranked board; this one is already inside the workspace the
+           brief asked the position tools to move to, it sits below the book's own two
+           panels, and folding a screen's main working surface behind a click inside the
+           screen dedicated to it is one fold too many. -->
+      <details class="tools" id="tools-position" open>
+        <summary>Position tools <span class="cnt">sizing · funding parser · cash-and-carry</span></summary>
+        <div class="tools-body">
+          <div class="glass">
+      <div class="card-h">POSITION SIZING <span class="muted" id="sz-sub">liquidity-constrained</span></div>
+      <div class="card-b">
+        <div class="sz-in">
+          <label class="muted">Book $</label>
+          <input id="sz-notional" type="number" min="0" step="1000" value="100000" style="flex:1">
+          <label class="muted" data-tip="Share of 24h volume you are willing to be. Above a few percent your own order is the price.">ADV %</label>
+          <input id="sz-participation" type="number" min="0.1" max="25" step="0.5" value="2" style="width:52px">
+        </div>
+        <div class="sz-in">
+          <label class="muted" data-tip="Stop distance in multiples of the recorded 14-bar ATR. 2 is a convention, not a measurement: it is wide enough that ordinary daily range does not take you out and narrow enough to bound the loss. Change it and every risk figure below moves with it.">Stop ATR x</label>
+          <input id="sz-stopk" type="number" min="0.25" max="10" step="0.25" value="2" style="width:52px">
+          <label class="muted" data-tip="Initial margin as a percent of notional, from your exchange. Optional: supply it and the panel reports implied leverage and how far an adverse move can travel before the posted margin is gone. Leave it blank and those two lines are absent rather than assumed.">Margin %</label>
+          <input id="sz-margin" type="number" min="0" max="100" step="0.5" placeholder="—" style="width:52px">
+        </div>
+        <div id="sz-out"></div>
+      </div>
+    </div>
+          <!-- MODULE E — the funding heatmap. Unlike Modules 1 and 2, this one is NOT
+         observational: the regime sets a multiplier on the conviction score, and the
+         panel says so in its own header rather than leaving the reader to infer it from
+         a matching number elsewhere on the board. -->
+    
+
+    <div class="glass">
+      <div class="card-h">CASH-AND-CARRY SCREENER
+        <span class="muted" id="cc-note">net of execution drag</span></div>
+      <div class="card-b" style="padding:0">
+        <div style="display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <label style="font-size:8px;color:var(--tert);text-transform:uppercase;letter-spacing:.6px;display:flex;align-items:center;gap:5px">
+            Hold (days)
+            <input id="cc-hold" type="number" min="1" max="365" step="1" value="30"
+                   style="width:56px;background:#0c1320;color:var(--txt);border:1px solid var(--border);border-radius:4px;font-family:inherit;font-size:10px;padding:3px 5px">
+          </label>
+          <span class="muted" id="cc-basis" style="flex:1"></span>
+        </div>
+        <div class="scroll-pane">
+          <table id="tbl-carry"><thead><tr>
+            <th>Ticker</th>
+            <th title="Annualised funding the delta-neutral position collects: long spot, short perp.">Gross APR</th>
+            <th title="Round-trip execution amortised over the holding period. Four fills — buy spot, short perp, then unwind both — so the cost is charged once and spread across however long the position is held.">Drag</th>
+            <th title="Gross carry minus execution drag. This is the number the trade actually earns.">Net APR</th>
+            <th title="Mean funding APR over the nights recorded so far, and how many of those nights it was positive. A carry is held for weeks; one settlement print is a noisy estimate of what it pays. A high gross next to a thin persistence is one hot night, not a regime.">Trailing</th>
+            <th title="How long the position must be held for the funding to pay for the fills. Below this the trade loses money however good the headline rate looks.">B/E days</th>
+            <th title="Open interest on the venue reporting it. Assets below the depth floor are excluded; assets with no reading are kept and marked, because an absent number is not evidence of a thin book.">Open Int.</th>
+            <th>Regime</th>
+          </tr></thead><tbody></tbody></table>
+        </div>
+        <div class="note" id="cc-foot"></div>
+      </div>
+    </div>
+        </div>
+      </details>
+    </main>
+
+    <aside class="rail">
+      <!-- Recovers a comparable rate from the dollar figure an exchange UI shows. Coinbase
+         Advanced reports accumulated funding as a running dollar total against an open
+         position and never as a rate, and that number is not comparable to anything:
+         it scales with position size and with how long the position has been open, so
+         $40 on one screen and $12 on another say nothing about which market pays more. -->
+    <div class="glass">
+      <div class="card-h">POSITION FUNDING PARSER <span class="muted">$ accrual → APR</span></div>
+      <div class="card-b">
+        <div class="fin">
+          <label class="wide" data-tip="Every Coinbase Derivatives contract is a fixed quantity of the underlying, not one unit of it. Only perpetual-style contracts pay funding, so only those are listed here. Pick the contract and the multiplier fills itself in. Pick 'no verified perpetual mapping' and the parser refuses to compute rather than assuming 1.">Contract
+            <select id="pp-contract"></select></label>
+          <div class="wide spec-snap" id="pp-snapshot"></div>
+          <label data-tip="Units of the underlying per contract. Autofilled from the pinned specification table; editable, because a table that cannot be overridden is a table that is wrong in exactly the case you needed it.">Multiplier
+            <input id="pp-mult" type="number" min="0" step="any" value="0.1"></label>
+          <label data-tip="The contract count as the exchange reports it, not a quantity of the underlying.">Contracts
+            <input id="pp-contracts" type="number" min="0" step="any" value="10"></label>
+          <label>Mark price $
+            <input id="pp-price" type="number" min="0" step="any" value="3000"></label>
+          <label data-tip="Copy the accumulated funding figure straight from the exchange. Sign matters: a negative value on a LONG means the position received funding.">Accrued $
+            <input id="pp-accrued" type="number" step="any" value="-40"></label>
+          <label>Over (hours)
+            <input id="pp-hours" type="number" min="0" step="any" value="24"></label>
+          <label class="wide">Side
+            <select id="pp-side"><option value="LONG">LONG</option><option value="SHORT">SHORT</option></select></label>
+        </div>
+        <div class="pp-out" id="pp-out"></div>
+      </div>
+    </div>
+      <div class="glass">
+        <div class="card-h">VS BTC <span class="muted" id="pf-btc-note">residual, not alpha</span></div>
+        <div class="card-b" id="pf-vsbtc"><div class="muted">Priced against BTC when BTC is
+          in the same payload as the book — the same quote, the same instant, so the
+          comparison is not two fetches apart.</div></div>
+      </div>
+      <div class="glass">
+        <div class="card-h">CONVICTION OVERLAY <span class="muted">a column, not the hero</span></div>
+        <div class="card-b" id="pf-overlay"><div class="muted">How the book's weight is
+          distributed across this board's signal bands, once it is priced.</div></div>
+        <details class="why"><summary>what this is not</summary><div class="note">It is not a
+          recommendation to rebalance toward conviction. The measured information
+          coefficient of this score against next-day returns is indistinguishable from
+          zero over the nights recorded so far — the Selection Edge panel on the crypto
+          screen publishes it — and a weight-vs-score table read as an instruction would
+          be acting on a relationship this repository has not demonstrated.</div></details>
+      </div>
+    </aside>
+  </div><!-- /ws portfolio -->
+
 
 
 </div>
@@ -1245,7 +1618,103 @@ canvas:focus-visible{outline:2px solid var(--blue)}
 </div>
 
 <script>
-const API = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&price_change_percentage=24h,7d,14d,30d,200d";
+/* ===================== THE COINGECKO LAYER =====================
+
+   One base, one fetch helper, one cache, one backoff. Every endpoint this page reaches
+   goes through cgJson() and nothing else does its own fetch — which is the only way a
+   rate limit stays a single fact rather than eight panels each discovering it
+   separately and each rendering a different flavour of broken.
+
+   THE RULE THAT OUTRANKS ALL OF THIS: the ledger is the source of truth for scores.
+   ledger/signals.json and its siblings are committed artifacts, they load on their own
+   path, and no enrichment call below can delay or fail them. A 429 costs the regime
+   line, the inspector's fundamentals and the sector heat — never the board.
+
+   NO CREDENTIAL. This is a static file served from Pages; there is nowhere to put a
+   secret that is not published with it, and tests/test_terminal.py pins that. The
+   nightly is what holds a Demo or Pro key, and the Status expand reports which one it
+   used — separately from what this browser is doing, because they are two facts.
+
+   The markets call gained `sparkline=true` (the board's 7d column was drawing a shape
+   modelled from the 24h change because the payload was never asked for the real one)
+   and `1h` (a leading tick, shown only when it is large enough to mean something). 14d
+   and 200d stay: they feed the blended relative strength the score is built on, and
+   dropping them would silently change every conviction on the board. */
+const CG_BASE = "https://api.coingecko.com/api/v3";
+const API = CG_BASE + "/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1"
+          + "&sparkline=true&price_change_percentage=1h,24h,7d,14d,30d,200d";
+
+/* Enrichment cache. Keyed by URL, value {t, v}. TTLs are per call site rather than
+   global: /global moves every block, a coin's supply schedule does not. */
+const CG_CACHE = new Map();
+/* One shared backoff. A 429 on any endpoint means this IP is throttled for all of
+   them, so a per-call-site retry would spend the recovery window discovering the same
+   thing five more times. */
+let CG_BLOCKED_UNTIL = 0;
+let CG_LAST_ERROR = null;
+const CG_COOLDOWN_MS = 60000;
+
+function cgThrottled(){ return Date.now() < CG_BLOCKED_UNTIL; }
+
+/* Fetch and parse, or resolve null. NEVER throws and never rejects: every caller is an
+   enrichment path whose failure mode is a panel that says it is waiting, and a rejected
+   promise in one of them would take out whatever else shared its await. */
+async function cgJson(url, ttlMs){
+  const ttl = ttlMs==null ? 120000 : ttlMs;
+  const hit = CG_CACHE.get(url);
+  const now = Date.now();
+  if(hit && (now - hit.t) < ttl) return hit.v;
+  if(cgThrottled()) return hit ? hit.v : null;           // serve stale over nothing
+  try{
+    const r = await fetch(url, {headers:{Accept:"application/json"}});
+    if(r.status === 429){
+      CG_BLOCKED_UNTIL = Date.now() + CG_COOLDOWN_MS;
+      CG_LAST_ERROR = "rate-limited (HTTP 429)";
+      return hit ? hit.v : null;
+    }
+    if(!r.ok){ CG_LAST_ERROR = "HTTP " + r.status; return hit ? hit.v : null; }
+    const v = await r.json();
+    CG_CACHE.set(url, {t: Date.now(), v});
+    CG_LAST_ERROR = null;
+    return v;
+  }catch(e){
+    CG_LAST_ERROR = e && e.message ? e.message : "network error";
+    return hit ? hit.v : null;
+  }
+}
+
+/* The endpoints, one function each so a caller cannot assemble a query string wrong.
+   ids are joined and encoded here rather than at the call site for the same reason. */
+const CG_URL = {
+  global:     ()      => CG_BASE + "/global",
+  coin:       id      => CG_BASE + "/coins/" + encodeURIComponent(id)
+                       + "?localization=false&tickers=false&market_data=true"
+                       + "&community_data=false&developer_data=false&sparkline=false",
+  /* `market_cap_change_24h_desc`, not `market_cap_change_percentage_24h_desc`.
+
+     The second is the obvious name and the one the markets endpoint uses for the same
+     idea, and /coins/categories rejects it outright:
+       {"error":"Invalid value provided for the order parameter"}, HTTP 400.
+     Measured against the live endpoint rather than assumed, because a 400 here would
+     have looked exactly like a rate limit — the sector list falling back to the recorded
+     snapshot every single time, silently and permanently.
+
+     The field it sorts on IS a percentage despite the name (`market_cap_change_24h` came
+     back at 1316.25 for a $274M category, which is a 1316% day and not a $1,316 move),
+     and it is null for categories with no measurable 24h change. Both are handled where
+     the rows are read. */
+  categories: ()      => CG_BASE + "/coins/categories?order=market_cap_change_24h_desc",
+  trending:   ()      => CG_BASE + "/search/trending",
+  simple:     ids     => CG_BASE + "/simple/price?ids=" + ids.map(encodeURIComponent).join(",")
+                       + "&vs_currencies=usd&include_market_cap=true&include_24hr_change=true",
+  marketsBy:  ids     => CG_BASE + "/coins/markets?vs_currency=usd&ids="
+                       + ids.map(encodeURIComponent).join(",")
+                       + "&sparkline=true&price_change_percentage=1h,24h,7d,30d&per_page=250",
+  history:    (id,d)  => CG_BASE + "/coins/" + encodeURIComponent(id)
+                       + "/history?date=" + encodeURIComponent(d) + "&localization=false",
+  chart:      id      => CG_BASE + "/coins/" + encodeURIComponent(id)
+                       + "/market_chart?vs_currency=usd&days=90&interval=daily",
+};
 // Non-speculative pegged assets excluded from all conviction math (stablecoins + commodity pegs).
 const EXCLUDED = new Set(["usdt","usdc","usd1","usdg","usds","usde","usdd","dai","busd","tusd","fdusd","frax","pyusd","gusd","u","xaut","paxg"]);
 const TIER = {
@@ -1650,20 +2119,58 @@ function computeLAVL(t){
 function lavlBandClass(b){return b==="ALPHA RUSH"?"g":b==="STABLE"?"n":b==="LIQ TRAP"?"r":"a";}
 
 
-// ---- sparkline (canvas) ----
+/* ---- the 7d sparkline, as inline SVG ----
+
+   This drew a <canvas> per row: fifty 2d contexts on every render, none of which
+   survives a print, a copy or a browser zoom, and every one of which had to be redrawn
+   from scratch whenever the board re-sorted. The SVG is about two hundred bytes, scales
+   with the page, and carries its own <title> so the shape is not the only way to read it.
+
+   The data is the sparkline the markets endpoint returns — which this page never asked
+   for until now, so every spark on the board was the MODELLED fallback below drawn in a
+   solid line indistinguishable from a real week of prices. It is now drawn dashed and at
+   reduced opacity, and says so in its title. A stated approximation is fine; one that
+   looks like a measurement is not.
+
+   Colour is the sign of the 7d move on the SAME ramp as the delta column beside it, so
+   the two cannot disagree about which way the week went. */
+function sparkPath(arr, w, h){
+  const min=Math.min(...arr), max=Math.max(...arr), rng=(max-min)||1;
+  // 0.75 of a stroke inset top and bottom: a flat week drawn at exactly y=h is clipped
+  // by the cell's own edge and reads as no line at all.
+  const pad=0.75, ih=h-pad*2;
+  return arr.map((v,i)=>{
+    const px=(i/(arr.length-1))*w, py=pad+ih-((v-min)/rng)*ih;
+    return (i?"L":"M")+px.toFixed(1)+" "+py.toFixed(1);
+  }).join("");
+}
 function spark(el, data, w, h, color, chg){
-  const c=document.createElement("canvas"); c.width=w; c.height=h; c.className="spark";
-  const x=c.getContext("2d");
-  let arr=data;
-  if(!arr||arr.length<2){ // MODELED from 24h Δ — clearly synthetic, not real ticks
-    arr=[]; const n=24; const start=1-(chg||0)/100;
+  const real = !!(data && data.length>=2);
+  let arr = real ? data : null;
+  if(!arr){ // MODELLED from the 24h delta — dashed, dimmed, and labelled as such
+    arr=[]; const n=24, start=1-(chg||0)/100;
     for(let i=0;i<n;i++) arr.push(start+(1-start)*(i/(n-1)));
   }
-  const min=Math.min(...arr), max=Math.max(...arr), rng=(max-min)||1;
-  x.clearRect(0,0,w,h); x.beginPath(); x.lineWidth=1.4; x.strokeStyle=color;
-  arr.forEach((v,i)=>{ const px=i/(arr.length-1)*w, py=h-((v-min)/rng)*h; i?x.lineTo(px,py):x.moveTo(px,py);});
-  x.stroke();
-  el.appendChild(c);
+  // A long sparkline is 168 hourly points for 54 pixels. Decimating to at most one
+  // point per pixel is not a loss of information at this size; it is a third of the
+  // path data for the same picture.
+  if(arr.length > w){
+    const step=arr.length/w, out=[];
+    for(let i=0;i<w;i++) out.push(arr[Math.min(arr.length-1, Math.round(i*step))]);
+    out.push(arr[arr.length-1]);
+    arr=out;
+  }
+  const title = real
+    ? "Seven days of price from the CoinGecko sparkline, "+arr.length+" points."
+    : "MODELLED: the payload carried no sparkline for this asset, so this is the shape "
+      + "implied by its 24h change, not a week of prices. Drawn dashed for that reason.";
+  el.innerHTML =
+    `<svg class="sparksvg${real?"":" sp-modelled"}" width="${w}" height="${h}" `
+    + `viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc0(title)}">`
+    + `<title>${esc0(title)}</title>`
+    + `<path class="sp-line" d="${sparkPath(arr,w,h)}" stroke="${color}"${
+        real?"":' stroke-dasharray="2 2"'} />`
+    + `</svg>`;
 }
 
 /* click-to-copy trade block.
@@ -1696,6 +2203,86 @@ let flashT;
 function flash(msg){ const s=$("#status"); const old=s.textContent; s.textContent=msg; s.className="live";
   clearTimeout(flashT); flashT=setTimeout(()=>{s.textContent=old; s.className="";},1400); }
 
+/* ---- the derived flag ----
+
+   One column, one chip, and at most one reading per row. The board used to carry five
+   columns of derived state — supply, funding, regime, range position, liquidity — each
+   of which is silent on most rows and none of which a reader can act on without opening
+   the name anyway. They are all in the inspector now; this column carries whichever of
+   them is currently the most consequential thing about the row.
+
+   The order below IS the claim: funding extremes first because they are a cost you pay
+   every eight hours whether or not you were right, then range extension, then supply
+   overhang, then the accumulation divergence, then wash turnover. A row with nothing to
+   say gets an invisible placeholder rather than a chip reading "OK", because a column
+   where every cell is filled is a column nobody scans.
+
+   NOT saturated. Signal badges are the only saturated chips on this board; a second
+   filled vocabulary beside them reads as a second score. */
+function derivedFlag(t){
+  const none = '<span class="flag f-none" aria-hidden="true">·</span>';
+  const chip = (txt, col, why) =>
+    `<span class="flag" style="color:${col}" data-tip="${esc0(why)}">${txt}</span>`;
+  const F = FUND[t.sym];
+  const apr = t._rewound ? t._fundApr : (F && F.funding_apr!=null ? F.funding_apr : null);
+  const reg = t._rewound ? t._fundRegime : (F && F.regime);
+  if(apr!=null && reg==="OVERHEATED_LONG")
+    return chip("FUND+", "var(--red)",
+      `Funding is ${apr.toFixed(0)}% annualised and longs are paying it. That is a carry `
+      + `cost on every hour the position is open, and it marks the score down. Full `
+      + `settlement, venue and trailing carry in the inspector.`);
+  if(apr!=null && reg==="SHORT_SQUEEZE_RISK")
+    return chip("FUND−", "var(--green)",
+      `Funding is ${apr.toFixed(0)}% annualised and shorts are paying it. Crowded short `
+      + `positioning, which the score reads as asymmetry — gated on a confirming price or `
+      + `RSI leg, not taken on the rate alone.`);
+  if(t.z!=null && t.z>=0.85)
+    return chip("EXT", "var(--amber)",
+      `Sitting at ${(t.z*100).toFixed(0)}% of its all-time range, within reach of the `
+      + `high. Extension is not a sell signal — it is the reason a HOLD and an AVOID can `
+      + `carry the same score and mean different things.`);
+  if(t.z!=null && t.z<=-0.85)
+    return chip("FLOOR", "var(--green)",
+      `Within 8% of the bottom of its all-time range. Observational: range position does `
+      + `not reach the conviction score.`);
+  const em = t.comp && t.comp.emission_mult;
+  if(em!=null && em < 0.96 && t.fdv>0 && t.mc>0)
+    return chip("DILUT", "var(--red)",
+      `FDV is ${(t.fdv/t.mc).toFixed(2)}x market cap, so the supply multiplier took `
+      + `x${em.toFixed(3)} off this score. Dilution is a headwind with an unknown date.`);
+  if(t.divergence)
+    return chip("ACCUM", "var(--green)",
+      "Price soft while market cap rose — liquidity arriving into weakness rather than "
+      + "leaving it. A flag, not a signal: it does not reach the score.");
+  if(t.turn > 90)
+    return chip("WASH", "var(--red)",
+      `Turnover of ${t.turn.toFixed(0)}% of market cap in a day. Above 90% the volume `
+      + `stops behaving like participation, and the liquidity term marks the score down `
+      + `for it.`);
+  if(t.turn < 12 && t.turn > 0)
+    return chip("THIN", "var(--amber)",
+      `Turnover of ${t.turn.toFixed(1)}%. The book is thin enough that your own order is `
+      + `a meaningful share of the day — see the sizer in the Portfolio workspace.`);
+  return none;
+}
+
+/* The 1h leading tick. Shown ONLY when the hour is large, which is the whole design:
+   a quiet 1h number printed on every row beside a 24h number teaches the eye to skip
+   both, and the case it exists for is the row that moved 3% in the last hour under a
+   flat day. */
+const TICK1H_MIN = 1.5;
+function tick1h(t){
+  const v = t.chg1h;
+  if(v==null || isNaN(v) || Math.abs(v) < TICK1H_MIN) return "";
+  const day = t.chg==null ? "an unknown day move"
+            : ((t.chg>0?"+":"")+t.chg.toFixed(1)+"% over the day");
+  const why = `Moved ${v>0?"+":""}${v.toFixed(1)}% in the last hour, against ${day}. `
+    + `Shown only past ±${TICK1H_MIN}%: a column of quiet hourly noise beside a daily `
+    + `number teaches the eye to skip both.`;
+  return `<span class="tick1h" style="color:${deltaColor(v)}" data-tip="${esc0(why)}">${
+    v>0?"+":""}${v.toFixed(1)}</span>`;
+}
+
 function rowConv(t,i,gated){
   const tr=document.createElement("tr");
   // Funding extremes tint the row. Only the two outer bands — ELEVATED and
@@ -1704,27 +2291,20 @@ function rowConv(t,i,gated){
   const fr=FUND[t.sym]?.regime;
   const ftint = fr==="OVERHEATED_LONG" ? " f-hot" : fr==="SHORT_SQUEEZE_RISK" ? " f-cold" : "";
   tr.className="row"+(t.divergence?" div":"")+(gated?" gated":"")+ftint; tr.dataset.sym=t.sym;
-  const zc=t.z==null?"muted":t.z>0.5?"neg":t.z<-0.5?"pos":"neu"; // far above ATH = overbought(red), far below ATL = oversold(green)
-  const div=t.divergence?'<span class="badge a" title="Price soft / liquidity rising — accumulation">ACCUM</span>':'';
+  const spk = t.chg7d==null ? 0 : t.chg7d;
   tr.innerHTML=`<td class="muted num">${i+1}</td>
     <td class="tick">${execLink(t.sym)}<span class="tier ${t.tier}" data-filter title="Filter the board to ${t.tier}">${t.tier}</span></td>
+    <td>${sigBadge(t)}</td>
+    <td class="num ${t.conv>=70?'pos':t.conv>=55?'neu':'neg'}">${t.conv}</td>
     <td class="num">${fmtPrice(t.price)}</td>
     ${(()=>{ const d=tfDelta(t);
        return d==null
          ? `<td class="num muted" title="No free source for the ${TF} window on this asset — absent rather than approximated from a neighbouring one.">—</td>`
-         : `<td class="num" style="color:${deltaColor(d)}"><span class="dsign">${deltaGlyph(d)}</span>${sgn(d)}<span class="dbar" style="background:${deltaColor(d)};width:${Math.min(28,Math.abs(d)*3)}px"></span></td>`;})()}
+         : `<td class="num">${tick1h(t)}<span style="color:${deltaColor(d)}"><span class="dsign">${deltaGlyph(d)}</span>${sgn(d)}</span><span class="dbar" style="background:${deltaColor(d)};width:${Math.min(28,Math.abs(d)*3)}px"></span></td>`;})()}
     <td><span class="spark" data-spark></span></td>
     <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
-    <td><span class="bar"><i style="width:${Math.min(100,t.mc/2e10*100)}%"></i></span></td>
-    ${t.z==null
-      ? `<td class="num muted" title="The ledger records no all-time high or low, so a recorded row has no range position. Absent rather than centred at zero.">—</td>`
-      : `<td class="num ${zc}" title="Distance from all-time range (-1 floor .. +1 ATH)">${t.z>0?'+':''}${t.z.toFixed(2)}</td>`}
-    <td>${supplyCell(t)}</td>
-    <td>${fundingCell(t.sym,t)}${t._rewound?"":divBadge(PERPS[t.sym])}</td>
-    <td>${regimeCell(t.sym,t)}</td>
-    <td class="num ${t.conv>=70?'pos':t.conv>=55?'neu':'neg'}">${t.conv}</td>
-    <td>${sigBadge(t)}</td>
-    <td>${div}<span class="copy" data-copy="${t.sym}">⧉</span></td>`;
+    <td>${derivedFlag(t)}</td>
+    <td><span class="copy" data-copy="${t.sym}">⧉</span></td>`;
   tr.onclick=(e)=>{ if(e.target.dataset.copy){copyTrade(STATE.find(x=>x.sym===e.target.dataset.copy));return;} select(t.sym); };
   return tr;
 }
@@ -1944,6 +2524,14 @@ function liveRows(){ return STATE; }
    recorded equivalent and would have to be faked to follow it. */
 function boardRows(){ return RENDER_ROWS || STATE; }
 
+/* The rows the board last DREW — after the gate, the filter and the top-10 cut.
+
+   Distinct from the candidate set the function above returns. The inspector is a view
+   OF the board and has to read what is on screen: seeded from the top VISIBLE row, and
+   the neighbour prefetch walks the rows a reader can actually arrow onto. Reading the
+   full candidate set here would seed the inspector with a name a filter has hidden. */
+let BOARD_VIEW = [];
+
 function renderTables(){
   const BOARD = boardRows();
   // Conjunctive gate: qualified coins clear Liquidity + Dilution + Regime.
@@ -1963,6 +2551,7 @@ function renderTables(){
                                           : `“${FILTER}”`)
       + ` · ${matched.length} of ${base.length} — Esc to clear`;
   }
+  BOARD_VIEW = VIEW;
   const tb=$("#tbl-conv tbody"); tb.innerHTML="";
   VIEW.forEach((t,i)=>tb.appendChild(rowConv(t,i,t.gated)));
   // The legend appears only when a marked row is actually on screen.
@@ -2022,10 +2611,15 @@ function renderTables(){
   $("#lia-note").textContent=hide?`${gated.length} QUALIFIED`:note(STATE.length);
   $("#mom-note").textContent=hide?`${gated.length} QUALIFIED`:note(STATE.length);
   // draw sparks (index-aligned to VIEW)
-  document.querySelectorAll("[data-spark]").forEach((sp,idx)=>{
+  // The spark is the SEVEN-day column, so it is coloured and modelled from the seven-day
+  // move. It used to read t.chg — the 24h delta — which meant a name up 9% on the week
+  // and down 1% today drew a red line under a green week.
+  document.querySelectorAll("#tbl-conv [data-spark]").forEach((sp,idx)=>{
     const t=VIEW[idx]; if(!t)return;
-    spark(sp, t.spark, 54, 14, t.chg>=0?"#7BC9A0":"#E8917F", t.chg||0);
+    const w7 = t.chg7d==null ? (t.chg||0) : t.chg7d;
+    spark(sp, t.spark, 54, 14, deltaColor(w7), w7);
   });
+  seedInspector();
   quad();
 }
 
@@ -2048,7 +2642,13 @@ function renderTiers(){
 
 // ---- charts ----
 function quad(){
-  const cv=$("#quad"), w=cv.clientWidth, h=cv.clientHeight||200;
+  /* `||360`, matching factorQuad. A canvas measured inside a closed <details> — which is
+     where the three scatter plates now live — has a clientWidth of zero, and a chart
+     drawn at width zero registers its points at zero too, which empties the accessible
+     table this chart publishes for anyone who cannot see it. The nominal width keeps the
+     point set and the table correct while folded; the toggle handler redraws at the real
+     width when it opens. */
+  const cv=$("#quad"), w=cv.clientWidth||360, h=cv.clientHeight||200;
   const dpr=window.devicePixelRatio||1;
   cv.width=w*dpr; cv.height=h*dpr;
   const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0);
@@ -2129,7 +2729,9 @@ function quad(){
   attachChartInteraction("quad");
 }
 function alphaMap(){
-  const cv=$("#alpha"), w=cv.clientWidth, h=cv.clientHeight||210;
+  // `||360` for the same reason as quad(): folded inside the charts disclosure this
+  // measures zero, and a chart drawn at zero publishes an empty accessible table.
+  const cv=$("#alpha"), w=cv.clientWidth||360, h=cv.clientHeight||210;
   const dpr=window.devicePixelRatio||1;
   cv.width=w*dpr; cv.height=h*dpr;
   const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0);
@@ -2571,9 +3173,260 @@ function factorBreakdown(sym){
 }
 function vpvrNote(){} // VPVR replaced by Factor Breakdown
 
+/* ===================== THE INSPECTOR =====================
+
+   Two halves, and they have different provenance, which is why they are rendered by two
+   functions and never by one:
+
+     * the LEDGER half — the five columns that left the board (range position, supply
+       multiplier, funding carry, regime, liquidity fit) plus the score decomposition
+       below. Committed artifacts and the live markets payload. Always present.
+     * the FUNDAMENTALS half — GET /coins/{id}. One request for the selected row, cached
+       by id for an hour, debounced so arrow-keying the board does not fire ten. When it
+       fails the half says "fundamentals stale" and the other half is untouched.
+
+   Deliberately NOT the description blob. /coins/{id} returns several kilobytes of
+   marketing copy per asset and none of it changes a read. What does: how far the name is
+   from its all-time high, and what its fully diluted valuation says about supply still
+   to come. Those two are the difference between a HOLD and an AVOID at the same score,
+   so they get their own row and their own size. */
+const CG_COIN_TTL = 3600000;      // an hour: supply schedules and ATHs do not tick
+let INSP_COIN = {};               // id -> /coins/{id} payload
+let INSP_PENDING = null;          // the symbol a fetch is currently in flight for
+let INSP_TIMER = null;
+
+function inspAgeLabel(iso){
+  const t = Date.parse(iso||"");
+  if(isNaN(t)) return null;
+  const min = (Date.now()-t)/60000;
+  return min < 1 ? "under a minute ago" : min < 90 ? Math.round(min)+" min ago"
+       : (min/60).toFixed(1)+" hours ago";
+}
+
+/* The 24h range marker: where the last price sits between the day's low and high.
+   Two numbers make the reader do the division; drawn, the position IS the number. */
+function rangeMarker(price, lo, hi){
+  if(!(lo>0) || !(hi>lo) || !(price>0)) return "";
+  const pos = Math.max(0, Math.min(1, (price-lo)/(hi-lo)));
+  return `<div class="insp-wide">
+    <div class="rng" data-tip="Where the last price sits inside the 24h range. Hard against either end is a day that has been trending in one direction, not a day that has traded.">
+      <div class="rng-fill" style="width:100%"></div>
+      <div class="rng-mk" style="left:calc(${(pos*100).toFixed(1)}% - 1px)"></div>
+    </div>
+    <div class="rng-lbl"><span>${fmtPrice(lo)}</span>
+      <span>${(pos*100).toFixed(0)}% of range</span><span>${fmtPrice(hi)}</span></div>
+  </div>`;
+}
+
+/* The ledger half. Everything here was on the board yesterday. */
+function renderInspectorBase(t){
+  const host=$("#insp"); if(!host) return;
+  const sym=$("#fb-sym"); if(sym) sym.textContent = t ? ("· "+t.sym) : "—";
+  if(!t){ host.innerHTML='<div class="muted" style="padding:14px 12px">Select a row on the board.</div>'; return; }
+  const d=tfDelta(t);
+  const fit=Math.max(6, liquidityFit(t.turn/100));
+  const zc = t.z==null?"muted":t.z>0.5?"neg":t.z<-0.5?"pos":"neu";
+  host.innerHTML =
+    `<div class="insp-h">
+       <span class="insp-sym">${esc0(t.sym)}</span>
+       <span class="tier ${t.tier}">${t.tier}</span>
+       <span class="insp-name">${esc0(t.name||"")}</span>
+       <span class="insp-px">${fmtPrice(t.price)}
+         ${d==null?'<span class="muted">—</span>'
+                  :`<span style="color:${deltaColor(d)};font-size:11px">${deltaGlyph(d)}${sgn(d)}</span>`}</span>
+     </div>
+     <div class="insp-grid">
+       <div class="insp-k"><span>Signal</span><b>${sigBadge(t)}</b></div>
+       <div class="insp-k"><span>Conviction</span><b class="${signalClass(t.conv)}">${t.conv}</b></div>
+       <div class="insp-k"><span>Market cap</span><b>${fmtUsd(t.mc)}</b></div>
+       <div class="insp-k"><span>24h volume</span><b>${fmtUsd(t.vol)}</b></div>
+       <div class="insp-k"><span data-tip="24h volume over market cap. The score's liquidity term reads this: 30-60% is healthy participation, above 90% is wash-like.">Vol / mcap</span><b class="${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</b></div>
+       <div class="insp-k"><span data-tip="The liquidity fit the score actually applied, 0-100, from the turnover band above.">Liquidity fit</span><b class="${fit>=70?'pos':fit>=40?'neu':'neg'}">${Math.round(fit)}</b></div>
+       <div class="insp-k"><span data-tip="Position in the all-time range: -1 at the recorded low, +1 at the all-time high. Observational — it does not reach the score.">Range Z</span><b class="${zc}">${t.z==null?"—":(t.z>0?"+":"")+t.z.toFixed(2)}</b></div>
+       <div class="insp-k"><span data-tip="Module F. The supply multiplier the score applied, from FDV over market cap. A dash means no FDV was published and NO multiplier was taken — unknown is not the same as fully circulating.">Supply</span><b>${supplyCell(t)}</b></div>
+       <div class="insp-k"><span data-tip="Module E. Annualised cross-venue funding carry, and the score modifier it set.">Funding</span><b>${fundingCell(t.sym,t)}</b></div>
+       <div class="insp-k"><span data-tip="Choppiness and Wilder ADX over accumulated daily bars, resolved to the book each suits. Observational — none of it feeds conviction.">Regime</span><b>${regimeCell(t.sym,t)}</b></div>
+       <div class="insp-k"><span data-tip="Relative strength against BTC, blended over 7/14/30/200 days. This is the confirmation term in the score.">RS vs BTC</span><b class="${t.rsBlend>0?'pos':t.rsBlend<0?'neg':'neu'}">${t.rsBlend==null?"—":(t.rsBlend>0?"+":"")+t.rsBlend.toFixed(1)}</b></div>
+       <div class="insp-k"><span data-tip="Liquidity-Adjusted Velocity and Leverage. Module D's micro-regime band for this name.">LAVL</span><b><span class="badge ${lavlBandClass(t.lavlBand)}">${t.lavlBand||"—"}</span></b></div>
+       ${rangeMarker(t.price, t.low24, t.high24)}
+     </div>
+     <div id="insp-cg"><div class="muted" style="padding:4px 12px 8px">Fundamentals loading…</div></div>`;
+  if(typeof tipUpgrade==="function") tipUpgrade(host);
+}
+
+/* The fundamentals half. Writes into #insp-cg only, so a failure here can never blank
+   the panel above it. */
+function renderInspectorCG(t, state){
+  const host=document.getElementById("insp-cg"); if(!host||!t) return;
+  if(state==="pending"){
+    host.innerHTML='<div class="muted" style="padding:4px 12px 8px">Fundamentals loading…</div>';
+    return;
+  }
+  if(t._rewound){
+    host.innerHTML=`<div class="insp-stale">Fundamentals are not shown for a recorded
+      board. <code>/coins/${esc0(t.id||t.sym.toLowerCase())}</code> answers about tonight,
+      and tonight's all-time high and FDV under a row recorded on ${
+      esc0(REWIND_DATE||"an earlier night")} would be two different days presented as
+      one. Everything above this line is what the ledger recorded on that night.</div>`;
+    return;
+  }
+  const c = t.id ? INSP_COIN[t.id] : null;
+  if(!c || !c.market_data){
+    host.innerHTML=`<div class="insp-stale">Fundamentals stale — <code>/coins/${
+      esc0(t.id||t.sym.toLowerCase())}</code> ${cgThrottled()
+        ? "is rate-limited; this browser holds no CoinGecko credential and the public tier is ten to thirty requests a minute."
+        : (CG_LAST_ERROR ? "did not answer ("+esc0(CG_LAST_ERROR)+")."
+                         : "has not answered yet.")}
+      Everything above this line is the committed ledger and the markets payload, and is
+      unaffected.</div>`;
+    return;
+  }
+  const md=c.market_data, usd=o=>(o&&o.usd!=null)?o.usd:null;
+  const ath=usd(md.ath), athPct=usd(md.ath_change_percentage), athDate=(md.ath_date||{}).usd;
+  const atl=usd(md.atl), atlPct=usd(md.atl_change_percentage), atlDate=(md.atl_date||{}).usd;
+  const mcap=usd(md.market_cap), fdv=usd(md.fully_diluted_valuation);
+  const circ=md.circulating_supply, max=md.max_supply, total=md.total_supply;
+  const ratio=(fdv&&mcap)?fdv/mcap:null;
+  const floatPct=(circ&&(max||total))?circ/(max||total):null;
+  const age=inspAgeLabel(md.last_updated||c.last_updated);
+  const cats=(c.categories||[]).filter(Boolean).slice(0,6);
+  const dstr=iso=>{ const d=new Date(iso); return isNaN(d)?"—":d.toISOString().slice(0,10); };
+
+  // The two numbers the brief singles out. Large, adjacent, and with the reading that
+  // makes them mean something rather than a bare percentage.
+  const athCls = athPct==null?"neu" : athPct>=-8?"neg" : athPct<=-70?"pos":"neu";
+  const fdvCls = ratio==null?"muted" : ratio<=1.05?"pos" : ratio<=1.5?"neu":"neg";
+  host.innerHTML =
+    `<div class="insp-two">
+       <div class="insp-big" data-tip="${esc0(athPct==null
+          ? "No all-time high published for this asset."
+          : "Distance from the all-time high of "+fmtPrice(ath)+" set on "+dstr(athDate)
+            +". Near the high, a HOLD is a position with no cushion above it; 70% below "
+            +"it, the same score is a name the market has already repriced. The score "
+            +"itself does not read this — which is exactly why it belongs on screen "
+            +"beside it.")}">
+         <span class="lbl">From ATH</span>
+         <b class="${athCls}">${athPct==null?"—":athPct.toFixed(1)+"%"}</b>
+         <span class="sub">${ath==null?"no ATH published":fmtPrice(ath)+" · "+dstr(athDate)}</span>
+       </div>
+       <div class="insp-big" data-tip="${esc0(ratio==null
+          ? "This token publishes no fully diluted valuation, so its supply overhang is "
+            +"unknown and NO multiplier was applied to its score. It is not being credited "
+            +"as fully circulating."
+          : "Fully diluted valuation is "+ratio.toFixed(2)+" times market cap: every "
+            +"dollar of cap today is claimed by "+ratio.toFixed(2)+" dollars of eventual "
+            +"supply. Module F takes a capped haircut for this. The date the supply "
+            +"arrives is unknown, which is why the haircut is capped at ten percent "
+            +"rather than scaled to the ratio.")}">
+         <span class="lbl">FDV / Mcap</span>
+         <b class="${fdvCls}">${ratio==null?"—":ratio.toFixed(2)+"x"}</b>
+         <span class="sub">${fdv==null?"FDV unpublished":fmtUsd(fdv)+" FDV"}</span>
+       </div>
+     </div>
+     <div class="insp-grid">
+       <div class="insp-k"><span data-tip="How far above the all-time low, and when that low was set. Context for the distance from the high above: a name 90% off its high and 20% off its low is in a different place from one 90% off its high and 400% above it.">From ATL</span><b class="pos">${atlPct==null?"—":(atlPct>=1000?"+"+(atlPct/100).toFixed(0)+"x":"+"+atlPct.toFixed(0)+"%")}</b></div>
+       <div class="insp-k"><span>ATL set</span><b>${atl==null?"—":dstr(atlDate)}</b></div>
+       <div class="insp-k"><span data-tip="Circulating supply as published by CoinGecko.">Circulating</span><b>${circ==null?"—":Number(circ).toLocaleString("en-US",{maximumFractionDigits:0})}</b></div>
+       <div class="insp-k"><span data-tip="Maximum supply where the protocol defines one, otherwise total supply. A dash means neither is published — an uncapped or undisclosed schedule, not an infinite one.">Max supply</span><b>${(max||total)==null?"—":Number(max||total).toLocaleString("en-US",{maximumFractionDigits:0})}</b></div>
+       <div class="insp-k"><span data-tip="Circulating over max supply. The share of the eventual float that exists today.">Float</span><b class="${floatPct==null?"muted":floatPct>=0.9?"pos":floatPct>=0.6?"neu":"neg"}">${floatPct==null?"—":(floatPct*100).toFixed(1)+"%"}</b></div>
+       <div class="insp-k"><span data-tip="How old CoinGecko says this asset's own record is. The board's feed age in the status strip is the age of the whole payload; this is the age of THIS row.">Quote age</span><b class="${age&&age.indexOf("hour")>=0?"a":"muted"}">${age||"—"}</b></div>
+     </div>
+     ${cats.length?`<div class="insp-cats">${cats.map(c=>
+        `<button class="insp-cat" data-cat="${esc0(c)}" data-tip="${esc0(
+          "Filter the board to the scored names known to sit in " + c + ", and open the "
+          + "Sectors tab on it. Membership comes from the per-asset records the inspector "
+          + "has fetched, so it is a floor rather than a census.")}">${esc0(c)}</button>`
+        ).join("")}</div>`:""}`;
+  host.querySelectorAll("[data-cat]").forEach(b=>{
+    b.onclick=()=>{ applySectorFilter(b.dataset.cat); showSecondaryTab("sec"); };
+  });
+  if(typeof tipUpgrade==="function") tipUpgrade(host);
+}
+
+/* One request for the row a reader actually chose, plus a prefetch of its neighbours.
+   NEVER on first paint and never one per row: fifty /coins/{id} calls on load is the
+   whole minute's budget spent before the board has been read once.
+
+   AND NEVER FOR A REWOUND ROW. /coins/{id} answers about tonight. Painting tonight's
+   all-time high and tonight's FDV under a header that says 2026-08-14 is precisely the
+   silent-disagreement failure the rewind was built to refuse everywhere else on this
+   page — the numbers would look entirely normal and be about a different day. A
+   recorded row therefore gets the ledger half of the inspector and an explicit refusal
+   for the other half. */
+function inspectorFetch(t){
+  if(!t || !t.id || t._rewound) return;
+  const url=CG_URL.coin(t.id);
+  const hit=CG_CACHE.get(url);
+  if(hit && (Date.now()-hit.t) < CG_COIN_TTL && hit.v){
+    INSP_COIN[t.id]=hit.v; renderInspectorCG(t); return;
+  }
+  renderInspectorCG(t, "pending");
+  clearTimeout(INSP_TIMER);
+  INSP_PENDING = t.sym;
+  INSP_TIMER = setTimeout(async ()=>{
+    const v = await cgJson(url, CG_COIN_TTL);
+    if(v && v.market_data) INSP_COIN[t.id]=v;
+    // The board may have moved on while this was in flight. Rendering it anyway would
+    // paint one asset's supply schedule under another asset's header.
+    if(SEL===t.sym) renderInspectorCG(t);
+    // Prefetch the rows either side, so arrow-keying the board does not stall. Two
+    // requests, only after the one that was asked for has landed, and skipped entirely
+    // while throttled.
+    if(!cgThrottled()) prefetchNeighbours(t);
+  }, 220);
+}
+
+function prefetchNeighbours(t){
+  const rows=BOARD_VIEW;
+  const i=rows.findIndex(r=>r.sym===t.sym);
+  if(i<0) return;
+  [rows[i-1], rows[i+1]].forEach(n=>{
+    if(!n || !n.id) return;
+    const u=CG_URL.coin(n.id);
+    const h=CG_CACHE.get(u);
+    if(h && (Date.now()-h.t) < CG_COIN_TTL) return;
+    cgJson(u, CG_COIN_TTL).then(v=>{ if(v && v.market_data) INSP_COIN[n.id]=v; });
+  });
+}
+
+function showSecondaryTab(want){
+  const btn=[...document.querySelectorAll("#sec-tabs .tab")].find(b=>b.dataset.tab===want);
+  if(btn) btn.click();
+}
+
+function renderInspector(sym){
+  // The RENDERED row first, not the live one. Scrubbed back, the board is showing a
+  // recorded row and the inspector has to describe THAT row — its funding, its regime,
+  // its score — rather than tonight's asset of the same name.
+  const t=BOARD_VIEW.find(s=>s.sym===sym) || STATE.find(s=>s.sym===sym) || null;
+  renderInspectorBase(t);
+  if(t) inspectorFetch(t);
+}
+
 let SEL=null;
+/* Selection fills the inspector AND opens the drawer. The inspector is the persistent
+   surface — it is what the rail shows without anyone clicking anything — and the drawer
+   is the full ledger row on demand. Both, because the five columns that left the board
+   have to land somewhere a reader can see without a second gesture. */
 function select(sym){ SEL=sym; document.querySelectorAll("tr.row").forEach(r=>r.classList.toggle("sel",r.dataset.sym===sym));
-  factorBreakdown(sym); openDrawer(sym); }
+  renderInspector(sym); factorBreakdown(sym); openDrawer(sym); }
+
+/* An EMPTY inspector is a failure, so the board seeds it with its own top row rather
+   than waiting for a click. Deliberately does NOT open the drawer: an overlay that
+   appears on load without anyone asking for it is a different kind of failure.
+
+   Re-seeds only when nothing is selected, or when the selected name has left the view —
+   a filter that drops the selected row must not leave the inspector describing an asset
+   that is no longer on screen. */
+function seedInspector(){
+  const rows=BOARD_VIEW;
+  if(!rows.length) return;
+  if(SEL && rows.some(r=>r.sym===SEL)){ renderInspector(SEL); return; }
+  const first=rows[0];
+  SEL=first.sym;
+  document.querySelectorAll("tr.row").forEach(r=>r.classList.toggle("sel",r.dataset.sym===SEL));
+  renderInspector(SEL); factorBreakdown(SEL);
+}
 
 /* The night the board on screen belongs to: the scrubbed date when rewound, otherwise
    the most recent published snapshot. Nightly readings are facts about a night, so the
@@ -3230,7 +4083,27 @@ function renderEdge(){
   html+=`<div class="muted" style="padding:6px 12px 10px;font-size:9px">${e.basis}</div>`;
   host.innerHTML=html;
 }
-function esc0(s){ return s==null?"":String(s); }
+/* esc0 did not escape.
+
+   It is named for escaping, it is the null-guard every string on this page is passed
+   through before being interpolated into HTML — 84 call sites, in text content and in
+   `title=` and `data-tip=` attributes alike — and all it ever did was String(s).
+
+   That was survivable while every string it saw came from a committed artifact this
+   repository writes. It stopped being survivable the moment the terminal started
+   rendering strings it does not author: CoinGecko category names, trending coin names,
+   and the holdings a reader types into the Portfolio book. A category with a double
+   quote in it breaks out of the attribute it is interpolated into; the book's input box
+   is a reader's own browser, which makes it self-inflicted rather than harmless.
+
+   Nothing on this page ever passed markup THROUGH esc0 expecting it to render — checked
+   across all 84 sites — so escaping here is a strict hardening rather than a behaviour
+   change, and it covers the callers that predate this change as well as the new ones.
+   rwEsc, in the RWA workspace, has always done this; the two are now the same function
+   with two names, which is one name too many but not worth a rename across two subtrees
+   in this pass. */
+const _ESC0 = {"&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"};
+function esc0(s){ return s==null?"":String(s).replace(/[&<>"']/g, c=>_ESC0[c]); }
 
 /* ------------------------------------------------------------------------
    MODULE E — funding heatmap, carry screener, position parser.
@@ -3736,17 +4609,456 @@ function renderBreadth(){
 }
 
 // ---- portfolio overlay ----
-let HOLDINGS={};
-function applyHoldings(){
-  const raw=document.getElementById("pf-input").value.trim();
-  try{ HOLDINGS=raw?JSON.parse(raw):{}; }catch(e){ document.getElementById("pf-out").textContent="Invalid JSON"; return; }
-  const held=Object.keys(HOLDINGS).map(x=>x.toUpperCase()).filter(x=>STATE.some(t=>t.sym===x));
-  document.querySelectorAll("tr.row").forEach(r=>r.classList.toggle("held",held.includes(r.dataset.sym)));
-  const lines=held.map(x=>{ const t=STATE.find(z=>z.sym===x);
-    return x+": "+HOLDINGS[x]+" @ "+fmtPrice(t.price)+" to "+t.sig[0]+" ("+t.conv+")"; });
-  document.getElementById("pf-out").innerHTML = held.length? lines.join("<br>") : "No matching holdings in universe.";
+/* ===================== THE PORTFOLIO BOOK =====================
+
+   What this replaces: a textarea of JSON that tinted rows on the crypto matrix and
+   printed "BTC: 0.5 @ $95,000 to BUY (78)". It could not answer what the book is worth,
+   what it made today, what it made since it was bought, or which position carried the
+   result — which is every question anyone opens a portfolio screen to ask.
+
+   HOLDINGS NEVER LEAVE THE BROWSER. Parsed here, held in memory and in localStorage,
+   and the only thing that goes over the wire is a list of CoinGecko ids in a query
+   string, which is what pricing an asset requires. There is no account, no sync and
+   nothing to sign in to.
+
+   THE CALL BUDGET is the design constraint, not an afterthought. A book of forty names
+   is TWO requests — one /simple/price for the valuation, one /coins/markets?ids= for the
+   rows and sparklines — plus at most one /coins/{id}/history per dated line (once,
+   cached forever, because the price on a past date does not change) and at most three
+   /coins/{id}/market_chart calls for the NAV track. Never one request per position. */
+
+let BOOK = [];            // [{key, id, sym, qty, cost, costDate, resolved}]
+let BOOK_PX = {};         // id -> {usd, usd_24h_change, usd_market_cap}
+let BOOK_ROWS = {};       // id -> /coins/markets row
+let BOOK_COST = {};       // id|date -> unit cost in USD from /coins/{id}/history
+let BOOK_CHART = {};      // id -> [[ms, price], …]
+let BOOK_STATE = "empty"; // empty | parsed | priced | failed
+const BOOK_KEY = "ccm.book.v1";
+const BOOK_CHART_CAP = 3; // /market_chart is one request per asset; this is the ceiling
+
+/* One line of the holdings box.
+
+   Accepted, in order of how people actually type it:
+     bitcoin 0.5 @ 41000        id, quantity, unit cost
+     BTC 0.5 @ 2025-11-04       ticker, quantity, purchase DATE (cost is fetched)
+     solana 20                  no cost basis at all — weight and day move only
+     {"ethereum": 3}            the old JSON form, still read
+
+   A line with no cost basis is NOT given one. Defaulting the cost to today's price
+   would make every such position show exactly zero open P/L, which looks like a
+   measurement and is the absence of one. */
+const BOOK_LINE = /^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s+([0-9]*\.?[0-9]+(?:[eE][-+]?\d+)?)\s*(?:@\s*(\S+))?\s*$/;
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+function parseBook(raw){
+  const text=String(raw||"").trim();
+  const out=[], errs=[];
+  if(!text) return {rows:out, errs};
+  if(text[0]==="{"){
+    try{
+      const o=JSON.parse(text);
+      Object.keys(o).forEach(k=>{
+        const q=Number(o[k]);
+        if(!isFinite(q)||q<=0){ errs.push(`${k}: quantity ${o[k]} is not a positive number`); return; }
+        out.push({key:k, qty:q, cost:null, costDate:null});
+      });
+      return {rows:out, errs};
+    }catch(e){ return {rows:[], errs:["The JSON did not parse: "+e.message]}; }
+  }
+  text.split(/\r?\n/).forEach((ln,i)=>{
+    const t=ln.trim(); if(!t || t[0]==="#") return;
+    const m=BOOK_LINE.exec(t);
+    if(!m){ errs.push(`line ${i+1}: could not read "${t}" — expected "name qty" or "name qty @ cost" or "name qty @ YYYY-MM-DD"`); return; }
+    const q=Number(m[2]);
+    if(!isFinite(q)||q<=0){ errs.push(`line ${i+1}: quantity ${m[2]} is not a positive number`); return; }
+    let cost=null, costDate=null;
+    if(m[3]!=null){
+      if(ISO_DATE.test(m[3])) costDate=m[3];
+      else{
+        const c=Number(String(m[3]).replace(/[$,]/g,""));
+        if(!isFinite(c)||c<0){ errs.push(`line ${i+1}: "${m[3]}" is neither a cost nor a YYYY-MM-DD date`); return; }
+        cost=c;
+      }
+    }
+    out.push({key:m[1], qty:q, cost, costDate});
+  });
+  return {rows:out, errs};
 }
-document.getElementById("pf-btn").onclick=applyHoldings;
+
+/* Resolve a typed name to a CoinGecko id. The scored universe first — so a reader who
+   has been looking at BTC on the board can type BTC — then the raw string as an id,
+   which is what makes "lido-dao" and every other name not on this board work. */
+function resolveBookKey(key){
+  const k=String(key||"").trim();
+  const up=k.toUpperCase();
+  const bySym=STATE.find(t=>t.sym===up);
+  if(bySym && bySym.id) return {id:bySym.id, sym:bySym.sym, resolved:"board"};
+  const byId=STATE.find(t=>t.id && t.id.toLowerCase()===k.toLowerCase());
+  if(byId) return {id:byId.id, sym:byId.sym, resolved:"board"};
+  return {id:k.toLowerCase(), sym:up, resolved:"assumed"};
+}
+
+function bookSave(raw){ try{ localStorage.setItem(BOOK_KEY, raw); }catch(e){} }
+function bookLoad(){ try{ return localStorage.getItem(BOOK_KEY)||""; }catch(e){ return ""; } }
+
+function pfStatus(label, cls){
+  const el=$("#pf-status"); if(!el) return;
+  el.textContent=label; el.className="num"+(cls?" "+cls:"");
+}
+
+/* dd-mm-yyyy, which is the format /coins/{id}/history takes and the one nobody guesses
+   right. Converted here, once, from the ISO date the reader typed. */
+function cgHistDate(iso){
+  const m=ISO_DATE.exec(iso); if(!m) return null;
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+
+async function priceBook(){
+  const raw=$("#pf-input") ? $("#pf-input").value : "";
+  const {rows, errs} = parseBook(raw);
+  const out=$("#pf-out");
+  if(errs.length && out) out.innerHTML=`<div class="pf-err">${errs.map(esc0).join("<br>")}</div>`;
+  else if(out) out.innerHTML="";
+  BOOK = rows.map(r=>({...r, ...resolveBookKey(r.key)}));
+  bookSave(raw);
+  if(!BOOK.length){ BOOK_STATE="empty"; pfStatus("NO BOOK"); renderBook(); return; }
+
+  BOOK_STATE="parsed"; pfStatus("PRICING…", "neu"); renderBook();
+
+  // BTC rides along in the SAME payload rather than in a second request, so the
+  // vs-BTC residual is measured against a quote taken at the same instant as the book's.
+  const ids=[...new Set(BOOK.map(b=>b.id))];
+  const withBtc=ids.includes("bitcoin") ? ids : ids.concat("bitcoin");
+
+  const [px, mk] = await Promise.all([
+    cgJson(CG_URL.simple(withBtc), 60000),
+    cgJson(CG_URL.marketsBy(withBtc), 60000),
+  ]);
+  // Shape, not status: a stubbed origin hands every endpoint the same fixture.
+  BOOK_PX = (px && !Array.isArray(px) && typeof px === "object") ? px : {};
+  BOOK_ROWS = {};
+  if(Array.isArray(mk)) mk.forEach(r=>{ if(r && r.id && withBtc.includes(r.id)) BOOK_ROWS[r.id]=r; });
+
+  const priced = BOOK.filter(b=>bookPrice(b)!=null).length;
+  BOOK_STATE = priced ? "priced" : "failed";
+  pfStatus(priced ? (priced===BOOK.length ? "LIVE" : "PARTIAL") : "UNPRICED",
+           priced===BOOK.length ? "pos" : priced ? "a" : "neg");
+  renderBook();
+
+  await fetchCostBases();
+  renderBook();
+  await fetchNavTrack();
+}
+
+/* /coins/{id}/history, once per dated line and cached forever: the price on a past date
+   does not change, so a second request for it is a request spent learning nothing. */
+async function fetchCostBases(){
+  const want=BOOK.filter(b=>b.cost==null && b.costDate && BOOK_COST[b.id+"|"+b.costDate]===undefined);
+  for(const b of want){
+    if(cgThrottled()) break;
+    const d=cgHistDate(b.costDate); if(!d) continue;
+    const v=await cgJson(CG_URL.history(b.id, d), 86400000);
+    const u=v && v.market_data && v.market_data.current_price
+          ? v.market_data.current_price.usd : null;
+    BOOK_COST[b.id+"|"+b.costDate] = (typeof u === "number") ? u : null;
+  }
+}
+
+/* The NAV track. One /market_chart per asset, so it is capped at the largest holdings
+   by weight and the panel names which ones it drew — a track built from three of eleven
+   positions is a different object from the book's NAV, and saying so is the difference
+   between a chart and a claim. */
+async function fetchNavTrack(){
+  const rows=bookRows().filter(r=>r.value!=null).sort((a,b)=>b.value-a.value);
+  const top=rows.slice(0, BOOK_CHART_CAP);
+  for(const r of top){
+    if(cgThrottled()) break;
+    if(BOOK_CHART[r.id]) continue;
+    const v=await cgJson(CG_URL.chart(r.id), 3600000);
+    if(v && Array.isArray(v.prices) && v.prices.length) BOOK_CHART[r.id]=v.prices;
+  }
+  renderNavTrack(top);
+}
+
+function bookPrice(b){
+  const p=BOOK_PX[b.id];
+  if(p && typeof p.usd === "number") return p.usd;
+  const r=BOOK_ROWS[b.id];
+  return (r && typeof r.current_price === "number") ? r.current_price : null;
+}
+function bookChg24(b){
+  const p=BOOK_PX[b.id];
+  if(p && typeof p.usd_24h_change === "number") return p.usd_24h_change;
+  const r=BOOK_ROWS[b.id];
+  return (r && typeof r.price_change_percentage_24h === "number")
+    ? r.price_change_percentage_24h : null;
+}
+function bookCost(b){
+  if(b.cost!=null) return b.cost;
+  if(b.costDate){ const v=BOOK_COST[b.id+"|"+b.costDate]; return (typeof v==="number")?v:null; }
+  return null;
+}
+
+/* Every derived number for the book, in one place, so the strip, the table, the risk
+   card and the overlay cannot disagree about what NAV is. */
+function bookRows(){
+  return BOOK.map(b=>{
+    const px=bookPrice(b), chg=bookChg24(b), cost=bookCost(b);
+    const value = px!=null ? px*b.qty : null;
+    // Today's move in dollars. Derived from the price and the percentage rather than
+    // from a stored yesterday: value*(chg/(100+chg)) is the dollar change that produced
+    // this percentage, which is not the same as value*chg/100 and is the one that sums
+    // to the day's actual P/L.
+    const day = (value!=null && chg!=null && (100+chg)!==0) ? value*(chg/(100+chg)) : null;
+    const open = (value!=null && cost!=null) ? value - cost*b.qty : null;
+    const openPct = (cost!=null && cost>0 && px!=null) ? (px/cost-1)*100 : null;
+    const t = STATE.find(x=>x.id===b.id) || STATE.find(x=>x.sym===b.sym) || null;
+    const mkRow = BOOK_ROWS[b.id];
+    return {...b, px, chg, cost, value, day, open, openPct, t,
+            spark: mkRow && mkRow.sparkline_in_7d ? mkRow.sparkline_in_7d.price : null,
+            chg7d: mkRow ? mkRow.price_change_percentage_7d_in_currency : null};
+  });
+}
+
+function renderBook(){
+  const rows=bookRows();
+  const nav=rows.reduce((s,r)=>s+(r.value||0),0);
+  const day=rows.reduce((s,r)=>s+(r.day||0),0);
+  const withCost=rows.filter(r=>r.open!=null);
+  const open=withCost.reduce((s,r)=>s+r.open,0);
+  const costTotal=withCost.reduce((s,r)=>s+r.cost*r.qty,0);
+
+  const money=v=>(v==null?"—":(v<0?"-":"")+"$"+Math.abs(v).toLocaleString("en-US",{maximumFractionDigits:0}));
+  const set=(id,txt,cls,tip)=>{ const el=document.getElementById(id); if(!el) return;
+    el.textContent=txt; el.className="num"+(cls?" "+cls:"");
+    const st=el.parentNode; if(st && tip) st.setAttribute("data-tip", tip); };
+
+  set("pf-nav", nav>0?money(nav):"—", null,
+    nav>0 ? `Net asset value: ${rows.filter(r=>r.value!=null).length} of ${rows.length} positions priced at the live quote.`
+          : "Paste holdings and price the book.");
+  set("pf-day", nav>0?money(day):"—", day>0?"pos":day<0?"neg":"neu",
+    "Today's dollar move across the whole book, from each position's 24h change. This is "
+    + "the change that PRODUCED the current value, not the current value times the "
+    + "percentage — the two differ by the day's move itself and only the first one sums "
+    + "to the book's actual day.");
+  set("pf-open", withCost.length?money(open):"—", open>0?"pos":open<0?"neg":"neu",
+    withCost.length
+      ? `Value minus cost across the ${withCost.length} position${withCost.length===1?"":"s"} that have a cost basis${
+          costTotal>0?`, a ${((open/costTotal)*100).toFixed(1)}% return on ${money(costTotal)} deployed`:""}. `
+        + `${rows.length-withCost.length} position${rows.length-withCost.length===1?"":"s"} have no cost and are excluded rather than assumed to be flat.`
+      : "No position carries a cost basis yet. Add @ price or @ YYYY-MM-DD to a line.");
+  set("pf-pos", rows.length?String(rows.length):"—", null,
+    "Positions in the book. Held in this browser only.");
+
+  const tb=$("#tbl-book tbody"); if(!tb) return;
+  tb.innerHTML="";
+  if(!rows.length){
+    tb.innerHTML=`<tr><td colspan="10" class="muted" style="padding:14px 12px">No book yet.
+      Paste holdings on the left and press PRICE THE BOOK. Nothing you type here is sent
+      anywhere except a list of CoinGecko ids, which is what pricing an asset requires.</td></tr>`;
+    const foot=$("#pf-foot"); if(foot) foot.textContent="No book priced yet.";
+    renderBookRisk(rows, 0); renderVsBtc(rows, nav); renderOverlay(rows, nav);
+    return;
+  }
+  rows.sort((a,b)=>(b.value||0)-(a.value||0));
+  const maxW = nav>0 ? Math.max(...rows.map(r=>(r.value||0)/nav)) : 0;
+  rows.forEach((r,i)=>{
+    const w = nav>0 && r.value!=null ? r.value/nav : null;
+    const tr=document.createElement("tr");
+    tr.className="row"+(r.t?"":" ");
+    tr.dataset.sym=r.sym;
+    const costNote = r.cost==null
+      ? "No cost basis on this line, so there is no open P/L to report. Add @ 41000 or @ 2025-11-04."
+      : (r.costDate
+          ? `Cost ${fmtPrice(r.cost)} from GET /coins/${r.id}/history on ${r.costDate}.`
+          : `Cost ${fmtPrice(r.cost)} as supplied.`);
+    tr.innerHTML=
+      `<td class="muted num">${i+1}</td>
+       <td class="tick">${esc0(r.sym)}${r.resolved==="assumed"
+          ? ` <span class="muted" data-tip="${esc0("Not in this board's scored universe, so the name was passed to CoinGecko as an id. If it priced, the id was right.")}">·</span>`:""}</td>
+       <td class="num">${r.qty.toLocaleString("en-US",{maximumFractionDigits:8})}</td>
+       <td class="num">${r.px==null?'<span class="muted">—</span>':fmtPrice(r.px)}</td>
+       <td class="num">${r.value==null?'<span class="muted">—</span>':money(r.value)}</td>
+       <td class="num">${w==null?'<span class="muted">—</span>'
+          :`${(w*100).toFixed(1)}% <span class="wbar" style="width:${(maxW?w/maxW*34:0).toFixed(1)}px"></span>`}</td>
+       <td class="num" ${r.day==null?"":`style="color:${deltaColor(r.chg||0)}"`}>${
+          r.day==null?'<span class="muted">—</span>'
+                     :`${money(r.day)} <span style="font-size:9px">${sgn(r.chg)}</span>`}</td>
+       <td class="num" data-tip="${esc0(costNote)}">${r.open==null
+          ? '<span class="muted">—</span>'
+          : `<span style="color:${deltaColor(r.openPct==null?0:r.openPct/3)}">${money(r.open)}${
+              r.openPct==null?"":` <span style="font-size:9px">${sgn(r.openPct)}</span>`}</span>`}</td>
+       <td class="num ${r.t?signalClass(r.t.conv):"muted"}">${r.t?r.t.conv:"—"}</td>
+       <td><span class="spark" data-bookspark></span></td>`;
+    if(r.t) tr.onclick=()=>{ switchWorkspace("crypto", true); select(r.t.sym); };
+    tb.appendChild(tr);
+  });
+  // Index-aligned to the sorted rows, same contract as the board's own spark pass.
+  document.querySelectorAll("#tbl-book [data-bookspark]").forEach((sp,idx)=>{
+    const r=rows[idx]; if(!r) return;
+    const w7 = r.chg7d==null ? (r.chg||0) : r.chg7d;
+    spark(sp, r.spark, 54, 14, deltaColor(w7), w7);
+  });
+
+  const unpriced=rows.filter(r=>r.px==null);
+  const foot=$("#pf-foot");
+  if(foot) foot.innerHTML =
+    `${rows.length} position${rows.length===1?"":"s"}, ${money(nav)} NAV, priced by
+     <code>/simple/price</code> and <code>/coins/markets?ids=</code> — two requests for the
+     whole book, not one per name.`
+    + (unpriced.length
+        ? ` <b class="neg">${unpriced.length} unpriced</b>: ${unpriced.map(r=>esc0(r.key)).join(", ")}
+            — ${cgThrottled()?"CoinGecko is rate-limiting this browser"
+                             :"CoinGecko returned no quote for those ids"}. They are excluded
+            from NAV rather than counted at zero.`
+        : "")
+    + ` Holdings stay in this browser.`;
+
+  renderBookRisk(rows, nav); renderVsBtc(rows, nav); renderOverlay(rows, nav);
+  if(typeof tipUpgrade==="function"){ const t=$("#tbl-book"); if(t) tipUpgrade(t.parentNode); }
+}
+
+function renderBookRisk(rows, nav){
+  const el=$("#pf-risk"); if(!el) return;
+  const priced=rows.filter(r=>r.value!=null);
+  if(!priced.length || !nav){
+    el.innerHTML='<div class="muted">Price the book to see weights, concentration and the conviction mix.</div>';
+    return;
+  }
+  const ws=priced.map(r=>r.value/nav).sort((a,b)=>b-a);
+  // Herfindahl, reported as its reciprocal: the number of EQUALLY weighted positions
+  // this book behaves like. Eleven names at 90/1/1/… is one position, and the count of
+  // rows says eleven.
+  const hhi=ws.reduce((s,w)=>s+w*w,0);
+  const eff=hhi>0?1/hhi:0;
+  const top3=ws.slice(0,3).reduce((a,b)=>a+b,0);
+  el.innerHTML=
+    `<div class="kv"><span data-tip="One over the sum of squared weights — the number of equally sized positions this book behaves like. A book of eleven names where one is ninety percent of NAV is one position, however many rows it has.">Effective positions</span><b class="${eff<2?"neg":eff<4?"a":"pos"}">${eff.toFixed(2)} of ${priced.length}</b></div>
+     <div class="kv"><span>Largest weight</span><b class="${ws[0]>0.5?"neg":ws[0]>0.3?"a":""}">${(ws[0]*100).toFixed(1)}%</b></div>
+     <div class="kv"><span>Top 3</span><b>${(top3*100).toFixed(1)}%</b></div>
+     <div class="kv"><span data-tip="Positions carrying a cost basis. The rest report a weight and a day move and no open P/L, which is the truth rather than a zero.">With cost basis</span><b>${rows.filter(r=>r.open!=null).length} of ${rows.length}</b></div>
+     <div class="pf-note" style="padding:8px 0 0">This is concentration, not risk. It says
+       nothing about how correlated these names are — the crypto workspace's correlation
+       panel measures that, and a three-name book of L1s is closer to one position than
+       this number suggests.</div>`;
+  if(typeof tipUpgrade==="function") tipUpgrade(el);
+}
+
+/* The vs-BTC residual. Priced from the SAME payload as the book — BTC rides along in the
+   simple/price call — so this is not two fetches compared as though they were one. */
+function renderVsBtc(rows, nav){
+  const el=$("#pf-vsbtc"); if(!el) return;
+  const btc=BOOK_PX["bitcoin"];
+  const priced=rows.filter(r=>r.day!=null && r.value!=null);
+  if(!priced.length || !nav || !btc || typeof btc.usd_24h_change!=="number"){
+    el.innerHTML=`<div class="muted">${
+      priced.length && nav
+        ? "BTC did not price in the same payload as the book, so there is nothing to measure the day against. Absent rather than fetched separately — a residual against a quote taken at a different instant is not a residual."
+        : "Priced against BTC when BTC is in the same payload as the book."}</div>`;
+    return;
+  }
+  /* Renormalised over the rows that HAVE a 24h change, not over NAV.
+
+     A position that priced but carries no 24h figure is excluded from the sum and was
+     still in its denominator, so the book's day was reported smaller than it was — by
+     exactly the weight of the rows that could not be measured. Understating a book's
+     move against BTC is the direction that flatters a losing day and hides a winning
+     one, and neither is a reading anyone asked for. The covered share is reported
+     alongside so a partial measurement says it is one. */
+  const covered = priced.reduce((s,r)=>s+r.value, 0);
+  const bookPct = covered>0
+    ? priced.reduce((s,r)=>s+(r.value/covered)*(r.chg||0), 0) : 0;
+  const resid = bookPct - btc.usd_24h_change;
+  const partial = covered < nav*0.999;
+  el.innerHTML=
+    `<div class="kv"><span>Book, 24h</span><b style="color:${deltaColor(bookPct)}">${sgn(bookPct)}</b></div>
+     <div class="kv"><span>BTC, 24h</span><b style="color:${deltaColor(btc.usd_24h_change)}">${sgn(btc.usd_24h_change)}</b></div>
+     <div class="kv"><span data-tip="The book's weighted day move minus BTC's. It is a RESIDUAL, not alpha: alpha is a residual after adjusting for how much market exposure the book carries, and a beta measured over one day is not a measurement. A high-beta book beating BTC on an up day has not demonstrated anything.">Residual</span><b style="color:${deltaColor(resid)}">${sgn(resid)}</b></div>
+     <div class="pf-note" style="padding:8px 0 0">Weighted by position value at the live
+       quote, over one day. One day is a data point, not a track record.${partial
+         ? ` Measured over the ${(covered/nav*100).toFixed(0)}% of NAV that carries a 24h
+             figure — the rest is excluded from both sides rather than counted as flat.`
+         : ""}</div>`;
+  if(typeof tipUpgrade==="function") tipUpgrade(el);
+}
+
+function renderOverlay(rows, nav){
+  const el=$("#pf-overlay"); if(!el) return;
+  const scored=rows.filter(r=>r.t && r.value!=null);
+  if(!scored.length || !nav){
+    el.innerHTML=`<div class="muted">${rows.length
+      ? "None of these positions is in the scored universe — most of this board's names sit above a market-cap floor that a book need not respect."
+      : "How the book's weight is distributed across this board's signal bands, once it is priced."}</div>`;
+    return;
+  }
+  const bands=[["STRONG","g"],["BUY","g"],["HOLD","n"],["WATCH","a"],["AVOID","r"]];
+  const by={}; scored.forEach(r=>{ const k=r.t.sig[0]; by[k]=(by[k]||0)+r.value; });
+  const covered=scored.reduce((s,r)=>s+r.value,0);
+  el.innerHTML = bands.filter(b=>by[b[0]]).map(([name,cls])=>{
+    const w=by[name]/nav;
+    return `<div class="kv"><span><span class="badge ${cls}">${name}</span></span>
+      <b>${(w*100).toFixed(1)}% <span class="wbar" style="width:${(w*40).toFixed(1)}px"></span></b></div>`;
+  }).join("")
+    + `<div class="pf-note" style="padding:8px 0 0">${(covered/nav*100).toFixed(0)}% of NAV
+       is in names this board scores; the rest is not covered by the model at all and is
+       not being counted as neutral.</div>`;
+}
+
+/* The NAV track. Deliberately a track of the TOP HOLDINGS rebased to 100, not of NAV:
+   /market_chart is one request per asset and the cap means the series would be missing
+   positions. Rebased and named, it is an honest statement about what it drew. */
+function renderNavTrack(top){
+  const el=$("#pf-navspark"); if(!el) return;
+  const drawn=(top||[]).filter(r=>BOOK_CHART[r.id]);
+  if(!drawn.length){
+    el.innerHTML=`<div class="muted">${cgThrottled()
+      ? "The 90-day track is rate-limited — <code>/coins/{id}/market_chart</code> is one request per asset and this browser is throttled. NAV, day and open P/L above are unaffected."
+      : "Price a book with at least one position to draw its 90-day track."}</div>`;
+    return;
+  }
+  // Weighted by the position's value, rebased to 100 at the first common day.
+  const series=drawn.map(r=>({sym:r.sym, w:r.value, pts:BOOK_CHART[r.id]}));
+  const n=Math.min(...series.map(s=>s.pts.length));
+  const wsum=series.reduce((a,s)=>a+s.w,0);
+  const track=[];
+  for(let i=0;i<n;i++){
+    let v=0;
+    series.forEach(s=>{ const base=s.pts[s.pts.length-n][1]; if(base>0)
+      v += (s.w/wsum) * (s.pts[s.pts.length-n+i][1]/base); });
+    track.push(v*100);
+  }
+  const chg = track.length>1 ? track[track.length-1]-100 : 0;
+  el.innerHTML =
+    `<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px">
+       <b class="num" style="font-size:16px;color:${deltaColor(chg/3)}">${sgn(chg)}</b>
+       <span class="muted">over ${track.length} days, ${drawn.length} of ${BOOK.length}
+         position${BOOK.length===1?"":"s"} — ${drawn.map(d=>esc0(d.sym)).join(", ")}</span>
+     </div>
+     <span class="spark" id="pf-track"></span>
+     <div class="muted" style="margin-top:5px">Value-weighted and rebased to 100 at the
+       start of the window. This is the track of the largest holdings only, NOT of NAV:
+       <code>/coins/{id}/market_chart</code> is one request per asset, so it is capped at
+       ${BOOK_CHART_CAP} and names which ones it drew rather than quietly leaving the rest out.</div>`;
+  const host=document.getElementById("pf-track");
+  if(host) spark(host, track, 340, 44, deltaColor(chg/3), chg);
+}
+
+const pfBtn=document.getElementById("pf-btn");
+if(pfBtn) pfBtn.onclick=()=>priceBook();
+const pfClear=document.getElementById("pf-clear");
+if(pfClear) pfClear.onclick=()=>{
+  const box=$("#pf-input"); if(box) box.value="";
+  BOOK=[]; BOOK_PX={}; BOOK_ROWS={}; BOOK_CHART={};
+  BOOK_STATE="empty"; pfStatus("NO BOOK");
+  bookSave(""); renderBook(); renderNavTrack([]);
+};
+// Restore the book across visits. It is the reader's own data in their own browser, and
+// retyping eleven positions to see today's number is the reason nobody uses a tool twice.
+(function(){
+  const box=$("#pf-input"); if(!box) return;
+  const saved=bookLoad();
+  if(saved) box.value=saved;
+})();
 // Sizing recomputes live: the whole point is one input away from a decision.
 ["#sz-notional","#sz-participation","#sz-stopk","#sz-margin"].forEach(sel=>{ const el=$(sel);
   if(el) el.oninput=()=>{ try{ localStorage.setItem("sz"+sel, el.value); }catch(e){}
@@ -4589,70 +5901,452 @@ function renderMacro(){
   el.innerHTML=out.join("");
 }
 
-function renderSectors(){
-  const el=$("#sectors"); if(!el) return;
-  const rep=(INTEL&&INTEL.sectors)||null;
-  const st=((INTEL&&INTEL.feeds)||{}).categories||{};
-  if(!rep||!rep.sectors||!rep.sectors.length){
-    el.innerHTML=`<div class="muted">Sector feed ${st.status?("<b>"+st.status+"</b> — "+esc0(st.detail)):"pending"}.</div>`;
+/* ===================== THE REGIME LINE — GET /global =====================
+
+   The missing first line. This page could tell you a name's conviction to three
+   significant figures and could not tell you whether the whole market was up.
+
+   Five numbers, in the single status strip and not a second ribbon: total cap, whether
+   it moved, how much actually traded, and where the two majors sit inside it. The sixth
+   is a regime READING, and it is deliberately conservative — dominance and cap direction
+   only claim a regime when they agree, and say MIXED when they do not, on the same
+   principle as the stablecoin RISK-ON/RISK-OFF card in the Status expand that it sits
+   beside rather than duplicates.
+
+   GLOBAL is enrichment. It has its own cache, it never blocks the ledger, and when it
+   is throttled the six chips stay in their pending state — dimmed, dashed, and still
+   labelled — rather than showing a stale number as though it were current. */
+let GLOBAL = null;
+const GLOBAL_TTL = 120000;
+
+function glSet(id, value, sub, cls, tip, pending){
+  const el=document.getElementById(id); if(!el) return;
+  el.classList.toggle("pending", !!pending);
+  const b=el.querySelector(".gl-v");
+  if(b){ b.textContent=value; b.className="gl-v"+(cls?" "+cls:""); }
+  if(tip) el.setAttribute("data-tip", tip); else el.removeAttribute("data-tip");
+}
+
+function renderGlobal(){
+  const d = GLOBAL && GLOBAL.data;
+  if(!d || typeof d !== "object" || !d.total_market_cap){
+    const why = cgThrottled()
+      ? "CoinGecko is rate-limiting this browser (the public tier is ten to thirty requests a minute, and this page holds no credential). The ranked board below is committed ledger and markets data and is unaffected."
+      : CG_LAST_ERROR
+        ? "The /global call did not answer: "+CG_LAST_ERROR+". The board below is unaffected."
+        : "Waiting on GET /global.";
+    ["gl-cap","gl-chg","gl-vol","gl-btc","gl-eth","gl-regime"]
+      .forEach(id=>glSet(id,"—",null,null,why,true));
     return;
   }
-  const n=8;
-  const rows=rep.sectors.filter(r=>r.rs24h!=null||r.chg24h!=null);
-  const lead=rows.slice(0,n), lag=rows.slice(-n).reverse();
-  const val=r=>(r.rs24h!=null?r.rs24h:r.chg24h);
-  const span=Math.max(1,...rows.map(r=>Math.abs(val(r)||0)));
-  const bar=r=>{ const v=val(r)||0, w=Math.min(50,Math.abs(v)/span*50);
-    const col=v>=0?"var(--green)":"var(--red)";
-    return `<div class="sec-track"><div class="sec-bar" style="background:${col};${
-      v>=0?`left:50%;width:${w}%`:`right:50%;width:${w}%`}"></div></div>`; };
-  const flow=r=>(r.flow_pct!=null
-      ? `<span class="${r.flow_pct>=0?'pos':'neg'}" title="${r.flow_days}-night flow accumulated from ledger/sectors.csv">${sgn(r.flow_pct)}</span>`
-      : `<span class="muted" title="Multi-day flow needs prior nights on disk. /coins/categories publishes no history, so this accumulates one night at a time.">${r.flow_days||0}d</span>`);
-  const row=r=>`<div class="sec-row">
-      <span class="sec-name" data-sector="${esc0(r.name)}" title="${esc0(r.name)} — ${fmtUsd(r.mcap)} cap${r.coins_count?`, ${r.coins_count} coins`:""}${r.turnover!=null?`, turnover ${(r.turnover*100).toFixed(1)}%`:""}${r.top3&&r.top3.length?`. Top: ${esc0(r.top3.join(", "))}`:""}">${esc0(r.name)}</span>
-      ${bar(r)}
-      <span class="sec-val ${val(r)>=0?'pos':'neg'}">${sgn(val(r))}</span>
-    </div>`;
-  el.innerHTML=`
-    <div class="cf-h pos">CAPITAL ROTATING IN</div>${lead.map(row).join("")}
-    <div class="cf-h neg" style="margin-top:8px">CAPITAL ROTATING OUT</div>${lag.map(row).join("")}
-    <div class="muted" style="margin-top:8px">${rep.n} sector(s) cleared the size and breadth floors · ${esc0(rep.basis)}${
-      rep.market_chg_24h!=null?` (${sgn(rep.market_chg_24h)})`:""}</div>`;
+  const cap=(d.total_market_cap||{}).usd, vol=(d.total_volume||{}).usd;
+  const chg=d.market_cap_change_percentage_24h_usd;
+  const dom=d.market_cap_percentage||{};
+  glSet("gl-cap", fmtUsd(cap), null, null,
+    "Total capitalisation of every asset CoinGecko tracks. The board's own Tracked Mkt Cap "
+    + "beside it is the scored universe only — the two are different populations and the "
+    + "gap between them is everything below this board's size floor.", cap==null);
+  glSet("gl-chg", chg==null?"—":sgn(chg), null,
+    chg==null?null:(chg>0?"pos":chg<0?"neg":"neu"),
+    "Whole-market cap change over 24 hours. This is the number every relative-strength "
+    + "reading on this page is measured against — a name up 3% on a day the market is up "
+    + "5% is a name that lost ground.", chg==null);
+  glSet("gl-vol", fmtUsd(vol), null, null,
+    "Total 24h volume across the market. Read against total cap above it: volume rising "
+    + "into a flat cap is rotation, volume falling into a rising cap is a move nobody is "
+    + "participating in.", vol==null);
+  const btc=dom.btc, eth=dom.eth;
+  glSet("gl-btc", btc==null?"—":btc.toFixed(1)+"%", null, null,
+    "Bitcoin's share of total market cap. Rising dominance in a rising market is a flight "
+    + "to the majors; rising dominance in a falling one is an alt drawdown. The Status "
+    + "expand carries the same reading from the nightly's own /global snapshot, which can "
+    + "legitimately differ from this one by a night.", btc==null);
+  glSet("gl-eth", eth==null?"—":eth.toFixed(1)+"%", null, null,
+    "Ether's share of total market cap.", eth==null);
+
+  /* The regime reading. Two axes — is the market up, and is capital concentrating in
+     BTC — and a claim only where they agree. Everything else is MIXED, which is a
+     reading rather than a failure to produce one. The threshold is ±0.5% on the day
+     because a market that moved a tenth of a percent has not told you anything. */
+  let label="MIXED", cls="neu", why;
+  const up = chg!=null && chg > 0.5, down = chg!=null && chg < -0.5;
+  const btcLead = (STATE.length && btc!=null)
+    ? (() => { const b=STATE.find(t=>t.sym==="BTC");
+               return b && b.chg!=null && chg!=null ? (b.chg - chg) : null; })()
+    : null;
+  if(chg==null){ label="—"; cls=null; why="No 24h cap change in the /global payload."; }
+  else if(up && btcLead!=null && btcLead < -0.3){
+    label="RISK-ON"; cls="pos";
+    why=`The market is up ${chg.toFixed(1)}% and BTC is underperforming it by ${
+      Math.abs(btcLead).toFixed(1)} points — capital is moving out along the risk curve. `
+      + `A reading, not an instruction.`;
+  } else if(up){
+    label="BID"; cls="pos";
+    why=`The market is up ${chg.toFixed(1)}% but BTC is not lagging it, so this is a `
+      + `broad bid rather than a rotation into risk.`;
+  } else if(down && btcLead!=null && btcLead > 0.3){
+    label="RISK-OFF"; cls="neg";
+    why=`The market is down ${chg.toFixed(1)}% and BTC is outperforming it by ${
+      btcLead.toFixed(1)} points — the classic alt drawdown shape, capital concentrating `
+      + `in the majors on the way out.`;
+  } else if(down){
+    label="OFFERED"; cls="neg";
+    why=`The market is down ${chg.toFixed(1)}% without BTC outperforming, so this is broad `
+      + `selling rather than a rotation into the majors.`;
+  } else {
+    why=`The market moved ${chg.toFixed(2)}% over 24 hours, which is inside the ±0.5% band `
+      + `this reading treats as no direction. MIXED is the honest answer; picking a side `
+      + `on a tenth of a percent is not.`;
+  }
+  glSet("gl-regime", label, null, cls, why, chg==null);
+  if(typeof tipUpgrade==="function"){
+    const strip=document.getElementById("glstrip"); if(strip) tipUpgrade(strip);
+  }
+}
+
+async function loadGlobal(){
+  GLOBAL = await cgJson(CG_URL.global(), GLOBAL_TTL);
+  renderGlobal();
+}
+
+/* ===================== SECTOR HEAT — GET /coins/categories =====================
+
+   This panel was a prose rotation list built from the nightly's own categories snapshot.
+   The snapshot is still the fallback and still the only source of the multi-day flow
+   column — /coins/categories publishes a 24h figure and no history at all — but the live
+   call is what makes the panel current between nightlies, and it carries one column the
+   ledger version could not: how many of the category's names this board actually scores.
+
+   That OVERLAP column is the point. A sector up 14% on the day is not reachable from
+   here if none of its constituents clears this board's size floor, and a heat list that
+   does not say so is a list of things to go and look for somewhere else.
+
+   Clicking a row filters the board to the names in the overlap. */
+let CATS = null;
+let SECTOR_FILTER = null;
+const CATS_TTL = 300000;
+
+/* THE SAME FLOORS THE NIGHTLY USES. Mirrored from coingecko.py — SECTOR_MIN_MCAP,
+   SECTOR_EXCLUDE_SUBSTRINGS and SECTOR_REPORT_N — and pinned to it by
+   tests/test_terminal.py, because two copies of a threshold that can disagree is two
+   different panels claiming to be the same one.
+
+   /coins/categories returns 758 rows and most of them are not sectors in any sense a
+   rotation matrix means: "Made in USA" is a jurisdiction, "Alleged SEC Securities" is a
+   legal status, and "Smart Contract Platform" holds BTC and ETH and is a restatement of
+   the market itself. Unfiltered, the leaderboard is a nine-million-dollar four-coin
+   category every single night. */
+const SECTOR_MIN_MCAP = 250000000;
+const SECTOR_EXCLUDE_SUBSTRINGS = [
+  "stablecoin", "tokenized-", "wrapped-", "bridged-", "-pegged",
+  "cryptocurrency", "smart-contract-platform", "proof-of-work", "proof-of-stake",
+  "made-in-", "alleged-", "portfolio", "index-", "-ecosystem-index",
+];
+const SECTOR_REPORT_N = 7;
+/* Past this, a category's 24h change is almost certainly its CONSTITUENT LIST changing
+   rather than capital arriving. A live payload had "On-chain Gaming" at +1316% on a
+   $274M cap and "Real World Assets" at +47% on $71.9B: a day where seventy billion
+   dollars of capital rotated into one narrative did not happen, a coin was added to the
+   category. CoinGecko publishes no membership diff, so this cannot be corrected — only
+   marked, which is the difference between a number a reader can use and one that
+   quietly makes the whole panel wrong. */
+const SECTOR_COMPOSITION_PCT = 35;
+
+async function loadCategories(){
+  const v = await cgJson(CG_URL.categories(), CATS_TTL);
+  // Every CoinGecko endpoint answers with JSON, so shape is the only way to know which
+  // one answered — and a test harness that stubs the whole origin with one fixture will
+  // hand this the markets array. A category has a name and a market_cap; a coin does not
+  // have `market_cap_change_24h` at the top level with no `current_price` beside it.
+  CATS = (Array.isArray(v) && v.length && v[0] && v[0].name!=null
+          && v[0].current_price===undefined) ? v : null;
+  renderSectors();
+}
+
+/* Names this board scores that sit in a given category, using the categories the
+   inspector has already fetched. No extra request: /coins/categories does not publish
+   its members, and one /coins/{id} per asset to find out would be the whole rate
+   budget. The count is therefore a FLOOR — "at least this many" — and says so. */
+function sectorOverlap(name){
+  const key=String(name||"").toLowerCase();
+  const out=[];
+  STATE.forEach(t=>{
+    const c=t.id && INSP_COIN[t.id];
+    if(c && (c.categories||[]).some(x=>String(x||"").toLowerCase()===key)) out.push(t.sym);
+  });
+  return out;
+}
+
+/* Filter the board to a category, from either surface that offers it: a row in the heat
+   list, or one of the category chips in the inspector.
+
+   One function because they were two. The chips set SECTOR_FILTER and re-rendered the
+   heat list, which highlighted a row and left the board unfiltered — a control showing a
+   selected state for a filter that had not been applied. Clicking the same category in
+   the two places now does the same thing, which is the only defensible answer to "what
+   does this do". */
+function applySectorFilter(name, srcEl){
+  if(!name) return;
+  if(SECTOR_FILTER && SECTOR_FILTER.toLowerCase()===name.toLowerCase()){
+    SECTOR_FILTER=null; FLIP_SET=null;                       // a second click clears it
+  }else{
+    const syms=sectorOverlap(name);
+    if(!syms.length){
+      /* Refuses rather than filtering to nothing. An empty board after a click reads as
+         a broken filter; the reason is one line and belongs beside the thing clicked. */
+      const host=$("#sectors");
+      if(host){ const w=host.querySelector(".sec-empty"); if(w) w.remove(); }
+      const note=`<div class="muted sec-empty" style="padding:3px 0 5px">No scored name on
+        this board is known to sit in <b>${esc0(name)}</b> yet. Membership comes from the
+        per-asset <code>/coins/{id}</code> records the inspector fetches, so it fills in
+        as rows are opened rather than all at once.</div>`;
+      if(srcEl && srcEl.parentNode) srcEl.insertAdjacentHTML("afterend", note);
+      else if(host) host.insertAdjacentHTML("afterbegin", note);
+      return;
+    }
+    SECTOR_FILTER=name; FLIP_SET=new Set(syms); FILTER="";
+    const box=$("#screen-filter"); if(box) box.value="";
+  }
+  renderSectors();
+  if(STATE.length) renderTables();
+}
+
+function renderSectors(){
+  const el=$("#sectors"); if(!el) return;
   const note=$("#sec-note");
-  if(note) note.textContent = rep.market_chg_24h!=null
-    ? `vs market ${sgn(rep.market_chg_24h)}` : "absolute — no benchmark tonight";
+  const mkt=(INTEL&&INTEL.sectors&&INTEL.sectors.market_chg_24h!=null)
+    ? INTEL.sectors.market_chg_24h
+    : (GLOBAL&&GLOBAL.data ? GLOBAL.data.market_cap_change_percentage_24h_usd : null);
+
+  // Multi-day flow, accumulated by the nightly. Keyed by name so it survives the live
+  // list arriving in a different order than the recorded one.
+  const flowBy={};
+  ((INTEL&&INTEL.sectors&&INTEL.sectors.sectors)||[]).forEach(r=>{
+    if(r&&r.name) flowBy[String(r.name).toLowerCase()]=r;
+  });
+
+  let rows=null, basis="", dropped=0;
+  if(CATS && CATS.length){
+    const kept = CATS.filter(c=>{
+      if(!c || c.market_cap==null || c.market_cap_change_24h==null) return false;
+      if(c.market_cap < SECTOR_MIN_MCAP) return false;
+      const id=String(c.id||"").toLowerCase();
+      return !SECTOR_EXCLUDE_SUBSTRINGS.some(x=>id.indexOf(x)>=0);
+    });
+    dropped = CATS.length - kept.length;
+    rows = kept.map(c=>({name:c.name, mcap:c.market_cap, chg24h:c.market_cap_change_24h,
+                         vol:c.volume_24h, top3:(c.top_3_coins||[]).length}));
+    basis = `live GET /coins/categories — ${kept.length} of ${CATS.length} categories cleared `
+          + `the $${(SECTOR_MIN_MCAP/1e6).toFixed(0)}M floor and the exclusion list`;
+  } else if(INTEL && INTEL.sectors && INTEL.sectors.sectors && INTEL.sectors.sectors.length){
+    rows = INTEL.sectors.sectors.filter(r=>r.rs24h!=null||r.chg24h!=null)
+      .map(r=>({name:r.name, mcap:r.mcap, chg24h:(r.chg24h!=null?r.chg24h:r.rs24h),
+                vol:null, top3:0}));
+    basis = "recorded snapshot from ledger/market_intel.json — the live categories call did not answer";
+  }
+  if(!rows || !rows.length){
+    const st=((INTEL&&INTEL.feeds)||{}).categories||{};
+    el.innerHTML=`<div class="muted">Sector feed ${st.status?("<b>"+st.status+"</b> — "+esc0(st.detail)):"pending"}${
+      cgThrottled()?" · the live /coins/categories call is rate-limited":""} — <code>ledger/market_intel.json</code> carries the fallback.</div>`;
+    if(note) note.textContent="pending";
+    return;
+  }
+
+  // Relative to the whole market, not absolute. The absolute number mostly answers "did
+  // Bitcoin go up"; the relative one answers "did capital move HERE", which is the only
+  // question a rotation list is for.
+  const rel = r => mkt==null ? r.chg24h : (r.chg24h - mkt);
+  rows.sort((a,b)=>rel(b)-rel(a));
+  /* Head and tail of the WHOLE filtered set, and the same count at each end.
+
+     An earlier version sliced the payload to its first 40 rows — CoinGecko returns them
+     already ordered by 24h change — and then took the bottom five of THOSE as "capital
+     rotating out". Against a live payload that produced a rotating-out list reading
+     +4.7%, +5.3%, +5.5%: the five weakest of the forty strongest, labelled as outflows.
+     Every number on it was correct and the panel was lying.
+
+     Symmetric, for the reason coingecko.py gives at SECTOR_REPORT_N: capital rotating
+     out of a narrative is the same observation as capital rotating in, and a leaderboard
+     that only shows one end cannot tell a broad rally from a rotation. */
+  const N=Math.min(SECTOR_REPORT_N, Math.floor(rows.length/2)) || 1;
+  const lead=rows.slice(0,N), lag=rows.slice(-N).reverse();
+  // The bar scale is a robust span, not the maximum. A category whose constituents
+  // changed overnight prints a four-figure percentage that is a composition change
+  // rather than a capital flow, and scaling every other bar against it flattens the
+  // entire panel to nothing.
+  const mags=rows.map(r=>Math.abs(rel(r)||0)).sort((a,b)=>a-b);
+  const span=Math.max(1, mags[Math.floor(mags.length*0.9)] || mags[mags.length-1] || 1);
+
+  const line = r => {
+    const v=rel(r)||0, w=Math.min(46, Math.abs(v)/span*46);
+    const ov=sectorOverlap(r.name);
+    const f=flowBy[String(r.name).toLowerCase()];
+    const on = SECTOR_FILTER && SECTOR_FILTER.toLowerCase()===String(r.name).toLowerCase();
+    const comp = Math.abs(r.chg24h) > SECTOR_COMPOSITION_PCT;
+    const why = `${r.name}: ${fmtUsd(r.mcap)} of capitalisation, ${
+      r.chg24h>=0?"+":""}${r.chg24h.toFixed(2)}% over 24h${
+      mkt!=null?` against a market that moved ${sgn(mkt)}, so ${v>=0?"+":""}${v.toFixed(2)} points of relative capital`:""}.`
+      + (comp
+          ? ` A move this size is almost certainly the category's MEMBERSHIP changing `
+            + `rather than capital arriving — a coin added to it takes its whole market `
+            + `cap with it. /coins/categories publishes no membership diff, so this is `
+            + `marked rather than corrected, and it should not be read as a flow.`
+          : "")
+      + (ov.length
+          ? ` At least ${ov.length} of this board's scored names sit in it: ${ov.slice(0,8).join(", ")}. Click to filter the board to them.`
+          : ` No scored name on this board is KNOWN to sit in it — the overlap is counted `
+            + `from the categories the inspector has already fetched, so it is a floor `
+            + `rather than a census. A hot sector with no reachable names is a sector this `
+            + `board cannot express.`)
+      + (f && f.flow_pct!=null ? ` Multi-day flow ${sgn(f.flow_pct)} over ${f.flow_days} recorded nights.` : "");
+    return `<div class="heat-row${on?" on":""}" data-sector="${esc0(r.name)}" data-tip="${esc0(why)}" tabindex="0" role="button">
+      <span class="heat-name">${esc0(r.name)}
+        <span class="sec-track" style="display:inline-block;width:36px;vertical-align:middle;margin-left:5px">
+          <span class="sec-bar" style="background:${v>=0?"var(--green)":"var(--red)"};${
+            v>=0?`left:50%;width:${w}%`:`right:50%;width:${w}%`}"></span></span></span>
+      <span class="num">${fmtUsd(r.mcap)}</span>
+      <span class="num" style="color:${comp?"var(--tert)":deltaColor(r.chg24h)}">${
+        comp?"~":""}${sgn(r.chg24h)}</span>
+      <span class="heat-ov" ${ov.length?"":'style="opacity:.45"'}>${ov.length||"·"}</span>
+    </div>`;
+  };
+
+  el.innerHTML =
+    `<div class="heat-h"><span>Category</span><span>Cap</span><span>24h</span>
+       <span data-tip="How many of this board's scored names are known to sit in the category. A floor, not a census — it counts only the assets whose /coins/{id} record the inspector has already fetched.">Ovl</span></div>`
+    + `<div class="cf-h pos" style="margin-top:6px">CAPITAL ROTATING IN</div>${lead.map(line).join("")}`
+    + `<div class="cf-h neg" style="margin-top:8px">CAPITAL ROTATING OUT</div>${lag.map(line).join("")}`
+    + (SECTOR_FILTER
+        ? `<div class="muted" style="margin-top:8px">Board filtered to <b>${esc0(SECTOR_FILTER)}</b>.
+             <a href="#" id="sec-clear" style="color:var(--amber)">clear</a></div>`
+        : "")
+    + `<div class="muted" style="margin-top:8px">${esc0(basis)}${
+        mkt!=null?` · bars are relative to a market that moved ${sgn(mkt)}`:""}. Bars are
+        scaled to the 90th percentile of the day's moves, so a category whose constituent
+        list changed overnight cannot flatten the rest of the panel. A <b>~</b> marks a
+        move past ±${SECTOR_COMPOSITION_PCT}%, which is membership changing rather than
+        capital arriving.</div>`;
+
+  el.querySelectorAll("[data-sector]").forEach(n=>{
+    const go=()=>applySectorFilter(n.dataset.sector, n);
+    n.onclick=go;
+    n.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } };
+  });
+  const clr=document.getElementById("sec-clear");
+  if(clr) clr.onclick=e=>{ e.preventDefault(); SECTOR_FILTER=null; FLIP_SET=null;
+    renderSectors(); if(STATE.length) renderTables(); };
+
+  if(note) note.textContent = mkt!=null
+    ? `relative to a market ${sgn(mkt)}` : "absolute — no market benchmark tonight";
+  if(typeof tipUpgrade==="function") tipUpgrade(el);
+}
+
+/* ===================== TRENDING vs CONVICTION — GET /search/trending =====================
+
+   The join was already here and reading the nightly's recorded snapshot. What it
+   produced was a paragraph of labels and a count — "15 trending" — which is the least
+   useful form of this data: the number of names the crowd is searching is not a fact
+   anyone can act on.
+
+   The useful row is the DISAGREEMENT. A name high on the search list that this board
+   scores WATCH or AVOID is the crowd and the model looking at the same asset and
+   reaching different conclusions, and that is worth one marked row. A trending name the
+   board also rates BUY is not news; it is agreement, and agreement gets a quiet row.
+
+   Live where the endpoint answers, recorded where it does not. Neither is a
+   recommendation in either direction: a crowded name is not automatically a short, and
+   the model being unimpressed is not evidence the crowd is wrong. */
+let TRENDING = null;
+const TRENDING_TTL = 300000;
+
+async function loadTrending(){
+  const v = await cgJson(CG_URL.trending(), TRENDING_TTL);
+  TRENDING = (v && Array.isArray(v.coins)) ? v : null;   // shape, not status: see loadCategories
+  renderTMD();
 }
 
 function renderTMD(){
   const el=$("#tmd"); if(!el) return;
+  const note=$("#tmd-note");
+
+  if(TRENDING && TRENDING.coins.length){
+    const rows = TRENDING.coins.slice(0,12).map((c,i)=>{
+      const it=c.item||{};
+      const sym=String(it.symbol||"").toUpperCase();
+      const t=STATE.find(x=>x.sym===sym) || STATE.find(x=>x.id===it.id) || null;
+      const rank=it.market_cap_rank;
+      const sig=t?t.sig:null;
+      const disagree = t && (t.sig[0]==="AVOID" || t.sig[0]==="WATCH");
+      const why = t
+        ? `${sym} is ${i+1} on CoinGecko's search-trending list and this board scores it `
+          + `${t.conv} (${t.sig[0]}). ${disagree
+              ? "The crowd and the model disagree on this name — which is the row on this "
+                + "panel worth reading. It is not a short: attention and a low structural "
+                + "score are two facts, and neither predicts the other."
+              : "The crowd and the model agree here, which is the least informative case."}`
+        : `${sym} is ${i+1} on the trending list and is NOT in the scored universe — most `
+          + `trending coins fall below this board's market-cap floor. Absent is not a low `
+          + `score; it is no score.`;
+      return `<div class="tr-row${disagree?" disagree":""}" data-tip="${esc0(why)}"${
+          t?` data-tsym="${esc0(sym)}"`:""}${t?' tabindex="0" role="button"':""}>
+        <span class="tr-rank">${i+1}</span>
+        <span class="tick">${esc0(sym)} <span class="muted">${esc0((it.name||"").slice(0,18))}</span></span>
+        <span class="num muted">${rank?("#"+rank):"—"}</span>
+        <span class="num ${t?signalClass(t.conv):"muted"}">${t?t.conv:"—"}</span>
+        <span>${t?`<span class="badge ${sig[1]}">${sig[0]}</span>`
+                 :'<span class="muted">unscored</span>'}</span>
+      </div>`;
+    }).join("");
+    const dis = TRENDING.coins.slice(0,12).filter(c=>{
+      const t=STATE.find(x=>x.sym===String((c.item||{}).symbol||"").toUpperCase());
+      return t && (t.sig[0]==="AVOID"||t.sig[0]==="WATCH"); }).length;
+    el.innerHTML =
+      `<div class="tr-row" style="border-bottom:1px solid var(--border);font-size:7.5px;color:var(--tert);text-transform:uppercase;letter-spacing:.7px">
+         <span>#</span><span>Name</span><span class="num">CG rank</span>
+         <span class="num">Conv</span><span>Signal</span></div>`
+      + rows
+      + `<div class="muted" style="margin-top:7px">${dis
+          ? `<b class="neg">${dis}</b> of the top 12 trending names are WATCH or AVOID on this board — marked above.`
+          : "No trending name is WATCH or AVOID on this board: the crowd and the model agree tonight."}
+         Live <code>GET /search/trending</code>, joined to the scored universe by ticker.</div>`;
+    el.querySelectorAll("[data-tsym]").forEach(n=>{
+      const go=()=>select(n.dataset.tsym);
+      n.onclick=go;
+      n.onkeydown=e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } };
+    });
+    if(note) note.textContent="search rank against model rank · live";
+    if(typeof tipUpgrade==="function") tipUpgrade(el);
+    return;
+  }
+
+  // Recorded fallback. Same shape, same reading, from the nightly's own join.
   const rep=(INTEL&&INTEL.trending)||null;
   const st=((INTEL&&INTEL.feeds)||{}).trending||{};
   if(!rep||!rep.assets||!rep.assets.length){
-    el.innerHTML=`<div class="muted">Trending feed ${st.status?("<b>"+st.status+"</b> — "+esc0(st.detail)):"pending"}.</div>`;
+    el.innerHTML=`<div class="muted">Trending feed ${st.status?("<b>"+st.status+"</b> — "+esc0(st.detail)):"pending"}${
+      cgThrottled()?" · the live /search/trending call is rate-limited":""}.</div>`;
     return;
   }
-  const cls=l=>l==="FOMO_CROWDED"?"crowded":l==="QUIET_ACCUMULATION"?"quiet"
-            :l==="UNRANKED"?"unranked":"aligned";
-  const rows=rep.assets.map(a=>`<div class="tmd-row">
-      <span class="tmd-rank">${a.trending_rank}</span>
-      <span class="tick">${a.symbol}</span>
-      <span class="num muted" title="Rank among the names that are BOTH trending and scored — the population the label is computed over. Its rank across the whole 15-name trending list is ${a.trending_pct}%.">${a.overlap_trend_pct==null?"—":a.overlap_trend_pct+"%"}</span>
-      <span class="num ${a.conviction==null?'muted':a.conviction>=70?'pos':'neu'}"
-            title="${a.conviction==null?'Not in the scored universe — most trending coins fall below the market-cap cut.':'Conviction '+a.conviction+' — '+a.conviction_pct+'th percentile of the whole board, '+a.overlap_conv_pct+'th among the names that are also trending.'}">${a.conviction==null?"—":a.conviction}</span>
-      <span><span class="lab ${cls(a.label)}" title="${a.divergence==null
-        ? 'The crowd is looking at something this model does not rank at all.'
-        : 'Percentile gap of '+a.divergence+' between the two rankings. Positive means the crowd ranks it above the model.'}">${a.label.replace("_"," ")}</span></span>
-    </div>`).join("");
+  const rows=rep.assets.slice(0,12).map(a=>{
+    const dis = a.label==="FOMO_CROWDED";
+    return `<div class="tr-row${dis?" disagree":""}" data-tip="${esc0(a.divergence==null
+        ? "The crowd is looking at something this model does not rank at all."
+        : "Percentile gap of "+a.divergence+" between the two rankings, computed within "
+          + "their overlap. Positive means the crowd ranks it above the model.")}">
+      <span class="tr-rank">${a.trending_rank}</span>
+      <span class="tick">${esc0(a.symbol)}</span>
+      <span class="num muted">${a.overlap_trend_pct==null?"—":a.overlap_trend_pct+"%"}</span>
+      <span class="num ${a.conviction==null?"muted":signalClass(a.conviction)}">${a.conviction==null?"—":a.conviction}</span>
+      <span><span class="lab ${a.label==="FOMO_CROWDED"?"crowded":a.label==="QUIET_ACCUMULATION"?"quiet":a.label==="UNRANKED"?"unranked":"aligned"}">${esc0(a.label.replace("_"," "))}</span></span>
+    </div>`; }).join("");
   const quiet=(rep.backed_but_unsearched||[]).slice(0,6);
   el.innerHTML=rows + (quiet.length?`<div class="cf-h" style="margin-top:8px">BACKED, NOT SEARCHED</div>
       <div class="muted">Top-10 conviction names absent from the trending list entirely: ${
-      quiet.map(q=>`<b class="tick">${q.symbol}</b> ${q.conviction}`).join(" · ")}</div>`:"");
-  const note=$("#tmd-note");
-  if(note) note.textContent=esc0(rep.detail||"");
-  const foot=el.querySelector(".tmd-basis");
-  if(!foot && rep.basis) el.insertAdjacentHTML("beforeend",
-    `<div class="muted tmd-basis" style="margin-top:6px">${esc0(rep.basis)}.</div>`);
+      quiet.map(q=>`<b class="tick">${esc0(q.symbol)}</b> ${q.conviction}`).join(" · ")}</div>`:"")
+    + `<div class="muted" style="margin-top:6px">Recorded join from <code>ledger/market_intel.json</code>${
+        rep.basis?" — "+esc0(rep.basis):""}. The live call did not answer.</div>`;
+  if(note) note.textContent=esc0(rep.detail||"search rank against model rank");
+  if(typeof tipUpgrade==="function") tipUpgrade(el);
 }
 
 function renderFallen(){
@@ -4949,6 +6643,20 @@ async function load(){
     // rendered here with the rest of the ledger-derived panels and stay up on a night
     // CoinGecko rate-limits the browser.
     renderMacro(); renderSectors(); renderTMD(); renderFallen(); renderCorr(); renderRewind(); });
+
+  /* THE ENRICHMENT CALLS. Started here and awaited by NOTHING.
+
+     This is the whole resilience design in three lines: /global, /coins/categories and
+     /search/trending are fire-and-forget, each renders its own surface when it lands,
+     and each renders a named pending state when it does not. None of them is in the
+     path of the board, the ledger or the score. A 429 on all three costs the regime
+     line, the sector heat and the trending join — and the ranked board renders exactly
+     as it would have.
+
+     They are not awaited even collectively: Promise.all here would make the slowest of
+     the three the latency of all of them, for no gain, since each writes to its own
+     host. */
+  loadGlobal(); loadCategories(); loadTrending();
   try{
     const t0=performance.now();
     const r=await fetch(API,{headers:{Accept:"application/json"}});
@@ -4968,7 +6676,13 @@ async function load(){
     await ledger;
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
-    renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); factorQuad(); renderSizing(); renderMacro(); if(SEL) factorBreakdown(SEL);
+    renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); factorQuad(); renderSizing(); renderMacro();
+    // The regime reading compares BTC's day against the whole market's, so it is
+    // re-rendered once the board exists — before this, /global has the market half of
+    // that comparison and not the BTC half, and reports MIXED for want of a number it
+    // is about to have. Sectors and trending join against STATE for the same reason.
+    renderGlobal(); renderSectors(); renderTMD();
+    if(SEL) factorBreakdown(SEL);
     // load() re-runs every 120s, so the banner is replaced rather than appended.
     const old=$("#perp-warn"); if(old) old.remove();
     // The strip's Feed chip speaks the SAME vocabulary as the LIVE PRICES card in the
@@ -4991,7 +6705,7 @@ async function load(){
     // below it showed an error.
     FEED = {state: /rate-limit|429/i.test(e.message) ? "throttled" : "failed",
             ageMin: null, detail: "the live fetch failed: "+e.message};
-    renderFeedBanner(); renderMacro();
+    renderFeedBanner(); renderMacro(); renderGlobal();
     // The three canvases only ever ran inside the success path, so a throttled visitor
     // got three blank rectangles with no explanation — the panels looked broken rather
     // than starved. They render their own empty state, which is worth reaching.
@@ -4999,7 +6713,7 @@ async function load(){
     st.textContent=liveFeedState().label; st.className="neg";
     st.title="Live fetch failed: "+e.message;
     $("#sys-rl").textContent="throttled";
-    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="14" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
+    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="10" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
   }
 }
 // Timeframe switches. These used to be layout-only — they moved the highlight and
@@ -5069,12 +6783,17 @@ document.addEventListener("pointerdown",e=>{
 const fbox=$("#screen-filter");
 if(fbox) fbox.oninput=()=>setFilter(fbox.value);
 const fnote=$("#filter-note");
-if(fnote) fnote.onclick=()=>{ FLIP_SET=null; setFilter(""); if(STATE.length) renderTables(); };
+if(fnote) fnote.onclick=()=>{ FLIP_SET=null; SECTOR_FILTER=null; renderSectors();
+                              setFilter(""); if(STATE.length) renderTables(); };
 document.addEventListener("keydown",e=>{
   const typing = /^(INPUT|TEXTAREA)$/.test((e.target&&e.target.tagName)||"");
   if(e.key==="/" && !typing){ e.preventDefault(); if(fbox) fbox.focus(); return; }
   if(e.key==="Escape"){
     if(statusIsOpen()){ setStatusOpen(false); if(statusBtn) statusBtn.focus(); }
+    // The sector selection IS a FLIP_SET, so clearing one without the other left the
+    // heat row highlighted over an unfiltered board — a control showing a state the
+    // page was no longer in.
+    if(SECTOR_FILTER){ SECTOR_FILTER=null; renderSectors(); }
     if(FLIP_SET){ FLIP_SET=null; if(STATE.length) renderTables(); }
     if(FILTER) setFilter("");
     closeDrawer();
@@ -5087,25 +6806,26 @@ document.addEventListener("click",e=>{
   if(chip && chip.dataset.filter!=null){ e.stopPropagation(); setFilter(chip.textContent.trim()); }
 });
 /* ===================== WORKSPACE SWITCH =====================
-   Two real workspaces, and two ROUTES.
+   Three real workspaces, and one ROUTE.
 
-   CRYPTO and RWA each own a subtree. INDEX and PORTFOLIO do not: they scroll to panels
-   that already live inside the crypto workspace and are left exactly where the canonical
-   layout puts them. That is the whole design, and it is a correction — an earlier version
-   physically re-parented those four panels into workspaces of their own, which made the
-   nav entries real at the cost of changing a crypto layout this change has no business
-   touching. The crypto columns are now byte-identical to origin/main, and a route reaches
-   a panel without moving it.
+   CRYPTO, RWA and PORTFOLIO each own a subtree. INDEX does not: it scrolls to the
+   conviction-weighted index panel, which lives in the crypto rail because the basket it
+   tracks is the crypto board's own — a separate screen for one chart would be a nav entry
+   that owns nothing.
 
-   The panels are addressed through ids that already existed (#idx, #sz-notional), so
-   routing adds no attribute to any canonical node.
+   PORTFOLIO used to be a route too, scrolling to the position sizer in the crypto
+   sidebar. That was right when it was a sizer and a JSON overlay; it is wrong now that it
+   is a book with its own NAV, its own board and its own tools, and a nav entry that
+   scrolls somewhere is not the same promise as a nav entry that opens something. The
+   position sizer, the funding parser and the carry screener moved WITH it — they are all
+   about a position you have already decided to take, and none of them belongs above a
+   ranked board.
 
    Attribute namespace: data-ws / data-ws-btn only. The secondary-pane handler below
    selects [data-pane] and [data-note] document-globally and unscoped, so any overlap
    would mean a click on Liquidity silently hid part of another screen. */
 const WS_ROUTES = {
   index:     {ws: "crypto", anchor: "idx",         label: "conviction-weighted index"},
-  portfolio: {ws: "crypto", anchor: "sz-notional", label: "position tools"},
 };
 
 function revealFor(want){ return (WS_ROUTES[want] || {}).ws || want; }
@@ -5128,11 +6848,19 @@ function switchWorkspace(want, push){
     try{ if(typeof quad==="function") quad();
          if(typeof alphaMap==="function") alphaMap();
          if(typeof renderIndex==="function") renderIndex();
-         if(typeof renderSizing==="function") renderSizing();
-         if(typeof renderParser==="function") renderParser();
+         if(typeof renderGlobal==="function") renderGlobal();
          if(typeof factorQuad==="function") factorQuad(); }catch(e){}
   }
   if(reveal==="rwa"){ try{ renderRwa(); }catch(e){} }
+  /* The book's own reveal. renderSizing and renderParser moved here WITH their panels:
+     both measure a canvas-free DOM, but both read inputs that only exist in this
+     subtree, and calling them while it is hidden writes into nodes nobody can see. */
+  if(reveal==="portfolio"){
+    try{ if(typeof renderBook==="function") renderBook();
+         if(typeof renderSizing==="function") renderSizing();
+         if(typeof renderParser==="function") renderParser();
+         if(typeof renderCarry==="function") renderCarry(); }catch(e){}
+  }
   const route=WS_ROUTES[want];
   if(route){
     const el=document.getElementById(route.anchor);
@@ -5164,6 +6892,26 @@ window.addEventListener("hashchange",()=>switchWorkspace((location.hash||"").sli
   const apply=()=>document.querySelectorAll("details.rwa-fold").forEach(d=>{ d.open=!mq.matches; });
   apply(); if(mq.addEventListener) mq.addEventListener("change",apply); else mq.addListener(apply);
 })();
+
+/* The overflow disclosures redraw their canvases when they open.
+
+   A <canvas> measured while its <details> is closed has a clientWidth of zero. quad(),
+   alphaMap() and factorQuad() all carry a `||360` fallback now, so the point sets and
+   the accessible tables they publish are correct either way — but 360 is a nominal
+   width, not the panel's, and a chart drawn at it and then revealed at 388 is drawn
+   wrong. This is the same reveal problem the workspace switch already solves, one level
+   down, and it is solved the same way. */
+document.querySelectorAll("details.tools").forEach(d=>{
+  d.addEventListener("toggle", ()=>{
+    if(!d.open) return;
+    try{ if(d.querySelector("#quad")   && typeof quad==="function") quad();
+         if(d.querySelector("#alpha")  && typeof alphaMap==="function") alphaMap();
+         if(d.querySelector("#fquad")  && typeof factorQuad==="function") factorQuad();
+         if(d.querySelector("#tbl-carry") && typeof renderCarry==="function") renderCarry();
+         if(d.querySelector("#sz-out") && typeof renderSizing==="function") renderSizing();
+    }catch(e){}
+  });
+});
 
 document.querySelectorAll("#rwa-tabs .tab").forEach(btn=>{
   btn.onclick=()=>{
@@ -5398,7 +7146,14 @@ function renderRwaWrappers(){
     +'<td><b>'+rwEsc((w.symbol||"").toUpperCase())+'</b></td>'
     +'<td class="muted">'+rwEsc((u.symbol||"").toUpperCase())+'</td>'
     +'<td class="muted">'+rwEsc(w.issuer_name||w.issuer_id||"")+'</td>'
-    +'<td class="muted" data-tip="'+rwEsc((w.chains||[]).join(", "))+'">'+rwEsc(rwChains(w.chains))+'</td>'
+    /* The tip is emitted only when there IS a chain list. A wrapper CoinGecko has not
+       placed on any chain rendered `data-tip=""` — an explanation carrying nothing, on a
+       cell already showing an em dash, which the reachability gate correctly counts as
+       an explanation nobody can open. An absent attribute is the honest encoding of
+       "there is nothing further to say about this cell". */
+    +(((w.chains||[]).length)
+        ? '<td class="muted" data-tip="'+rwEsc(w.chains.join(", "))+'">'+rwEsc(rwChains(w.chains))+'</td>'
+        : '<td class="muted">'+rwEsc(rwChains(w.chains))+'</td>')
     +'<td class="num">'+rwPrice(w.price)+'</td>'
     +'<td class="num">'+rwUsd(w.volume_24h)+'</td>'
     +'<td class="num">'+(w.basis_bps!=null?rwSigned(w.basis_bps,0).replace("%","bp"):'<span class="muted">—</span>')+'</td>'
