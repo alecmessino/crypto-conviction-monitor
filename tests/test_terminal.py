@@ -1088,3 +1088,56 @@ def test_holdings_never_leave_the_browser():
         for leak in ("qty", "cost", "b.qty", "b.cost"):
             assert leak not in url, f"{leak} is being sent to CoinGecko"
     assert "localStorage.setItem(BOOK_KEY" in SCRIPT, "the book is not kept locally"
+
+
+def test_the_crypto_board_vocabulary_never_collides_with_the_rwa_model():
+    """The symmetric half of test_workspaces.py's rule that RWA must not show a crypto
+    tier. RWA publishes DEEP / SOUND / FRAGILE / THIN / DORMANT from a model that shares
+    no input with this one, and the crypto board used THIN for a turnover threshold — on
+    the flag column, which is one of ten, and in the Liquidity tab's status column.
+
+    Two vocabularies sharing a word across two screens invite the reading that they share
+    a scale, which is the whole reason RWA has its own model, its own inspector and its
+    own selection path. Read from the published artifact rather than from a list here, so
+    a band added by rwa.py is caught the night it lands."""
+    import json
+    rwa = ROOT / "ledger" / "rwa.json"
+    if not rwa.exists():
+        return                                  # artifact absent: nothing to collide with
+    bands = {u.get("label") for u in (json.loads(rwa.read_text(encoding="utf-8"))
+                                      .get("board") or []) if u.get("label")}
+    assert bands, "the RWA board publishes no labels, so this gate proves nothing"
+    flags = set(re.findall(r'chip\("([A-Z+\u2212-]+)"', SCRIPT))
+    assert flags, "derivedFlag() renders no chips"
+    status = set(re.findall(r'\["([A-Z]+)","[gnar]"\]', SCRIPT))
+    clash = (flags | status) & bands
+    assert not clash, (
+        f"{sorted(clash)} is both a crypto board label and an RWA model band — one word, "
+        f"two scales, on two screens a click apart")
+
+
+def test_the_phone_puts_the_inspector_next_to_the_board():
+    """Ordering the three columns is not enough for crypto. It puts the board first and
+    the inspector after the WHOLE centre column, so on a phone the tabbed plate and the
+    diagnostics disclosure land between them — measured at 1027px down a 664px viewport,
+    an inspector a screen and a half below the row it describes.
+
+    The centre column goes display:contents at the phone gate so its panels become grid
+    items of .wrap alongside the rail, and the order is then the reading order."""
+    gate = HTML[HTML.index("@media(max-width:560px)"):]
+    gate = gate[:gate.index("\n}")]
+    assert '[data-ws="crypto"] > main.col-center{display:contents}' in gate, (
+        "the crypto centre column is not hoisted, so the inspector cannot precede the "
+        "tabbed plate on a phone")
+    order = {}
+    for m in re.finditer(r'\[data-ws="crypto"\][^{]*?([#.][\w-]+)?[^{]*\{order:(\d+)\}', gate):
+        order[m.group(0)] = int(m.group(2))
+    board = next(v for k, v in order.items() if "#board-panel" in k)
+    rail = next(v for k, v in order.items() if "aside.rail" in k)
+    plate = next(v for k, v in order.items() if "not(#board-panel)" in k)
+    tools = next(v for k, v in order.items() if "details.tools" in k)
+    side = next(v for k, v in order.items() if "aside.side" in k)
+    assert board < rail < plate < tools < side, (
+        f"phone order is board={board} rail={rail} plate={plate} tools={tools} "
+        f"side={side}; the inspector must follow the board directly")
+    assert 'id="board-panel"' in HTML, "the board panel has no handle to order"

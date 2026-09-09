@@ -478,22 +478,38 @@ canvas{display:block;width:100%}
   [data-ws="rwa"] > main.col-center{order:1}
   [data-ws="rwa"] > aside.rail{order:2}
   [data-ws="rwa"] > aside.side{order:3}
-  /* The crypto and portfolio workspaces get the same order, which they could not have
-     while the crypto columns were pinned byte-for-byte to main. Stacked in source order
-     a phone showed the SYSTEM card and the tier counts — 900 pixels of diagnostics —
-     before the ranked board, on the screen where scrolling costs the most.
+  /* The crypto and portfolio workspaces get the same treatment as RWA above, which they
+     could not have while the crypto columns were pinned byte-for-byte to main. Stacked
+     in source order a phone showed the SYSTEM card and the tier counts — 900 pixels of
+     diagnostics — before the ranked board, on the screen where scrolling costs most.
 
-     Board first, then the inspector, then everything else. Same rule as RWA above and
-     for the same reason; `order` works because .ws is display:contents and these are
-     direct grid items of .wrap. */
+     CRYPTO goes further, because column order alone is not enough for it. Ordering the
+     three columns puts the board first and the inspector after the WHOLE centre column,
+     which on a phone means the tabbed plate and the diagnostics disclosure sit between
+     them: measured at 1027px down a 664px viewport, an inspector a screen and a half
+     below the row it describes.
+
+     So the centre column becomes display:contents at this width and its three panels
+     become direct grid items of .wrap alongside the rail — the same trick .ws itself
+     uses one level up, and the reason .wrap already carries the 10px gap the flex column
+     was providing. Then the order is the reading order: board, inspector, plate,
+     diagnostics, diagnostics-side.
+
+     PORTFOLIO keeps plain column ordering. Its centre column is the positions table and
+     the NAV track — both part of the book, both wanted before the parser in the rail —
+     so there is nothing to hoist past. */
   [data-ws="crypto"] > .statuswrap,
   [data-ws="portfolio"] > .statuswrap{order:0}
-  [data-ws="crypto"] > main.col-center,
   [data-ws="portfolio"] > main.col-center{order:1}
-  [data-ws="crypto"] > aside.rail,
   [data-ws="portfolio"] > aside.rail{order:2}
-  [data-ws="crypto"] > aside.side,
   [data-ws="portfolio"] > aside.side{order:3}
+
+  [data-ws="crypto"] > main.col-center{display:contents}
+  [data-ws="crypto"] #board-panel{order:1}
+  [data-ws="crypto"] > aside.rail{order:2}
+  [data-ws="crypto"] > main.col-center > .glass:not(#board-panel){order:3}
+  [data-ws="crypto"] > main.col-center > details.tools{order:4}
+  [data-ws="crypto"] > aside.side{order:5}
 }
 /* Foldable RWA side cards: <details> with the card header as its summary. Open on
    desktop, folded at the phone gate by the matchMedia hook, so the diagnostics sit
@@ -914,7 +930,7 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
 
   <!-- CENTER -->
   <main class="col-center">
-    <div class="glass">
+    <div class="glass" id="board-panel">
       <!-- THE BOARD. Ten columns, in the order a reader actually asks them:
 
            who (ticker + tier), what the model says (signal), how strongly (score), at
@@ -2259,8 +2275,20 @@ function derivedFlag(t){
       `Turnover of ${t.turn.toFixed(0)}% of market cap in a day. Above 90% the volume `
       + `stops behaving like participation, and the liquidity term marks the score down `
       + `for it.`);
+  /* QUIET, not THIN.
+
+     THIN is a published band of the RWA model — its labels are DEEP / SOUND / FRAGILE /
+     THIN / DORMANT, computed by rwa.py from an entirely different set of inputs — and
+     the crypto board must not spend one of its ten columns on a word that already means
+     something else on the next screen over. Two vocabularies sharing a surface invite
+     the reading that they share a scale, which is the whole reason RWA has its own
+     model, its own inspector and its own selection path.
+
+     The collision predates this change in the Liquidity tab, where the same word sat in
+     a status column. It is renamed there too: a tab is quieter than the board, not
+     exempt from it. tests/test_terminal.py pins the two vocabularies disjoint. */
   if(t.turn < 12 && t.turn > 0)
-    return chip("THIN", "var(--amber)",
+    return chip("QUIET", "var(--amber)",
       `Turnover of ${t.turn.toFixed(1)}%. The book is thin enough that your own order is `
       + `a meaningful share of the day — see the sizer in the Portfolio workspace.`);
   return none;
@@ -2569,7 +2597,8 @@ function renderTables(){
   (hide?gated:STATE).slice(0,hide?gated.length:10).forEach(t=>{
     const raw=liquidityFit(t.turn/100);
     const fit=Math.max(6,raw); // trailing residual floor — never hard-flats to 0
-    const st=t.turn>=30&&t.turn<=60?["SWEET","g"]:t.turn>90?["WASH","r"]:t.turn<15?["THIN","a"]:["OK","n"];
+    // QUIET rather than THIN — see derivedFlag(): THIN is an RWA band.
+    const st=t.turn>=30&&t.turn<=60?["SWEET","g"]:t.turn>90?["WASH","r"]:t.turn<15?["QUIET","a"]:["OK","n"];
     la.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${execLink(t.sym)}<span class="tier ${t.tier}">${t.tier}</span></td>
       <td class="num">${fmtUsd(t.mc)}</td><td class="num">${fmtUsd(t.vol)}</td>
       <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
