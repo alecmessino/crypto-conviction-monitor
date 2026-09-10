@@ -1,5 +1,682 @@
 {
   "generated_at": "2026-09-09T11:27:35.444449+00:00",
+  "canonical": {
+    "definition": {
+      "book": "Top-10 by conviction, score-proportional weights",
+      "top_n": 10,
+      "universe": "the nightly persisted universe: the top 50 names by market cap of the 250 fetched, written to signals.csv each night, of which a median 43 are priced on both nights of a leg and form the equal-weight control. NOT the live board, which scores ~234.",
+      "universe_persisted_n": 50,
+      "universe_n": 43,
+      "control_labels": {
+        "book": "Top-10 score-weighted",
+        "book_ew": "same Top-10, equal weight",
+        "universe_ew": "nightly universe (50), equal weight",
+        "benchmark": "BTC"
+      },
+      "gated": false,
+      "gate_note": "No qualification gate was ever applied to this book. _perf_by_date reads price and conviction only; no gate flag is persisted. On the first night of the current specification zero names passed gates A and B and the book still held ten.",
+      "weights": "prior night, priced at both ends",
+      "unpriced_rule": "a name with no price on the later night is renormalised away; a leg losing more than 10% of its book is excluded",
+      "survivorship_note": "the universe is re-cut at the top 50 nightly, so a name that falls out of it is renormalised rather than booked. Latent: no usable leg on this ledger has lost any weight to it.",
+      "benchmark": "BTC",
+      "spec_boundary": "2026-08-05",
+      "paper": true,
+      "costs_in_headline": false
+    },
+    "from": "2026-08-05",
+    "to": "2026-09-09",
+    "legs": 35,
+    "exclusions": {
+      "legs_unusable": 3,
+      "legs_before_boundary": 1,
+      "duplicates_collapsed": 0
+    },
+    "series": [
+      {
+        "date": "2026-08-05",
+        "book": 0.0,
+        "book_ew": 0.0,
+        "universe_ew": 0.0,
+        "benchmark": 0.0
+      },
+      {
+        "date": "2026-08-06",
+        "book": -0.5041,
+        "book_ew": -0.302,
+        "universe_ew": -0.3459,
+        "benchmark": 1.1174
+      },
+      {
+        "date": "2026-08-07",
+        "book": -0.5362,
+        "book_ew": -0.3609,
+        "universe_ew": 0.1824,
+        "benchmark": 0.3948
+      },
+      {
+        "date": "2026-08-08",
+        "book": -0.7725,
+        "book_ew": -0.4904,
+        "universe_ew": -0.0517,
+        "benchmark": 1.3748
+      },
+      {
+        "date": "2026-08-09",
+        "book": -0.5783,
+        "book_ew": -0.3683,
+        "universe_ew": 1.8983,
+        "benchmark": 1.1345
+      },
+      {
+        "date": "2026-08-10",
+        "book": -0.4224,
+        "book_ew": -0.1799,
+        "universe_ew": 1.9143,
+        "benchmark": 1.804
+      },
+      {
+        "date": "2026-08-11",
+        "book": -1.3498,
+        "book_ew": -1.1188,
+        "universe_ew": 1.466,
+        "benchmark": -0.1483
+      },
+      {
+        "date": "2026-08-12",
+        "book": -1.3156,
+        "book_ew": -1.0524,
+        "universe_ew": 1.3788,
+        "benchmark": -0.6507
+      },
+      {
+        "date": "2026-08-13",
+        "book": -0.7768,
+        "book_ew": -0.6115,
+        "universe_ew": 4.2107,
+        "benchmark": -0.4416
+      },
+      {
+        "date": "2026-08-14",
+        "book": -1.8752,
+        "book_ew": -1.664,
+        "universe_ew": 3.3105,
+        "benchmark": -1.7041
+      },
+      {
+        "date": "2026-08-15",
+        "book": -0.7914,
+        "book_ew": -0.538,
+        "universe_ew": 5.6935,
+        "benchmark": -1.5746
+      },
+      {
+        "date": "2026-08-16",
+        "book": -1.2656,
+        "book_ew": -1.0853,
+        "universe_ew": 6.2527,
+        "benchmark": -1.662
+      },
+      {
+        "date": "2026-08-17",
+        "book": 0.685,
+        "book_ew": 0.7733,
+        "universe_ew": 7.0965,
+        "benchmark": -0.8614
+      },
+      {
+        "date": "2026-08-18",
+        "book": 0.8804,
+        "book_ew": 0.9472,
+        "universe_ew": 5.0926,
+        "benchmark": 0.2512
+      },
+      {
+        "date": "2026-08-19",
+        "book": 7.4611,
+        "book_ew": 6.9834,
+        "universe_ew": 12.5018,
+        "benchmark": 8.1242
+      },
+      {
+        "date": "2026-08-20",
+        "book": 7.637,
+        "book_ew": 7.1073,
+        "universe_ew": 13.331,
+        "benchmark": 8.9794
+      },
+      {
+        "date": "2026-08-21",
+        "book": 11.8126,
+        "book_ew": 11.3112,
+        "universe_ew": 21.518,
+        "benchmark": 18.1086
+      },
+      {
+        "date": "2026-08-22",
+        "book": 25.7299,
+        "book_ew": 24.2919,
+        "universe_ew": 31.7787,
+        "benchmark": 20.8692
+      },
+      {
+        "date": "2026-08-23",
+        "book": 22.661,
+        "book_ew": 21.2863,
+        "universe_ew": 28.2263,
+        "benchmark": 18.6938
+      },
+      {
+        "date": "2026-08-24",
+        "book": 26.7849,
+        "book_ew": 25.2322,
+        "universe_ew": 35.0086,
+        "benchmark": 21.0752
+      },
+      {
+        "date": "2026-08-25",
+        "book": 27.4485,
+        "book_ew": 25.9487,
+        "universe_ew": 40.1086,
+        "benchmark": 25.9629
+      },
+      {
+        "date": "2026-08-26",
+        "book": 23.0364,
+        "book_ew": 21.7744,
+        "universe_ew": 35.9193,
+        "benchmark": 23.3162
+      },
+      {
+        "date": "2026-08-27",
+        "book": 28.4833,
+        "book_ew": 27.6515,
+        "universe_ew": 41.2049,
+        "benchmark": 25.9129
+      },
+      {
+        "date": "2026-08-28",
+        "book": 22.8834,
+        "book_ew": 22.0631,
+        "universe_ew": 33.398,
+        "benchmark": 20.8037
+      },
+      {
+        "date": "2026-08-29",
+        "book": 24.085,
+        "book_ew": 23.0752,
+        "universe_ew": 34.3576,
+        "benchmark": 21.044
+      },
+      {
+        "date": "2026-08-30",
+        "book": 25.9778,
+        "book_ew": 24.816,
+        "universe_ew": 37.7007,
+        "benchmark": 21.9273
+      },
+      {
+        "date": "2026-08-31",
+        "book": 27.2347,
+        "book_ew": 27.0884,
+        "universe_ew": 35.9339,
+        "benchmark": 21.378
+      },
+      {
+        "date": "2026-09-01",
+        "book": 31.4538,
+        "book_ew": 31.7002,
+        "universe_ew": 39.2807,
+        "benchmark": 21.9023
+      },
+      {
+        "date": "2026-09-02",
+        "book": 27.0975,
+        "book_ew": 27.4822,
+        "universe_ew": 35.0888,
+        "benchmark": 19.4195
+      },
+      {
+        "date": "2026-09-03",
+        "book": 29.1862,
+        "book_ew": 29.4725,
+        "universe_ew": 41.6173,
+        "benchmark": 21.4794
+      },
+      {
+        "date": "2026-09-04",
+        "book": 38.0356,
+        "book_ew": 37.6854,
+        "universe_ew": 50.5885,
+        "benchmark": 26.6604
+      },
+      {
+        "date": "2026-09-05",
+        "book": 35.864,
+        "book_ew": 35.4367,
+        "universe_ew": 53.8738,
+        "benchmark": 24.2322
+      },
+      {
+        "date": "2026-09-06",
+        "book": 47.8677,
+        "book_ew": 47.5925,
+        "universe_ew": 57.4092,
+        "benchmark": 24.8627
+      },
+      {
+        "date": "2026-09-07",
+        "book": 47.9012,
+        "book_ew": 47.5365,
+        "universe_ew": 57.2253,
+        "benchmark": 24.0512
+      },
+      {
+        "date": "2026-09-08",
+        "book": 45.2871,
+        "book_ew": 45.2146,
+        "universe_ew": 55.5447,
+        "benchmark": 22.3283
+      },
+      {
+        "date": "2026-09-09",
+        "book": 44.7425,
+        "book_ew": 44.2233,
+        "universe_ew": 59.7284,
+        "benchmark": 23.0758
+      }
+    ],
+    "totals": {
+      "book": 44.74,
+      "book_ew": 44.22,
+      "universe_ew": 59.73,
+      "benchmark": 23.08,
+      "exec_adjusted": 43.27
+    },
+    "decomposition": {
+      "weighting_pp": 0.52,
+      "selection_pp": -15.51,
+      "active_pp": -14.99,
+      "excess_vs_btc_pp": 21.67,
+      "excess_vs_ew_pp": -14.99,
+      "basis": "A = score-weighted Top-10; B = the same ten names, equal weight; C = the nightly persisted universe (50 names, median 43 priced on both nights), equal weight; D = BTC. A-B = weighting effect; B-C = selection effect versus the nightly 50-name opportunity set; A-C = total active effect versus that set. C is NOT the ~234-name live board. All four are chained over the same usable legs from the same price endpoints; B is exact, the same selection under the same missing-name rule."
+    },
+    "stats": {
+      "nights_positive": 22,
+      "nights_beat_btc": 19,
+      "nights_beat_universe_ew": 14,
+      "nights_beat_book_ew": 19,
+      "max_drawdown_pct": {
+        "book": -4.36,
+        "book_ew": -4.38,
+        "universe_ew": -5.53,
+        "benchmark": -5.19
+      },
+      "daily_vol_pct": {
+        "book": 3.45,
+        "book_ew": 3.345,
+        "universe_ew": 3.153,
+        "benchmark": 2.525
+      },
+      "beta_to_btc": 0.8829,
+      "alpha_daily_pct": 0.5658,
+      "residual_pp": 19.8,
+      "t_naive": 1.215,
+      "t_hac": 1.723,
+      "hac_lag": 3,
+      "bootstrap": {
+        "ci90_pp": [
+          1.36,
+          43.27
+        ],
+        "ci95_pp": [
+          -1.75,
+          48.23
+        ],
+        "p_below_zero": 0.0362,
+        "block": 3,
+        "draws": 4000
+      },
+      "turnover_oneway_mean_pct": 11.83,
+      "turnover_oneway_total_pct": 414.1,
+      "exec_bps_oneway": 25.0,
+      "annualized": false,
+      "inference_note": "35 overnight legs cannot establish a residual effect, and cannot establish its absence either. The sign is stable across resampling schemes; the interval is not: a Newey-West t near 1.723 and a block-bootstrap 95% interval that includes zero under the short-block specification. Reported as WEAK / NOT ESTABLISHED."
+    },
+    "contribution": {
+      "linking": "carino",
+      "weights": "prior-night target weights, renormalised over priced names",
+      "rows": [
+        {
+          "symbol": "ZEC",
+          "pp": 14.99,
+          "share_of_gain": 0.2954,
+          "legs_held": 35
+        },
+        {
+          "symbol": "HYPE",
+          "pp": 6.56,
+          "share_of_gain": 0.1292,
+          "legs_held": 35
+        },
+        {
+          "symbol": "ARB",
+          "pp": 5.08,
+          "share_of_gain": 0.1002,
+          "legs_held": 4
+        },
+        {
+          "symbol": "LINK",
+          "pp": 3.44,
+          "share_of_gain": 0.0679,
+          "legs_held": 27
+        },
+        {
+          "symbol": "PONS",
+          "pp": 2.96,
+          "share_of_gain": 0.0582,
+          "legs_held": 1
+        },
+        {
+          "symbol": "ENA",
+          "pp": 2.93,
+          "share_of_gain": 0.0578,
+          "legs_held": 13
+        },
+        {
+          "symbol": "PUMP",
+          "pp": 2.88,
+          "share_of_gain": 0.0568,
+          "legs_held": 3
+        },
+        {
+          "symbol": "XMR",
+          "pp": 2.17,
+          "share_of_gain": 0.0427,
+          "legs_held": 27
+        },
+        {
+          "symbol": "WBT",
+          "pp": 1.91,
+          "share_of_gain": 0.0377,
+          "legs_held": 32
+        },
+        {
+          "symbol": "UNI",
+          "pp": 1.61,
+          "share_of_gain": 0.0318,
+          "legs_held": 8
+        },
+        {
+          "symbol": "SOL",
+          "pp": 1.49,
+          "share_of_gain": 0.0295,
+          "legs_held": 21
+        },
+        {
+          "symbol": "BTC",
+          "pp": 1.3,
+          "share_of_gain": 0.0256,
+          "legs_held": 8
+        },
+        {
+          "symbol": "NEAR",
+          "pp": 0.71,
+          "share_of_gain": 0.0139,
+          "legs_held": 1
+        },
+        {
+          "symbol": "ETH",
+          "pp": 0.61,
+          "share_of_gain": 0.012,
+          "legs_held": 16
+        },
+        {
+          "symbol": "PEPE",
+          "pp": 0.48,
+          "share_of_gain": 0.0095,
+          "legs_held": 1
+        },
+        {
+          "symbol": "XRP",
+          "pp": 0.37,
+          "share_of_gain": 0.0073,
+          "legs_held": 8
+        },
+        {
+          "symbol": "TRX",
+          "pp": 0.34,
+          "share_of_gain": 0.0067,
+          "legs_held": 16
+        },
+        {
+          "symbol": "BNB",
+          "pp": 0.32,
+          "share_of_gain": 0.0063,
+          "legs_held": 17
+        },
+        {
+          "symbol": "FIGR_HELOC",
+          "pp": 0.31,
+          "share_of_gain": 0.0062,
+          "legs_held": 14
+        },
+        {
+          "symbol": "RAIN",
+          "pp": 0.26,
+          "share_of_gain": 0.0051,
+          "legs_held": 31
+        },
+        {
+          "symbol": "DOGE",
+          "pp": -0.03,
+          "share_of_gain": 0.0,
+          "legs_held": 3
+        },
+        {
+          "symbol": "DASH",
+          "pp": -0.05,
+          "share_of_gain": 0.0,
+          "legs_held": 1
+        },
+        {
+          "symbol": "ADA",
+          "pp": -0.49,
+          "share_of_gain": 0.0,
+          "legs_held": 8
+        },
+        {
+          "symbol": "UB",
+          "pp": -0.52,
+          "share_of_gain": 0.0,
+          "legs_held": 2
+        },
+        {
+          "symbol": "WLD",
+          "pp": -0.63,
+          "share_of_gain": 0.0,
+          "legs_held": 1
+        },
+        {
+          "symbol": "PENGU",
+          "pp": -0.81,
+          "share_of_gain": 0.0,
+          "legs_held": 2
+        },
+        {
+          "symbol": "AAVE",
+          "pp": -1.01,
+          "share_of_gain": 0.0,
+          "legs_held": 2
+        },
+        {
+          "symbol": "XLM",
+          "pp": -1.1,
+          "share_of_gain": 0.0,
+          "legs_held": 1
+        },
+        {
+          "symbol": "LEO",
+          "pp": -1.35,
+          "share_of_gain": 0.0,
+          "legs_held": 12
+        }
+      ],
+      "reconciles_to_pp": 44.74,
+      "residual_pp": -0.0,
+      "top1_share_of_gain": 0.2954,
+      "top5_share_of_gain": 0.651,
+      "names_ever_held": 29
+    },
+    "nights": {
+      "largest": [
+        {
+          "date": "2026-08-22",
+          "pct": 12.45
+        },
+        {
+          "date": "2026-09-06",
+          "pct": 8.84
+        },
+        {
+          "date": "2026-09-04",
+          "pct": 6.85
+        },
+        {
+          "date": "2026-08-19",
+          "pct": 6.52
+        },
+        {
+          "date": "2026-08-27",
+          "pct": 4.43
+        }
+      ],
+      "top3_pp": 28.13,
+      "top3_share_of_arithmetic_sum": 0.7191,
+      "arithmetic_sum_pp": 39.12,
+      "basis": "shares of the arithmetic sum of nightly returns, not of the chained total"
+    },
+    "holdings": [
+      {
+        "symbol": "ZEC",
+        "target_weight": 0.1259,
+        "live_weight": 0.1388,
+        "drift": 0.0128,
+        "return": 0.0977,
+        "status": "priced",
+        "contribution_pp": 14.99,
+        "legs_held": 35
+      },
+      {
+        "symbol": "HYPE",
+        "target_weight": 0.1121,
+        "live_weight": 0.1158,
+        "drift": 0.0037,
+        "return": 0.0291,
+        "status": "priced",
+        "contribution_pp": 6.56,
+        "legs_held": 35
+      },
+      {
+        "symbol": "UNI",
+        "target_weight": 0.1108,
+        "live_weight": 0.106,
+        "drift": -0.0049,
+        "return": -0.0474,
+        "status": "priced",
+        "contribution_pp": 1.61,
+        "legs_held": 8
+      },
+      {
+        "symbol": "LINK",
+        "target_weight": 0.1033,
+        "live_weight": 0.0998,
+        "drift": -0.0035,
+        "return": -0.0375,
+        "status": "priced",
+        "contribution_pp": 3.44,
+        "legs_held": 27
+      },
+      {
+        "symbol": "RAIN",
+        "target_weight": 0.102,
+        "live_weight": 0.0968,
+        "drift": -0.0052,
+        "return": -0.055,
+        "status": "priced",
+        "contribution_pp": 0.26,
+        "legs_held": 31
+      },
+      {
+        "symbol": "XMR",
+        "target_weight": 0.097,
+        "live_weight": 0.094,
+        "drift": -0.003,
+        "return": -0.0345,
+        "status": "priced",
+        "contribution_pp": 2.17,
+        "legs_held": 27
+      },
+      {
+        "symbol": "WBT",
+        "target_weight": 0.0957,
+        "live_weight": 0.1,
+        "drift": 0.0042,
+        "return": 0.0404,
+        "status": "priced",
+        "contribution_pp": 1.91,
+        "legs_held": 32
+      },
+      {
+        "symbol": "BNB",
+        "target_weight": 0.0869,
+        "live_weight": 0.0867,
+        "drift": -0.0002,
+        "return": -0.0059,
+        "status": "priced",
+        "contribution_pp": 0.32,
+        "legs_held": 17
+      },
+      {
+        "symbol": "SOL",
+        "target_weight": 0.0831,
+        "live_weight": 0.084,
+        "drift": 0.0009,
+        "return": 0.0068,
+        "status": "priced",
+        "contribution_pp": 1.49,
+        "legs_held": 21
+      },
+      {
+        "symbol": "WLD",
+        "target_weight": 0.0831,
+        "live_weight": 0.0783,
+        "drift": -0.0049,
+        "return": -0.062,
+        "status": "priced",
+        "contribution_pp": -0.63,
+        "legs_held": 1
+      }
+    ],
+    "concentration": {
+      "names": 10,
+      "effective_positions": 9.83,
+      "max_weight": 0.1259,
+      "max_symbol": "ZEC"
+    },
+    "edge": {
+      "mean_ic": -0.04,
+      "ci": [
+        -0.0986,
+        0.0187
+      ],
+      "t_stat": -1.336,
+      "legs": 35,
+      "min_legs": 40,
+      "measurable": false,
+      "verdict": "No measurable relationship between conviction and next-day return. The interval spans zero, so this is neither evidence the score works nor evidence it does not \u2014 there is simply not enough history yet."
+    }
+  },
+  "basket_note": "EXPERIMENTAL / NON-CANONICAL. The fields latest, basket_*, benchmark_*, exec_adjusted_*, risk, current_holdings, latest_holdings and rows describe build_basket()'s hysteresis basket, benchmarked to total crypto market cap. The Index is `canonical`.",
   "latest": {
     "date": "2026-09-09",
     "global_market_cap": 2677839623385.0,
@@ -21,7 +698,7 @@
   "macro_regime": "RISK-ON",
   "macro_riskoff_days": 0,
   "eject_alpha_cumulative": 0.0177,
-  "sharpe_convention": "rf=0; daily returns annualized x sqrt(365); computed when len(rows)>=30",
+  "sharpe_convention": "DEPRECATED - not displayed. rf=0; daily x sqrt(365); 34 days is not a sample",
   "risk": {
     "sharpe": 6.45,
     "max_drawdown_pct": -4.36,

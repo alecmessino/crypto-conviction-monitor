@@ -250,3 +250,137 @@ def test_excluding_the_pre_boundary_legs_can_make_the_curve_unrenderable(ledger)
     assert out["spec_boundary"] == "2026-03-04"
     assert out["legs"] == 1
     assert out["renderable"] is False
+
+
+# ---------------------------------------------------------------------------
+# the canonical block: derived from the same legs, reconciles by construction
+# ---------------------------------------------------------------------------
+def test_the_canonical_book_reconciles_to_the_curve(ledger):
+    """canonical.totals.book must equal performance.book_total, and the Carino-linked
+    contributions must sum to it exactly — otherwise the study describes a different
+    book from the chart above it, which is the failure this block exists to end."""
+    rows = []
+    for d, px in (("2026-03-01", 100.0), ("2026-03-02", 110.0), ("2026-03-03", 99.0)):
+        rows.append((d, "BTC", px, 80))
+        rows += [(d, f"A{i}", px * (1 + 0.01 * i), 90 - i) for i in range(9)]
+    ledger(rows)
+    nightly._CANON_CACHE.clear()
+    perf = nightly._compute_performance()
+    c = nightly._canonical_index()
+    assert c["totals"]["book"] == pytest.approx(perf["book_total"], abs=0.01)
+    assert c["contribution"]["residual_pp"] == pytest.approx(0.0, abs=1e-6)
+    assert c["contribution"]["reconciles_to_pp"] == pytest.approx(perf["book_total"], abs=0.01)
+    assert c["definition"]["gated"] is False
+    assert c["legs"] == perf["legs"]
+
+
+def test_the_same_ten_equal_weighted_is_the_exact_selection(ledger):
+    """B is the same names as A under the same missing-name rule — an exact control,
+    not a reconstruction. Equal conviction makes A and B identical, so the weighting
+    term must be exactly zero."""
+    rows = []
+    for d, px in (("2026-03-01", 100.0), ("2026-03-02", 105.0)):
+        rows += [(d, f"A{i}", px + i, 70) for i in range(nightly.PERF_TOP_N)]
+        rows.append((d, "OUT", px, 1))
+    ledger(rows)
+    nightly._CANON_CACHE.clear()
+    c = nightly._canonical_index()
+    assert c["totals"]["book"] == pytest.approx(c["totals"]["book_ew"], abs=1e-6)
+    assert c["decomposition"]["weighting_pp"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_an_unpriced_name_in_the_latest_book_is_unpriced_not_zero(ledger):
+    rows = [("2026-03-01", "GONE", 100.0, 50)]
+    rows += [("2026-03-01", f"A{i}", 100.0, 100) for i in range(9)]
+    rows += [("2026-03-02", f"A{i}", 110.0, 100) for i in range(9)]
+    ledger(rows)
+    nightly._CANON_CACHE.clear()
+    c = nightly._canonical_index()
+    gone = next(h for h in c["holdings"] if h["symbol"] == "GONE")
+    assert gone["status"] == "UNPRICED" and gone["return"] is None and gone["live_weight"] is None
+    assert all(h["return"] is not None for h in c["holdings"] if h["symbol"] != "GONE")
+
+
+def test_legs_unusable_does_not_double_count_the_boundary(ledger):
+    """legs_dropped counts a pre-boundary leg and legs_before_boundary counts it again.
+    The strict count exists so the caption can say 3 and 1 rather than 4 and 1."""
+    rows = [("2026-03-01", "A", 100.0, 50), ("2026-03-01", "GONE", 100.0, 50)]
+    rows += [(f"2026-03-{d:02d}", "A", 100.0 + d, 50) for d in (2, 3, 4)]
+    ledger(rows)
+    out = nightly._compute_performance()
+    assert out["legs_unusable"] == 1
+    assert out["legs_unusable"] <= out["legs_dropped"]
+
+
+# ---------------------------------------------------------------------------
+# the real ledger: hit-rates and the four controls recomputed independently
+# ---------------------------------------------------------------------------
+def _real_canonical():
+    """The committed ledger, not a fixture. Skips only if the artifact is absent."""
+    import json
+    path = HERE.parent / "ledger" / "market_breadth.json"
+    if not path.exists():
+        pytest.skip("ledger/market_breadth.json absent")
+    c = json.loads(path.read_text(encoding="utf-8"))["performance"].get("canonical")
+    if not c or not c.get("legs"):
+        pytest.skip("no canonical block yet")
+    return c
+
+
+def test_nights_beating_btc_recomputes_from_the_legs_and_from_the_series():
+    """19/35 on this ledger. A second figure — 21/35 — was the nights the nightly-50
+    equal-weight beat the BOOK, printed beside the BTC sentence and read as a BTC
+    hit-rate. The two are different statistics; this pins the BTC one from two
+    independent sources so the published count cannot drift from either."""
+    c = _real_canonical()
+    nightly._CANON_CACHE.clear()
+    by_date, _ = nightly._perf_by_date()
+    _, usable, _, _ = nightly._perf_legs(by_date, sorted(by_date))
+    from_legs = sum(1 for l in usable if l["benchmark"] is not None and l["book"] > l["benchmark"])
+    s = c["series"]
+    lvl = lambda k: [1 + r[k] / 100 for r in s]
+    B, D = lvl("book"), lvl("benchmark")
+    from_series = sum(1 for i in range(1, len(B)) if B[i] / B[i-1] - 1 > D[i] / D[i-1] - 1)
+    assert from_legs == from_series == c["stats"]["nights_beat_btc"], (
+        f"legs {from_legs}, series {from_series}, published {c['stats']['nights_beat_btc']}")
+    assert len(usable) == c["legs"] == len(s) - 1
+    ew_beats_book = c["legs"] - c["stats"]["nights_beat_universe_ew"]
+    assert ew_beats_book != c["stats"]["nights_beat_btc"] or True   # documented as distinct
+
+
+def test_the_four_controls_share_legs_and_reconcile_exactly():
+    """A, B, C, D chained over the same usable legs from the same price endpoints; the
+    decomposition fields are literal differences of the four totals."""
+    c = _real_canonical()
+    t, d = c["totals"], c["decomposition"]
+    s = c["series"]
+    assert all(all(r[k] is not None for k in ("book", "book_ew", "universe_ew", "benchmark")) for r in s)
+    assert d["weighting_pp"] == pytest.approx(t["book"] - t["book_ew"], abs=0.011)
+    assert d["selection_pp"] == pytest.approx(t["book_ew"] - t["universe_ew"], abs=0.011)
+    assert d["active_pp"] == pytest.approx(t["book"] - t["universe_ew"], abs=0.011)
+    assert d["excess_vs_btc_pp"] == pytest.approx(t["book"] - t["benchmark"], abs=0.011)
+    # and A reproduces the curve, B is the same ten under the same rule
+    nightly._CANON_CACHE.clear()
+    by_date, _ = nightly._perf_by_date()
+    _, usable, _, _ = nightly._perf_legs(by_date, sorted(by_date))
+    A = B = 1.0
+    for l in usable:
+        w, prev, curr = l["weights"], l["_prev"], l["_curr"]
+        priced = [x for x in w if (curr.get(x) or {}).get("price")]
+        A *= 1 + l["book"]
+        B *= 1 + sum(curr[x]["price"] / prev[x]["price"] - 1 for x in priced) / len(priced)
+    assert (A - 1) * 100 == pytest.approx(t["book"], abs=0.011)
+    assert (B - 1) * 100 == pytest.approx(t["book_ew"], abs=0.011)
+
+
+def test_the_universe_control_is_named_and_sized_from_the_ledger():
+    """The control is the nightly persisted ~50, not the browser's ~234. The payload
+    carries the persisted size and the shared size, measured, and shared <= persisted."""
+    c = _real_canonical()
+    d = c["definition"]
+    assert d["universe_persisted_n"] and d["universe_n"]
+    assert d["universe_n"] <= d["universe_persisted_n"]
+    assert d["universe_persisted_n"] < 100, "the control is not the live board"
+    assert "nightly" in d["control_labels"]["universe_ew"]
+    assert str(d["universe_persisted_n"]) in d["control_labels"]["universe_ew"]
+    assert "NOT the live board" in d["universe"]

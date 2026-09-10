@@ -13,6 +13,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import random
 import os
 import sys
 import urllib.parse
@@ -1475,6 +1476,380 @@ def _active_contributions(usable_legs: list, limit: int = 8) -> dict:
     }
 
 
+# =============================================================================
+# THE CANONICAL INDEX BOOK
+#
+# One book, stated once. The Conviction-Weighted Index is the Top-10 conviction-
+# weighted paper portfolio that _perf_weights() has published since the ledger began:
+#
+#   * the ten highest-conviction names on the prior night, over the universe the
+#     nightly persisted (the top 50 by market cap of the 250 fetched — rows[:50]);
+#   * weight_i = conviction_i / sum(conviction) over those ten;
+#   * NO conjunctive qualification gate. _perf_by_date() reads price and conviction
+#     only; no gate flag is persisted and none was ever applied here. On 2026-08-05,
+#     the first night of the current specification, zero names passed even gates A and
+#     B, and the book still held ten — which is the proof;
+#   * weights from the earlier night, prices from both; a name with no price tonight
+#     is renormalised away, and a leg losing more than PERF_MAX_WEIGHT_LOSS of its
+#     book is excluded rather than booked;
+#   * chained from the most recent detected specification boundary.
+#
+# That definition is history and this code does not change it. build_basket() below
+# is a DIFFERENT model — gated with an ungated fallback, hysteresis on ejection,
+# benchmarked to total market cap rather than BTC — and it accreted to thirty names.
+# It is retained as the experimental tradeable-implementation study it is, labelled
+# as such in index.json, and nothing on the Index panel reads it any more.
+#
+# Everything in this block is derived from the SAME leg objects the performance curve
+# chains, handed over rather than rebuilt, so every number reconciles to book_total by
+# construction rather than by coincidence.
+# =============================================================================
+BOOT_DRAWS = 4000
+BOOT_SEED = 7
+BOOT_BLOCK = 3            # the most conservative of the block lengths checked (3/5/7)
+
+
+def _carino_abs_k(p: float) -> float:
+    """Carino linking coefficient against a zero benchmark: ln(1+p)/p, limit 1."""
+    if p <= -1.0:
+        raise ValueError("return of -100% or worse cannot be log-linked")
+    return math.log1p(p) / p if abs(p) > 1e-12 else 1.0
+
+
+def _chain(rs: list) -> float:
+    v = 1.0
+    for r in rs:
+        v *= 1.0 + r
+    return v - 1.0
+
+
+def _max_drawdown(rs: list) -> float:
+    lvl = pk = 1.0
+    worst = 0.0
+    for r in rs:
+        lvl *= 1.0 + r
+        pk = max(pk, lvl)
+        worst = min(worst, lvl / pk - 1.0)
+    return worst
+
+
+def _sd(a: list) -> float:
+    if len(a) < 2:
+        return 0.0
+    m = sum(a) / len(a)
+    return math.sqrt(sum((x - m) ** 2 for x in a) / (len(a) - 1))
+
+
+def _beta_alpha_hac(a: list, d: list) -> dict:
+    """OLS of book on benchmark with a Newey-West (HAC) standard error on the intercept.
+
+    Thirty-five overnight crypto returns are neither independent nor homoskedastic, and
+    a naive t on them is a number about a model of the data that is false. HAC does not
+    make the sample large; it makes the standard error honest about serial correlation
+    at the cost of a wider interval. Lag from the usual floor(4(T/100)^(2/9)).
+    """
+    T = len(a)
+    if T < 5:
+        return {"beta": None, "alpha_daily_pct": None, "residual_pp": None,
+                "t_naive": None, "t_hac": None, "hac_lag": None}
+    ma, md = sum(a) / T, sum(d) / T
+    sdd = sum((x - md) ** 2 for x in d)
+    beta = sum((x - ma) * (y - md) for x, y in zip(a, d)) / sdd if sdd else 0.0
+    alpha = ma - beta * md
+    res = [x - alpha - beta * y for x, y in zip(a, d)]
+    X = [[1.0, y] for y in d]
+    sxx = [[sum(x[i] * x[j] for x in X) for j in range(2)] for i in range(2)]
+    det = sxx[0][0] * sxx[1][1] - sxx[0][1] * sxx[1][0]
+    if abs(det) < 1e-18:
+        return {"beta": round(beta, 4), "alpha_daily_pct": round(alpha * 100, 4),
+                "residual_pp": round(alpha * T * 100, 2),
+                "t_naive": None, "t_hac": None, "hac_lag": None}
+    inv = [[sxx[1][1] / det, -sxx[0][1] / det], [-sxx[1][0] / det, sxx[0][0] / det]]
+    s2 = sum(r * r for r in res) / max(1, T - 2)
+    se_naive = math.sqrt(max(0.0, s2 * inv[0][0]))
+    lag = int(math.floor(4.0 * (T / 100.0) ** (2.0 / 9.0)))
+    S = [[0.0, 0.0], [0.0, 0.0]]
+    for t in range(T):
+        for i in range(2):
+            for j in range(2):
+                S[i][j] += X[t][i] * X[t][j] * res[t] * res[t]
+    for L in range(1, lag + 1):
+        w = 1.0 - L / (lag + 1.0)
+        for t in range(L, T):
+            for i in range(2):
+                for j in range(2):
+                    S[i][j] += w * (X[t][i] * X[t - L][j] + X[t - L][i] * X[t][j]) * res[t] * res[t - L]
+    V = [[sum(inv[i][k] * S[k][l] * inv[l][j] for k in range(2) for l in range(2))
+          for j in range(2)] for i in range(2)]
+    se_hac = math.sqrt(max(0.0, V[0][0]))
+    return {"beta": round(beta, 4), "alpha_daily_pct": round(alpha * 100, 4),
+            "residual_pp": round(alpha * T * 100, 2),
+            "t_naive": round(alpha / se_naive, 3) if se_naive else None,
+            "t_hac": round(alpha / se_hac, 3) if se_hac else None,
+            "hac_lag": lag}
+
+
+def _bootstrap_residual(a: list, d: list, block: int = BOOT_BLOCK,
+                        draws: int = BOOT_DRAWS, seed: int = BOOT_SEED) -> dict:
+    """Circular block bootstrap of the summed intercept, reported as intervals.
+
+    The point of publishing this beside the t-statistic is that the two can disagree,
+    and on this ledger they do at the margin: the 95% interval crosses zero at block 3
+    and clears it at block 5. That sensitivity IS the finding — the evidence is weak
+    enough that the resampling scheme decides the verdict — and it is reported rather
+    than resolved by picking the block that flatters. Seeded, so the nightly is
+    reproducible; the block length used is stated in the payload.
+    """
+    T = len(a)
+    if T < 8:
+        return {"ci90_pp": None, "ci95_pp": None, "p_below_zero": None,
+                "block": block, "draws": 0}
+    rng = random.Random(seed)
+    out = []
+    for _ in range(draws):
+        idx = []
+        while len(idx) < T:
+            s0 = rng.randrange(T)
+            idx.extend((s0 + k) % T for k in range(block))
+        idx = idx[:T]
+        aa = [a[i] for i in idx]
+        dd = [d[i] for i in idx]
+        ma, md = sum(aa) / T, sum(dd) / T
+        sdd = sum((y - md) ** 2 for y in dd)
+        b = sum((x - ma) * (y - md) for x, y in zip(aa, dd)) / sdd if sdd else 0.0
+        out.append((ma - b * md) * T * 100)
+    out.sort()
+    q = lambda f: out[min(len(out) - 1, max(0, int(round(f * (len(out) - 1)))))]
+    return {"ci90_pp": [round(q(0.05), 2), round(q(0.95), 2)],
+            "ci95_pp": [round(q(0.025), 2), round(q(0.975), 2)],
+            "p_below_zero": round(sum(1 for v in out if v < 0) / len(out), 4),
+            "block": block, "draws": draws}
+
+
+_CANON_CACHE: dict = {}
+
+
+def _canonical_index(edge: dict | None = None) -> dict:
+    """The one performance payload every consumer reads. See the block comment above."""
+    if "v" in _CANON_CACHE:
+        return _CANON_CACHE["v"]
+    by_date, _ = _perf_by_date()
+    dates = sorted(by_date)
+    legs, usable, boundary, pre = (_perf_legs(by_date, dates) if len(dates) >= 2
+                                   else ([], [], None, 0))
+    perf = _compute_performance()
+
+    A, B, C, D, dates_to = [], [], [], [], []
+    contrib_leg = []      # [(k_t, {sym: w_i/kept * r_i})]
+    turn = []
+    prev_w = None
+    for l in usable:
+        w, prev, curr, kept = l["weights"], l["_prev"], l["_curr"], l["kept"]
+        priced = [s for s in w if (curr.get(s) or {}).get("price")]
+        rets = {s: curr[s]["price"] / prev[s]["price"] - 1.0 for s in priced}
+        A.append(l["book"])
+        # B: the SAME ten names, equal-weighted, under the same missing-name rule.
+        B.append(sum(rets.values()) / len(priced) if priced else 0.0)
+        C.append(l["equal_weight"] if l["equal_weight"] is not None else 0.0)
+        D.append(l["benchmark"] if l["benchmark"] is not None else 0.0)
+        dates_to.append(l["to"])
+        contrib_leg.append((_carino_abs_k(l["book"]),
+                            {s: (w[s] / kept) * rets[s] for s in priced}))
+        # One-way turnover between consecutive target books. Genesis is zero: there is
+        # no earlier book to have turned over from.
+        if prev_w is None:
+            turn.append(0.0)
+        else:
+            keys = set(prev_w) | set(w)
+            turn.append(0.5 * sum(abs(w.get(k, 0.0) - prev_w.get(k, 0.0)) for k in keys))
+        prev_w = w
+
+    T = len(A)
+    TA, TB, TC, TD = _chain(A), _chain(B), _chain(C), _chain(D)
+    # The size of the equal-weight control's opportunity set, measured: the median count
+    # of names present on both nights of a leg. This is what "universe" means on every
+    # Index surface, and it is NOT the browser's live board (234 names): the nightly
+    # persists rows[:50] by market cap, so the control is those ~50.
+    shared_n = sorted(len(l["shared"]) for l in usable)
+    universe_n = shared_n[len(shared_n) // 2] if shared_n else None
+    # ...and the size of the persisted universe itself: rows on the prior night. Fifty
+    # on this ledger. The two differ because names churn in and out of the top 50, and
+    # the control averages only the names priced on BOTH nights — the same rule the
+    # book is held to. The label names the persisted set; the sub-line states the shared.
+    persisted_n = sorted(len(l["_prev"]) for l in usable)
+    universe_persisted_n = persisted_n[len(persisted_n) // 2] if persisted_n else None
+    exec_legs = [a - (EXEC_BPS_ONEWAY / 1e4) * t for a, t in zip(A, turn)]
+
+    # Carino-linked absolute contribution: the parts sum to TA exactly.
+    K = _carino_abs_k(TA) if T else 1.0
+    contrib: dict = {}
+    held_legs: dict = {}
+    for k_t, parts in contrib_leg:
+        for sym, c in parts.items():
+            contrib[sym] = contrib.get(sym, 0.0) + c * k_t / K
+            held_legs[sym] = held_legs.get(sym, 0) + 1
+    ranked = sorted(contrib.items(), key=lambda kv: -kv[1])
+    ctot = sum(contrib.values())
+    pos_gain = sum(v for v in contrib.values() if v > 0)
+
+    # Night concentration, on the arithmetic nightly returns: a share of a chained
+    # total is not a defined quantity, and the previous attempt at one printed 1%.
+    nights = sorted(zip(dates_to, A), key=lambda r: -r[1])
+    arith = sum(A)
+    top3 = nights[:3]
+
+    # The last persisted book, at its prior-night target weights, marked to the night
+    # after. A name with no price that night is UNPRICED — never 0.0%.
+    holdings = []
+    if usable:
+        l = usable[-1]
+        w, prev, curr = l["weights"], l["_prev"], l["_curr"]
+        priced_sum = sum(w[s] * (curr[s]["price"] / prev[s]["price"])
+                         for s in w if (curr.get(s) or {}).get("price")) or 1.0
+        for sym, tw in sorted(w.items(), key=lambda kv: -kv[1]):
+            p1 = (curr.get(sym) or {}).get("price")
+            if p1:
+                r = p1 / prev[sym]["price"] - 1.0
+                lw = tw * (1.0 + r) / priced_sum
+                holdings.append({"symbol": sym, "target_weight": round(tw, 4),
+                                 "live_weight": round(lw, 4), "drift": round(lw - tw, 4),
+                                 "return": round(r, 4), "status": "priced",
+                                 "contribution_pp": round(contrib.get(sym, 0.0) * 100, 2),
+                                 "legs_held": held_legs.get(sym, 0)})
+            else:
+                holdings.append({"symbol": sym, "target_weight": round(tw, 4),
+                                 "live_weight": None, "drift": None, "return": None,
+                                 "status": "UNPRICED",
+                                 "contribution_pp": round(contrib.get(sym, 0.0) * 100, 2),
+                                 "legs_held": held_legs.get(sym, 0)})
+        hhi = sum(v * v for v in w.values())
+        conc = {"names": len(w), "effective_positions": round(1.0 / hhi, 2) if hhi else None,
+                "max_weight": round(max(w.values()), 4) if w else None,
+                "max_symbol": max(w, key=w.get) if w else None}
+    else:
+        conc = {"names": 0, "effective_positions": None, "max_weight": None, "max_symbol": None}
+
+    reg = _beta_alpha_hac(A, D) if T else _beta_alpha_hac([], [])
+    boot = _bootstrap_residual(A, D) if T else _bootstrap_residual([], [])
+    e = edge or {}
+
+    v = {
+        "definition": {
+            "book": "Top-10 by conviction, score-proportional weights",
+            "top_n": PERF_TOP_N,
+            "universe": ("the nightly persisted universe: the top %s names by market cap of the "
+                         "250 fetched, written to signals.csv each night, of which a median %s "
+                         "are priced on both nights of a leg and form the equal-weight control. "
+                         "NOT the live board, which scores ~234."
+                         % (universe_persisted_n or "~50", universe_n or "~43")),
+            "universe_persisted_n": universe_persisted_n,
+            "universe_n": universe_n,
+            "control_labels": {
+                "book": "Top-10 score-weighted",
+                "book_ew": "same Top-10, equal weight",
+                "universe_ew": "nightly universe (%s), equal weight" % (universe_persisted_n or "~50"),
+                "benchmark": PERF_BENCHMARK,
+            },
+            "gated": False,
+            "gate_note": ("No qualification gate was ever applied to this book. _perf_by_date "
+                          "reads price and conviction only; no gate flag is persisted. On the "
+                          "first night of the current specification zero names passed gates A "
+                          "and B and the book still held ten."),
+            "weights": "prior night, priced at both ends",
+            "unpriced_rule": ("a name with no price on the later night is renormalised away; a "
+                              "leg losing more than %d%% of its book is excluded"
+                              % round(PERF_MAX_WEIGHT_LOSS * 100)),
+            "survivorship_note": ("the universe is re-cut at the top 50 nightly, so a name that "
+                                  "falls out of it is renormalised rather than booked. Latent: "
+                                  "no usable leg on this ledger has lost any weight to it."),
+            "benchmark": PERF_BENCHMARK, "spec_boundary": boundary,
+            "paper": True, "costs_in_headline": False,
+        },
+        "from": perf.get("from"), "to": perf.get("to"), "legs": T,
+        "exclusions": {"legs_unusable": perf.get("legs_unusable"),
+                       "legs_before_boundary": perf.get("legs_before_boundary"),
+                       "duplicates_collapsed": perf.get("duplicates_collapsed")},
+        "series": [{"date": perf["series"][0]["date"] if perf.get("series") else None,
+                    "book": 0.0, "book_ew": 0.0, "universe_ew": 0.0, "benchmark": 0.0}]
+                  + [{"date": dt,
+                      "book": round((_chain(A[:i + 1])) * 100, 4),
+                      "book_ew": round((_chain(B[:i + 1])) * 100, 4),
+                      "universe_ew": round((_chain(C[:i + 1])) * 100, 4),
+                      "benchmark": round((_chain(D[:i + 1])) * 100, 4)}
+                     for i, dt in enumerate(dates_to)] if T else [],
+        "totals": {"book": round(TA * 100, 2), "book_ew": round(TB * 100, 2),
+                   "universe_ew": round(TC * 100, 2), "benchmark": round(TD * 100, 2),
+                   "exec_adjusted": round(_chain(exec_legs) * 100, 2)},
+        "decomposition": {
+            "weighting_pp": round((TA - TB) * 100, 2),     # A - B
+            "selection_pp": round((TB - TC) * 100, 2),     # B - C
+            "active_pp": round((TA - TC) * 100, 2),        # A - C
+            "excess_vs_btc_pp": round((TA - TD) * 100, 2), # A - D
+            "excess_vs_ew_pp": round((TA - TC) * 100, 2),
+            "basis": ("A = score-weighted Top-10; B = the same ten names, equal weight; "
+                      "C = the nightly persisted universe (%s names, median %s priced on both nights), equal weight; D = BTC. "
+                      "A-B = weighting effect; B-C = selection effect versus the nightly "
+                      "%s-name opportunity set; A-C = total active effect versus that set. "
+                      "C is NOT the ~234-name live board. All four are chained over the "
+                      "same usable legs from the same price endpoints; B is exact, the same "
+                      "selection under the same missing-name rule."
+                      % (universe_persisted_n or "~50", universe_n or "~43", universe_persisted_n or "~50")),
+        },
+        "stats": {
+            "nights_positive": sum(1 for x in A if x > 0),
+            "nights_beat_btc": sum(1 for a, d in zip(A, D) if a > d),
+            "nights_beat_universe_ew": sum(1 for a, c in zip(A, C) if a > c),
+            "nights_beat_book_ew": sum(1 for a, b in zip(A, B) if a > b),
+            "max_drawdown_pct": {"book": round(_max_drawdown(A) * 100, 2),
+                                 "book_ew": round(_max_drawdown(B) * 100, 2),
+                                 "universe_ew": round(_max_drawdown(C) * 100, 2),
+                                 "benchmark": round(_max_drawdown(D) * 100, 2)},
+            "daily_vol_pct": {"book": round(_sd(A) * 100, 3), "book_ew": round(_sd(B) * 100, 3),
+                              "universe_ew": round(_sd(C) * 100, 3),
+                              "benchmark": round(_sd(D) * 100, 3)},
+            "beta_to_btc": reg["beta"], "alpha_daily_pct": reg["alpha_daily_pct"],
+            "residual_pp": reg["residual_pp"], "t_naive": reg["t_naive"],
+            "t_hac": reg["t_hac"], "hac_lag": reg["hac_lag"],
+            "bootstrap": boot,
+            "turnover_oneway_mean_pct": round(sum(turn) / T * 100, 2) if T else None,
+            "turnover_oneway_total_pct": round(sum(turn) * 100, 1),
+            "exec_bps_oneway": EXEC_BPS_ONEWAY,
+            "annualized": False,
+            "inference_note": ("%d overnight legs cannot establish a residual effect, and cannot "
+                               "establish its absence either. The sign is stable across resampling "
+                               "schemes; the interval is not: a Newey-West t near %s and a "
+                               "block-bootstrap 95%% interval that includes zero under the "
+                               "short-block specification. Reported as WEAK / NOT ESTABLISHED."
+                               % (T, reg["t_hac"])),
+        },
+        "contribution": {
+            "linking": "carino", "weights": "prior-night target weights, renormalised over priced names",
+            "rows": [{"symbol": s, "pp": round(v * 100, 2),
+                      "share_of_gain": round(v / pos_gain, 4) if pos_gain > 0 and v > 0 else 0.0,
+                      "legs_held": held_legs.get(s, 0)} for s, v in ranked],
+            "reconciles_to_pp": round(TA * 100, 2),
+            "residual_pp": round((ctot - TA) * 100, 6),
+            "top1_share_of_gain": round(ranked[0][1] / pos_gain, 4) if ranked and pos_gain > 0 else None,
+            "top5_share_of_gain": round(sum(v for _, v in ranked[:5]) / pos_gain, 4) if pos_gain > 0 else None,
+            "names_ever_held": len(ranked),
+        },
+        "nights": {
+            "largest": [{"date": dt, "pct": round(r * 100, 2)} for dt, r in nights[:5]],
+            "top3_pp": round(sum(r for _, r in top3) * 100, 2),
+            "top3_share_of_arithmetic_sum": round(sum(r for _, r in top3) / arith, 4) if arith > 0 else None,
+            "arithmetic_sum_pp": round(arith * 100, 2),
+            "basis": "shares of the arithmetic sum of nightly returns, not of the chained total",
+        },
+        "holdings": holdings,
+        "concentration": conc,
+        "edge": {"mean_ic": e.get("mean_ic"), "ci": e.get("ci"), "t_stat": e.get("t_stat"),
+                 "legs": e.get("legs"), "min_legs": e.get("min_legs"),
+                 "measurable": e.get("measurable"), "verdict": e.get("verdict")},
+    }
+    _CANON_CACHE["v"] = v
+    return v
+
+
 def _compute_edge() -> dict:
     """Whether the conviction score has demonstrable predictive power yet.
 
@@ -1725,7 +2100,13 @@ def _compute_performance() -> dict:
         "legs_before_boundary": dropped_pre_break,
         "renderable": len(usable) >= PERF_MIN_DAYS - 1,
         "legs": len(usable),
+        # `legs_dropped` is len(legs) - len(usable), which counts a pre-boundary leg AND
+        # `legs_before_boundary` counts it again: the terminal read "4 excluded for an
+        # unpriceable book · 1 before the boundary" off a ledger with three unpriceable
+        # legs and one pre-boundary leg. Kept for the consumers that read it; the strict
+        # count is `legs_unusable`, and the caption reads that.
         "legs_dropped": len(legs) - len(usable),
+        "legs_unusable": len([l for l in legs if not l["usable"]]),
         "duplicates_collapsed": collapsed,
         "from": usable[0]["from"] if usable else dates[0],
         "to": usable[-1]["to"] if usable else dates[-1],
@@ -3388,6 +3769,22 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
     risk = _risk_stats(dailies[1:])
     INDEX_JSON.write_text(json.dumps({
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        # THE INDEX. Everything the Index panel, the methodology page and any external
+        # reader should quote is under `canonical`. It is the Top-10 conviction-weighted
+        # paper book _perf_weights() has published since the ledger began, chained from
+        # signals.csv, and it reconciles to market_breadth.performance by construction.
+        "canonical": _canonical_index(),
+        # Everything below `basket_note` describes build_basket()'s hysteresis basket:
+        # a DIFFERENT model (gated with an ungated fallback, ejection hysteresis,
+        # benchmarked to total market cap rather than BTC) that accreted to thirty
+        # names. Retained as the experimental tradeable-implementation study it is,
+        # and as the audit trail index.csv mirrors. NOT the Index. Nothing on the
+        # Index panel reads it.
+        "basket_note": ("EXPERIMENTAL / NON-CANONICAL. The fields latest, basket_*, "
+                        "benchmark_*, exec_adjusted_*, risk, current_holdings, "
+                        "latest_holdings and rows describe build_basket()'s hysteresis "
+                        "basket, benchmarked to total crypto market cap. The Index is "
+                        "`canonical`."),
         "latest": row,
         "basket_total_return": round(cum_basket, 4),
         "benchmark_total_return": round(bench_cum, 4),
@@ -3395,7 +3792,11 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
         "macro_regime": macro_now,
         "macro_riskoff_days": macro_riskoff_days,
         "eject_alpha_cumulative": eject_alpha_cum,
-        "sharpe_convention": "rf=0; daily returns annualized x sqrt(365); computed when len(rows)>=30",
+        # DEPRECATED, never displayed. An annualised Sharpe on thirty-four overnight
+        # returns is not evidence of anything; the field stays only because deleting it
+        # would break a reader that expects the key. canonical.stats carries the
+        # un-annualised figures instead.
+        "sharpe_convention": "DEPRECATED - not displayed. rf=0; daily x sqrt(365); 34 days is not a sample",
         "risk": risk,
         "current_holdings": audit,
         "latest_holdings": _normalize_live(audit, basket.get("holdings", [])),
@@ -3944,6 +4345,9 @@ def main() -> int:
         # Paper return of the published basket, chained across recorded days. Built from
         # signals.csv rather than index.json — see _compute_performance for why.
         breadth["performance"] = _compute_performance()
+        # THE canonical book, in the same payload every consumer already loads. Built
+        # from the same legs, after the edge so the IC sits beside the return.
+        breadth["performance"]["canonical"] = _canonical_index(breadth.get("edge"))
         MARKET_BREADTH_JSON.write_text(json.dumps(breadth, indent=2))
         # Operational condition of the pipeline, in its own file: it is a monitoring
         # artifact rather than a market view, and pinning it to breadth would couple the
@@ -3972,6 +4376,14 @@ def main() -> int:
             if pf.get("duplicates_collapsed"):
                 print(f"[perf] collapsed {pf['duplicates_collapsed']} duplicate "
                       f"(date, symbol) rows — the workflow ran more than once on some days")
+            c = pf.get("canonical") or {}
+            if c.get("legs"):
+                t, dcp, st = c["totals"], c["decomposition"], c["stats"]
+                print(f"[index] Top-10 {t['book']:+.2f}% · same-10 EW {t['book_ew']:+.2f}% · "
+                      f"universe EW {t['universe_ew']:+.2f}% · BTC {t['benchmark']:+.2f}% | "
+                      f"weighting {dcp['weighting_pp']:+.2f}pp selection {dcp['selection_pp']:+.2f}pp | "
+                      f"beta {st['beta_to_btc']} residual {st['residual_pp']:+.1f}pp "
+                      f"t_hac {st['t_hac']} boot95 {st['bootstrap'].get('ci95_pp')}")
         td = breadth["tier_diff"]
         if td and not td.get("pending"):
             c = td["counts"]
