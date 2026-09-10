@@ -1141,3 +1141,118 @@ def test_the_phone_puts_the_inspector_next_to_the_board():
         f"phone order is board={board} rail={rail} plate={plate} tools={tools} "
         f"side={side}; the inspector must follow the board directly")
     assert 'id="board-panel"' in HTML, "the board panel has no handle to order"
+
+
+# ---------------------------------------------------------------------------
+# the canonical index: one book on every surface, and never the other one
+# ---------------------------------------------------------------------------
+def _fn(name):
+    body = SCRIPT[SCRIPT.index(f"function {name}("):]
+    return body[:body.index("\n}\n")]
+
+
+def test_the_index_surfaces_read_only_the_canonical_book():
+    """index.json also carries build_basket()'s hysteresis basket — a different model
+    that accreted to thirty names and benchmarks itself to total market cap. It is
+    labelled non-canonical in the file, and nothing that renders the Index may read it.
+    The chart and the list under it used to be two different portfolios."""
+    for fn in ("renderIndex", "renderIndexStudy", "drawIndexLines", "canonIndex"):
+        body = _fn(fn)
+        for banned in ("latest_holdings", "current_holdings", "basket_total_return",
+                       "benchmark_total_return", "exec_adjusted_total_return",
+                       "INDEX.rows", "INDEX.latest", "INDEX.risk", "sharpe"):
+            assert banned not in body, f"{fn}() reads the experimental basket ({banned})"
+    assert "function canonIndex(" in SCRIPT
+    assert "BREADTH.performance.canonical" in _fn("canonIndex")
+
+
+def test_no_index_surface_labels_a_benchmark_difference_alpha():
+    """Book minus BTC is an excess. The beta-adjusted residual is a residual. The word
+    was on the allocation footer as "α 21.7%" and it is the one word that turns a
+    thirty-five-night paper number into a claim."""
+    for fn in ("renderIndex", "renderIndexStudy"):
+        body = _fn(fn)
+        assert not re.search(r"[\"'`][^\"'`]*(\bα\b|\balpha\b)", body, re.I), (
+            f"{fn}() renders the word alpha")
+    assert "excess_vs_btc_pp" in _fn("renderIndexStudy")
+    assert "residual_pp" in _fn("renderIndexStudy")
+
+
+def test_nothing_on_the_index_is_annualised():
+    """The provenance line is allowed to SAY there is no Sharpe; nothing may compute or
+    print one, and nothing may scale a five-week number to a year."""
+    body = (_fn("renderIndexStudy") + _fn("renderIndex")).lower()
+    for banned in ("sqrt(365)", "* 365", "*365", "sqrt(252)"):
+        assert banned not in body, f"the index surface annualises ({banned})"
+    # A mention is allowed only as a negation — "nothing annualised", "no Sharpe".
+    for m in re.finditer(r"sharpe|annualis|annualiz", body):
+        ctx = body[max(0, m.start() - 12):m.start()]
+        assert re.search(r"\b(no|not|nothing|never)\s*$", ctx), (
+            f"the index surface mentions {m.group(0)!r} other than to say there is none")
+
+
+def test_an_unpriced_holding_is_never_printed_as_zero():
+    """A name with no recorded price on the later night is excluded by the persisted
+    leg rule. Printing it as 0.0% looks like a measurement and is the absence of one."""
+    body = _fn("renderIndexStudy")
+    assert "UNPRICED" in body and 'r.return==null' in body.replace(" ", ""), (
+        "the contribution table does not distinguish an unpriced return from zero")
+    rail = _fn("renderIndex")
+    assert 'h.status==="UNPRICED"' in rail, "the rail card prints unpriced holdings as a number"
+
+
+def test_contribution_uses_prior_night_target_weights():
+    """Live weights are endogenous — they are the return — so attributing with them
+    double counts the winners. The nightly links prior-night target weights; the table
+    shows live weight beside target only so drift is visible."""
+    n = (ROOT / "nightly.py").read_text(encoding="utf-8")
+    fn = n[n.index("def _canonical_index("):]
+    fn = fn[:fn.index("\n\n\ndef ")]
+    assert "(w[s] / kept) * rets[s]" in fn, "contribution is not weight-at-entry times move"
+    assert "_carino_abs_k" in fn, "contributions are not linked to the chained total"
+    assert "live_weight" in fn and "target_weight" in fn
+    study = _fn("renderIndexStudy")
+    assert "contribution_pp" in study and "live_weight" in study
+
+
+def test_the_index_route_opens_the_study_not_the_rail_card():
+    routes = SCRIPT[SCRIPT.index("const WS_ROUTES"):]
+    routes = routes[:routes.index("};")]
+    assert 'anchor: "index-study"' in routes
+    assert 'id="index-study"' in HTML and 'id="is-chart"' in HTML
+    assert '.wrap[data-route="index"] #board-panel .scroll-pane{max-height' in HTML, (
+        "the board is not demoted to a strip on the index route")
+    assert "function placeEdgePanel(" in SCRIPT, "the Selection Edge is not carried under the study"
+
+
+def test_the_study_orders_finding_evidence_qualification_provenance():
+    m = HTML[HTML.index('id="index-study"'):HTML.index("</section>", HTML.index('id="index-study"'))]
+    order = [m.index(x) for x in ('id="is-head"', 'id="is-qual"', 'id="is-chart"',
+                                   'id="is-caveat"', 'id="is-table"', 'id="is-drivers"',
+                                   'id="is-edge-host"', 'id="is-prov"')]
+    assert order == sorted(order), "the study's sections are out of the stated order"
+
+
+def test_the_methodology_states_the_persisted_book_not_the_gated_one():
+    """History wins. The ledger chained an ungated Top-10 from the first night; the
+    page said 'eligible'. The page conforms, the record does not move."""
+    m = (ROOT / "methodology.html").read_text(encoding="utf-8")
+    assert "No qualification gate" in m
+    assert "top 10 by conviction on night t" in m or "top 10 by conviction on night t−1" in m
+    assert "top 10 by conviction (eligible universe)" not in m
+    assert "k-alpha" not in m, "the methodology still computes an alpha KPI from the basket"
+    assert "DEPRECATED" in m and "Sharpe" in m
+
+
+def test_index_json_labels_the_experimental_basket_and_carries_canonical():
+    import json
+    j = json.loads((ROOT / "ledger" / "index.json").read_text(encoding="utf-8"))
+    assert "canonical" in j and j["canonical"].get("legs"), "index.json has no canonical block"
+    assert j.get("basket_note", "").startswith("EXPERIMENTAL"), "the basket is not labelled"
+    assert "DEPRECATED" in j.get("sharpe_convention", "")
+    c = j["canonical"]
+    assert c["definition"]["gated"] is False and c["definition"]["top_n"] == 10
+    for h in c["holdings"]:
+        assert h["status"] in ("priced", "UNPRICED")
+        assert (h["return"] is not None) == (h["status"] == "priced")
+    assert abs(c["contribution"]["residual_pp"]) < 1e-6, "contributions do not reconcile"

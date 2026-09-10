@@ -137,13 +137,22 @@ signal: STRONG ≥80 · BUY ≥70 · HOLD ≥55 · WATCH ≥40 · AVOID &lt;40</
   <div class="callout"><b>The Factor Decomposition panel decomposes the product the model actually computes, and only that.</b> It shows <code>100 × depth × cm × a_frac × emissionMult × perp</code> with the running product beside each row, so the bars reconstruct the published conviction rather than describing a neighbouring model. Contributions are rendered as <b>logs, not as 0–100 bars</b>, because the model is multiplicative: in a product the factor moving the score most is the one furthest from 1.0, and a linear bar shows a factor at 0.42 and a factor at 0.95 as "42 and 95" when one of them is halving the score and the other trimming it by a twentieth. An earlier version of this panel showed SIZE, VALUE, QUALITY, MOMENTUM and LIQUIDITY, of which <b>VALUE and MOMENTUM reached the score nowhere</b>. Its MOMENTUM was a 24h reading while confirmation is a 7/14/30/200-day RS blend, so on a mean-reverting day the panel and the ranking pointed in opposite directions with nothing on screen to say which had ordered the board. Both are still shown, in a block labelled <b>observational</b>, on the same footing as Regime in the matrix. Where a name is at the ceiling the panel prints the pre-clamp value ("clamped from 115"), because a decomposition that cannot reconstruct a saturated score is not a decomposition.</div>
 
   <h2>4 · Portfolio Construction</h2>
-  <p>The index is a paper portfolio of the <b>top-10 eligible assets by conviction</b>, held with <b>score-proportional weights</b>.</p>
+  <p>The index is a paper portfolio of the <b>ten highest-conviction assets on the prior night</b>, held with <b>score-proportional weights</b>, over the universe the nightly persists — the top 50 by market cap of the 250 fetched.</p>
+  <div class="callout"><b>No qualification gate. Documentation corrected to the implementation, not the reverse.</b> An earlier version of this page said "top-10 <i>eligible</i> assets". That was never what the ledger chained. <code>_perf_by_date()</code> reads price and conviction only, no gate flag is persisted, and <code>_perf_weights()</code> takes the ten highest conviction values outright. The proof is the first night of the current specification, 2026-08-05: zero names passed even the liquidity and dilution gates, and the book still held ten. The conjunctive gate is a property of the <i>board</i> (the HIDE NON-QUALIFIED toggle, the QUALIFIED count); it has never been a property of the Index. The 35 recorded nights are measurements of the ungated book and are not restated.</div>
   <div class="glass">
-    <h3>Construction</h3>
-    <div class="formula">holdings = top 10 by conviction (eligible universe)<br>
-w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)&nbsp;&nbsp;·&nbsp;&nbsp;Σ w_i = 1.0</div>
+    <h3>Construction · the canonical book</h3>
+    <div class="formula">holdings_t = top 10 by conviction on night t−1, over the persisted universe, no gate<br>
+w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)&nbsp;&nbsp;·&nbsp;&nbsp;Σ w_i = 1.0<br>
+leg_t = Σ w_i · (p_i,t / p_i,t−1 − 1) / Σ w_i over names priced on both nights&nbsp;&nbsp;·&nbsp;&nbsp;a leg losing &gt; 10% of its book to unpriceable names is excluded<br>
+curve = Π (1 + leg_t) from the most recent detected specification boundary</div>
+    <p>Published as <code>market_breadth.performance.canonical</code> and mirrored as <code>index.json.canonical</code>. Every number on the INDEX route — the totals, the four-way decomposition, the contribution table, the concentration diagnostic, the inference — is derived from the same leg objects the curve chains, so it reconciles to the curve by construction.</p>
+    <p><b>The four-way decomposition.</b> A = the score-weighted Top-10. B = the <i>same ten names</i> equal-weighted under the same missing-name rule (exact, not reconstructed). C = the persisted universe equal-weighted. D = BTC. Then A−B is what conviction-proportional weighting added, B−C is what choosing the ten added, A−C is the total active result, A−D is the excess over BTC. The old book-vs-universe comparison mixed weighting and selection and could not say which one had done the damage.</p>
+    <p><b>Inference.</b> The BTC-relative residual is the OLS intercept of nightly book returns on nightly BTC returns, summed over the window, with a Newey–West standard error and a seeded circular block bootstrap. Both are published; where they disagree at the margin — and on this ledger they do, the 95% interval crossing zero at block 3 and clearing it at block 5 — the disagreement is the finding and the verdict is NOT SIGNIFICANT. <b>Nothing on this window is annualised.</b> An annualised Sharpe on thirty-five overnight returns is not a statistic, and the field that used to carry one in <code>index.json</code> is deprecated and never displayed.</p>
+    <p><b>Contribution</b> is prior-night target weight × subsequent move, Carino-linked so the parts sum to the chained total exactly. Live weights are shown beside target weights so drift is visible; they are used to compute nothing. A name with no recorded price on the later night is <b>UNPRICED</b> and excluded by the leg rule — it is never printed as a 0.0% return.</p>
+    <p><b>Latent survivorship.</b> The universe is re-cut at the top 50 nightly, so a name that fell out of it would be renormalised away rather than booked. On this ledger no usable leg has lost any weight to it; the rule is stated so that the night it first bites is visible rather than silent.</p>
   </div>
-  <h3>Hysteresis · Execution · Ejection · Macro (risk overlays)</h3>
+  <div class="callout"><b>The hysteresis basket is a different model.</b> <code>build_basket()</code> — gated with an ungated fallback, ejection hysteresis, weekly rebalance, benchmarked to <i>total crypto market cap</i> rather than BTC — is retained below as the experimental tradeable-implementation study it is. It accreted to thirty names. Its fields in <code>index.json</code> (<code>basket_*</code>, <code>latest_holdings</code>, <code>rows</code>) are labelled non-canonical in the file and nothing on the INDEX route reads them. Its history in <code>index.csv</code> is untouched.</div>
+  <h3>Hysteresis · Execution · Ejection · Macro (overlays of the experimental basket)</h3>
   <div class="glass">
     <h3><span class="tag a">A</span> Rebalance Hysteresis</h3>
     <p>A holding is ejected only if it drops to <b>rank ≥ 13</b> <i>or</i> its conviction falls <b>&gt; 5 points below</b> the rank-11 entrant. A #10↔#11 flip does not churn. Calendar rebalance every 7 days, or immediately on structural exit.</p>
@@ -161,7 +170,7 @@ w_i = conviction_i / Σ conviction_j&nbsp;&nbsp;(j = 1..10)&nbsp;&nbsp;·&nbsp;&
     <h3><span class="tag d">D</span> Macro Liquidity Gate — Passive / Display-Only</h3>
     <p><b>RISK-OFF</b> if 7-day global cap &lt; −8%, else <b>RISK-ON</b>. Shown as a regime pill and recorded in <code>index.csv</code> — <b>does not alter holdings</b>. Promoting to an active filter is deferred until enough history exists to backtest it.</p>
   </div>
-  <div class="callout ok"><b>Sharpe convention (pinned).</b> At ≥30 days: Sharpe = mean(daily basket return)/std(daily basket return) × √365, rf = 0. Max drawdown = largest peak-to-trough of the cumulative curve. Both recomputed nightly into <code>index.json</code> under <code>risk</code>.</div>
+  <div class="callout"><b>Sharpe convention (DEPRECATED — not displayed).</b> The field remains in <code>index.json</code> only so a reader that expects the key does not break. It is an annualised figure on a five-week sample and is not evidence. The canonical block carries un-annualised max drawdown, nightly volatility, hit rates, turnover and the exec-adjusted return instead. Original text follows for the record: At ≥30 days: Sharpe = mean(daily basket return)/std(daily basket return) × √365, rf = 0. Max drawdown = largest peak-to-trough of the cumulative curve. Both recomputed nightly into <code>index.json</code> under <code>risk</code>.</div>
 
   <h2>5 · Analytics</h2>
   <p>Conviction becomes a <b>time series</b> the moment the ledger accumulates daily snapshots. From that series we derive market-level signals that are far richer than a static ranking:</p>
@@ -424,7 +433,7 @@ book exposure = Σ over lines with a recorded ATR14</div>
   <h2>8 · Honest Caveats</h2>
   <div class="glass">
     <ul>
-      <li><b>Live vs snapshot.</b> The terminal's top-10 leaders are computed live; the Index comes from the 06:17 UTC nightly snapshot. Minor intraday ordering differences are expected. The Index is the authoritative record.</li>
+      <li><b>Live vs snapshot, and gated vs not.</b> The terminal's board applies the conjunctive gate and is computed live; the Index is ungated and comes from the 06:17 UTC nightly snapshot. The ten names on the board and the ten in the Index can therefore differ for two reasons, and neither is a bug. The Index is the authoritative record.</li>
       <li><b>Module B is a proxy until Dune is connected.</b> Without <code>DUNE_UNLOCK_QUERY_ID</code>, ERA uses 24h stability. Real on-chain unlock data replaces it when configured — never estimated.</li>
       <li><b>Perp overlay is server-side.</b> RiskMult<sub>perp</sub> needs a derivatives feed that can't be called cross-origin. The terminal reads the nightly <code>perp_mult</code> so it stays consistent with the index.</li>
       <li><b>Free-tier limits.</b> No intraday, order-book or funding <i>history</i> from the free CoinGecko tier. Modules are scoped to real payload fields; anything we can't source is labeled unavailable (90d RS excluded for this reason). RSI is the one item that came off this list — not by finding a feed, but because the nightly ledger has accumulated enough daily closes to compute one. It is therefore null for any symbol with fewer than eight recorded nights, and the short-squeeze boost cannot fire for those.</li>
@@ -459,16 +468,10 @@ book exposure = Σ over lines with a recorded ATR14</div>
 
 </div>
 <script>
-// Pull live KPIs from the nightly index.json so the page reflects real data.
-fetch("ledger/index.json",{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{
-  if(!j) return;
-  const b=(j.basket_total_return!=null)? (j.basket_total_return-1)*100 : null;
-  const m=(j.benchmark_total_return!=null)? (j.benchmark_total_return-1)*100 : null;
-  const set=(id,v)=>{const e=document.getElementById(id); if(e&&v!=null) e.textContent=(v>=0?"+":"")+v.toFixed(1)+"%";};
-  set("k-basket",b); set("k-bench",m);
-  const a=document.getElementById("k-alpha"); if(a&&b!=null&&m!=null) a.textContent=((b-m)>=0?"+":"")+(b-m).toFixed(1)+"%";
-  const h=document.getElementById("k-hold"); if(h&&j.current_holdings) h.textContent=j.current_holdings.length;
-}).catch(()=>{});
+// The KPI reader that used to live here read index.json's basket_total_return against
+// benchmark_total_return — the experimental hysteresis basket against total market cap —
+// and labelled the difference "alpha", into element ids this page does not contain.
+// Removed. The canonical figures are on the terminal's INDEX route and nowhere else.
 </script>
 </body>
 </html>

@@ -809,6 +809,98 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
 .tr-row .num{font-variant-numeric:tabular-nums;text-align:right}
 .tr-row.disagree{background:rgba(224,179,114,.07);box-shadow:inset 2px 0 0 var(--amber)}
 
+
+/* ===================== THE INDEX STUDY — the #index route =====================
+
+   Finding first, evidence second, qualification third, provenance last. One dominant
+   chart, one statistics strip, one table, one diagnostic, and the Selection Edge
+   directly beneath — moved here from the diagnostics disclosure, not duplicated.
+
+   It is a ROUTE, not a workspace: the crypto grid stays, the inspector stays in the
+   rail, and the ranked board is demoted to a compact strip beneath the study rather
+   than removed. The rail's small Index card hides on this route, because the study IS
+   that card at full size and two copies of the same curve is one copy too many. */
+.study{padding:0}
+.study-h{display:flex;align-items:center;gap:10px;padding:8px 14px;border-bottom:1px solid var(--border);
+  font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--sec);flex-wrap:wrap}
+.study-h b{color:var(--txt);letter-spacing:1.5px}
+/* THE FINDING. Three numbers a reader can compare at a glance, then the four that
+   qualify them. Book first because it is what happened; EW beside it because it is the
+   comparison that decides whether selection did anything; BTC last. */
+.study-head{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;
+  border-bottom:1px solid var(--border)}
+.sh-cell{padding:12px 14px 10px;border-right:1px solid var(--grid);min-width:0}
+.sh-cell:last-child{border-right:none}
+.sh-cell .lbl{font-size:8px;letter-spacing:1px;text-transform:uppercase;color:var(--tert);display:block}
+.sh-cell b{font-size:26px;line-height:1.15;font-variant-numeric:tabular-nums;display:block;
+  letter-spacing:-.5px}
+.sh-cell .sub{font-size:9.5px;color:var(--sec);display:block;margin-top:2px;
+  font-variant-numeric:tabular-nums}
+.study-qual{display:flex;gap:18px;padding:7px 14px;border-bottom:1px solid var(--border);
+  flex-wrap:wrap;font-size:10.5px;font-variant-numeric:tabular-nums}
+.study-qual .q{display:inline-flex;flex-direction:column;line-height:1.15}
+.study-qual .q .lbl{font-size:7.5px;letter-spacing:.9px;text-transform:uppercase;color:var(--tert)}
+.study-qual .q .lbl .gk{text-transform:none}   /* β stays β: uppercase renders it Β */
+.study-qual .q b{font-size:12px;color:var(--txt)}
+.study-qual .q.verdict b{letter-spacing:.6px}
+/* THE EVIDENCE. One plate. End labels are drawn on the canvas; the legend below is
+   the accessible restatement and is not decoration. */
+.study-plate{padding:10px 14px 4px}
+.study-plate canvas{display:block;width:100%}
+.study-legend{display:flex;gap:14px;padding:4px 14px 8px;flex-wrap:wrap;font-size:9.5px;color:var(--sec)}
+.study-legend .sw{display:inline-block;width:14px;height:0;border-top:2px solid;vertical-align:middle;margin-right:5px}
+.study-legend .sw.dash{border-top-style:dashed}
+/* THE QUALIFICATION. One sentence, on the same axis as the qualifying numbers. */
+.study-caveat{padding:8px 14px;font-size:11px;color:var(--txt);border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);background:rgba(224,179,114,.05)}
+.study-caveat b{color:var(--amber)}
+/* THE TABLE. Contribution first, because "where did it come from" is the question
+   after "what happened". Same table idiom as the board. */
+.study-table{padding:0}
+.study-table .scroll-pane{max-height:none}
+.study-table th.l,.study-table td.l{text-align:left}
+.study-table .wbar{background:rgba(148,163,184,.35)}
+.study-table .cbar{display:inline-block;height:7px;border-radius:2px;vertical-align:middle;min-width:1px;margin-left:5px}
+.study-table .unpriced{color:var(--amber);font-size:8.5px;letter-spacing:.5px;font-weight:700}
+.study-sec-h{padding:7px 14px 3px;font-size:8px;letter-spacing:1.2px;text-transform:uppercase;color:var(--tert);
+  border-top:1px solid var(--border)}
+/* THE DIAGNOSTIC. Descriptive concentration, in a strip rather than a card. */
+.study-drivers{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;
+  border-top:1px solid var(--grid)}
+.sd{padding:8px 14px;border-right:1px solid var(--grid);min-width:0}
+.sd:last-child{border-right:none}
+.sd .lbl{font-size:7.5px;letter-spacing:.9px;text-transform:uppercase;color:var(--tert);display:block}
+.sd b{font-size:15px;font-variant-numeric:tabular-nums;display:block;line-height:1.3}
+.sd .sub{font-size:9px;color:var(--sec);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* THE ROUTE. On #index the study is the centre; the board becomes a strip; the plate
+   and the diagnostics fold away; the rail keeps the inspector and drops its own small
+   Index card. Everything here is a display rule — no node moves except the Selection
+   Edge panel, which the route handler carries under the study and back. */
+/* The rail card's header carries the night count and two pills. Non-wrapping, at a
+   phone width, "35 nights" plus "NIGHTLY SNAPSHOT · 06:17 UTC" plus "MACRO · RISK-ON"
+   ran 19px past the viewport and put a horizontal scrollbar on the whole page —
+   measured, and the only element on the page that did. It wraps. */
+#idx-card .card-h{flex-wrap:wrap;row-gap:3px}
+.wrap[data-route="index"] #index-study{display:block}
+.wrap[data-route="index"] #board-panel .scroll-pane{max-height:132px}
+.wrap[data-route="index"] #board-panel .card-h .muted::after{content:" · context strip — open CRYPTO for the full board"}
+.wrap[data-route="index"] #board-panel + .glass,
+.wrap[data-route="index"] #tools-research{display:none}
+.wrap[data-route="index"] #idx-card{display:none}
+.wrap[data-route="index"] #tools-charts{display:none}
+#is-edge-host > .glass{border:none;border-radius:0}
+#is-edge-host > .glass > .card-h{background:transparent}
+@media(max-width:900px){
+  .study-head{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .sh-cell b{font-size:20px}
+}
+@media(max-width:560px){
+  .study-head{grid-template-columns:1fr 1fr 1fr}
+  .sh-cell{padding:9px 10px 7px}
+  .sh-cell b{font-size:17px}
+  .study-qual{gap:12px}
+}
+
 </style>
 </head>
 <body>
@@ -930,6 +1022,33 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
 
   <!-- CENTER -->
   <main class="col-center">
+    <!-- THE INDEX STUDY. Rendered only on the #index route (see .wrap[data-route]).
+         Every number in it comes from market_breadth.performance.canonical — the
+         Top-10 conviction-weighted paper book, chained by the nightly from signals.csv —
+         and nothing in it reads the experimental basket in index.json. -->
+    <section class="glass study" id="index-study" hidden aria-labelledby="is-title">
+      <div class="study-h"><b id="is-title">CONVICTION-WEIGHTED INDEX</b>
+        <span class="muted" id="is-def">Top-10 by conviction · score-proportional · paper</span>
+        <span class="pill" id="is-snap" style="margin-left:auto">NIGHTLY SNAPSHOT · 06:17 UTC</span>
+        <span class="pill" id="is-macro" style="display:none"></span>
+      </div>
+      <div class="study-head" id="is-head"><div class="sh-cell"><span class="lbl">Book</span><b>—</b></div>
+        <div class="sh-cell"><span class="lbl">Universe, equal weight</span><b>—</b></div>
+        <div class="sh-cell"><span class="lbl">BTC</span><b>—</b></div></div>
+      <div class="study-qual" id="is-qual"></div>
+      <div class="study-plate"><canvas id="is-chart" aria-label="Cumulative paper return: score-weighted Top-10, the same ten equal-weighted, the universe equal-weighted, and BTC" height="260" style="height:260px" tabindex="0"></canvas></div>
+      <div class="study-legend" id="is-legend"></div>
+      <div class="study-caveat" id="is-caveat">Awaiting the nightly ledger.</div>
+      <div class="study-sec-h">Contribution · prior-night target weights × move · Carino-linked to the chained total</div>
+      <div class="study-table" id="is-table"></div>
+      <div class="study-sec-h">What drove the result · descriptive, not evidence against it</div>
+      <div class="study-drivers" id="is-drivers"></div>
+      <div class="study-sec-h">Selection edge · does conviction predict tomorrow?</div>
+      <div id="is-edge-host"></div>
+      <details class="why" id="is-prov"><summary>Can I trust the measurement?</summary>
+        <div class="note" id="is-prov-body"></div></details>
+    </section>
+
     <div class="glass" id="board-panel">
       <!-- THE BOARD. Ten columns, in the order a reader actually asks them:
 
@@ -1140,7 +1259,7 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
       <div class="fb-wrap" id="fb"><div class="muted" style="padding:14px 12px">Select a token to see its factor tilt.</div></div>
       <div class="muted" style="padding:4px 12px 10px">DFA/AQR factor readout. Size·Value·Quality·Momentum·Liquidity — explains the Conviction Score.</div>
     </div>
-    <div class="glass">
+    <div class="glass" id="idx-card">
       <div class="card-h">CONVICTION-WEIGHTED INDEX <span class="muted" id="idx-rebal">—</span>
         <span class="pill" id="idx-snapshot">NIGHTLY SNAPSHOT · 06:17 UTC</span>
         <span class="pill" id="idx-macro" style="display:none"></span>
@@ -1148,7 +1267,7 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
       <div class="chart-box"><canvas id="idx" height="120" style="height:120px"></canvas>
         <div class="muted" id="idx-note">Cumulative basket vs market · live paper track record</div></div>
       <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
-      <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:4px 12px 10px">Nightly Top-10 basket (06:17 UTC snapshot), score-proportional weights. The <b>live</b> conviction leaders in the Alpha Map use the same formula but diverge slightly on intraday price moves. Paper return is chained from the recorded signals ledger — weights from the earlier night, priced at both ends — against BTC, with the equal-weight universe as the control that separates selection from market beta.</div></details>
+      <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:4px 12px 10px">The ten highest-conviction names on the prior night over the universe the nightly persisted, score-proportional weights, <b>no qualification gate</b> — that is the book the ledger has chained since it began, and this card and the INDEX route describe that book and no other. Paper return, weights from the earlier night priced at both ends, against BTC, with the same ten equal-weighted and the universe equal-weighted as the two controls that separate weighting from selection. Open INDEX for the study.</div></details>
     </div>
 
     <!-- The scatter plates and the correlation matrix. Folded for the same reason as
@@ -2983,108 +3102,281 @@ function renderMonitor(){
     + `<div class="muted" style="padding:6px 12px 10px">${m.scope}</div>`;
 }
 
-function renderIndex(){
-  const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal"), snap=$("#idx-snapshot"), macro=$("#idx-macro");
-  if(!INDEX){ wrap.innerHTML='<div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div>'; note.textContent="Paper return · awaiting the nightly ledger"; reb.textContent="—"; macro.style.display="none"; return; }
-  const rows=INDEX.rows||[];
-  reb.textContent="reb "+(INDEX.latest?.rebalanced?"✓":"·");
-  // macro regime pill (display-only gate)
-  const reg=INDEX.macro_regime||INDEX.latest?.macro_regime;
-  if(reg==="RISK-OFF"){ macro.textContent="MACRO · RISK-OFF"; macro.className="pill off"; macro.style.display=""; }
-  else if(reg==="RISK-ON"){ macro.textContent="MACRO · RISK-ON"; macro.className="pill on"; macro.style.display=""; }
-  else { macro.style.display="none"; }
-  // Cumulative paper return, from market_breadth.json's `performance` block rather than
-  // index.json's row series. Those rows are unusable: the header declares seven columns
-  // while eight of ten carry thirteen, so a reader files the alpha figure under
-  // n_holdings and a dollar amount under rebalanced; several dates repeat; single rows
-  // carry "daily" returns of 87% and 123%; and benchmark_return is identically 0.0 on
-  // every row — which drew the market line flat at zero across the whole chart and made
-  // the reported alpha the raw basket return under a different name.
-  const PF = (typeof BREADTH!=="undefined" && BREADTH && BREADTH.performance) || null;
-  const cv=$("#idx"), w=cv.clientWidth, h=cv.clientHeight||120; cv.width=w; cv.height=h; const x=cv.getContext("2d");
-  x.clearRect(0,0,w,h);
-  let bPct=0, mPct=0;
+/* ===================== THE CANONICAL INDEX =====================
 
-  if(!PF || !PF.renderable){
-    // The empty state is the default branch. A curve through one or two points reads as
-    // a trend and is not one.
-    const have=(PF&&PF.legs)||0, need=(PF&&PF.min_days)||5;
-    const bnd=PF&&PF.spec_boundary, pre=(PF&&PF.legs_before_boundary)||0;
-    x.fillStyle="#94A3B8"; x.font="9px monospace";
-    x.fillText(`Awaiting historical baseline (${have?have+1:0}/${need} days accumulating)`,10,h/2-13);
-    x.fillStyle="#475569"; x.font="8px monospace";
-    x.fillText(`${have} night${have===1?"":"s"} measured · nothing is back-filled`,10,h/2);
-    // Say why the count is short of the recorded history, or the panel reads as broken
-    // to anyone who knows eight days are on file. Two short lines rather than one long
-    // one: this canvas is ~330px and the third line was running off the edge.
-    if(bnd){
-      x.fillText(`restarted at the ${bnd} spec boundary`,10,h/2+12);
-      if(pre) x.fillText(`${pre} earlier night${pre===1?"":"s"} measure the previous model`,10,h/2+23);
-    }
-    note.textContent=`Paper return · below the ${need}-day threshold, so no curve is drawn`
-      + (bnd?` · measuring from ${bnd}, when the scoring last changed`:"");
-  } else {
-    const s=PF.series;
-    bPct=PF.book_total||0; mPct=PF.benchmark_total||0;
-    const vals=s.flatMap(d=>[d.book,d.benchmark,d.equal_weight].filter(v=>v!=null));
-    const lo=Math.min(0,...vals), hi=Math.max(0,...vals), pad=Math.max(0.4,(hi-lo)*0.15);
-    // Positioned by date, not index: equal spacing draws a stretch where legs were
-    // dropped as one ordinary segment, attributing a single night's move to all of it.
-    const day=d=>Date.parse(d+"T00:00:00Z")/864e5;
-    const t0=day(s[0].date), span=(day(s[s.length-1].date)-t0)||1;
-    const px=i=>10+(day(s[i].date)-t0)/span*(w-20);
-    const py=v=>h-10-((v-(lo-pad))/((hi+pad)-(lo-pad)))*(h-20);
-    x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([2,3]);
-    x.beginPath(); x.moveTo(10,py(0)); x.lineTo(w-10,py(0)); x.stroke(); x.setLineDash([]);
-    const line=(key,col,width,dash)=>{
-      // Drawn in segments, so a night with no recorded benchmark breaks the line rather
-      // than being bridged straight across the gap.
-      x.strokeStyle=col; x.lineWidth=width; x.setLineDash(dash||[]);
-      let drawing=false;
-      s.forEach((d,i)=>{
-        if(d[key]==null){ if(drawing){ x.stroke(); drawing=false; } return; }
-        if(!drawing){ x.beginPath(); x.moveTo(px(i),py(d[key])); drawing=true; }
-        else x.lineTo(px(i),py(d[key]));
-      });
-      if(drawing) x.stroke();
-      x.setLineDash([]);
-    };
-    line("equal_weight","#334155",1.2,[3,3]);
-    line("benchmark","#475569",1.4);
-    line("book","#7BC9A0",1.6);
-    const last=s[s.length-1];
-    x.font="7px monospace";
-    if(last.benchmark!=null){
-      x.fillStyle="#475569";
-      x.fillText(`${PF.benchmark} ${mPct>=0?"+":""}${mPct.toFixed(1)}%`,px(s.length-1)-36,py(last.benchmark)-3);
-    }
-    x.fillStyle="#7BC9A0";
-    x.fillText(`basket ${bPct>=0?"+":""}${bPct.toFixed(1)}%`,px(s.length-1)-50,py(last.book)+9);
-    const eq=PF.equal_weight_total;
-    note.innerHTML=`${PF.legs} night${PF.legs===1?"":"s"} measured, ${PF.from} to ${PF.to}`
-      + (eq!=null?` · equal-weight universe ${eq>=0?"+":""}${eq.toFixed(1)}%`:"")
-      + (PF.legs_dropped?` · ${PF.legs_dropped} excluded for an unpriceable book`:"")
-      + (PF.legs_before_boundary?` · ${PF.legs_before_boundary} night${PF.legs_before_boundary===1?"":"s"}`
-          + ` before the ${PF.spec_boundary} specification boundary excluded — they measure a different model`:"")
-      + `. Weights from the earlier night, priced at both ends. <b>Not evidence the model `
-      + `works</b> — ${PF.legs} nights is a handful of coin flips.`;
-  }
-  // allocation table: target vs live weight + audit trail
-  const hs=INDEX.latest_holdings||INDEX.current_holdings||[];
-  if(hs.length){
-    wrap.innerHTML=hs.map(h=>{
-      const tw=(h.target_weight*100).toFixed(1), lw=(h.live_weight*100).toFixed(1);
-      const ret=(h.return*100);
-      const driftCls = Math.abs(h.live_weight-h.target_weight)>0.01 ? "warn" : "";
-      return `<div class="alloc-row"><span class="alloc-sym">${h.ticker}</span>`
-        +`<span class="alloc-w num">${tw}%<span class="alloc-live ${driftCls}">→${lw}%</span></span>`
-        +`<span class="muted alloc-c">${ret>=0?"+":""}${ret.toFixed(1)}%</span></div>`;
-    }).join("")
-      +(PF&&PF.renderable
-        ? `<div class="alloc-foot">basket ${bPct.toFixed(1)}% · ${PF.benchmark} ${mPct.toFixed(1)}% · α ${(bPct-mPct).toFixed(1)}% over ${PF.legs} measured night${PF.legs===1?"":"s"}</div>`
-        : `<div class="alloc-foot">Return figures appear once ${(PF&&PF.min_days)||5} days are on file. The exec-adjusted and total-return fields in index.json are not shown: that row series is malformed.</div>`);
-  } else { wrap.innerHTML='<div class="muted" style="padding:8px 12px">Basket empty.</div>'; }
+   One book, and one accessor for it. market_breadth.performance.canonical is the
+   Top-10 conviction-weighted paper book the nightly chains from signals.csv; index.json
+   carries the same object under `canonical`. Everything the Index card, the INDEX
+   route and the headline read comes through here, and NOTHING reads index.json's
+   basket_* / latest_holdings / rows: those describe build_basket()'s hysteresis basket,
+   a different model that accreted to thirty names and benchmarks itself to total
+   market cap. It is labelled experimental in the file and it does not reach this page.
+
+   The word "alpha" does not appear on any of these surfaces. A book-minus-benchmark
+   difference is an EXCESS; the beta-adjusted residual is a residual; neither is
+   annualised. */
+function canonIndex(){
+  const c = (typeof BREADTH!=="undefined" && BREADTH && BREADTH.performance && BREADTH.performance.canonical)
+         || (INDEX && INDEX.canonical) || null;
+  return (c && c.legs) ? c : null;
 }
+const pp = v => v==null ? "—" : (v>=0?"+":"")+v.toFixed(1)+" pp";
+const pc = v => v==null ? "—" : (v>=0?"+":"")+v.toFixed(1)+"%";
+
+/* The residual's verdict, from the inference the nightly actually ran: a Newey-West t
+   and a block bootstrap. NOT SIGNIFICANT if the 95% interval crosses zero; WEAK if it
+   clears zero but |t| is under 1.96; ESTABLISHED only past both — and even then the
+   word "paper" stays attached. */
+function residualVerdict(st){
+  if(!st || st.residual_pp==null) return {label:"—", cls:"neu"};
+  const ci=(st.bootstrap||{}).ci95_pp, t=st.t_hac;
+  const crosses = !ci || ci[0]<=0 && ci[1]>=0;
+  if(crosses) return {label:"NOT SIGNIFICANT", cls:"a"};
+  if(t==null || Math.abs(t)<1.96) return {label:"WEAK", cls:"a"};
+  return {label:"ESTABLISHED · PAPER", cls:"pos"};
+}
+
+function renderIndex(){
+  const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal"), macro=$("#idx-macro");
+  const c=canonIndex();
+  if(reb) reb.textContent = c ? `${c.legs} nights` : "—";
+  const reg=(INDEX&&INDEX.macro_regime)||null;
+  if(macro){
+    if(reg==="RISK-OFF"){ macro.textContent="MACRO · RISK-OFF"; macro.className="pill off"; macro.style.display=""; }
+    else if(reg==="RISK-ON"){ macro.textContent="MACRO · RISK-ON"; macro.className="pill on"; macro.style.display=""; }
+    else macro.style.display="none";
+  }
+  const cv=$("#idx"); if(!cv) return;
+  const w=cv.clientWidth||360, h=cv.clientHeight||120; cv.width=w; cv.height=h;
+  const x=cv.getContext("2d"); x.clearRect(0,0,w,h);
+  if(!c){
+    const PF=(typeof BREADTH!=="undefined"&&BREADTH&&BREADTH.performance)||null;
+    const have=(PF&&PF.legs)||0, need=(PF&&PF.min_days)||5;
+    x.fillStyle="#94A3B8"; x.font="9px monospace";
+    x.fillText(`Awaiting the canonical index (${have}/${need} nights)`,10,h/2-4);
+    if(wrap) wrap.innerHTML='<div class="muted" style="padding:8px 12px">No canonical book yet — nightly ledger pending.</div>';
+    if(note) note.textContent="Paper return · awaiting the nightly ledger";
+    return;
+  }
+  drawIndexLines(x, w, h, c.series, {compact:true});
+  const t=c.totals, d=c.decomposition;
+  if(note) note.innerHTML = `Book <b>${pc(t.book)}</b> · universe EW ${pc(t.universe_ew)} · BTC ${pc(t.benchmark)} `
+    + `· <span class="${d.excess_vs_ew_pp<0?"neg":"pos"}">${pp(d.excess_vs_ew_pp)} vs EW</span> · ${pp(d.excess_vs_btc_pp)} vs BTC`;
+  if(wrap){
+    const rows=(c.holdings||[]).slice().sort((a,b)=>(b.contribution_pp||0)-(a.contribution_pp||0));
+    wrap.innerHTML = rows.map(h=>{
+      const tw=(h.target_weight*100).toFixed(1);
+      const lw=h.live_weight==null?null:(h.live_weight*100).toFixed(1);
+      const drift=h.drift!=null && Math.abs(h.drift)>0.01;
+      return `<div class="alloc-row"><span class="alloc-sym">${esc0(h.symbol)}</span>`
+        +`<span class="alloc-w num">${tw}%${lw==null?"":`<span class="alloc-live ${drift?"warn":""}">→${lw}%</span>`}</span>`
+        +(h.status==="UNPRICED"
+            ? `<span class="alloc-c unpriced" data-tip="No price was recorded for this name on the later night. It is excluded from the book's return by the persisted rule, not booked as zero.">UNPRICED</span>`
+            : `<span class="alloc-c num" style="color:${deltaColor((h.contribution_pp||0)*2)}">${pp(h.contribution_pp)}</span>`)
+        +`</div>`; }).join("")
+      + `<div class="alloc-foot">${c.legs} nights · ${c.from} → ${c.to} · target weight → live · contribution.
+         <a href="#index" style="color:var(--blue)">Open the study →</a></div>`;
+    if(typeof tipUpgrade==="function") tipUpgrade(wrap);
+  }
+}
+
+/* The four lines, drawn once for the rail card (compact) and once for the study.
+
+   Colour is the argument: the book in the brand green; the same ten equal-weighted in
+   the same green dashed, because it is the same names; the universe in amber, because
+   it is the comparison that decides whether selection did anything and it has to be
+   the second thing the eye lands on; BTC in the neutral grey. The old equal-weight line
+   was #334155 on #0B0F19 — 1.5:1 — which is how a control ends up being invisible on
+   the one chart it was drawn to qualify. Every line is end-labelled on the canvas with
+   its terminal value, labels pushed apart so they cannot overprint. */
+const IDX_LINES = [
+  {key:"book",        col:"#7BC9A0", w:2.0, dash:[],    label:"Top-10 score-weighted", end:"Top-10"},
+  {key:"book_ew",     col:"#7BC9A0", w:1.3, dash:[4,3], label:"same ten, equal-weighted", end:"same-10 EW"},
+  {key:"universe_ew", col:"#E0B372", w:1.6, dash:[],    label:"universe, equal-weighted", end:"universe EW"},
+  {key:"benchmark",   col:"#94A3B8", w:1.4, dash:[],    label:"BTC", end:"BTC"},
+];
+function drawIndexLines(x, w, h, series, opt){
+  const compact=!!(opt&&opt.compact);
+  const s=series||[]; if(s.length<2) return;
+  const vals=s.flatMap(d=>IDX_LINES.map(l=>d[l.key]).filter(v=>v!=null));
+  const lo=Math.min(0,...vals), hi=Math.max(0,...vals), pad=Math.max(0.5,(hi-lo)*0.08);
+  // The right gutter holds the longest end label ("universe EW +59.7%") at 9px mono,
+  // measured rather than guessed: a label that runs off the plate is a label nobody
+  // reads, on the one line the plate exists to show.
+  const L=compact?8:34, R=compact?48:118, T=compact?6:10, Bm=compact?8:20;
+  const day=d=>Date.parse(d+"T00:00:00Z")/864e5;
+  const t0=day(s[0].date), span=(day(s[s.length-1].date)-t0)||1;
+  const px=i=>L+(day(s[i].date)-t0)/span*(w-L-R);
+  const py=v=>T+(h-T-Bm)-((v-(lo-pad))/((hi+pad)-(lo-pad)))*(h-T-Bm);
+  x.font=(compact?"7px":"9px")+" monospace";
+  // gridlines at round percentages, labelled on the study only
+  if(!compact){
+    const step = (hi-lo)>60?20:(hi-lo)>25?10:5;
+    x.strokeStyle="#162032"; x.lineWidth=1; x.setLineDash([]);
+    for(let g=Math.ceil((lo-pad)/step)*step; g<=hi+pad; g+=step){
+      x.beginPath(); x.moveTo(L,py(g)); x.lineTo(w-R,py(g)); x.stroke();
+      x.fillStyle="#7C8AA3"; x.textAlign="right"; x.fillText((g>0?"+":"")+g+"%", L-6, py(g)+3);
+    }
+    // date ticks: first, last, and every ~7 days
+    x.textAlign="center";
+    for(let i=0;i<s.length;i++){
+      const isEdge=i===0||i===s.length-1;
+      if(!isEdge && Math.round(day(s[i].date)-t0)%7!==0) continue;
+      x.fillStyle="#7C8AA3"; x.fillText(s[i].date.slice(5), px(i), h-6);
+    }
+    x.textAlign="left";
+  }
+  x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([2,3]);
+  x.beginPath(); x.moveTo(L,py(0)); x.lineTo(w-R,py(0)); x.stroke(); x.setLineDash([]);
+  const ends=[];
+  IDX_LINES.forEach(l=>{
+    x.strokeStyle=l.col; x.lineWidth=l.w; x.setLineDash(l.dash); x.beginPath();
+    let drawing=false, lastI=-1;
+    s.forEach((d,i)=>{ const v=d[l.key]; if(v==null){ if(drawing){x.stroke();drawing=false;} return; }
+      if(!drawing){ x.beginPath(); x.moveTo(px(i),py(v)); drawing=true; } else x.lineTo(px(i),py(v)); lastI=i; });
+    if(drawing) x.stroke(); x.setLineDash([]);
+    if(lastI>=0) ends.push({l, y:py(s[lastI][l.key]), v:s[lastI][l.key], xEnd:px(lastI)});
+  });
+  // End labels, pushed apart top-to-bottom so four terminal values cannot overprint.
+  const lh=compact?8:11;
+  ends.sort((a,b)=>a.y-b.y);
+  for(let i=1;i<ends.length;i++) if(ends[i].y-ends[i-1].y<lh) ends[i].y=ends[i-1].y+lh;
+  for(let i=ends.length-2;i>=0;i--) if(ends[i+1].y-ends[i].y<lh) ends[i].y=ends[i+1].y-lh;
+  ends.forEach(e=>{
+    x.fillStyle=e.l.col;
+    const txt = compact ? `${e.v>=0?"+":""}${e.v.toFixed(1)}%` : `${e.l.end} ${e.v>=0?"+":""}${e.v.toFixed(1)}%`;
+    x.fillText(txt, e.xEnd+5, e.y+3);
+  });
+}
+
+/* ===================== THE INDEX STUDY (#index) ===================== */
+let IS_EDGE_HOME = null;   // where the Selection Edge panel lives when not on the route
+
+function renderIndexStudy(){
+  const host=$("#index-study"); if(!host) return;
+  const c=canonIndex();
+  const head=$("#is-head"), qual=$("#is-qual"), cav=$("#is-caveat"), tbl=$("#is-table"),
+        drv=$("#is-drivers"), prov=$("#is-prov-body"), leg=$("#is-legend"), macro=$("#is-macro");
+  if(!c){
+    if(head) head.innerHTML='<div class="sh-cell" style="grid-column:1/-1"><span class="lbl">Canonical index</span><b style="font-size:13px">Awaiting the nightly ledger</b><span class="sub">market_breadth.performance.canonical has not been produced yet.</span></div>';
+    if(qual) qual.innerHTML=""; if(cav) cav.textContent="No measured nights yet.";
+    if(tbl) tbl.innerHTML=""; if(drv) drv.innerHTML=""; if(leg) leg.innerHTML="";
+    return;
+  }
+  const t=c.totals, d=c.decomposition, st=c.stats, ex=c.exclusions||{};
+  const reg=(INDEX&&INDEX.macro_regime)||null;
+  if(macro){ if(reg==="RISK-ON"||reg==="RISK-OFF"){ macro.textContent="MACRO · "+reg; macro.className="pill "+(reg==="RISK-ON"?"on":"off"); macro.style.display=""; } else macro.style.display="none"; }
+  $("#is-def").textContent = `Top-${c.definition.top_n} by conviction · score-proportional · ${c.definition.gated?"gated":"no gate"} · paper`;
+
+  // 1. THE FINDING
+  head.innerHTML =
+    `<div class="sh-cell"><span class="lbl">Book · Top-${c.definition.top_n} score-weighted</span>
+       <b style="color:${t.book>=0?"var(--green)":"var(--red)"}">${pc(t.book)}</b>
+       <span class="sub">${c.legs} nights · ${c.from} → ${c.to} · exec-adjusted ${pc(t.exec_adjusted)}</span></div>
+     <div class="sh-cell"><span class="lbl">Universe · equal weight</span>
+       <b style="color:var(--amber)">${pc(t.universe_ew)}</b>
+       <span class="sub">${esc0(c.definition.universe)}</span></div>
+     <div class="sh-cell"><span class="lbl">BTC</span>
+       <b style="color:var(--sec)">${pc(t.benchmark)}</b>
+       <span class="sub">same ${c.legs} nights, same prices</span></div>`;
+
+  // 2. THE QUALIFIERS — recomputed by the nightly, read here, never typed.
+  const v=residualVerdict(st);
+  const boot=st.bootstrap||{};
+  qual.innerHTML =
+    `<span class="q"><span class="lbl">vs universe EW</span><b class="${d.excess_vs_ew_pp<0?"neg":"pos"}">${pp(d.excess_vs_ew_pp)}</b></span>
+     <span class="q"><span class="lbl">vs BTC</span><b class="${d.excess_vs_btc_pp<0?"neg":"pos"}">${pp(d.excess_vs_btc_pp)}</b></span>
+     <span class="q" data-tip="A − B: what conviction-proportional weighting added over equal-weighting the same ten names."><span class="lbl">weighting</span><b>${pp(d.weighting_pp)}</b></span>
+     <span class="q" data-tip="B − C: what choosing these ten added over owning the whole universe equally. This is the selection decision, isolated."><span class="lbl">selection</span><b class="${d.selection_pp<0?"neg":"pos"}">${pp(d.selection_pp)}</b></span>
+     <span class="q"><span class="lbl"><span class="gk">β</span> to BTC</span><b>${st.beta_to_btc==null?"—":st.beta_to_btc.toFixed(2)}</b></span>
+     <span class="q" data-tip="${esc0("Jensen intercept summed over "+c.legs+" nights. Newey-West t "+st.t_hac+" (lag "+st.hac_lag+"); naive t "+st.t_naive+". Block bootstrap 95% interval "+(boot.ci95_pp?boot.ci95_pp.map(x=>(x>=0?"+":"")+x.toFixed(1)).join(" to ")+" pp":"—")+" at block "+boot.block+", "+boot.draws+" draws; P(residual<0) "+boot.p_below_zero+". "+(st.inference_note||""))}"><span class="lbl"><span class="gk">β</span>-adjusted residual</span><b>${pp(st.residual_pp)} · t≈${st.t_hac==null?"—":st.t_hac.toFixed(1)}</b></span>
+     <span class="q verdict"><span class="lbl">inference</span><b class="${v.cls}">${v.label}</b></span>`;
+
+  // 3. THE EVIDENCE
+  const cv=$("#is-chart"); const w=cv.clientWidth||700, h=cv.clientHeight||260;
+  const dpr=window.devicePixelRatio||1; cv.width=w*dpr; cv.height=h*dpr;
+  const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,w,h);
+  drawIndexLines(x,w,h,c.series,{compact:false});
+  leg.innerHTML = IDX_LINES.map(l=>`<span><span class="sw${l.dash.length?" dash":""}" style="border-color:${l.col}"></span>${l.label} <b class="num" style="color:${l.col}">${pc(t[l.key])}</b></span>`).join("")
+    + `<span class="muted" style="margin-left:auto">max drawdown book ${st.max_drawdown_pct.book.toFixed(1)}% · EW ${st.max_drawdown_pct.universe_ew.toFixed(1)}% · BTC ${st.max_drawdown_pct.benchmark.toFixed(1)}%</span>`;
+  // accessible restatement of the plate
+  CHART_POINTS["is-chart"] = c.series.map((r,i)=>({x:0,y:0,r:0,sym:r.date,
+    lines:[`book ${pc(r.book)}`,`same-10 EW ${pc(r.book_ew)}`,`universe EW ${pc(r.universe_ew)}`,`BTC ${pc(r.benchmark)}`]}));
+  syncChartTable("is-chart");
+
+  // 4. THE QUALIFICATION — one sentence.
+  const e=c.edge||{};
+  cav.innerHTML = `<b>${c.legs}-night paper result.</b> Strong absolute outcome; no statistically established selection edge yet`
+    + (e.mean_ic!=null ? ` — IC ${e.mean_ic>=0?"+":""}${e.mean_ic.toFixed(2)}, interval [${e.ci[0].toFixed(2)}, ${e.ci[1].toFixed(2)}]${e.ci[0]<=0&&e.ci[1]>=0?" spans zero":""}` : "")
+    + `; the universe equal-weighted beat the book on ${c.legs-st.nights_beat_universe_ew} of ${c.legs} nights.`;
+
+  // 5. THE TABLE — sorted by contribution, prior-night target weights, UNPRICED never 0.0%.
+  const rows=(c.holdings||[]).slice().sort((a,b)=>(b.contribution_pp||0)-(a.contribution_pp||0));
+  const maxC=Math.max(1e-9,...rows.map(r=>Math.abs(r.contribution_pp||0)));
+  const maxW=Math.max(1e-9,...rows.map(r=>r.target_weight||0));
+  tbl.innerHTML = `<div class="scroll-pane"><table><thead><tr>
+      <th class="l">Ticker</th>
+      <th data-tip="Score-proportional weight on the prior night — the weight the return was earned at.">Target wt</th>
+      <th data-tip="Target weight drifted by the night's move, renormalised over the names that priced. Shown so drift is visible; it is never used to compute anything.">Live wt</th>
+      <th data-tip="Live minus target. Past ±1 point it is marked.">Drift</th>
+      <th data-tip="This name's move over the most recent measured night.">Return</th>
+      <th data-tip="Cumulative contribution at prior-night target weights, Carino-linked so the column sums to the chained book total exactly. Nights held is how many of the measured nights this name was in the book.">Contribution</th>
+      <th>Nights</th></tr></thead><tbody>${
+    rows.map(r=>{
+      const tw=r.target_weight*100, lw=r.live_weight==null?null:r.live_weight*100;
+      const dr=r.drift==null?null:r.drift*100;
+      const cval=r.contribution_pp||0;
+      return `<tr><td class="l tick">${esc0(r.symbol)}</td>
+        <td class="num">${tw.toFixed(1)}% <span class="wbar" style="width:${(tw/(maxW*100)*30).toFixed(1)}px"></span></td>
+        <td class="num">${lw==null?'<span class="unpriced">UNPRICED</span>':lw.toFixed(1)+"%"}</td>
+        <td class="num ${dr!=null&&Math.abs(dr)>1?"a":"muted"}">${dr==null?"—":(dr>=0?"+":"")+dr.toFixed(1)}</td>
+        <td class="num" ${r.return==null?"":`style="color:${deltaColor(r.return*100)}"`}>${r.return==null?'<span class="unpriced" data-tip="No price recorded on the later night: excluded from the book by the persisted rule, not counted as a zero move.">UNPRICED</span>':pc(r.return*100)}</td>
+        <td class="num" style="color:${deltaColor(cval*2)}">${pp(cval)}<span class="cbar" style="width:${(Math.abs(cval)/maxC*40).toFixed(1)}px;background:${deltaColor(cval*2)}"></span></td>
+        <td class="num muted">${r.legs_held}/${c.legs}</td></tr>`; }).join("")
+    }</tbody></table></div>
+    <div class="muted" style="padding:6px 14px 8px">The ten names in the most recent measured book, at the weights they were held at. ${
+      (c.contribution.names_ever_held||0)-rows.length} further names were held on earlier nights and carry ${
+      pp((c.contribution.rows||[]).filter(r=>!rows.some(h=>h.symbol===r.symbol)).reduce((s_,r)=>s_+r.pp,0))} of the total; the column reconciles to ${pc(c.contribution.reconciles_to_pp)} with a residual of ${c.contribution.residual_pp} pp.</div>`;
+
+  // 6. THE DIAGNOSTIC — concentration, using THIS book's definition.
+  const cr=c.contribution, nt=c.nights, cc=c.concentration;
+  const top=(cr.rows||[])[0];
+  drv.innerHTML =
+    `<div class="sd"><span class="lbl">Largest contributor</span><b>${top?((top.share_of_gain*100).toFixed(0)+"%"):"—"}</b><span class="sub">${top?esc0(top.symbol)+" · "+pp(top.pp)+" of the gross gain":""}</span></div>
+     <div class="sd"><span class="lbl">Top-5 share of gain</span><b>${cr.top5_share_of_gain==null?"—":(cr.top5_share_of_gain*100).toFixed(0)+"%"}</b><span class="sub">${(cr.rows||[]).slice(0,5).map(r=>esc0(r.symbol)).join(" · ")}</span></div>
+     <div class="sd"><span class="lbl">Three largest nights</span><b>${nt.top3_share_of_arithmetic_sum==null?"—":(nt.top3_share_of_arithmetic_sum*100).toFixed(0)+"%"}</b><span class="sub">${(nt.largest||[]).slice(0,3).map(n=>n.date.slice(5)+" "+pc(n.pct)).join(" · ")} — of the summed nightly returns</span></div>
+     <div class="sd" data-tip="One over the sum of squared target weights in the latest book: how many equally sized positions it behaves like. This is the BOOK's concentration. The correlation panel's effective breadth is a different statistic over a different set and is not this number."><span class="lbl">Effective positions</span><b>${cc.effective_positions==null?"—":cc.effective_positions.toFixed(1)} of ${cc.names}</b><span class="sub">max weight ${cc.max_weight==null?"—":(cc.max_weight*100).toFixed(1)+"% "+esc0(cc.max_symbol)}</span></div>
+     <div class="sd"><span class="lbl">Nights</span><b>${st.nights_positive}/${c.legs} up</b><span class="sub">beat BTC ${st.nights_beat_btc} · beat universe EW ${st.nights_beat_universe_ew} · beat same-10 EW ${st.nights_beat_book_ew}</span></div>
+     <div class="sd"><span class="lbl">Vol · turnover</span><b>${st.daily_vol_pct.book.toFixed(2)}%/night</b><span class="sub">one-way turnover ${st.turnover_oneway_mean_pct.toFixed(1)}%/night · ${st.exec_bps_oneway} bp one-way → exec-adj ${pc(t.exec_adjusted)}</span></div>`;
+
+  // 7. PROVENANCE — last.
+  prov.innerHTML = `<b>What this is.</b> ${esc0(c.definition.book)}, over ${esc0(c.definition.universe)}. ${esc0(c.definition.gate_note)}
+    <br><b>How it is measured.</b> Weights from the ${esc0(c.definition.weights)}. ${esc0(c.definition.unpriced_rule)}. ${esc0(c.definition.survivorship_note)}
+    <br><b>What is excluded.</b> ${ex.legs_unusable||0} leg${ex.legs_unusable===1?"":"s"} lost more than ten percent of the book to unpriceable names and ${ex.legs_before_boundary||0} preceded the ${esc0(c.definition.spec_boundary||"—")} specification boundary; both are excluded rather than chained, and both are before this window. ${ex.duplicates_collapsed?ex.duplicates_collapsed+" duplicate (date, symbol) rows collapsed.":""}
+    <br><b>What is not here.</b> No costs in the headline (the exec-adjusted figure deducts ${st.exec_bps_oneway} bp one-way per unit of turnover); nothing annualised; no Sharpe on ${c.legs} nights. Paper throughout. The hysteresis basket in index.json is a separate, experimental model and none of it is on this page.`;
+  if(typeof tipUpgrade==="function") tipUpgrade(host);
+}
+
+/* Carry the Selection Edge panel under the study on the route, and home again off it.
+   One node, moved — the renderer, the id and its data are untouched. */
+function placeEdgePanel(onRoute){
+  const panel=$("#edge") && $("#edge").closest(".glass"); if(!panel) return;
+  const host=$("#is-edge-host"); if(!host) return;
+  if(onRoute){
+    if(!IS_EDGE_HOME) IS_EDGE_HOME={parent:panel.parentNode, next:panel.nextSibling};
+    host.appendChild(panel);
+  } else if(IS_EDGE_HOME && panel.parentNode===host){
+    IS_EDGE_HOME.parent.insertBefore(panel, IS_EDGE_HOME.next);
+  }
+}
+function setIndexRoute(on){
+  const wrap=document.querySelector(".wrap"); if(!wrap) return;
+  if(on) wrap.dataset.route="index"; else delete wrap.dataset.route;
+  const study=$("#index-study"); if(study) study.hidden=!on;
+  placeEdgePanel(on);
+  if(on){ renderIndexStudy(); if(typeof renderEdge==="function") renderEdge(); }
+}
+
 /* ---------- factor decomposition ----------
    This panel used to render SIZE, VALUE, QUALITY, MOMENTUM and LIQUIDITY as five bars
    and call itself a factor breakdown. Two of those five reached the score nowhere.
@@ -6667,7 +6959,7 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderHealth(); renderDiag(); renderSizing(); renderFunding(); renderCarry(); renderBoardLeverage();
+  const ledger = loadLedger().then(()=>{ renderIndex(); if(document.querySelector(".wrap")?.dataset.route==="index") renderIndexStudy(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderHealth(); renderDiag(); renderSizing(); renderFunding(); renderCarry(); renderBoardLeverage();
     // Modules F-J. All read committed artifacts rather than the live fetch, so they are
     // rendered here with the rest of the ledger-derived panels and stay up on a night
     // CoinGecko rate-limits the browser.
@@ -6854,7 +7146,7 @@ document.addEventListener("click",e=>{
    selects [data-pane] and [data-note] document-globally and unscoped, so any overlap
    would mean a click on Liquidity silently hid part of another screen. */
 const WS_ROUTES = {
-  index:     {ws: "crypto", anchor: "idx",         label: "conviction-weighted index"},
+  index:     {ws: "crypto", anchor: "index-study", label: "conviction-weighted index"},
 };
 
 function revealFor(want){ return (WS_ROUTES[want] || {}).ws || want; }
@@ -6878,6 +7170,7 @@ function switchWorkspace(want, push){
          if(typeof alphaMap==="function") alphaMap();
          if(typeof renderIndex==="function") renderIndex();
          if(typeof renderGlobal==="function") renderGlobal();
+         if(typeof renderIndexStudy==="function" && document.querySelector(".wrap")?.dataset.route==="index") renderIndexStudy();
          if(typeof factorQuad==="function") factorQuad(); }catch(e){}
   }
   if(reveal==="rwa"){ try{ renderRwa(); }catch(e){} }
@@ -6890,6 +7183,11 @@ function switchWorkspace(want, push){
          if(typeof renderParser==="function") renderParser();
          if(typeof renderCarry==="function") renderCarry(); }catch(e){}
   }
+  /* The INDEX route is a display state of the crypto workspace, not a scroll: the
+     study takes the centre, the board becomes a strip, and the Selection Edge panel is
+     carried under the study. Set BEFORE the scroll so the anchor is visible to scroll
+     to. Cleared on every other destination. */
+  setIndexRoute(want==="index");
   const route=WS_ROUTES[want];
   if(route){
     const el=document.getElementById(route.anchor);

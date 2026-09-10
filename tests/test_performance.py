@@ -250,3 +250,63 @@ def test_excluding_the_pre_boundary_legs_can_make_the_curve_unrenderable(ledger)
     assert out["spec_boundary"] == "2026-03-04"
     assert out["legs"] == 1
     assert out["renderable"] is False
+
+
+# ---------------------------------------------------------------------------
+# the canonical block: derived from the same legs, reconciles by construction
+# ---------------------------------------------------------------------------
+def test_the_canonical_book_reconciles_to_the_curve(ledger):
+    """canonical.totals.book must equal performance.book_total, and the Carino-linked
+    contributions must sum to it exactly — otherwise the study describes a different
+    book from the chart above it, which is the failure this block exists to end."""
+    rows = []
+    for d, px in (("2026-03-01", 100.0), ("2026-03-02", 110.0), ("2026-03-03", 99.0)):
+        rows.append((d, "BTC", px, 80))
+        rows += [(d, f"A{i}", px * (1 + 0.01 * i), 90 - i) for i in range(9)]
+    ledger(rows)
+    nightly._CANON_CACHE.clear()
+    perf = nightly._compute_performance()
+    c = nightly._canonical_index()
+    assert c["totals"]["book"] == pytest.approx(perf["book_total"], abs=0.01)
+    assert c["contribution"]["residual_pp"] == pytest.approx(0.0, abs=1e-6)
+    assert c["contribution"]["reconciles_to_pp"] == pytest.approx(perf["book_total"], abs=0.01)
+    assert c["definition"]["gated"] is False
+    assert c["legs"] == perf["legs"]
+
+
+def test_the_same_ten_equal_weighted_is_the_exact_selection(ledger):
+    """B is the same names as A under the same missing-name rule — an exact control,
+    not a reconstruction. Equal conviction makes A and B identical, so the weighting
+    term must be exactly zero."""
+    rows = []
+    for d, px in (("2026-03-01", 100.0), ("2026-03-02", 105.0)):
+        rows += [(d, f"A{i}", px + i, 70) for i in range(nightly.PERF_TOP_N)]
+        rows.append((d, "OUT", px, 1))
+    ledger(rows)
+    nightly._CANON_CACHE.clear()
+    c = nightly._canonical_index()
+    assert c["totals"]["book"] == pytest.approx(c["totals"]["book_ew"], abs=1e-6)
+    assert c["decomposition"]["weighting_pp"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_an_unpriced_name_in_the_latest_book_is_unpriced_not_zero(ledger):
+    rows = [("2026-03-01", "GONE", 100.0, 50)]
+    rows += [("2026-03-01", f"A{i}", 100.0, 100) for i in range(9)]
+    rows += [("2026-03-02", f"A{i}", 110.0, 100) for i in range(9)]
+    ledger(rows)
+    nightly._CANON_CACHE.clear()
+    c = nightly._canonical_index()
+    gone = next(h for h in c["holdings"] if h["symbol"] == "GONE")
+    assert gone["status"] == "UNPRICED" and gone["return"] is None and gone["live_weight"] is None
+    assert all(h["return"] is not None for h in c["holdings"] if h["symbol"] != "GONE")
+
+
+def test_legs_unusable_does_not_double_count_the_boundary(ledger):
+    """legs_dropped counts a pre-boundary leg and legs_before_boundary counts it again.
+    The strict count exists so the caption can say 3 and 1 rather than 4 and 1."""
+    rows = [("2026-03-01", "A", 100.0, 50), ("2026-03-01", "GONE", 100.0, 50)]
+    rows += [(f"2026-03-{d:02d}", "A", 100.0 + d, 50) for d in (2, 3, 4)]
+    ledger(rows)
+    out = nightly._compute_performance()
+    assert out["legs_unusable"] == 1
+    assert out["legs_unusable"] <= out["legs_dropped"]
