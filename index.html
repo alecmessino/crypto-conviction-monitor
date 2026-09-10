@@ -3121,6 +3121,19 @@ function canonIndex(){
   return (c && c.legs) ? c : null;
 }
 const pp = v => v==null ? "—" : (v>=0?"+":"")+v.toFixed(1)+" pp";
+/* The equal-weight control is the NIGHTLY PERSISTED universe — the ~50 names the
+   nightly writes to signals.csv — and not the 234-name board the browser scores live.
+   The left rail says "Universe 234"; a control labelled "universe" beside it read as
+   the same population. Every surface names the count, and the count comes from the
+   payload (median names shared across the measured legs), never from this file. */
+function uniN(c){ const d=c&&c.definition; return (d&&(d.universe_persisted_n||d.universe_n))||"—"; }
+function uniShared(c){ const d=c&&c.definition; return (d&&d.universe_n)||null; }
+const uniLabel  = c => `nightly universe (${uniN(c)})`;
+const uniShort  = c => `nightly-${uniN(c)} EW`;
+/* The live board's size, for the "not the live board" contrast — only once the board
+   exists. The study can render before the markets payload lands, and "——name live
+   board" is what an empty STATE printed. */
+const boardN = () => (STATE.length ? `${STATE.length}-name ` : "");
 const pc = v => v==null ? "—" : (v>=0?"+":"")+v.toFixed(1)+"%";
 
 /* The residual's verdict, from the inference the nightly actually ran: a Newey-West t
@@ -3128,12 +3141,19 @@ const pc = v => v==null ? "—" : (v>=0?"+":"")+v.toFixed(1)+"%";
    clears zero but |t| is under 1.96; ESTABLISHED only past both — and even then the
    word "paper" stays attached. */
 function residualVerdict(st){
-  if(!st || st.residual_pp==null) return {label:"—", cls:"neu"};
-  const ci=(st.bootstrap||{}).ci95_pp, t=st.t_hac;
-  const crosses = !ci || ci[0]<=0 && ci[1]>=0;
-  if(crosses) return {label:"NOT SIGNIFICANT", cls:"a"};
-  if(t==null || Math.abs(t)<1.96) return {label:"WEAK", cls:"a"};
-  return {label:"ESTABLISHED · PAPER", cls:"pos"};
+  /* "WEAK / NOT ESTABLISHED", never "not significant" on its own. Thirty-five legs
+     cannot establish a residual; they also cannot establish its absence, and a bare
+     NOT SIGNIFICANT reads as the second. The technical evidence sits directly under
+     the label rather than in a tooltip only. */
+  if(!st || st.residual_pp==null) return {label:"—", cls:"neu", sub:""};
+  const ci=(st.bootstrap||{}).ci95_pp, t=st.t_hac, blk=(st.bootstrap||{}).block;
+  const crosses = !ci || (ci[0]<=0 && ci[1]>=0);
+  const tt = t==null?"—":t.toFixed(1);
+  if(crosses) return {label:"WEAK / NOT ESTABLISHED", cls:"a",
+    sub:`HAC t≈${tt} · bootstrap 95% includes zero at block ${blk}; sensitive to block length`};
+  if(t==null || Math.abs(t)<1.96) return {label:"WEAK / NOT ESTABLISHED", cls:"a",
+    sub:`HAC t≈${tt} under 1.96 · bootstrap 95% clears zero at block ${blk}`};
+  return {label:"SUPPORTED · PAPER", cls:"pos", sub:`HAC t≈${tt} · bootstrap 95% clears zero at block ${blk}`};
 }
 
 function renderIndex(){
@@ -3160,8 +3180,8 @@ function renderIndex(){
   }
   drawIndexLines(x, w, h, c.series, {compact:true});
   const t=c.totals, d=c.decomposition;
-  if(note) note.innerHTML = `Book <b>${pc(t.book)}</b> · universe EW ${pc(t.universe_ew)} · BTC ${pc(t.benchmark)} `
-    + `· <span class="${d.excess_vs_ew_pp<0?"neg":"pos"}">${pp(d.excess_vs_ew_pp)} vs EW</span> · ${pp(d.excess_vs_btc_pp)} vs BTC`;
+  if(note) note.innerHTML = `Book <b>${pc(t.book)}</b> · ${uniShort(c)} ${pc(t.universe_ew)} · BTC ${pc(t.benchmark)} `
+    + `· <span class="${d.excess_vs_ew_pp<0?"neg":"pos"}">${pp(d.excess_vs_ew_pp)} vs ${uniShort(c)}</span> · ${pp(d.excess_vs_btc_pp)} vs BTC`;
   if(wrap){
     const rows=(c.holdings||[]).slice().sort((a,b)=>(b.contribution_pp||0)-(a.contribution_pp||0));
     wrap.innerHTML = rows.map(h=>{
@@ -3192,11 +3212,12 @@ function renderIndex(){
 const IDX_LINES = [
   {key:"book",        col:"#7BC9A0", w:2.0, dash:[],    label:"Top-10 score-weighted", end:"Top-10"},
   {key:"book_ew",     col:"#7BC9A0", w:1.3, dash:[4,3], label:"same ten, equal-weighted", end:"same-10 EW"},
-  {key:"universe_ew", col:"#E0B372", w:1.6, dash:[],    label:"universe, equal-weighted", end:"universe EW"},
+  {key:"universe_ew", col:"#E0B372", w:1.6, dash:[],    label:"nightly universe, equal-weighted", end:"nightly EW"},
   {key:"benchmark",   col:"#94A3B8", w:1.4, dash:[],    label:"BTC", end:"BTC"},
 ];
 function drawIndexLines(x, w, h, series, opt){
   const compact=!!(opt&&opt.compact);
+  const endLabel = l => (l.key==="universe_ew" && opt && opt.canon) ? uniShort(opt.canon) : l.end;
   const s=series||[]; if(s.length<2) return;
   const vals=s.flatMap(d=>IDX_LINES.map(l=>d[l.key]).filter(v=>v!=null));
   const lo=Math.min(0,...vals), hi=Math.max(0,...vals), pad=Math.max(0.5,(hi-lo)*0.08);
@@ -3244,7 +3265,7 @@ function drawIndexLines(x, w, h, series, opt){
   for(let i=ends.length-2;i>=0;i--) if(ends[i+1].y-ends[i].y<lh) ends[i].y=ends[i+1].y-lh;
   ends.forEach(e=>{
     x.fillStyle=e.l.col;
-    const txt = compact ? `${e.v>=0?"+":""}${e.v.toFixed(1)}%` : `${e.l.end} ${e.v>=0?"+":""}${e.v.toFixed(1)}%`;
+    const txt = compact ? `${e.v>=0?"+":""}${e.v.toFixed(1)}%` : `${endLabel(e.l)} ${e.v>=0?"+":""}${e.v.toFixed(1)}%`;
     x.fillText(txt, e.xEnd+5, e.y+3);
   });
 }
@@ -3272,10 +3293,10 @@ function renderIndexStudy(){
   head.innerHTML =
     `<div class="sh-cell"><span class="lbl">Book · Top-${c.definition.top_n} score-weighted</span>
        <b style="color:${t.book>=0?"var(--green)":"var(--red)"}">${pc(t.book)}</b>
-       <span class="sub">${c.legs} nights · ${c.from} → ${c.to} · exec-adjusted ${pc(t.exec_adjusted)}</span></div>
-     <div class="sh-cell"><span class="lbl">Universe · equal weight</span>
+       <span class="sub">${c.legs} nights · ${c.from} → ${c.to} · exec-adjusted ${pc(t.exec_adjusted)} <span data-tip="${esc0("Execution drag: "+st.exec_bps_oneway+" bp one-way on "+st.turnover_oneway_total_pct.toFixed(0)+"% cumulative one-way turnover, charged per leg and chained. The headline is gross; this is what the same book earns after the fills.")}">(${pp(t.exec_adjusted - t.book)} drag)</span></span></div>
+     <div class="sh-cell"><span class="lbl">Nightly universe (${uniN(c)}) · equal weight</span>
        <b style="color:var(--amber)">${pc(t.universe_ew)}</b>
-       <span class="sub">${esc0(c.definition.universe)}</span></div>
+       <span class="sub">the ${uniN(c)} names the nightly persists${uniShared(c)?`, median ${uniShared(c)} priced on both nights`:""} — not the ${boardN()}live board</span></div>
      <div class="sh-cell"><span class="lbl">BTC</span>
        <b style="color:var(--sec)">${pc(t.benchmark)}</b>
        <span class="sub">same ${c.legs} nights, same prices</span></div>`;
@@ -3284,31 +3305,31 @@ function renderIndexStudy(){
   const v=residualVerdict(st);
   const boot=st.bootstrap||{};
   qual.innerHTML =
-    `<span class="q"><span class="lbl">vs universe EW</span><b class="${d.excess_vs_ew_pp<0?"neg":"pos"}">${pp(d.excess_vs_ew_pp)}</b></span>
+    `<span class="q"><span class="lbl">vs nightly-${uniN(c)} EW</span><b class="${d.excess_vs_ew_pp<0?"neg":"pos"}">${pp(d.excess_vs_ew_pp)}</b></span>
      <span class="q"><span class="lbl">vs BTC</span><b class="${d.excess_vs_btc_pp<0?"neg":"pos"}">${pp(d.excess_vs_btc_pp)}</b></span>
      <span class="q" data-tip="A − B: what conviction-proportional weighting added over equal-weighting the same ten names."><span class="lbl">weighting</span><b>${pp(d.weighting_pp)}</b></span>
-     <span class="q" data-tip="B − C: what choosing these ten added over owning the whole universe equally. This is the selection decision, isolated."><span class="lbl">selection</span><b class="${d.selection_pp<0?"neg":"pos"}">${pp(d.selection_pp)}</b></span>
+     <span class="q" data-tip="${esc0("B − C: what choosing these ten added over owning the nightly persisted universe ("+uniN(c)+" names) equally. The selection decision against that opportunity set — not against the "+boardN()+"live board.")}"><span class="lbl">selection · vs nightly ${uniN(c)}</span><b class="${d.selection_pp<0?"neg":"pos"}">${pp(d.selection_pp)}</b></span>
      <span class="q"><span class="lbl"><span class="gk">β</span> to BTC</span><b>${st.beta_to_btc==null?"—":st.beta_to_btc.toFixed(2)}</b></span>
      <span class="q" data-tip="${esc0("Jensen intercept summed over "+c.legs+" nights. Newey-West t "+st.t_hac+" (lag "+st.hac_lag+"); naive t "+st.t_naive+". Block bootstrap 95% interval "+(boot.ci95_pp?boot.ci95_pp.map(x=>(x>=0?"+":"")+x.toFixed(1)).join(" to ")+" pp":"—")+" at block "+boot.block+", "+boot.draws+" draws; P(residual<0) "+boot.p_below_zero+". "+(st.inference_note||""))}"><span class="lbl"><span class="gk">β</span>-adjusted residual</span><b>${pp(st.residual_pp)} · t≈${st.t_hac==null?"—":st.t_hac.toFixed(1)}</b></span>
-     <span class="q verdict"><span class="lbl">inference</span><b class="${v.cls}">${v.label}</b></span>`;
+     <span class="q verdict"><span class="lbl">inference</span><b class="${v.cls}">${v.label}</b><span class="lbl" style="text-transform:none;letter-spacing:0;margin-top:1px">${esc0(v.sub)}</span></span>`;
 
   // 3. THE EVIDENCE
   const cv=$("#is-chart"); const w=cv.clientWidth||700, h=cv.clientHeight||260;
   const dpr=window.devicePixelRatio||1; cv.width=w*dpr; cv.height=h*dpr;
   const x=cv.getContext("2d"); x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,w,h);
-  drawIndexLines(x,w,h,c.series,{compact:false});
-  leg.innerHTML = IDX_LINES.map(l=>`<span><span class="sw${l.dash.length?" dash":""}" style="border-color:${l.col}"></span>${l.label} <b class="num" style="color:${l.col}">${pc(t[l.key])}</b></span>`).join("")
-    + `<span class="muted" style="margin-left:auto">max drawdown book ${st.max_drawdown_pct.book.toFixed(1)}% · EW ${st.max_drawdown_pct.universe_ew.toFixed(1)}% · BTC ${st.max_drawdown_pct.benchmark.toFixed(1)}%</span>`;
+  drawIndexLines(x,w,h,c.series,{compact:false, canon:c});
+  leg.innerHTML = IDX_LINES.map(l=>`<span><span class="sw${l.dash.length?" dash":""}" style="border-color:${l.col}"></span>${l.key==="universe_ew"?uniLabel(c)+", equal-weighted":l.label} <b class="num" style="color:${l.col}">${pc(t[l.key])}</b></span>`).join("")
+    + `<span class="muted" style="margin-left:auto">max drawdown book ${st.max_drawdown_pct.book.toFixed(1)}% · nightly-${uniN(c)} EW ${st.max_drawdown_pct.universe_ew.toFixed(1)}% · BTC ${st.max_drawdown_pct.benchmark.toFixed(1)}%</span>`;
   // accessible restatement of the plate
   CHART_POINTS["is-chart"] = c.series.map((r,i)=>({x:0,y:0,r:0,sym:r.date,
-    lines:[`book ${pc(r.book)}`,`same-10 EW ${pc(r.book_ew)}`,`universe EW ${pc(r.universe_ew)}`,`BTC ${pc(r.benchmark)}`]}));
+    lines:[`book ${pc(r.book)}`,`same-10 EW ${pc(r.book_ew)}`,`${uniShort(c)} ${pc(r.universe_ew)}`,`BTC ${pc(r.benchmark)}`]}));
   syncChartTable("is-chart");
 
   // 4. THE QUALIFICATION — one sentence.
   const e=c.edge||{};
   cav.innerHTML = `<b>${c.legs}-night paper result.</b> Strong absolute outcome; no statistically established selection edge yet`
     + (e.mean_ic!=null ? ` — IC ${e.mean_ic>=0?"+":""}${e.mean_ic.toFixed(2)}, interval [${e.ci[0].toFixed(2)}, ${e.ci[1].toFixed(2)}]${e.ci[0]<=0&&e.ci[1]>=0?" spans zero":""}` : "")
-    + `; the universe equal-weighted beat the book on ${c.legs-st.nights_beat_universe_ew} of ${c.legs} nights.`;
+    + `. The book beat BTC on ${st.nights_beat_btc} of ${c.legs} nights and beat the ${uniLabel(c)} equal-weight on ${st.nights_beat_universe_ew}.`;
 
   // 5. THE TABLE — sorted by contribution, prior-night target weights, UNPRICED never 0.0%.
   const rows=(c.holdings||[]).slice().sort((a,b)=>(b.contribution_pp||0)-(a.contribution_pp||0));
@@ -3346,7 +3367,7 @@ function renderIndexStudy(){
      <div class="sd"><span class="lbl">Top-5 share of gain</span><b>${cr.top5_share_of_gain==null?"—":(cr.top5_share_of_gain*100).toFixed(0)+"%"}</b><span class="sub">${(cr.rows||[]).slice(0,5).map(r=>esc0(r.symbol)).join(" · ")}</span></div>
      <div class="sd"><span class="lbl">Three largest nights</span><b>${nt.top3_share_of_arithmetic_sum==null?"—":(nt.top3_share_of_arithmetic_sum*100).toFixed(0)+"%"}</b><span class="sub">${(nt.largest||[]).slice(0,3).map(n=>n.date.slice(5)+" "+pc(n.pct)).join(" · ")} — of the summed nightly returns</span></div>
      <div class="sd" data-tip="One over the sum of squared target weights in the latest book: how many equally sized positions it behaves like. This is the BOOK's concentration. The correlation panel's effective breadth is a different statistic over a different set and is not this number."><span class="lbl">Effective positions</span><b>${cc.effective_positions==null?"—":cc.effective_positions.toFixed(1)} of ${cc.names}</b><span class="sub">max weight ${cc.max_weight==null?"—":(cc.max_weight*100).toFixed(1)+"% "+esc0(cc.max_symbol)}</span></div>
-     <div class="sd"><span class="lbl">Nights</span><b>${st.nights_positive}/${c.legs} up</b><span class="sub">beat BTC ${st.nights_beat_btc} · beat universe EW ${st.nights_beat_universe_ew} · beat same-10 EW ${st.nights_beat_book_ew}</span></div>
+     <div class="sd"><span class="lbl">Nights</span><b>${st.nights_positive}/${c.legs} up</b><span class="sub">beat BTC ${st.nights_beat_btc} · beat nightly-${uniN(c)} EW ${st.nights_beat_universe_ew} · beat same-10 EW ${st.nights_beat_book_ew}</span></div>
      <div class="sd"><span class="lbl">Vol · turnover</span><b>${st.daily_vol_pct.book.toFixed(2)}%/night</b><span class="sub">one-way turnover ${st.turnover_oneway_mean_pct.toFixed(1)}%/night · ${st.exec_bps_oneway} bp one-way → exec-adj ${pc(t.exec_adjusted)}</span></div>`;
 
   // 7. PROVENANCE — last.

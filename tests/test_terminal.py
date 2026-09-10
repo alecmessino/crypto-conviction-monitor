@@ -1256,3 +1256,33 @@ def test_index_json_labels_the_experimental_basket_and_carries_canonical():
         assert h["status"] in ("priced", "UNPRICED")
         assert (h["return"] is not None) == (h["status"] == "priced")
     assert abs(c["contribution"]["residual_pp"]) < 1e-6, "contributions do not reconcile"
+
+
+def test_no_index_surface_calls_the_control_plain_universe():
+    """The left rail says Universe 234. A control labelled "universe" beside it reads as
+    that population; it is the nightly persisted ~50. Every mention on the Index
+    surfaces goes through the helpers that name the count from the payload."""
+    for fn in ("renderIndexStudy", "renderIndex"):
+        body = _fn(fn)
+        for m in re.finditer(r"universe", body, re.I):
+            ctx = body[max(0, m.start() - 60):m.end() + 40]
+            ok = ("uniN(" in ctx or "uniLabel(" in ctx or "uniShort(" in ctx
+                  or "nightly" in ctx.lower() or "universe_ew" in ctx or "universe_n" in ctx
+                  or "definition.universe" in ctx or "not the" in ctx.lower())
+            assert ok, f"{fn}() labels the control plain 'universe': …{ctx.strip()[:90]}…"
+    assert 'Universe · equal weight' not in HTML
+    for helper in ("function uniN(", "const uniLabel", "const uniShort"):
+        assert helper in SCRIPT
+
+
+def test_the_inference_label_never_claims_no_effect():
+    body = _fn("residualVerdict")
+    assert "NOT ESTABLISHED" in body
+    assert '"NOT SIGNIFICANT"' not in body, "a bare NOT SIGNIFICANT reads as an established null"
+    assert "sub:" in body, "the technical evidence is not placed beneath the label"
+
+
+def test_the_caveat_names_both_hit_rates_with_their_subjects():
+    body = _fn("renderIndexStudy")
+    assert "beat BTC on ${st.nights_beat_btc}" in body
+    assert "equal-weight on ${st.nights_beat_universe_ew}" in body

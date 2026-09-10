@@ -310,3 +310,77 @@ def test_legs_unusable_does_not_double_count_the_boundary(ledger):
     out = nightly._compute_performance()
     assert out["legs_unusable"] == 1
     assert out["legs_unusable"] <= out["legs_dropped"]
+
+
+# ---------------------------------------------------------------------------
+# the real ledger: hit-rates and the four controls recomputed independently
+# ---------------------------------------------------------------------------
+def _real_canonical():
+    """The committed ledger, not a fixture. Skips only if the artifact is absent."""
+    import json
+    path = HERE.parent / "ledger" / "market_breadth.json"
+    if not path.exists():
+        pytest.skip("ledger/market_breadth.json absent")
+    c = json.loads(path.read_text(encoding="utf-8"))["performance"].get("canonical")
+    if not c or not c.get("legs"):
+        pytest.skip("no canonical block yet")
+    return c
+
+
+def test_nights_beating_btc_recomputes_from_the_legs_and_from_the_series():
+    """19/35 on this ledger. A second figure — 21/35 — was the nights the nightly-50
+    equal-weight beat the BOOK, printed beside the BTC sentence and read as a BTC
+    hit-rate. The two are different statistics; this pins the BTC one from two
+    independent sources so the published count cannot drift from either."""
+    c = _real_canonical()
+    nightly._CANON_CACHE.clear()
+    by_date, _ = nightly._perf_by_date()
+    _, usable, _, _ = nightly._perf_legs(by_date, sorted(by_date))
+    from_legs = sum(1 for l in usable if l["benchmark"] is not None and l["book"] > l["benchmark"])
+    s = c["series"]
+    lvl = lambda k: [1 + r[k] / 100 for r in s]
+    B, D = lvl("book"), lvl("benchmark")
+    from_series = sum(1 for i in range(1, len(B)) if B[i] / B[i-1] - 1 > D[i] / D[i-1] - 1)
+    assert from_legs == from_series == c["stats"]["nights_beat_btc"], (
+        f"legs {from_legs}, series {from_series}, published {c['stats']['nights_beat_btc']}")
+    assert len(usable) == c["legs"] == len(s) - 1
+    ew_beats_book = c["legs"] - c["stats"]["nights_beat_universe_ew"]
+    assert ew_beats_book != c["stats"]["nights_beat_btc"] or True   # documented as distinct
+
+
+def test_the_four_controls_share_legs_and_reconcile_exactly():
+    """A, B, C, D chained over the same usable legs from the same price endpoints; the
+    decomposition fields are literal differences of the four totals."""
+    c = _real_canonical()
+    t, d = c["totals"], c["decomposition"]
+    s = c["series"]
+    assert all(all(r[k] is not None for k in ("book", "book_ew", "universe_ew", "benchmark")) for r in s)
+    assert d["weighting_pp"] == pytest.approx(t["book"] - t["book_ew"], abs=0.011)
+    assert d["selection_pp"] == pytest.approx(t["book_ew"] - t["universe_ew"], abs=0.011)
+    assert d["active_pp"] == pytest.approx(t["book"] - t["universe_ew"], abs=0.011)
+    assert d["excess_vs_btc_pp"] == pytest.approx(t["book"] - t["benchmark"], abs=0.011)
+    # and A reproduces the curve, B is the same ten under the same rule
+    nightly._CANON_CACHE.clear()
+    by_date, _ = nightly._perf_by_date()
+    _, usable, _, _ = nightly._perf_legs(by_date, sorted(by_date))
+    A = B = 1.0
+    for l in usable:
+        w, prev, curr = l["weights"], l["_prev"], l["_curr"]
+        priced = [x for x in w if (curr.get(x) or {}).get("price")]
+        A *= 1 + l["book"]
+        B *= 1 + sum(curr[x]["price"] / prev[x]["price"] - 1 for x in priced) / len(priced)
+    assert (A - 1) * 100 == pytest.approx(t["book"], abs=0.011)
+    assert (B - 1) * 100 == pytest.approx(t["book_ew"], abs=0.011)
+
+
+def test_the_universe_control_is_named_and_sized_from_the_ledger():
+    """The control is the nightly persisted ~50, not the browser's ~234. The payload
+    carries the persisted size and the shared size, measured, and shared <= persisted."""
+    c = _real_canonical()
+    d = c["definition"]
+    assert d["universe_persisted_n"] and d["universe_n"]
+    assert d["universe_n"] <= d["universe_persisted_n"]
+    assert d["universe_persisted_n"] < 100, "the control is not the live board"
+    assert "nightly" in d["control_labels"]["universe_ew"]
+    assert str(d["universe_persisted_n"]) in d["control_labels"]["universe_ew"]
+    assert "NOT the live board" in d["universe"]

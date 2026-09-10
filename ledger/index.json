@@ -4,7 +4,15 @@
     "definition": {
       "book": "Top-10 by conviction, score-proportional weights",
       "top_n": 10,
-      "universe": "the names the nightly persisted: top 50 by market cap of the 250 fetched",
+      "universe": "the nightly persisted universe: the top 50 names by market cap of the 250 fetched, written to signals.csv each night, of which a median 43 are priced on both nights of a leg and form the equal-weight control. NOT the live board, which scores ~234.",
+      "universe_persisted_n": 50,
+      "universe_n": 43,
+      "control_labels": {
+        "book": "Top-10 score-weighted",
+        "book_ew": "same Top-10, equal weight",
+        "universe_ew": "nightly universe (50), equal weight",
+        "benchmark": "BTC"
+      },
       "gated": false,
       "gate_note": "No qualification gate was ever applied to this book. _perf_by_date reads price and conviction only; no gate flag is persisted. On the first night of the current specification zero names passed gates A and B and the book still held ten.",
       "weights": "prior night, priced at both ends",
@@ -290,7 +298,7 @@
       "active_pp": -14.99,
       "excess_vs_btc_pp": 21.67,
       "excess_vs_ew_pp": -14.99,
-      "basis": "A = score-weighted Top-10, B = the same ten names equal-weighted, C = the persisted universe equal-weighted, D = BTC. A-B is what conviction-proportional weighting added; B-C is what choosing the ten added; A-C is the total active result against the opportunity set. B is exact: the same selection under the same missing-name rule, not a reconstruction."
+      "basis": "A = score-weighted Top-10; B = the same ten names, equal weight; C = the nightly persisted universe (50 names, median 43 priced on both nights), equal weight; D = BTC. A-B = weighting effect; B-C = selection effect versus the nightly 50-name opportunity set; A-C = total active effect versus that set. C is NOT the ~234-name live board. All four are chained over the same usable legs from the same price endpoints; B is exact, the same selection under the same missing-name rule."
     },
     "stats": {
       "nights_positive": 22,
@@ -332,7 +340,7 @@
       "turnover_oneway_total_pct": 414.1,
       "exec_bps_oneway": 25.0,
       "annualized": false,
-      "inference_note": "35 overnight legs. The residual's sign is stable across resampling schemes; its significance is not \u2014 a Newey-West t near 1.7 and a block-bootstrap 95%% interval that touches zero at short blocks. Reported as weak evidence, not as a result."
+      "inference_note": "35 overnight legs cannot establish a residual effect, and cannot establish its absence either. The sign is stable across resampling schemes; the interval is not: a Newey-West t near 1.723 and a block-bootstrap 95% interval that includes zero under the short-block specification. Reported as WEAK / NOT ESTABLISHED."
     },
     "contribution": {
       "linking": "carino",

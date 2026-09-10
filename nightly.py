@@ -1666,6 +1666,18 @@ def _canonical_index(edge: dict | None = None) -> dict:
 
     T = len(A)
     TA, TB, TC, TD = _chain(A), _chain(B), _chain(C), _chain(D)
+    # The size of the equal-weight control's opportunity set, measured: the median count
+    # of names present on both nights of a leg. This is what "universe" means on every
+    # Index surface, and it is NOT the browser's live board (234 names): the nightly
+    # persists rows[:50] by market cap, so the control is those ~50.
+    shared_n = sorted(len(l["shared"]) for l in usable)
+    universe_n = shared_n[len(shared_n) // 2] if shared_n else None
+    # ...and the size of the persisted universe itself: rows on the prior night. Fifty
+    # on this ledger. The two differ because names churn in and out of the top 50, and
+    # the control averages only the names priced on BOTH nights — the same rule the
+    # book is held to. The label names the persisted set; the sub-line states the shared.
+    persisted_n = sorted(len(l["_prev"]) for l in usable)
+    universe_persisted_n = persisted_n[len(persisted_n) // 2] if persisted_n else None
     exec_legs = [a - (EXEC_BPS_ONEWAY / 1e4) * t for a, t in zip(A, turn)]
 
     # Carino-linked absolute contribution: the parts sum to TA exactly.
@@ -1725,7 +1737,19 @@ def _canonical_index(edge: dict | None = None) -> dict:
         "definition": {
             "book": "Top-10 by conviction, score-proportional weights",
             "top_n": PERF_TOP_N,
-            "universe": "the names the nightly persisted: top 50 by market cap of the 250 fetched",
+            "universe": ("the nightly persisted universe: the top %s names by market cap of the "
+                         "250 fetched, written to signals.csv each night, of which a median %s "
+                         "are priced on both nights of a leg and form the equal-weight control. "
+                         "NOT the live board, which scores ~234."
+                         % (universe_persisted_n or "~50", universe_n or "~43")),
+            "universe_persisted_n": universe_persisted_n,
+            "universe_n": universe_n,
+            "control_labels": {
+                "book": "Top-10 score-weighted",
+                "book_ew": "same Top-10, equal weight",
+                "universe_ew": "nightly universe (%s), equal weight" % (universe_persisted_n or "~50"),
+                "benchmark": PERF_BENCHMARK,
+            },
             "gated": False,
             "gate_note": ("No qualification gate was ever applied to this book. _perf_by_date "
                           "reads price and conviction only; no gate flag is persisted. On the "
@@ -1762,12 +1786,14 @@ def _canonical_index(edge: dict | None = None) -> dict:
             "active_pp": round((TA - TC) * 100, 2),        # A - C
             "excess_vs_btc_pp": round((TA - TD) * 100, 2), # A - D
             "excess_vs_ew_pp": round((TA - TC) * 100, 2),
-            "basis": ("A = score-weighted Top-10, B = the same ten names equal-weighted, "
-                      "C = the persisted universe equal-weighted, D = BTC. A-B is what "
-                      "conviction-proportional weighting added; B-C is what choosing the "
-                      "ten added; A-C is the total active result against the opportunity "
-                      "set. B is exact: the same selection under the same missing-name "
-                      "rule, not a reconstruction."),
+            "basis": ("A = score-weighted Top-10; B = the same ten names, equal weight; "
+                      "C = the nightly persisted universe (%s names, median %s priced on both nights), equal weight; D = BTC. "
+                      "A-B = weighting effect; B-C = selection effect versus the nightly "
+                      "%s-name opportunity set; A-C = total active effect versus that set. "
+                      "C is NOT the ~234-name live board. All four are chained over the "
+                      "same usable legs from the same price endpoints; B is exact, the same "
+                      "selection under the same missing-name rule."
+                      % (universe_persisted_n or "~50", universe_n or "~43", universe_persisted_n or "~50")),
         },
         "stats": {
             "nights_positive": sum(1 for x in A if x > 0),
@@ -1789,10 +1815,12 @@ def _canonical_index(edge: dict | None = None) -> dict:
             "turnover_oneway_total_pct": round(sum(turn) * 100, 1),
             "exec_bps_oneway": EXEC_BPS_ONEWAY,
             "annualized": False,
-            "inference_note": ("35 overnight legs. The residual's sign is stable across "
-                               "resampling schemes; its significance is not — a Newey-West t "
-                               "near 1.7 and a block-bootstrap 95%% interval that touches zero "
-                               "at short blocks. Reported as weak evidence, not as a result."),
+            "inference_note": ("%d overnight legs cannot establish a residual effect, and cannot "
+                               "establish its absence either. The sign is stable across resampling "
+                               "schemes; the interval is not: a Newey-West t near %s and a "
+                               "block-bootstrap 95%% interval that includes zero under the "
+                               "short-block specification. Reported as WEAK / NOT ESTABLISHED."
+                               % (T, reg["t_hac"])),
         },
         "contribution": {
             "linking": "carino", "weights": "prior-night target weights, renormalised over priced names",
