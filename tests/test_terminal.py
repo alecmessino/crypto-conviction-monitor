@@ -1286,3 +1286,21 @@ def test_the_caveat_names_both_hit_rates_with_their_subjects():
     body = _fn("renderIndexStudy")
     assert "beat BTC on ${st.nights_beat_btc}" in body
     assert "equal-weight on ${st.nights_beat_universe_ew}" in body
+
+
+def test_both_ledger_files_publish_the_same_canonical_block():
+    """index.json's copy is written inside build_basket, before the ledger is appended;
+    market_breadth's is written after. If they can disagree, "one canonical book" is a
+    claim the artifacts do not keep."""
+    import json
+    root = ROOT / "ledger"
+    if not (root / "index.json").exists() or not (root / "market_breadth.json").exists():
+        return
+    a = json.loads((root / "index.json").read_text(encoding="utf-8")).get("canonical")
+    b = json.loads((root / "market_breadth.json").read_text(encoding="utf-8"))
+    b = (b.get("performance") or {}).get("canonical")
+    if not a or not b:
+        return
+    assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True), (
+        "index.json and market_breadth.json publish different canonical blocks")
+    assert a["edge"]["mean_ic"] is not None, "the published canonical carries no IC"

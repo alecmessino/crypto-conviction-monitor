@@ -384,3 +384,45 @@ def test_the_universe_control_is_named_and_sized_from_the_ledger():
     assert "nightly" in d["control_labels"]["universe_ew"]
     assert str(d["universe_persisted_n"]) in d["control_labels"]["universe_ew"]
     assert "NOT the live board" in d["universe"]
+
+
+def test_the_canonical_block_is_not_served_stale_from_an_earlier_ledger(ledger):
+    """main() calls _canonical_index twice and the two calls see DIFFERENT ledgers:
+    _write_index_row runs inside build_basket, before tonight's signals row is appended;
+    the breadth block runs after. A memo keyed on "have I run" served the early answer to
+    the late caller, and the published Index went out a night behind the ledger shipped
+    beside it — internally consistent, and consistent with yesterday.
+
+    The cache key is the ledger. Appending a night must produce a new block."""
+    rows = []
+    for d, px in (("2026-03-01", 100.0), ("2026-03-02", 110.0)):
+        rows.append((d, "BTC", px, 80))
+        rows += [(d, f"A{i}", px + i, 90 - i) for i in range(9)]
+    ledger(rows)
+    nightly._CANON_CACHE.clear()
+    first = nightly._canonical_index()
+    assert first["legs"] == 1 and first["to"] == "2026-03-02"
+    rows.append(("2026-03-03", "BTC", 121.0, 80))
+    rows += [("2026-03-03", f"A{i}", 121.0 + i, 90 - i) for i in range(9)]
+    ledger(rows)
+    second = nightly._canonical_index()
+    assert second["legs"] == 2 and second["to"] == "2026-03-03", (
+        f"the cache served a block built from the earlier ledger: {second['legs']} legs "
+        f"to {second['to']}")
+
+
+def test_the_canonical_edge_survives_being_built_before_the_edge_exists(ledger):
+    """The early call has no edge to pass. It used to cache an all-null mirror, and the
+    IC and its interval vanished from the public caveat — ordering silently stripping a
+    required field. The block computes its own edge when the caller has none."""
+    rows = []
+    for i, (d, px) in enumerate((("2026-03-01", 100.0), ("2026-03-02", 110.0),
+                                 ("2026-03-03", 99.0), ("2026-03-04", 105.0))):
+        rows.append((d, "BTC", px, 80))
+        rows += [(d, f"A{j}", px * (1 + 0.01 * j), 90 - j) for j in range(11)]
+    ledger(rows)
+    nightly._CANON_CACHE.clear()
+    c = nightly._canonical_index()                      # no edge supplied
+    assert set(c["edge"]) >= {"mean_ic", "ci", "legs", "measurable", "verdict"}
+    assert c["edge"]["legs"] is not None, "the edge mirror is empty when built early"
+    assert c["edge"]["verdict"], "the edge verdict did not survive the early call"
