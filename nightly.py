@@ -1630,11 +1630,28 @@ _CANON_CACHE: dict = {}
 
 
 def _canonical_index(edge: dict | None = None) -> dict:
-    """The one performance payload every consumer reads. See the block comment above."""
-    if "v" in _CANON_CACHE:
-        return _CANON_CACHE["v"]
+    """The one performance payload every consumer reads. See the block comment above.
+
+    THE CACHE IS KEYED ON THE LEDGER, not merely on having run once. main() calls this
+    twice and the two calls see different ledgers: _write_index_row() runs inside
+    build_basket(), BEFORE tonight's signals row is appended, and the breadth block runs
+    after. A memo on "have I run" served the early answer to the late caller, so the
+    published Index was a night behind the ledger shipped beside it — 36 legs to 09-10
+    against a signals.csv holding 37 to 09-11 — while every internal consistency check
+    passed, because the block was internally consistent. It was consistent with
+    yesterday.
+
+    The edge is computed here when the caller does not supply it, for the same reason:
+    the early call had none to give, cached an all-null mirror, and the IC and its
+    interval vanished from the public caveat. Ordering must not be able to strip a field.
+    """
     by_date, _ = _perf_by_date()
     dates = sorted(by_date)
+    key = (dates[-1] if dates else None, len(dates))
+    if _CANON_CACHE.get("key") == key and _CANON_CACHE.get("v"):
+        return _CANON_CACHE["v"]
+    if edge is None:
+        edge = _compute_edge()
     legs, usable, boundary, pre = (_perf_legs(by_date, dates) if len(dates) >= 2
                                    else ([], [], None, 0))
     perf = _compute_performance()
@@ -1846,6 +1863,7 @@ def _canonical_index(edge: dict | None = None) -> dict:
                  "legs": e.get("legs"), "min_legs": e.get("min_legs"),
                  "measurable": e.get("measurable"), "verdict": e.get("verdict")},
     }
+    _CANON_CACHE["key"] = key
     _CANON_CACHE["v"] = v
     return v
 
@@ -3804,6 +3822,23 @@ def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
     }, indent=2))
 
 
+def _refresh_index_canonical(canon: dict) -> None:
+    """Rewrite index.json's `canonical` key in place, leaving every other key untouched.
+
+    _write_index_row() has to run inside build_basket(), which is before the ledger is
+    appended; this is the only point in the run where the final block exists. Key order
+    is preserved because `canonical` is already present in the document being reread.
+    """
+    if not canon or not INDEX_JSON.exists():
+        return
+    try:
+        doc = json.loads(INDEX_JSON.read_text())
+    except (json.JSONDecodeError, OSError):
+        return
+    doc["canonical"] = canon
+    INDEX_JSON.write_text(json.dumps(doc, indent=2))
+
+
 def main() -> int:
     global CG_SESSION
     today = date.today().isoformat()
@@ -4349,6 +4384,10 @@ def main() -> int:
         # from the same legs, after the edge so the IC sits beside the return.
         breadth["performance"]["canonical"] = _canonical_index(breadth.get("edge"))
         MARKET_BREADTH_JSON.write_text(json.dumps(breadth, indent=2))
+        # index.json's copy was written by _write_index_row() inside build_basket(),
+        # before tonight's row existed. Refresh it from the same object so the two files
+        # cannot describe two different books — the whole point of one canonical block.
+        _refresh_index_canonical(breadth["performance"]["canonical"])
         # Operational condition of the pipeline, in its own file: it is a monitoring
         # artifact rather than a market view, and pinning it to breadth would couple the
         # two.
