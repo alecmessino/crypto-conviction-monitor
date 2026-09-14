@@ -88,13 +88,21 @@ def test_the_live_ledger_reports_no_measurable_edge():
 
 
 def test_a_small_positive_mean_is_not_reported_as_an_edge():
-    """+0.006 quoted alone reads as 'slightly positive'. With six legs the honest
-    statement is 'cannot be distinguished from nothing', and the interval is what makes
-    the difference visible."""
+    """A small mean IC quoted alone reads as 'slightly positive'. The honest statement is
+    'cannot be distinguished from nothing', and the interval is what makes the difference
+    visible.
+
+    This used to assert ``legs < min_legs``, which was a proxy for that: too short a
+    sample cannot resolve anything, so nothing could be claimed. The proxy expired on
+    2026-09-14 when the ledger reached EDGE_MIN_LEGS exactly (40) — ``assert 40 < 40``
+    — while the thing the test protects was as true as ever, the interval still
+    spanning zero. The assertion now states that directly, so it holds however much
+    history accrues and fails only if a mean this small is ever reported as an edge.
+    """
     e = nightly._compute_edge()
     assert e["mean_ic"] is not None
     assert abs(e["t_stat"]) < 2
-    assert e["legs"] < e["min_legs"]
+    assert not e["measurable"] and e["ci"][0] <= 0 <= e["ci"][1]
 
 
 def test_the_sample_size_still_needed_is_stated():
