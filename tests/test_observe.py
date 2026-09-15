@@ -98,10 +98,14 @@ def test_the_recorder_does_not_touch_the_specification():
     596d414706be -> 2da60f7efd7b: Module F, a scoring change in nightly.py. This
     pin moves with it and the recorder itself is untouched, which is the whole point of
     asserting it here.
+
+    6f98778fa627 -> 1a4ea6e4d77e: the capture was widened to the funding venue-selection
+    layer and to _rsi_by_symbol. Instrumentation, not scoring — and the pin moves for it
+    too, because a widened ruler re-segments the record exactly as a changed model does.
     """
     spec = importlib.util.spec_from_file_location("n_obs", ROOT / "nightly.py")
     nightly = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(nightly)
-    assert nightly.SPEC_HASH == "6f98778fa627"
+    assert nightly.SPEC_HASH == "1a4ea6e4d77e"
     src = (ROOT / "scripts" / "observe.py").read_text(encoding="utf-8")
     assert "import nightly" not in src

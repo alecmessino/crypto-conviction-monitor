@@ -47,12 +47,28 @@ def test_positioning_and_the_regime_index_stay_out_of_the_specification():
     text currently cannot be changed without segmenting the track record, and the fix is
     to return structured facts and build the sentence outside the captured function.
 
-    Restating the boundary rather than deleting the test is the point: the guarantee is
-    still worth having for everything on the left of it, and an assertion that quietly
-    became false is worse than no assertion.
+    Restated a second time when the capture was widened to funding.consolidate
+    (6f98778fa627 -> 1a4ea6e4d77e). consolidate is captured for its SELECTION rule — it
+    decides which venue's APR lavl_perp_mult is handed — and it also assembles the
+    record that carries oi_usd, apr_spread and the venue provenance. So the substring
+    sweep now reports fields that are present in a captured function and still never
+    scored, which is the same way this assertion went stale the first time.
+
+    The boundary that is actually claimed: these fields are recorded and never reach the
+    ARITHMETIC. consolidate is exempted from the sweep by name, and the exemption set is
+    itself pinned, so capturing another record-building function fails here and forces
+    the decision to be taken again rather than inherited. What consolidate hands onward
+    is separately whitelisted in the test below.
     """
     captured = nightly.spec()["functions"]
-    for fn in captured.values():
+    # Captured as a selection rule, not as arithmetic. Pinned so it cannot quietly grow.
+    RECORD_BUILDERS = {"funding.consolidate"}
+    assert RECORD_BUILDERS <= set(captured), (
+        f"{sorted(RECORD_BUILDERS - set(captured))} is exempted from this sweep but is "
+        f"not in the specification — the exemption is stale and must be removed")
+    for name, fn in captured.items():
+        if name in RECORD_BUILDERS:
+            continue
         for field in ("oi_usd", "oi_chg_24h_pct", "oi_to_mcap", "long_short_ratio",
                       "oi_price_divergence", "chop",
                       # Module 3 provenance: which venue, how many, how far apart. The
@@ -60,7 +76,22 @@ def test_positioning_and_the_regime_index_stay_out_of_the_specification():
                       # spread — a basis between two exchanges is a trade, not a signal
                       # about the asset's own leverage.
                       "funding_venue", "funding_venues_n", "funding_apr_spread"):
-            assert field not in fn, f"{field} reached a scoring function"
+            assert field not in fn, f"{field} reached {name}"
+
+
+def test_the_consolidator_hands_the_modifier_no_positioning_data():
+    """The exemption above, discharged rather than assumed.
+
+    consolidate may mention oi_usd because it records it. What must remain true is that
+    nothing downstream of it reads that field into a score: lavl_perp_mult is the only
+    route from the derivatives feed into conviction, and main() builds the map it reads
+    from four fields, none of which is positioning.
+    """
+    modifier = nightly.spec()["functions"]["lavl_perp_mult"]
+    for field in ("oi_usd", "oi_chg_24h_pct", "oi_to_mcap", "long_short_ratio",
+                  "oi_price_divergence", "funding_venue", "funding_venues_n",
+                  "funding_apr_spread"):
+        assert field not in modifier, f"{field} reached the funding modifier"
 
 
 def test_exactly_three_inputs_reach_the_funding_modifier():

@@ -219,7 +219,14 @@ SPEC_FUNCTIONS = ("score", "_lavl_regime", "lavl_perp_mult", "_tier_for",
                   # emission_mult multiplies the published score, so an edit to
                   # either the severity curve or its envelope must re-segment the
                   # track record rather than quietly reinterpret it.
-                  "emission_drag", "emission_mult")
+                  "emission_drag", "emission_mult",
+                  # The RSI that gates the squeeze boost. funding.rsi — the pure
+                  # Wilder computation — was already captured; this is the function
+                  # that decides the *period* (7), the *source* (recorded closes) and
+                  # that tonight's live price is appended before computing. Change the
+                  # period to 14 here and every squeeze boost on the board moves, with
+                  # funding.rsi untouched and, until now, the hash unmoved with it.
+                  "_rsi_by_symbol")
 SPEC_CONSTANTS = ("TIER_CUTS", "STABLES",
                   "EMISSION_FREE_RATIO", "EMISSION_ANCHOR_RATIO",
                   "EMISSION_ANCHOR_SEVERITY", "EMISSION_MAX_PENALTY")
@@ -234,9 +241,18 @@ SPEC_CONSTANTS = ("TIER_CUTS", "STABLES",
 # a continuous surface — a rewrite of the entire scoring curve that the mechanism built
 # to notice scoring rewrites reported as no change at all. A specification that stops at
 # a module boundary is not a specification, it is a description of one file.
+#
+# The same hole, found a second time and in the same shape. The entries above capture
+# the funding *curve* — what a given APR is worth to a score. Nothing captured which
+# APR arrives. `consolidate` picks the headline reading from up to eight venues, and
+# VENUE_PRIORITY decides the order it picks in; on 2026-09-14, with Binance at 451 and
+# Bybit at 403, that one tuple routed 43 of 50 rows to gate.io. Reordering it re-prices
+# most of the board, and the digest would not have moved. A specification that captures
+# the arithmetic but not the input is a description of one half of a function.
 SPEC_FUNDING_FUNCTIONS = ("annualize", "classify_regime", "funding_severity",
                           "regime_modifier", "rsi", "_ramp", "_atanh_scale",
-                          "_num_or_none")
+                          "_num_or_none",
+                          "consolidate")
 SPEC_FUNDING_CONSTANTS = (
     "REGIME_OVERHEATED", "REGIME_ELEVATED", "REGIME_NEUTRAL_FLOOR", "REGIME_SQUEEZE",
     "MOD_MAX_PENALTY", "MOD_MAX_BOOST", "MOD_HOT_ANCHOR", "MOD_COLD_ANCHOR",
@@ -244,7 +260,33 @@ SPEC_FUNDING_CONSTANTS = (
     "MOD_SQUEEZE_RSI", "MOD_SQUEEZE_RSI_FULL",
     # Derived from the anchors above. Captured anyway rather than trusted to follow,
     # so a change to the derivation is caught even if every anchor stays put.
-    "MOD_HOT_SCALE", "MOD_COLD_SCALE")
+    "MOD_HOT_SCALE", "MOD_COLD_SCALE",
+    # Venue selection. VENUE_PRIORITY orders the merge and INTERVAL_BASIS_REAL decides
+    # which venues are allowed to supply a headline at all; between them they choose the
+    # funding_apr that lavl_perp_mult reads. VENUE_DEFAULT_INTERVAL is the assumed
+    # settlement clock for a venue that does not publish one, and the interval is part
+    # of the unit — annualising an 8-hourly rate at an hourly clock is off by eight.
+    "VENUE_PRIORITY", "INTERVAL_BASIS_REAL", "VENUE_DEFAULT_INTERVAL")
+
+# Deliberately NOT captured, recorded here so the omission is a decision rather than an
+# oversight:
+#
+#   perp_context, funding.funding_context   Observational. They assemble the recorded
+#       derivatives and funding COLUMNS — oi_to_mcap, oi_price_divergence, the display
+#       copy of score_modifier — and nothing they return reaches score(). Capturing them
+#       would segment the track record on edits that cannot move a published number,
+#       which is the opposite failure to the one above and costs just as much.
+#   funding.fetch_*_funding                 Network shape, not model. An endpoint moving
+#       host is not a re-valuation. What those fetchers decide that DOES reach the score
+#       — the interval they assume when a venue is silent — is captured as
+#       VENUE_DEFAULT_INTERVAL above.
+#
+# One genuine hole remains, and is named rather than closed here: the projection in
+# main() that turns `consolidated` into `perps_map` (four fields, plus the price_chg_24h
+# and rsi7 merge below it) is score-path code living inside main(), which cannot be
+# captured without capturing the entire nightly run. Closing it means extracting that
+# projection into a named function — a refactor, and one that does not belong in a
+# commit whose whole claim is that it changes no behaviour.
 
 
 def spec() -> dict:
@@ -380,20 +422,77 @@ SPEC_EQUIVALENT = {
                    "so they hashed as null. Same scoring functions, same constant "
                    "values, different instrumentation — scoring-equivalent."),
     },
+    # The second entry, and the second correction to the RULER rather than to the model.
+    #
+    # What happened: spec() captured the funding curve and not the venue-selection layer
+    # feeding it, and captured funding.rsi and not the function choosing its period and
+    # source. Widening the capture re-hashes the specification without changing a line
+    # of scoring arithmetic, so the nights either side describe one model under two
+    # digests — the same shape as the entry above, for the same reason.
+    #
+    # What makes this checkable rather than asserted: the previously-captured entries
+    # are unchanged, and removing the newly-captured ones from today's specification
+    # reproduces the superseded digest exactly. spec_hash_without() does that, and
+    # tests/test_persistence.py re-derives 6f98778fa627 from today's source on every run
+    # while SPEC_HASH still equals `verified_against`.
+    #
+    # What was audited before adding this entry. The commit that introduced it changes
+    # only: the three capture tuples, this table, canonical_spec_hash (transitive
+    # resolution, needed because a single lookup would strand the earlier entry),
+    # spec_hash_without (the proof), this file's comments, and the tests that pin the
+    # hash. None of those is a captured function or a captured constant, so none of
+    # them can move a score. Verified rather than asserted: every previously-captured
+    # function's canonical source and every previously-captured constant's value are
+    # identical either side of the commit, score() returns identical results for all
+    # 250 assets of the 2026-09-14 payload against the recorded perps map, and the
+    # newly-captured sources are byte-identical to the versions that were already
+    # running unhashed. A scoring edit shipped in the same commit would have made the
+    # equivalence unprovable, which is why this landed alone.
+    "6f98778fa627": {
+        "canonical": "1a4ea6e4d77e",
+        "reason": "instrumentation",
+        "verified_against": "1a4ea6e4d77e",
+        # Exactly what the widened capture added. Removing these from today's
+        # specification — not nulling them; they did not exist in the old blob at all —
+        # reproduces the superseded digest.
+        "added_functions": ("_rsi_by_symbol", "funding.consolidate"),
+        "added_constants": ("funding.VENUE_PRIORITY", "funding.INTERVAL_BASIS_REAL",
+                            "funding.VENUE_DEFAULT_INTERVAL"),
+        "detail": ("spec() captured funding.regime_modifier but not funding.consolidate "
+                   "or VENUE_PRIORITY, which decide which venue's APR it is handed, and "
+                   "captured funding.rsi but not _rsi_by_symbol, which decides the "
+                   "period and source. Widening the capture changed the digest and no "
+                   "scoring arithmetic — scoring-equivalent."),
+    },
 }
 
 
 def canonical_spec_hash(h):
     """Collapse a superseded digest onto the one describing the same scoring code.
 
-    Identity for everything not in the table, which is every hash except the single
-    audited pair. A history spanning two hashes really is two datasets — that rule is
-    not being softened here, only applied to the model rather than to a defect in the
-    ruler.
+    Identity for everything not in the table, which is every hash except the audited
+    pairs. A history spanning two hashes really is two datasets — that rule is not being
+    softened here, only applied to the model rather than to a defect in the ruler.
+
+    Resolution is TRANSITIVE. Two instrumentation corrections have now landed on the
+    same body of scoring code, and a single lookup would send 2da60f7efd7b to
+    6f98778fa627 while 6f98778fa627 itself went on to 1a4ea6e4d77e — splitting one
+    track record into two segments through the mechanism built to stop exactly that.
+    Following the chain to its fixed point is what makes the table compose. The loop is
+    bounded by the table's own size and raises on a cycle rather than hanging, because
+    a cyclic equivalence table is a bug in the audit and must not be survivable.
     """
     key = (h or "").strip()
-    entry = SPEC_EQUIVALENT.get(key)
-    return entry["canonical"] if entry else key
+    seen = []
+    while True:
+        entry = SPEC_EQUIVALENT.get(key)
+        if not entry:
+            return key
+        if key in seen:
+            raise RuntimeError(
+                f"SPEC_EQUIVALENT contains a cycle through {key}: {seen + [key]}")
+        seen.append(key)
+        key = entry["canonical"]
 
 
 def spec_hash_as_recorded_before(null_constants) -> str:
@@ -408,6 +507,40 @@ def spec_hash_as_recorded_before(null_constants) -> str:
     doctored = {"functions": sp["functions"],
                 "constants": {k: (None if k in set(null_constants) else v)
                               for k, v in sp["constants"].items()}}
+    blob = json.dumps(doctored, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(blob).hexdigest()[:12]
+
+
+def spec_hash_without(functions=(), constants=(), null_constants=()) -> str:
+    """Today's specification with keys REMOVED (and optionally some nulled), re-hashed.
+
+    The sibling of :func:`spec_hash_as_recorded_before`, for the other shape of
+    instrumentation defect. That one re-hashes with constants forced to None, because
+    the old ordering captured those keys and read them as null. This one *deletes* the
+    keys, because a widened capture's superseded digest was taken over a blob in which
+    the new entries were not present at all — nulling them would produce a third digest
+    matching nothing that was ever recorded.
+
+    ``null_constants`` is here so the two defects COMPOSE. Once a second instrumentation
+    correction lands, proving the first one requires undoing both in order: remove what
+    the capture widened, then null what the old ordering missed. Without this argument
+    the earlier link in the chain would stop being re-derivable the moment the later one
+    shipped, and a proof that expires is a comment.
+
+    Unknown names raise rather than being ignored: a proof that silently drops a typo
+    proves nothing, and this function exists only to be a proof.
+    """
+    import hashlib
+    sp = spec()
+    fns, cons, nulls = set(functions), set(constants), set(null_constants)
+    missing = ((fns - set(sp["functions"]))
+               | ((cons | nulls) - set(sp["constants"])))
+    if missing:
+        raise RuntimeError(f"spec_hash_without: not in today's specification: "
+                           f"{sorted(missing)}")
+    doctored = {"functions": {k: v for k, v in sp["functions"].items() if k not in fns},
+                "constants": {k: (None if k in nulls else v)
+                              for k, v in sp["constants"].items() if k not in cons}}
     blob = json.dumps(doctored, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(blob).hexdigest()[:12]
 

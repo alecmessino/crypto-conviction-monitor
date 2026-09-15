@@ -110,7 +110,8 @@ Captured: `score`, `_lavl_regime`, `lavl_perp_mult`, `_tier_for`, `emission_drag
 *bottom* of the module (`nightly.py:4536`) — deliberately, because assigning it at the
 top once hashed five not-yet-defined constants as null.
 
-**Current hash: `6f98778fa627`.** Recorded boundaries in `ledger/signals.csv`:
+**Current hash: `1a4ea6e4d77e`** (was `6f98778fa627` until 2026-09-15; see
+AUDIT-2026-09 §1.8). Recorded boundaries in `ledger/signals.csv`:
 
 | First night | Hash | Note |
 |---|---|---|
@@ -118,17 +119,24 @@ top once hashed five not-yet-defined constants as null.
 | 2026-08-09 | `d600984ec00b` | |
 | 2026-08-16 | `e65f7dc59d55` | |
 | 2026-08-19 | `2da60f7efd7b` | Module F lands |
-| 2026-08-20 | `6f98778fa627` | current; `2da60f7efd7b` canonicalises onto it |
+| 2026-08-20 | `6f98778fa627` | superseded 2026-09-15 |
+| *(next run)* | `1a4ea6e4d77e` | current; `2da60f7efd7b` and `6f98778fa627` canonicalise onto it |
 
-What it does **not** capture — verified by running `spec()` — is the layer that decides
-*which* funding reading reaches the score: `funding.VENUE_PRIORITY`,
-`funding.consolidate()`, `funding.INTERVAL_BASIS_REAL`, `funding.VENUE_DEFAULT_INTERVAL`,
-`nightly.perp_context()` and `nightly._rsi_by_symbol()` are all outside it. The funding
-*curve* is hashed; the inputs handed to it are not. See AUDIT-2026-09 §1.8.
+Since 2026-09-15 it also captures the layer that decides *which* funding reading reaches
+the score — `funding.consolidate`, `funding.VENUE_PRIORITY`, `INTERVAL_BASIS_REAL`,
+`VENUE_DEFAULT_INTERVAL` — and `nightly._rsi_by_symbol`, which fixes the RSI period and
+source. `perp_context` and `funding_context` are deliberately **not** captured: they
+build recorded columns and reach no score. One hole remains and is named in the source:
+the `consolidated` → `perps_map` projection inside `main()`. See AUDIT-2026-09 §1.8.
 
-`SPEC_EQUIVALENT` (`nightly.py:367`) holds exactly one entry, collapsing
-`2da60f7efd7b` → `6f98778fa627` as an instrumentation fix rather than a model change,
-and `spec_hash_as_recorded_before()` makes that claim re-derivable rather than asserted.
+`canonical_spec_hash()` resolves **transitively**, because two instrumentation
+corrections now sit on the same body of scoring code.
+
+`SPEC_EQUIVALENT` holds two entries, both instrumentation rather than model changes:
+`2da60f7efd7b` → `6f98778fa627` (five constants hashed as null) and `6f98778fa627` →
+`1a4ea6e4d77e` (the widened capture). `spec_hash_as_recorded_before()` and
+`spec_hash_without()` make both claims re-derivable from today's source rather than
+asserted.
 
 **The 2026-08-05 boundary the brief refers to is not a hash boundary.** It predates the
 hash entirely and is detected from the data by `_spec_breaks()` (`nightly.py:2276`):
