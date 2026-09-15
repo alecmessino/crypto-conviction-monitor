@@ -936,7 +936,7 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
     <div class="ribbon glass statusbar">
       <div class="brand">CRYPTO <span class="live">CONVICTION</span> MONITOR</div>
       <div class="stat"><b id="rb-mcap" class="num">—</b><span>Tracked Mkt Cap</span></div>
-      <div class="stat"><b id="rb-str" class="num">—</b><span>BUY+ (≥70)</span></div>
+      <div class="stat"><b id="rb-str" class="num">—</b><span id="rb-str-lbl">BUY+ (≥70)</span></div>
       <div class="stat"><b id="rb-upd" class="num">—</b><span>Last Update</span></div>
       <div class="stat"><b id="rb-lev" class="num">—</b><span>Board Leverage</span></div>
       <div class="stat"><b id="status">INIT…</b><span>Feed</span></div>
@@ -1067,6 +1067,13 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
            The delta column keeps id="th-delta" and the timeframe switch keeps working
            on it. The spark is now an inline SVG rather than a canvas — see spark(). -->
       <div class="card-h">CONVICTION BOARD <span id="cm-note" class="muted">top 10 · scroll · click a row</span></div>
+      <!-- The measurement the labels rest on, stated where the labels are read rather
+           than two cards away in Selection Edge. Always rendered, in every state: a
+           caveat that only appears when the news is bad is a caveat nobody calibrates
+           against. -->
+      <div id="label-status" class="muted"
+           style="padding:5px 12px;border-bottom:1px solid var(--border);font-size:9.5px;
+                  line-height:1.45"></div>
       <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
         <label style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--sec);cursor:pointer;user-select:none">
           <input type="checkbox" id="hide-nq" style="accent-color:#7BC9A0;cursor:pointer"> <b style="color:var(--green)">HIDE NON-QUALIFIED</b>
@@ -2014,11 +2021,11 @@ function buildMarginal(){
 }
 function sigBadge(t){
   const m = MARGINAL.get(t.sym);
-  if(!m) return `<span class="badge ${t.sig[1]}">${t.sig[0]}</span>`;
+  if(!m) return `<span class="badge ${t.sig[1]}" title="${esc0(tierTitle(t.sig))}">${tierLabel(t.sig)}</span>`;
   const n = Math.abs(m.delta);
-  return `<span class="badge ${t.sig[1]} marginal" title="Was ${m.from_tier} yesterday and `
+  return `<span class="badge ${t.sig[1]} marginal" title="Was ${tierLabel(m.from_tier)} yesterday and `
        + `crossed on ${n} point${n===1?'':'s'} (${m.from} to ${m.to}) — the label moved, `
-       + `the view did not.">${t.sig[0]}</span>`;
+       + `the view did not.">${tierLabel(t.sig)}</span>`;
 }
 
 // ---- helpers ----
@@ -2132,6 +2139,108 @@ function conviction(t, perp, rsBlend){ perp = perp||1; rsBlend = rsBlend||0; // 
   return {conv, comp};
 }
 function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
+
+/* LABEL GATE — AUDIT-2026-09 1.2.
+
+   signal() above returns the TIER IDENTITY and its colour, and neither moves here. The
+   cuts, the ordering, the colours and every underlying number are exactly what they were;
+   this decides only what the tier is CALLED on screen.
+
+   The board printed STRONG / BUY / AVOID unconditionally while the panel two cards over
+   published the measurement those words imply, and for most of this ledger's life that
+   measurement could not be distinguished from zero. On 2026-09-15 it stopped spanning
+   zero — on the wrong side. The imperative now has to earn itself:
+
+       labelsAreActionable = edge.measurable && edge.ci[0] > 0
+
+   One-sided deliberately. An interval entirely BELOW zero is a finding about the
+   ranking, not a licence to print the labels backwards: "the ranking is inverted" is a
+   statement about forty-one nights of one-day returns, and inverting a published label
+   on the strength of it would be acting on the same thin evidence in the other
+   direction. When the gate is shut every tier reads as a descriptive rank band and
+   nothing tells anyone to do anything.
+
+   TIER 1..5 rather than deciles: the cuts are score bands, not population quantiles, and
+   "top decile" would be a claim about the distribution that 80-and-above does not make.
+*/
+const LABEL_BANDS  = {STRONG:"TIER 1", BUY:"TIER 2", HOLD:"TIER 3", WATCH:"TIER 4", AVOID:"TIER 5"};
+const LABEL_RANGES = {STRONG:"80-100", BUY:"70-79",  HOLD:"55-69",  WATCH:"40-54",  AVOID:"0-39"};
+const LABEL_HORIZON = "1-day";
+
+function labelGateState(edge){
+  /* The whole state machine, as one pure function of the edge block, so the four states
+     are testable without a browser and cannot drift from what the page renders. */
+  const e = edge || null;
+  const ci = e && Array.isArray(e.ci) ? e.ci : null;
+  const legs = e && e.legs != null ? e.legs : 0;
+  const need = e && e.min_legs != null ? e.min_legs : null;
+  const has = !!(e && e.mean_ic != null && ci);
+  const num = (v, d) => (v >= 0 ? "+" : "") + v.toFixed(d);
+  const stats = has
+    ? `${legs} legs, IC ${num(e.mean_ic, 3)}, 95% CI [${num(ci[0], 3)}, ${num(ci[1], 3)}]`
+    : (need != null ? `${legs} of ${need} legs` : `${legs} legs`);
+
+  if (!has || !e.measurable){
+    const why = !has
+      ? `${LABEL_HORIZON} IC not yet measurable`
+      : (legs < (need == null ? legs : need)
+          ? `${LABEL_HORIZON} IC not yet measurable`
+          : `${LABEL_HORIZON} IC not distinguishable from zero`);
+    return {actionable:false, state:has ? (e.measurable ? "actionable" : "spans-zero") : "insufficient",
+            reason:why, stats, detail:`labels: descriptive — ${why} (${stats})`};
+  }
+  if (ci[0] > 0){
+    return {actionable:true, state:"measurable-positive",
+            reason:`${LABEL_HORIZON} IC measurable and positive`, stats,
+            detail:`labels: actionable — ${LABEL_HORIZON} IC measurable and positive (${stats})`};
+  }
+  return {actionable:false, state:"measurable-inverted",
+          reason:`${LABEL_HORIZON} IC measurable and INVERTED`, stats,
+          detail:`labels: descriptive — ${LABEL_HORIZON} IC is measurable and INVERTED, `
+               + `so the action vocabulary is withdrawn rather than reversed (${stats})`};
+}
+
+/* The live edge, when a caller does not name one. typeof-guarded so the block runs
+   unchanged under node with no browser globals — the same property the MODEL PORT has. */
+function _edgeOrCurrent(edge){
+  if (edge !== undefined) return edge;
+  return (typeof BREADTH !== "undefined" && BREADTH && BREADTH.edge) || null;
+}
+function labelsAreActionable(edge){ return labelGateState(_edgeOrCurrent(edge)).actionable; }
+
+function tierLabel(sig, edge){
+  const tier = Array.isArray(sig) ? sig[0] : sig;
+  return labelsAreActionable(edge) ? tier : (LABEL_BANDS[tier] || tier);
+}
+/* The tooltip a descriptive band needs and an imperative one does not: with the verb
+   withdrawn, the band name alone does not say which slice of the scale it is. */
+function tierTitle(sig, edge){
+  const tier = Array.isArray(sig) ? sig[0] : sig;
+  return labelsAreActionable(edge)
+    ? `${tier}: conviction ${LABEL_RANGES[tier] || "?"}.`
+    : `${LABEL_BANDS[tier] || tier}: conviction ${LABEL_RANGES[tier] || "?"} — the `
+      + `${tier} band, named descriptively because ${labelGateState(_edgeOrCurrent(edge)).reason}.`;
+}
+/* END LABEL GATE */
+
+/* The gate on screen: one status line under the board header, and the header stat's
+   own caption, which names the same cut and must not keep saying BUY+ when the board
+   has stopped saying BUY. Nothing else in the ribbon moves. */
+function renderLabelGate(){
+  const g = labelGateState(_edgeOrCurrent(undefined));
+  const line = $("#label-status");
+  if(line){
+    line.innerHTML = `<b style="color:${g.actionable ? "var(--green)" : "var(--amber)"}">`
+      + `${g.actionable ? "LABELS: ACTIONABLE" : "LABELS: DESCRIPTIVE"}</b> — `
+      + `${esc0(g.reason)} <span class="muted">(${esc0(g.stats)})</span>`
+      + (g.actionable ? "" :
+         ` <span class="muted">· tiers read as rank bands; scores, ordering, cuts and `
+         + `colours are unchanged, and the ranking is not inverted to match.</span>`);
+    line.title = g.detail;
+  }
+  const cap = $("#rb-str-lbl");
+  if(cap) cap.textContent = g.actionable ? "BUY+ (≥70)" : "TIER 1-2 (≥70)";
+}
 // Blended relative strength vs BTC. Lives inside the port because it feeds conviction
 // directly — a drift here moves every score, and a gate that covered conviction() but
 // not its input would report parity while the two sides ranked differently.
@@ -2329,7 +2438,7 @@ function copyTrade(t){
   parts.push(inv.price!=null
     ? `STOP ${fmtPrice(inv.price)} (${k}xATR14${inv.obs&&inv.obs.date?" rec "+inv.obs.date:""})`
     : `STOP none (${inv.why})`);
-  parts.push(`CONV ${t.conv} (${t.sig[0]})`);
+  parts.push(`CONV ${t.conv} (${tierLabel(t.sig)})`);
   const block=parts.join(" | ");
   navigator.clipboard?.writeText(block);
   flash(t.sym+(inv.price!=null?" order copied":" copied, no stop derivable"));
@@ -2470,7 +2579,7 @@ function matchesFilter(t){
   const q=FILTER.toLowerCase();
   if(!q) return true;
   const c=CHOP[t.sym];
-  return [t.sym, t.name, t.tier, t.sig&&t.sig[0], c&&c.regime,
+  return [t.sym, t.name, t.tier, t.sig&&t.sig[0], t.sig&&tierLabel(t.sig), c&&c.regime,
           PERPS[t.sym]&&PERPS[t.sym].divergence]
     .filter(Boolean).some(v=>String(v).toLowerCase().includes(q));
 }
@@ -2778,6 +2887,7 @@ function renderRibbon(){
   const strong=STATE.filter(t=>t.conv>=70).length;
   $("#rb-mcap").textContent=fmtUsd(mc); $("#rb-turn").textContent=turn.toFixed(1)+"%";
   $("#rb-conv").textContent=Math.round(conv); $("#rb-str").textContent=strong+"/"+STATE.length;
+  renderLabelGate();
   $("#rb-upd").textContent=new Date().toLocaleTimeString();
   $("#sys-n").textContent=STATE.length;
 }
@@ -5338,7 +5448,7 @@ function renderOverlay(rows, nav){
   const covered=scored.reduce((s,r)=>s+r.value,0);
   el.innerHTML = bands.filter(b=>by[b[0]]).map(([name,cls])=>{
     const w=by[name]/nav;
-    return `<div class="kv"><span><span class="badge ${cls}">${name}</span></span>
+    return `<div class="kv"><span><span class="badge ${cls}" title="${esc0(tierTitle(name))}">${tierLabel(name)}</span></span>
       <b>${(w*100).toFixed(1)}% <span class="wbar" style="width:${(w*40).toFixed(1)}px"></span></b></div>`;
   }).join("")
     + `<div class="pf-note" style="padding:8px 0 0">${(covered/nav*100).toFixed(0)}% of NAV
@@ -6635,7 +6745,7 @@ function renderTMD(){
         <span class="tick">${esc0(sym)} <span class="muted">${esc0((it.name||"").slice(0,18))}</span></span>
         <span class="num muted">${rank?("#"+rank):"—"}</span>
         <span class="num ${t?signalClass(t.conv):"muted"}">${t?t.conv:"—"}</span>
-        <span>${t?`<span class="badge ${sig[1]}">${sig[0]}</span>`
+        <span>${t?`<span class="badge ${sig[1]}" title="${esc0(tierTitle(sig))}">${tierLabel(sig)}</span>`
                  :'<span class="muted">unscored</span>'}</span>
       </div>`;
     }).join("");
