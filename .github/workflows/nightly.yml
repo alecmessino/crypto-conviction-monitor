@@ -208,6 +208,25 @@ jobs:
           git add ledger/rwa_runs.csv || true
           git add ledger/rwa_quarantine.csv || true
           git add ledger/index.legacy.csv 2>/dev/null || true
+          #
+          # ledger/xsec/ is the cross-sectional research ledger: one month-shard per
+          # calendar month plus its schema sidecar. A DIRECTORY pathspec, because the
+          # shard's filename is the month and naming it would need the date the run
+          # happens to fall in — and because the sidecar has to travel with it or a
+          # reader gets shards with no statement of what version wrote them.
+          #
+          # || true, and it is load-bearing on exactly one night. The directory does not
+          # exist until the first run creates it, and `git add` on an unmatched pathspec
+          # exits 128 — which under the default `bash -e` aborts this step, so the night
+          # commits NOTHING rather than committing everything but the shard. Verified
+          # both ways: absent -> fatal, tolerated, the other paths stay staged; present
+          # -> the shard and its sidecar are both picked up by the directory pathspec.
+          #
+          # Without this line the writer runs, prints its row count, passes every gate,
+          # and the shard dies with the runner. That is what would have happened tonight:
+          # the Commit step stages an explicit allowlist, not `ledger/`, so a new ledger
+          # file is invisible to it until it is named here.
+          git add ledger/xsec || true
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else

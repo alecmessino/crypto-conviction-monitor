@@ -192,8 +192,14 @@ def test_the_edge_panel_does_not_touch_the_specification():
     multiplier into score()'s risk term. Both are scoring changes and both are supposed
     to break this line; see tests/test_perps.py for the boundary each moved and what
     stays observational.
+
+    Moved 6f98778fa627 -> 1a4ea6e4d77e when the capture was widened to funding.consolidate,
+    VENUE_PRIORITY, INTERVAL_BASIS_REAL, VENUE_DEFAULT_INTERVAL and _rsi_by_symbol. That
+    one is instrumentation rather than scoring, and it is aliased in SPEC_EQUIVALENT so
+    the legs either side of it stay one track record — but the pin still moves, because
+    the pin asserts what the specification captures and that is what changed.
     """
-    assert nightly.SPEC_HASH == "6f98778fa627"
+    assert nightly.SPEC_HASH == "1a4ea6e4d77e"
     captured = nightly.spec()["functions"]
     for fn in captured.values():
         for name in ("_edge_legs", "_compute_edge", "_active_contributions"):

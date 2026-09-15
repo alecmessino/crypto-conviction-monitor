@@ -219,7 +219,14 @@ SPEC_FUNCTIONS = ("score", "_lavl_regime", "lavl_perp_mult", "_tier_for",
                   # emission_mult multiplies the published score, so an edit to
                   # either the severity curve or its envelope must re-segment the
                   # track record rather than quietly reinterpret it.
-                  "emission_drag", "emission_mult")
+                  "emission_drag", "emission_mult",
+                  # The RSI that gates the squeeze boost. funding.rsi — the pure
+                  # Wilder computation — was already captured; this is the function
+                  # that decides the *period* (7), the *source* (recorded closes) and
+                  # that tonight's live price is appended before computing. Change the
+                  # period to 14 here and every squeeze boost on the board moves, with
+                  # funding.rsi untouched and, until now, the hash unmoved with it.
+                  "_rsi_by_symbol")
 SPEC_CONSTANTS = ("TIER_CUTS", "STABLES",
                   "EMISSION_FREE_RATIO", "EMISSION_ANCHOR_RATIO",
                   "EMISSION_ANCHOR_SEVERITY", "EMISSION_MAX_PENALTY")
@@ -234,9 +241,18 @@ SPEC_CONSTANTS = ("TIER_CUTS", "STABLES",
 # a continuous surface — a rewrite of the entire scoring curve that the mechanism built
 # to notice scoring rewrites reported as no change at all. A specification that stops at
 # a module boundary is not a specification, it is a description of one file.
+#
+# The same hole, found a second time and in the same shape. The entries above capture
+# the funding *curve* — what a given APR is worth to a score. Nothing captured which
+# APR arrives. `consolidate` picks the headline reading from up to eight venues, and
+# VENUE_PRIORITY decides the order it picks in; on 2026-09-14, with Binance at 451 and
+# Bybit at 403, that one tuple routed 43 of 50 rows to gate.io. Reordering it re-prices
+# most of the board, and the digest would not have moved. A specification that captures
+# the arithmetic but not the input is a description of one half of a function.
 SPEC_FUNDING_FUNCTIONS = ("annualize", "classify_regime", "funding_severity",
                           "regime_modifier", "rsi", "_ramp", "_atanh_scale",
-                          "_num_or_none")
+                          "_num_or_none",
+                          "consolidate")
 SPEC_FUNDING_CONSTANTS = (
     "REGIME_OVERHEATED", "REGIME_ELEVATED", "REGIME_NEUTRAL_FLOOR", "REGIME_SQUEEZE",
     "MOD_MAX_PENALTY", "MOD_MAX_BOOST", "MOD_HOT_ANCHOR", "MOD_COLD_ANCHOR",
@@ -244,7 +260,33 @@ SPEC_FUNDING_CONSTANTS = (
     "MOD_SQUEEZE_RSI", "MOD_SQUEEZE_RSI_FULL",
     # Derived from the anchors above. Captured anyway rather than trusted to follow,
     # so a change to the derivation is caught even if every anchor stays put.
-    "MOD_HOT_SCALE", "MOD_COLD_SCALE")
+    "MOD_HOT_SCALE", "MOD_COLD_SCALE",
+    # Venue selection. VENUE_PRIORITY orders the merge and INTERVAL_BASIS_REAL decides
+    # which venues are allowed to supply a headline at all; between them they choose the
+    # funding_apr that lavl_perp_mult reads. VENUE_DEFAULT_INTERVAL is the assumed
+    # settlement clock for a venue that does not publish one, and the interval is part
+    # of the unit — annualising an 8-hourly rate at an hourly clock is off by eight.
+    "VENUE_PRIORITY", "INTERVAL_BASIS_REAL", "VENUE_DEFAULT_INTERVAL")
+
+# Deliberately NOT captured, recorded here so the omission is a decision rather than an
+# oversight:
+#
+#   perp_context, funding.funding_context   Observational. They assemble the recorded
+#       derivatives and funding COLUMNS — oi_to_mcap, oi_price_divergence, the display
+#       copy of score_modifier — and nothing they return reaches score(). Capturing them
+#       would segment the track record on edits that cannot move a published number,
+#       which is the opposite failure to the one above and costs just as much.
+#   funding.fetch_*_funding                 Network shape, not model. An endpoint moving
+#       host is not a re-valuation. What those fetchers decide that DOES reach the score
+#       — the interval they assume when a venue is silent — is captured as
+#       VENUE_DEFAULT_INTERVAL above.
+#
+# One genuine hole remains, and is named rather than closed here: the projection in
+# main() that turns `consolidated` into `perps_map` (four fields, plus the price_chg_24h
+# and rsi7 merge below it) is score-path code living inside main(), which cannot be
+# captured without capturing the entire nightly run. Closing it means extracting that
+# projection into a named function — a refactor, and one that does not belong in a
+# commit whose whole claim is that it changes no behaviour.
 
 
 def spec() -> dict:
@@ -380,20 +422,77 @@ SPEC_EQUIVALENT = {
                    "so they hashed as null. Same scoring functions, same constant "
                    "values, different instrumentation — scoring-equivalent."),
     },
+    # The second entry, and the second correction to the RULER rather than to the model.
+    #
+    # What happened: spec() captured the funding curve and not the venue-selection layer
+    # feeding it, and captured funding.rsi and not the function choosing its period and
+    # source. Widening the capture re-hashes the specification without changing a line
+    # of scoring arithmetic, so the nights either side describe one model under two
+    # digests — the same shape as the entry above, for the same reason.
+    #
+    # What makes this checkable rather than asserted: the previously-captured entries
+    # are unchanged, and removing the newly-captured ones from today's specification
+    # reproduces the superseded digest exactly. spec_hash_without() does that, and
+    # tests/test_persistence.py re-derives 6f98778fa627 from today's source on every run
+    # while SPEC_HASH still equals `verified_against`.
+    #
+    # What was audited before adding this entry. The commit that introduced it changes
+    # only: the three capture tuples, this table, canonical_spec_hash (transitive
+    # resolution, needed because a single lookup would strand the earlier entry),
+    # spec_hash_without (the proof), this file's comments, and the tests that pin the
+    # hash. None of those is a captured function or a captured constant, so none of
+    # them can move a score. Verified rather than asserted: every previously-captured
+    # function's canonical source and every previously-captured constant's value are
+    # identical either side of the commit, score() returns identical results for all
+    # 250 assets of the 2026-09-14 payload against the recorded perps map, and the
+    # newly-captured sources are byte-identical to the versions that were already
+    # running unhashed. A scoring edit shipped in the same commit would have made the
+    # equivalence unprovable, which is why this landed alone.
+    "6f98778fa627": {
+        "canonical": "1a4ea6e4d77e",
+        "reason": "instrumentation",
+        "verified_against": "1a4ea6e4d77e",
+        # Exactly what the widened capture added. Removing these from today's
+        # specification — not nulling them; they did not exist in the old blob at all —
+        # reproduces the superseded digest.
+        "added_functions": ("_rsi_by_symbol", "funding.consolidate"),
+        "added_constants": ("funding.VENUE_PRIORITY", "funding.INTERVAL_BASIS_REAL",
+                            "funding.VENUE_DEFAULT_INTERVAL"),
+        "detail": ("spec() captured funding.regime_modifier but not funding.consolidate "
+                   "or VENUE_PRIORITY, which decide which venue's APR it is handed, and "
+                   "captured funding.rsi but not _rsi_by_symbol, which decides the "
+                   "period and source. Widening the capture changed the digest and no "
+                   "scoring arithmetic — scoring-equivalent."),
+    },
 }
 
 
 def canonical_spec_hash(h):
     """Collapse a superseded digest onto the one describing the same scoring code.
 
-    Identity for everything not in the table, which is every hash except the single
-    audited pair. A history spanning two hashes really is two datasets — that rule is
-    not being softened here, only applied to the model rather than to a defect in the
-    ruler.
+    Identity for everything not in the table, which is every hash except the audited
+    pairs. A history spanning two hashes really is two datasets — that rule is not being
+    softened here, only applied to the model rather than to a defect in the ruler.
+
+    Resolution is TRANSITIVE. Two instrumentation corrections have now landed on the
+    same body of scoring code, and a single lookup would send 2da60f7efd7b to
+    6f98778fa627 while 6f98778fa627 itself went on to 1a4ea6e4d77e — splitting one
+    track record into two segments through the mechanism built to stop exactly that.
+    Following the chain to its fixed point is what makes the table compose. The loop is
+    bounded by the table's own size and raises on a cycle rather than hanging, because
+    a cyclic equivalence table is a bug in the audit and must not be survivable.
     """
     key = (h or "").strip()
-    entry = SPEC_EQUIVALENT.get(key)
-    return entry["canonical"] if entry else key
+    seen = []
+    while True:
+        entry = SPEC_EQUIVALENT.get(key)
+        if not entry:
+            return key
+        if key in seen:
+            raise RuntimeError(
+                f"SPEC_EQUIVALENT contains a cycle through {key}: {seen + [key]}")
+        seen.append(key)
+        key = entry["canonical"]
 
 
 def spec_hash_as_recorded_before(null_constants) -> str:
@@ -408,6 +507,40 @@ def spec_hash_as_recorded_before(null_constants) -> str:
     doctored = {"functions": sp["functions"],
                 "constants": {k: (None if k in set(null_constants) else v)
                               for k, v in sp["constants"].items()}}
+    blob = json.dumps(doctored, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(blob).hexdigest()[:12]
+
+
+def spec_hash_without(functions=(), constants=(), null_constants=()) -> str:
+    """Today's specification with keys REMOVED (and optionally some nulled), re-hashed.
+
+    The sibling of :func:`spec_hash_as_recorded_before`, for the other shape of
+    instrumentation defect. That one re-hashes with constants forced to None, because
+    the old ordering captured those keys and read them as null. This one *deletes* the
+    keys, because a widened capture's superseded digest was taken over a blob in which
+    the new entries were not present at all — nulling them would produce a third digest
+    matching nothing that was ever recorded.
+
+    ``null_constants`` is here so the two defects COMPOSE. Once a second instrumentation
+    correction lands, proving the first one requires undoing both in order: remove what
+    the capture widened, then null what the old ordering missed. Without this argument
+    the earlier link in the chain would stop being re-derivable the moment the later one
+    shipped, and a proof that expires is a comment.
+
+    Unknown names raise rather than being ignored: a proof that silently drops a typo
+    proves nothing, and this function exists only to be a proof.
+    """
+    import hashlib
+    sp = spec()
+    fns, cons, nulls = set(functions), set(constants), set(null_constants)
+    missing = ((fns - set(sp["functions"]))
+               | ((cons | nulls) - set(sp["constants"])))
+    if missing:
+        raise RuntimeError(f"spec_hash_without: not in today's specification: "
+                           f"{sorted(missing)}")
+    doctored = {"functions": {k: v for k, v in sp["functions"].items() if k not in fns},
+                "constants": {k: (None if k in nulls else v)
+                              for k, v in sp["constants"].items() if k not in cons}}
     blob = json.dumps(doctored, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(blob).hexdigest()[:12]
 
@@ -3434,6 +3567,220 @@ FUNDING_JSON = LEDGER_DIR / "funding.json"
 # on symbols that are mostly NOT on the board. None of that is one row per (date,
 # symbol), and forcing it into the CSV would mean JSON inside CSV cells.
 MARKET_INTEL_JSON = LEDGER_DIR / "market_intel.json"
+# ---------------------------------------------------------------------------
+# cross-sectional research ledger
+# ---------------------------------------------------------------------------
+# signals.csv holds `rows[:50]` after a sort by conviction — the top fifty names by the
+# very variable whose predictive power the Selection Edge panel measures. Measured on
+# the recorded ledger, that cut is not a detail: re-running the same forty legs with the
+# window at successive depths and comparing leg by leg, k=50 against k=40 moves the
+# information coefficient by -0.0576 with a standard error of 0.0168 (t = -3.43). Adding
+# seven low-conviction names changes the published number by more than the number. The
+# window is arbitrary and the statistic follows it.
+#
+# This ledger records the whole scored cross-section instead, so a cross-sectional
+# statistic can be computed over the population it claims to describe rather than over
+# the top fifth of it. Four properties, each load-bearing:
+#
+#   * It is SEPARATE. signals.csv and signals.json are untouched — same rows, same
+#     columns, same bytes — so the forty-leg series already running stays comparable and
+#     is never pooled with this one. index.html does not read this directory, which
+#     matters because it fetches signals.json whole on every page load.
+#   * It is COMPACT. Twenty-five columns rather than seventy-one: what a cross-sectional
+#     information coefficient and its per-component decomposition need, and nothing
+#     recorded for the terminal's benefit. About 134 bytes a row.
+#   * It is SHARDED BY MONTH. One growing file would be rewritten in full every night
+#     forever; a closed month is never touched again, and a backfill can be restarted a
+#     month at a time rather than all or nothing.
+#   * It COSTS NOTHING TO FILL. Every one of these rows is already computed — the row
+#     loop scores the entire de-duplicated non-stable universe and then discards the
+#     ones outside the top fifty at write time. Funding is already consolidated across
+#     the same wide set. No extra call, no extra feed.
+#
+# What it is not: evidence, or a replacement. The wide information coefficient is a NEW
+# measurement whose history begins at the first night this writer runs, and it may well
+# be more negative than the one on the board. The argument for it is that it is the
+# honest number over a stated population, not that it is a better one.
+XSEC_DIR = LEDGER_DIR / "xsec"
+XSEC_SCHEMA_JSON = XSEC_DIR / "SCHEMA.json"
+XSEC_SCHEMA_VERSION = 1
+
+# `live` is observed on the night it is dated. `backfill` is reconstructed from
+# point-in-time inputs and was never observed live. They are recorded in the same shape
+# so they can be compared, and they carry the distinction on every row so they can never
+# be silently pooled.
+XSEC_SOURCES = ("live", "backfill")
+
+XSEC_FIELDS = [
+    "date", "symbol",
+    # Both ranks, recorded rather than derived. Row order in signals.csv is a conviction
+    # sort, so reading a market-cap rank off it produces a conviction rank wearing a
+    # market-cap label — which is exactly the error four comments in this file made
+    # about which fifty rows get persisted. A recorded rank also lets any historical
+    # truncation be reproduced later without re-deriving it from a file's ordering.
+    "rank_mcap", "rank_conv",
+    "conviction", "price", "market_cap", "turnover_pct",
+    "rs7", "rs14", "rs30", "rs200", "rs_blend",
+    # How many of the four relative-strength windows were actually OBSERVED, which is
+    # not always four: nineteen of tonight's two hundred and fifty markets publish no
+    # 200-day change, and score() currently reads a missing window as 0.0. This column
+    # does not change that — it records what the payload carried, so a blend resting on
+    # three windows is distinguishable from one resting on four. See AUDIT-2026-09 1.7b.
+    "rs_windows_n",
+    "c_depth", "c_momentum", "c_liquidity", "emission_mult", "perp_mult",
+    "fdv_usd", "funding_apr", "rsi7", "beta_btc",
+    "spec_hash", "src",
+]
+
+# Columns this ledger shares with signals.csv, which must be EQUAL on every row the two
+# files have in common. Asserted by tests/test_xsec.py rather than trusted: two writers
+# emitting the same quantity is two writers that can disagree, and the whole value of
+# the wide ledger is that the narrow one is a provable subset of it.
+XSEC_SHARED_FIELDS = ("conviction", "price", "market_cap", "turnover_pct",
+                      "rs7", "rs14", "rs30", "rs200", "rs_blend",
+                      "c_depth", "c_momentum", "c_liquidity",
+                      "emission_mult", "perp_mult",
+                      "fdv_usd", "funding_apr", "rsi7", "beta_btc", "spec_hash")
+
+# The windows blended into rs_blend by score(). Named here rather than repeated, because
+# this list and score()'s must not drift.
+RS_WINDOWS = (7, 14, 30, 200)
+
+
+def observed_rs_windows(t: dict, btc: dict | None) -> int:
+    """How many of the four relative-strength windows the payload actually carried.
+
+    Both legs are required, because relative strength is a difference: a window is
+    observed only if the asset published it AND the benchmark did. Counting the asset's
+    alone would call a window observed on a night BTC's own 200-day change was missing,
+    when the subtraction would have had nothing to subtract.
+
+    This is a provenance column and deliberately changes no score. score() still reads a
+    missing window as 0.0 — which for a token too young to have one is BTC's return with
+    a minus sign, and is the defect AUDIT-2026-09 1.7b is about. Recording the count now
+    means the fix, when it lands, can be measured against nights that predate it.
+    """
+    return sum(1 for tf in RS_WINDOWS
+               if t.get(f"price_change_percentage_{tf}d_in_currency") is not None
+               and (btc or {}).get(f"price_change_percentage_{tf}d_in_currency") is not None)
+
+
+def _xsec_rank(rows: list[dict], field: str) -> dict:
+    """Dense 1-based ranks over `rows`, descending by `field`, ties broken by symbol.
+
+    Deterministic by construction and independent of the order `rows` arrives in. That
+    is the whole requirement: signals.csv's fifty-row cut comes from a STABLE sort on
+    conviction, so it inherits the order CoinGecko happened to return, and a rank that
+    did the same would not be reproducible from the recorded data.
+
+    One consequence, stated rather than smoothed over: at a tie on the fiftieth
+    conviction — which 2026-09-14 has, two names at 24 — the legacy cut and rank_conv
+    can disagree about which name is fiftieth. Neither is wrong; they are different
+    tie-breaks, and only this one is reproducible. The subset invariant is therefore
+    asserted on shared VALUES, never on rank_conv <= 50.
+
+    A missing or unparseable value sorts last rather than being dropped: a scored row
+    with no market cap is still a scored row, and silently omitting it would make the
+    rank column describe a different set from the one the file holds.
+    """
+    def key(r):
+        v = _num(r.get(field))
+        return (v is None, -(v if v is not None else 0.0), (r.get("symbol") or ""))
+    return {r["symbol"]: i for i, r in enumerate(sorted(rows, key=key), start=1)}
+
+
+def xsec_rows(rows: list[dict], src: str = "live") -> list[dict]:
+    """The compact cross-sectional rows for one night, ranked and ordered.
+
+    `rows` is the FULL scored set — every de-duplicated non-stable asset that scored
+    from the night's fetched markets — not a truncation of it. Values are copied, never
+    recomputed: a second derivation of conviction here would be a second thing that can
+    disagree with the first, and the point of this ledger is that it reconciles.
+    """
+    if src not in XSEC_SOURCES:
+        raise ValueError(f"xsec src must be one of {XSEC_SOURCES}, got {src!r}")
+    by_cap = _xsec_rank(rows, "market_cap")
+    by_conv = _xsec_rank(rows, "conviction")
+    out = []
+    for r in rows:
+        row = {k: r.get(k) for k in XSEC_FIELDS}
+        row["rank_mcap"] = by_cap[r["symbol"]]
+        row["rank_conv"] = by_conv[r["symbol"]]
+        row["src"] = src
+        out.append(row)
+    out.sort(key=lambda r: r["rank_conv"])
+    return out
+
+
+def xsec_shard_path(day: str) -> Path:
+    """The month shard a date belongs to. `2026-09-14` -> `ledger/xsec/2026-09.csv`."""
+    if not (isinstance(day, str) and len(day) >= 7 and day[4] == "-"):
+        raise ValueError(f"xsec shard needs an ISO date, got {day!r}")
+    return XSEC_DIR / f"{day[:7]}.csv"
+
+
+def write_xsec_schema() -> Path:
+    """The sidecar that says what a shard is, beside the shards.
+
+    A CSV header is the schema, and tests/test_xsec.py asserts every shard's header
+    equals XSEC_FIELDS — but a header carries no version, and a reader picking this
+    directory up in a year needs to know which revision produced it and what the rank
+    tie-break was. Rewritten every run with deterministic content, so it is either
+    absent or correct and never stale.
+    """
+    XSEC_DIR.mkdir(parents=True, exist_ok=True)
+    doc = {
+        "schema_version": XSEC_SCHEMA_VERSION,
+        "fields": list(XSEC_FIELDS),
+        "shared_with_signals_csv": list(XSEC_SHARED_FIELDS),
+        "sources": list(XSEC_SOURCES),
+        "shard": "one file per calendar month, ledger/xsec/YYYY-MM.csv",
+        "rank_rule": ("dense 1-based, descending by value, ties broken by symbol "
+                      "ascending, missing values last"),
+        "row_key": ["date", "symbol", "src"],
+        "universe": ("every de-duplicated non-stable asset that scored from that "
+                     "night's fetched markets — not a truncation"),
+        "note": ("Research ledger. Separate from signals.csv, which keeps its own "
+                 "top-fifty-by-conviction series unchanged; the two are never pooled. "
+                 "Rows marked backfill were reconstructed from point-in-time inputs and "
+                 "were not observed on the date they carry."),
+    }
+    XSEC_SCHEMA_JSON.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    return XSEC_SCHEMA_JSON
+
+
+def write_xsec(rows: list[dict], day: str, src: str = "live") -> tuple[Path, int]:
+    """Write one night's cross-section into its month shard. Idempotent per (date, src).
+
+    A re-run replaces that date's rows FOR THAT SOURCE and leaves everything else alone.
+    Keyed on the pair rather than on the date because a backfill will one day write
+    reconstructed rows for dates that already carry live ones, and a date-only key would
+    have the second writer silently delete the first writer's work.
+
+    Returns ``(path, rows_written)``.
+    """
+    fresh = xsec_rows(rows, src=src)
+    path = xsec_shard_path(day)
+    XSEC_DIR.mkdir(parents=True, exist_ok=True)
+    kept = []
+    if path.exists():
+        with path.open(newline="", encoding="utf-8") as f:
+            kept = [r for r in csv.DictReader(f)
+                    if not (r.get("date") == day and r.get("src") == src)]
+    everything = kept + [{k: ("" if r.get(k) is None else r.get(k)) for k in XSEC_FIELDS}
+                         for r in fresh]
+    # Deterministic bytes for a given set of rows, so a re-run that changes nothing
+    # produces a file that changes nothing and git records no commit for it.
+    everything.sort(key=lambda r: (r.get("date") or "", r.get("src") or "",
+                                   int(r.get("rank_conv") or 0), r.get("symbol") or ""))
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=XSEC_FIELDS)
+        w.writeheader()
+        w.writerows(everything)
+    write_xsec_schema()
+    return path, len(fresh)
+
+
 # Three append-only ledgers, because three of the new readings are multi-day and their
 # sources publish no history at all. /coins/categories has a 24h column and nothing
 # else; /global is a snapshot; GeckoTerminal's pool volume is a rolling 24h window.
@@ -4079,6 +4426,14 @@ def main() -> int:
             "erosion_ratio": round(era, 3), "conviction": conv, "signal": sig,
             "rs7": comp["rs7"], "rs14": comp["rs14"], "rs30": comp["rs30"],
             "rs200": comp["rs200"], "rs_blend": comp["rs_blend"],
+            # Provenance for the blend above, and NOT one of FIELDS — it reaches the
+            # cross-sectional ledger and never signals.csv, whose column list is
+            # append-only and whose rows must not move in this change. Counted from the
+            # payload rather than assumed to be four, because nineteen of tonight's
+            # markets publish no 200-day change and a column claiming four observed
+            # windows where three existed is the kind of quiet fiction this repository
+            # is built to refuse.
+            "rs_windows_n": observed_rs_windows(t, btc),
             "c_liquidity": comp["liquidity"], "c_era": comp["era"],
             "c_depth": comp["depth"], "c_momentum": comp["momentum"],
             "unlocks_usd": b["unlocks_usd"] if b else None,
@@ -4223,6 +4578,17 @@ def main() -> int:
     }
     with LEDGER_JSON.open("w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
+
+    # The cross-section, written AFTER signals.csv and signals.json are complete on
+    # disk. Ordering is the whole safety argument: this is a new writer, and if it
+    # throws, the night's legacy ledger is already written and the failure is loud
+    # rather than silent. `rows` here is the full scored universe — the same list
+    # rows[:50] was taken from a few lines above, not a re-derivation of it.
+    xsec_path, xsec_n = write_xsec(rows, today, src="live")
+    print(f"[xsec] {xsec_n} row(s) for {today} -> {xsec_path.name} "
+          f"({xsec_path.stat().st_size / 1024:.1f} KB shard, "
+          f"{len(XSEC_FIELDS)} columns, schema v{XSEC_SCHEMA_VERSION})",
+          file=__import__("sys").stderr)
 
     # Module 3 artifact. Written whatever the venues did — a file that only appears on
     # good nights makes "no funding tonight" indistinguishable from "the step did not

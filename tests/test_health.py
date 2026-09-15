@@ -158,6 +158,12 @@ def test_the_ribbon_does_not_touch_the_specification():
     # 2da60f7efd7b -> 6f98778fa627: SPEC_HASH moved to the bottom of nightly.py.
     # It was computed before TIER_CUTS and the emission anchors were defined, so five constants were captured as None on every row ever written — editing the tier boundaries would have moved no hash.
     # Not a scoring change; a specification that was not capturing what it named.
-    assert nightly.SPEC_HASH == "6f98778fa627"
+    # 6f98778fa627 -> 1a4ea6e4d77e: the specification capture was widened to the
+    # funding venue-selection layer (funding.consolidate, VENUE_PRIORITY,
+    # INTERVAL_BASIS_REAL, VENUE_DEFAULT_INTERVAL) and to _rsi_by_symbol, which
+    # chooses the RSI period and source. Every one of those changes published scores
+    # and none of them moved the digest. Not a scoring change; a specification that
+    # captured the funding curve and not the input handed to it.
+    assert nightly.SPEC_HASH == "1a4ea6e4d77e"
     for fn in nightly.spec()["functions"].values():
         assert "_model_health" not in fn

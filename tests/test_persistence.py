@@ -179,7 +179,13 @@ def test_persistence_does_not_touch_the_specification():
     # 2da60f7efd7b -> 6f98778fa627: SPEC_HASH moved to the bottom of nightly.py.
     # It was computed before TIER_CUTS and the emission anchors were defined, so five constants were captured as None on every row ever written — editing the tier boundaries would have moved no hash.
     # Not a scoring change; a specification that was not capturing what it named.
-    assert nightly.SPEC_HASH == "6f98778fa627"
+    # 6f98778fa627 -> 1a4ea6e4d77e: the specification capture was widened to the
+    # funding venue-selection layer (funding.consolidate, VENUE_PRIORITY,
+    # INTERVAL_BASIS_REAL, VENUE_DEFAULT_INTERVAL) and to _rsi_by_symbol, which
+    # chooses the RSI period and source. Every one of those changes published scores
+    # and none of them moved the digest. Not a scoring change; a specification that
+    # captured the funding curve and not the input handed to it.
+    assert nightly.SPEC_HASH == "1a4ea6e4d77e"
     for fn in nightly.spec()["functions"].values():
         assert "_persistence" not in fn
 
@@ -244,6 +250,12 @@ def _perturb(value):
         return set(value) | {"__MUTATION__"}
     if isinstance(value, str):
         return value + "_mutated"
+    if isinstance(value, dict):
+        # An added key, not an added value: VENUE_DEFAULT_INTERVAL maps a venue to its
+        # assumed settlement clock, and the failure this guards against is a venue
+        # quietly acquiring a default. Perturbing an existing entry would prove the same
+        # thing for one key and nothing for a table that grows.
+        return {**value, "__mutation__": 1}
     raise AssertionError(f"no perturbation defined for {type(value)}")
 
 
@@ -343,18 +355,51 @@ def test_the_equivalence_table_covers_only_the_verified_correction():
     holds must pass through unchanged.
     """
     table = nightly.SPEC_EQUIVALENT
-    assert set(table) == {"2da60f7efd7b"}, (
+    assert set(table) == {"2da60f7efd7b", "6f98778fa627"}, (
         f"the equivalence table holds {sorted(table)} — only the audited "
-        f"instrumentation correction may be aliased")
-    entry = table["2da60f7efd7b"]
-    assert entry["canonical"] == "6f98778fa627"
-    assert entry["reason"] == "instrumentation"
+        f"instrumentation corrections may be aliased")
+    assert table["2da60f7efd7b"]["canonical"] == "6f98778fa627"
+    assert table["6f98778fa627"]["canonical"] == "1a4ea6e4d77e"
+    for entry in table.values():
+        assert entry["reason"] == "instrumentation"
 
     # Identity for everything else, including the two earlier digests, which were
     # computed under the same defect but describe genuinely different scoring code.
     for other in ("d600984ec00b", "e65f7dc59d55", "596d414706be", "", None):
         assert nightly.canonical_spec_hash(other) == (other or "").strip()
-    assert nightly.canonical_spec_hash("6f98778fa627") == "6f98778fa627"
+    assert nightly.canonical_spec_hash("1a4ea6e4d77e") == "1a4ea6e4d77e"
+
+
+def test_the_equivalence_table_resolves_transitively():
+    """Two corrections to the ruler, one body of scoring code, one span.
+
+    A single lookup would send 2da60f7efd7b to 6f98778fa627 and stop there, while rows
+    recorded under 6f98778fa627 went on to 1a4ea6e4d77e — one track record split in two
+    by the mechanism built to stop exactly that. Every digest in the chain must land on
+    the same canonical hash.
+    """
+    end = nightly.SPEC_HASH
+    for recorded in ("2da60f7efd7b", "6f98778fa627", "1a4ea6e4d77e"):
+        assert nightly.canonical_spec_hash(recorded) == end, (
+            f"{recorded} did not resolve to {end}")
+    # Idempotent: canonicalising a canonical hash is a no-op, so the monitor can apply
+    # it to already-folded values without walking the chain twice to a different answer.
+    assert nightly.canonical_spec_hash(end) == end
+
+
+def test_the_equivalence_table_refuses_a_cycle():
+    """A cyclic table is a bug in the audit and must not be survivable."""
+    original = dict(nightly.SPEC_EQUIVALENT)
+    nightly.SPEC_EQUIVALENT["aaaaaaaaaaaa"] = {"canonical": "bbbbbbbbbbbb",
+                                               "reason": "instrumentation", "detail": ""}
+    nightly.SPEC_EQUIVALENT["bbbbbbbbbbbb"] = {"canonical": "aaaaaaaaaaaa",
+                                               "reason": "instrumentation", "detail": ""}
+    try:
+        with pytest.raises(RuntimeError, match="cycle"):
+            nightly.canonical_spec_hash("aaaaaaaaaaaa")
+    finally:
+        nightly.SPEC_EQUIVALENT.clear()
+        nightly.SPEC_EQUIVALENT.update(original)
 
 
 def test_the_aliased_pair_is_re_derivable_from_todays_source():
@@ -365,16 +410,30 @@ def test_the_aliased_pair_is_re_derivable_from_todays_source():
     changed or the account of what went wrong is incorrect — and in both cases the
     equivalence has to be re-justified rather than inherited.
     """
-    entry = nightly.SPEC_EQUIVALENT["2da60f7efd7b"]
-    if nightly.SPEC_HASH != entry["verified_against"]:
-        # Scoring has moved on since the audit. The entry is then a frozen historical
-        # record about two old digests and must not have been edited to follow.
-        assert entry["canonical"] == "6f98778fa627"
-        pytest.skip("scoring has changed since the equivalence was verified; the entry "
-                    "is now a historical record and is asserted unmodified instead")
-    derived = nightly.spec_hash_as_recorded_before(entry["null_constants"])
+    old, new = nightly.SPEC_EQUIVALENT["2da60f7efd7b"], nightly.SPEC_EQUIVALENT["6f98778fa627"]
+    if nightly.SPEC_HASH != new["verified_against"]:
+        # Scoring has moved on since the audit. The entries are then frozen historical
+        # records about old digests and must not have been edited to follow.
+        assert old["canonical"] == "6f98778fa627"
+        assert new["canonical"] == "1a4ea6e4d77e"
+        pytest.skip("scoring has changed since the equivalence was verified; the entries "
+                    "are now historical records and are asserted unmodified instead")
+
+    # Link two: remove exactly what the widened capture added and the superseded digest
+    # comes back. Not nulled — those keys were not in the old blob at all.
+    derived = nightly.spec_hash_without(new["added_functions"], new["added_constants"])
+    assert derived == "6f98778fa627", (
+        f"re-deriving 6f98778fa627 from today's source gave {derived} — removing the "
+        f"widened capture no longer reproduces the digest it superseded")
+
+    # Link one, still executable rather than inherited. Undo both defects in order:
+    # remove what the capture widened, then null what the old ordering missed. This is
+    # why spec_hash_without takes null_constants — without it the earlier link would
+    # have stopped being provable the moment the later correction shipped.
+    derived = nightly.spec_hash_without(new["added_functions"], new["added_constants"],
+                                        null_constants=old["null_constants"])
     assert derived == "2da60f7efd7b", (
-        f"re-deriving the superseded hash from today's source gave {derived}, not "
+        f"re-deriving the oldest aliased hash from today's source gave {derived}, not "
         f"2da60f7efd7b — the equivalence claim no longer holds")
 
 
@@ -385,6 +444,6 @@ def test_the_monitor_folds_the_aliased_night_without_hiding_it():
     assert folded, "the aliased night was not folded onto its canonical span"
     for span in folded:
         assert "2da60f7efd7b" in span["recorded_as"]
-        assert span["spec_hash"] == "6f98778fa627"
+        assert span["spec_hash"] == "1a4ea6e4d77e"
     assert spec_block["aliased_days"] >= 1
     assert "2da60f7efd7b" in spec_block["equivalence"]
