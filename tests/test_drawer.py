@@ -131,11 +131,16 @@ def same_date_tree():
     """
     tmp = tempfile.mkdtemp(prefix="drawer-samedate-")
     try:
-        os.makedirs(os.path.join(tmp, "ledger"), exist_ok=True)
         for name in ("index.html", "methodology.html"):
             shutil.copy(os.path.join(_ROOT, name), os.path.join(tmp, name))
-        for name in os.listdir(os.path.join(_ROOT, "ledger")):
-            shutil.copy(os.path.join(_ROOT, "ledger", name), os.path.join(tmp, "ledger", name))
+        # copytree, not a shutil.copy per entry. The per-entry loop assumed ledger/ was
+        # flat and raised IsADirectoryError the night ledger/xsec/ first appeared — the
+        # first subdirectory the ledger has ever had. Mirroring the tree keeps the
+        # throwaway copy structurally identical to the real one, so a test serving the
+        # page a ledger is serving it the same SHAPE of ledger production does, and the
+        # next subdirectory does not break this again.
+        shutil.copytree(os.path.join(_ROOT, "ledger"), os.path.join(tmp, "ledger"),
+                        dirs_exist_ok=True)
         path = os.path.join(tmp, "ledger", "signals.json")
         with open(path, encoding="utf-8") as fh:
             doc = json.load(fh)
