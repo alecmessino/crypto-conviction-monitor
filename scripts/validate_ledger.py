@@ -373,6 +373,173 @@ def check_context_ledgers(ledger: Path) -> list[str]:
     return problems
 
 
+def check_xsec(ledger: Path) -> list[str]:
+    """The cross-sectional research ledger: schema, keys, shards, ranks, source, subset.
+
+    Phase 2 will write reconstructed rows into these shards beside the live ones, so the
+    invariants have to be enforced BEFORE a second writer exists rather than after two
+    of them have disagreed. Everything here is checkable from the files alone.
+
+    Optional by design: a repository that has never run a nightly on this code has no
+    ledger/xsec, and that is not a defect. A directory that exists and is malformed is.
+    """
+    d = ledger / "xsec"
+    if not d.is_dir():
+        return []
+    problems: list[str] = []
+
+    shards = sorted(d.glob("*.csv"))
+    if not shards:
+        return [f"xsec: {d} exists but holds no shard — an empty research ledger is "
+                f"either a half-finished run or a writer that stopped, and neither "
+                f"should publish"]
+
+    # --- schema and version -------------------------------------------------
+    # The CSV header IS the schema; the sidecar carries the version a header cannot.
+    side = d / "SCHEMA.json"
+    if not side.exists():
+        problems.append("xsec: SCHEMA.json is missing — shards with no statement of "
+                        "which revision wrote them are unreadable a year from now")
+    else:
+        try:
+            doc = json.loads(side.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            problems.append(f"xsec: SCHEMA.json does not parse ({exc})")
+            doc = {}
+        if doc:
+            if doc.get("schema_version") != nightly.XSEC_SCHEMA_VERSION:
+                problems.append(
+                    f"xsec: SCHEMA.json says version {doc.get('schema_version')!r} "
+                    f"against a writer at {nightly.XSEC_SCHEMA_VERSION} — the sidecar "
+                    f"is stale and describes shards it did not write")
+            if doc.get("fields") != list(nightly.XSEC_FIELDS):
+                problems.append("xsec: SCHEMA.json field list disagrees with the "
+                                "writer's — the sidecar and the shards describe two "
+                                "different files")
+
+    live_by_date: dict[str, dict[str, dict]] = {}
+    for path in shards:
+        month = path.stem
+        with path.open(newline="", encoding="utf-8") as fh:
+            reader = csv.reader(fh)
+            header = next(reader, [])
+        if header != list(nightly.XSEC_FIELDS):
+            # Unlike signals.csv, a shard is never rewritten once its month closes, so
+            # there is no next run to migrate it. A mismatch here is terminal for that
+            # file and the rows cannot be trusted by name.
+            problems.append(
+                f"xsec/{path.name}: header does not match the writer's schema "
+                f"({len(header)} columns vs {len(nightly.XSEC_FIELDS)}). A closed shard "
+                f"is never rewritten, so this does not repair itself.")
+            continue
+        with path.open(newline="", encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+        if not rows:
+            problems.append(f"xsec/{path.name}: no rows under a valid header")
+            continue
+
+        # --- (date, symbol, src) uniqueness ---------------------------------
+        # The key Phase 2 relies on: a backfill writing a date that already carries live
+        # rows must sit beside them, not on top of them. Duplicates here mean one writer
+        # silently overwrote the other, or wrote twice.
+        keys = [(r.get("date"), r.get("symbol"), r.get("src")) for r in rows]
+        dupes = sorted({k for k in keys if keys.count(k) > 1})
+        if dupes:
+            problems.append(
+                f"xsec/{path.name}: {len(dupes)} duplicate (date, symbol, src) key(s), "
+                f"e.g. {dupes[:3]} — a re-run replaced nothing and appended instead")
+
+        # --- shard / month consistency --------------------------------------
+        stray = sorted({r.get("date") for r in rows
+                        if (r.get("date") or "")[:7] != month})
+        if stray:
+            problems.append(
+                f"xsec/{path.name}: holds {len(stray)} date(s) outside its own month, "
+                f"e.g. {stray[:3]} — a reader taking the filename as the range would "
+                f"silently miss them")
+
+        # --- allowed source --------------------------------------------------
+        bad_src = sorted({r.get("src") for r in rows
+                          if r.get("src") not in nightly.XSEC_SOURCES})
+        if bad_src:
+            problems.append(
+                f"xsec/{path.name}: source(s) {bad_src} outside {list(nightly.XSEC_SOURCES)} "
+                f"— whether a row was observed or reconstructed is the one thing about it "
+                f"that must never be ambiguous")
+
+        # --- rank integrity ---------------------------------------------------
+        # Dense and complete within each (date, src), and ORDERED BY THE VALUE THEY
+        # RANK. A rank column that is merely well-formed is a rank column that can be
+        # wrong about everything, which is how signals.csv came to be described as a
+        # market-cap cut for five weeks.
+        groups: dict[tuple, list[dict]] = {}
+        for r in rows:
+            groups.setdefault((r.get("date"), r.get("src")), []).append(r)
+        for (day, src), grp in sorted(groups.items()):
+            for field, value_of in (("rank_mcap", "market_cap"),
+                                    ("rank_conv", "conviction")):
+                ranks = [_num(r.get(field)) for r in grp]
+                if any(x is None for x in ranks):
+                    problems.append(f"xsec/{path.name} {day}/{src}: {field} is missing "
+                                    f"on {sum(x is None for x in ranks)} row(s)")
+                    continue
+                if sorted(int(x) for x in ranks) != list(range(1, len(grp) + 1)):
+                    problems.append(
+                        f"xsec/{path.name} {day}/{src}: {field} is not a dense 1..{len(grp)} "
+                        f"ranking — it describes a different set from the one the file holds")
+                    continue
+                # Missing values rank last, matching the writer, so they compare as -inf.
+                ordered = sorted(grp, key=lambda r: int(float(r[field])))
+                vals = [_num(r.get(value_of)) for r in ordered]
+                vals = [float("-inf") if x is None else x for x in vals]
+                if any(a < b for a, b in zip(vals, vals[1:])):
+                    problems.append(
+                        f"xsec/{path.name} {day}/{src}: {field} does not order "
+                        f"{value_of} descending — the rank and the value it claims to "
+                        f"rank disagree")
+
+        for r in rows:
+            if r.get("src") == "live" and r.get("date") and r.get("symbol"):
+                live_by_date.setdefault(r["date"], {})[r["symbol"]] = r
+
+    # --- legacy-row equality on live overlap ---------------------------------
+    # signals.csv must be a PROVABLE subset of the live cross-section, not a parallel
+    # write that can drift. Two writers emitting the same quantity is two writers that
+    # can disagree, and the whole value of the wide ledger is that the narrow one
+    # reconciles to it.
+    sig = ledger / "signals.csv"
+    if live_by_date and sig.exists():
+        with sig.open(newline="", encoding="utf-8") as fh:
+            narrow = list(csv.DictReader(fh))
+        missing, mismatched, compared = [], [], 0
+        for r in narrow:
+            wide_day = live_by_date.get(r.get("date"))
+            if not wide_day:
+                continue          # a night the shards do not cover; nothing to compare
+            wide = wide_day.get(r.get("symbol"))
+            if wide is None:
+                missing.append((r.get("date"), r.get("symbol")))
+                continue
+            compared += 1
+            for field in nightly.XSEC_SHARED_FIELDS:
+                if wide.get(field) != r.get(field):
+                    mismatched.append(
+                        f"{r.get('date')}/{r.get('symbol')}.{field}: "
+                        f"signals.csv {r.get(field)!r} vs xsec {wide.get(field)!r}")
+        if missing:
+            problems.append(
+                f"xsec: {len(missing)} signals.csv row(s) absent from the live "
+                f"cross-section for a night it covers, e.g. {missing[:3]} — the narrow "
+                f"ledger is not a subset of the wide one")
+        if mismatched:
+            problems.append(
+                f"xsec: {len(mismatched)} shared value(s) disagree between signals.csv "
+                f"and the live cross-section, e.g. {mismatched[:2]}")
+        if compared and not (missing or mismatched):
+            pass                  # reported as context by main(), not as a problem
+    return problems
+
+
 def check_rwa(ledger: Path) -> list[str]:
     """The RWA ledgers, and one property that has no equivalent on the crypto side.
 
@@ -621,6 +788,7 @@ def main() -> int:
     problems += check_basket(ledger)
     problems += check_monitor(ledger)
     problems += check_context_ledgers(ledger)
+    problems += check_xsec(ledger)
     problems += check_rwa(ledger)
 
     # Context, printed whether or not the gate passes — a validator that only speaks up
@@ -641,6 +809,26 @@ def main() -> int:
             print(f"latest:      {len(latest)} assets  conviction {min(convs):.0f}-"
                   f"{max(convs):.0f}  dispersion {sd:.1f}")
             print("tiers:       " + "  ".join(f"{k}={v}" for k, v in sorted(tiers.items())))
+    xsec_dir = ledger / "xsec"
+    if xsec_dir.is_dir():
+        # Printed whether or not the gate passes, on the same principle as the lines
+        # above: the counts are how a reader sees that the wide ledger really is wide,
+        # and that the narrow one reconciles to it rather than merely coexisting.
+        per_src, nights, shards = Counter(), set(), sorted(xsec_dir.glob("*.csv"))
+        for sp in shards:
+            with sp.open(newline="", encoding="utf-8") as fh:
+                for r in csv.DictReader(fh):
+                    per_src[r.get("src")] += 1
+                    if r.get("src") == "live":
+                        nights.add(r.get("date"))
+        widths = []
+        if sig.exists():
+            narrow = Counter(r.get("date") for r in
+                             csv.DictReader(sig.open(newline="", encoding="utf-8")))
+            widths = [f"{n} vs {narrow[n]} persisted" for n in sorted(nights)[-1:]]
+        print(f"xsec:        {len(shards)} shard(s), "
+              + ", ".join(f"{v} {k}" for k, v in sorted(per_src.items()))
+              + (f" — latest night {widths[0]} row(s)" if widths else ""))
     intel = ledger / "market_intel.json"
     if intel.exists():
         try:

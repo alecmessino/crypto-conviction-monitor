@@ -357,3 +357,180 @@ def test_a_quarantined_rwa_board_is_not_held_to_the_manifest(tmp_path):
     promoted run, so neither is asked to prove one."""
     _rwa_artifact(tmp_path, promoted=False)
     assert not any("rwa_runs.csv" in p for p in v._check_rwa_artifact(tmp_path))
+
+
+# ---------------------------------------------------------------------------
+# the cross-sectional research ledger
+# ---------------------------------------------------------------------------
+# Phase 2 will write reconstructed rows into these shards beside the live ones, so every
+# invariant below is gated BEFORE a second writer exists rather than after two of them
+# have disagreed. Each test breaks a healthy shard in exactly one way.
+def _xsec(ledger, day="2026-01-03", n=6, src="live", rows=None):
+    """A well-formed month shard, and its sidecar."""
+    d = ledger / "xsec"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SCHEMA.json").write_text(json.dumps({
+        "schema_version": nightly.XSEC_SCHEMA_VERSION,
+        "fields": list(nightly.XSEC_FIELDS),
+        "shared_with_signals_csv": list(nightly.XSEC_SHARED_FIELDS),
+        "sources": list(nightly.XSEC_SOURCES),
+        "row_key": ["date", "symbol", "src"],
+    }), encoding="utf-8")
+    if rows is None:
+        rows = []
+        for i in range(n):
+            rows.append({f: "" for f in nightly.XSEC_FIELDS} | {
+                "date": day, "symbol": f"X{i:02d}",
+                "rank_mcap": i + 1, "rank_conv": i + 1,
+                "conviction": 90 - i * 5, "price": 10.0,
+                "market_cap": 1e10 - i * 1e8, "turnover_pct": 5.0,
+                "spec_hash": nightly.SPEC_HASH, "src": src,
+            })
+    path = d / f"{day[:7]}.csv"
+    with path.open("w", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=nightly.XSEC_FIELDS)
+        w.writeheader()
+        w.writerows(rows)
+    return path
+
+
+def test_a_ledger_with_no_cross_section_is_not_a_defect(ledger):
+    """Optional by design: a repository that never ran a nightly on this code has none."""
+    assert not (ledger / "xsec").exists()
+    assert v.check_xsec(ledger) == []
+
+
+def test_a_healthy_cross_section_passes(ledger):
+    _xsec(ledger)
+    assert v.check_xsec(ledger) == []
+
+
+def test_an_empty_xsec_directory_fails(ledger):
+    (ledger / "xsec").mkdir(parents=True, exist_ok=True)
+    assert any("holds no shard" in p for p in v.check_xsec(ledger))
+
+
+def test_a_stale_schema_version_fails(ledger):
+    _xsec(ledger)
+    side = ledger / "xsec" / "SCHEMA.json"
+    doc = json.loads(side.read_text())
+    doc["schema_version"] = nightly.XSEC_SCHEMA_VERSION + 1
+    side.write_text(json.dumps(doc), encoding="utf-8")
+    assert any("schema_version" in p or "version" in p for p in v.check_xsec(ledger))
+
+
+def test_a_missing_sidecar_fails(ledger):
+    _xsec(ledger)
+    (ledger / "xsec" / "SCHEMA.json").unlink()
+    assert any("SCHEMA.json is missing" in p for p in v.check_xsec(ledger))
+
+
+def test_a_sidecar_field_list_that_drifts_fails(ledger):
+    _xsec(ledger)
+    side = ledger / "xsec" / "SCHEMA.json"
+    doc = json.loads(side.read_text())
+    doc["fields"] = doc["fields"][:-1]
+    side.write_text(json.dumps(doc), encoding="utf-8")
+    assert any("field list disagrees" in p for p in v.check_xsec(ledger))
+
+
+def test_a_shard_header_that_does_not_match_the_schema_fails(ledger):
+    path = _xsec(ledger)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[0] = ",".join(nightly.XSEC_FIELDS[:-1])
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    problems = v.check_xsec(ledger)
+    assert any("header does not match" in p for p in problems)
+    # A closed shard is never rewritten, so this must not be described as self-repairing.
+    assert any("does not repair itself" in p for p in problems)
+
+
+def test_a_duplicate_date_symbol_src_key_fails(ledger):
+    path = _xsec(ledger)
+    rows = list(csv.DictReader(path.open(newline="", encoding="utf-8")))
+    rows.append(dict(rows[0]))
+    _xsec(ledger, rows=rows)
+    assert any("duplicate (date, symbol, src)" in p for p in v.check_xsec(ledger))
+
+
+def test_live_and_backfill_for_one_symbol_and_date_is_not_a_duplicate(ledger):
+    """The key is the triple. Phase 2 must be able to sit beside a live row."""
+    path = _xsec(ledger)
+    rows = list(csv.DictReader(path.open(newline="", encoding="utf-8")))
+    rows += [dict(r, src="backfill") for r in rows]
+    _xsec(ledger, rows=rows)
+    assert v.check_xsec(ledger) == []
+
+
+def test_a_date_outside_the_shards_month_fails(ledger):
+    path = _xsec(ledger)
+    rows = list(csv.DictReader(path.open(newline="", encoding="utf-8")))
+    rows[0]["date"] = "2026-02-03"
+    _xsec(ledger, rows=rows)
+    assert any("outside its own month" in p for p in v.check_xsec(ledger))
+
+
+def test_an_unrecognised_source_fails(ledger):
+    path = _xsec(ledger)
+    rows = list(csv.DictReader(path.open(newline="", encoding="utf-8")))
+    rows[0]["src"] = "observed"
+    _xsec(ledger, rows=rows)
+    assert any("outside ['live', 'backfill']" in p for p in v.check_xsec(ledger))
+
+
+def test_ranks_with_a_gap_fail(ledger):
+    path = _xsec(ledger)
+    rows = list(csv.DictReader(path.open(newline="", encoding="utf-8")))
+    rows[-1]["rank_conv"] = str(len(rows) + 5)
+    _xsec(ledger, rows=rows)
+    assert any("dense 1.." in p for p in v.check_xsec(ledger))
+
+
+def test_a_missing_rank_fails(ledger):
+    path = _xsec(ledger)
+    rows = list(csv.DictReader(path.open(newline="", encoding="utf-8")))
+    rows[0]["rank_mcap"] = ""
+    _xsec(ledger, rows=rows)
+    assert any("is missing on" in p for p in v.check_xsec(ledger))
+
+
+def test_a_rank_that_does_not_order_its_own_value_fails(ledger):
+    """Well-formed and wrong. This is the defect that let signals.csv be described as a
+    market-cap cut for five weeks while it was a conviction cut."""
+    path = _xsec(ledger)
+    rows = list(csv.DictReader(path.open(newline="", encoding="utf-8")))
+    rows[0]["rank_conv"], rows[-1]["rank_conv"] = rows[-1]["rank_conv"], rows[0]["rank_conv"]
+    _xsec(ledger, rows=rows)
+    assert any("does not order conviction descending" in p for p in v.check_xsec(ledger))
+
+
+def test_a_signals_row_absent_from_the_live_cross_section_fails(ledger):
+    """The subset invariant: signals.csv must reconcile to the wide ledger."""
+    rows = list(csv.DictReader((ledger / "signals.csv").open(newline="", encoding="utf-8")))
+    day = rows[0]["date"]
+    _xsec(ledger, day=day, n=2)          # covers the night, omits every real symbol
+    assert any("not a subset of the wide one" in p for p in v.check_xsec(ledger))
+
+
+def test_a_shared_value_that_disagrees_fails(ledger):
+    narrow = list(csv.DictReader((ledger / "signals.csv").open(newline="", encoding="utf-8")))
+    day = narrow[0]["date"]
+    same_day = [r for r in narrow if r["date"] == day]
+    wide = []
+    for i, r in enumerate(same_day):
+        row = {f: "" for f in nightly.XSEC_FIELDS} | {
+            "date": day, "symbol": r["symbol"], "rank_mcap": i + 1, "rank_conv": i + 1,
+            "src": "live", "market_cap": 1e10 - i * 1e8, "conviction": 90 - i,
+        }
+        for f in nightly.XSEC_SHARED_FIELDS:
+            row[f] = r.get(f, "")
+        wide.append(row)
+    wide[0]["conviction"] = str(float(wide[0]["conviction"] or 0) + 7)
+    _xsec(ledger, day=day, rows=wide)
+    assert any("disagree between signals.csv" in p for p in v.check_xsec(ledger))
+
+
+def test_a_night_the_shards_do_not_cover_is_not_a_subset_failure(ledger):
+    """Absence of a night is not disagreement about it."""
+    _xsec(ledger, day="2030-06-02")
+    assert not any("subset" in p or "disagree" in p for p in v.check_xsec(ledger))
