@@ -1,12 +1,12 @@
 {
-  "generated_at": "2026-09-15T11:47:48.302259+00:00",
+  "generated_at": "2026-09-16T11:39:52.804480+00:00",
   "canonical": {
     "definition": {
       "book": "Top-10 by conviction, score-proportional weights",
       "top_n": 10,
-      "universe": "the nightly persisted universe: the top 50 names by market cap of the 250 fetched, written to signals.csv each night, of which a median 43 are priced on both nights of a leg and form the equal-weight control. NOT the live board, which scores ~234.",
+      "universe": "the nightly persisted universe: the top 50 names by market cap of the 250 fetched, written to signals.csv each night, of which a median 44 are priced on both nights of a leg and form the equal-weight control. NOT the live board, which scores ~234.",
       "universe_persisted_n": 50,
-      "universe_n": 43,
+      "universe_n": 44,
       "control_labels": {
         "book": "Top-10 score-weighted",
         "book_ew": "same Top-10, equal weight",
@@ -24,8 +24,8 @@
       "costs_in_headline": false
     },
     "from": "2026-08-05",
-    "to": "2026-09-15",
-    "legs": 41,
+    "to": "2026-09-16",
+    "legs": 42,
     "exclusions": {
       "legs_unusable": 3,
       "legs_before_boundary": 1,
@@ -325,64 +325,71 @@
         "book_ew": 29.6866,
         "universe_ew": 56.0916,
         "benchmark": 19.9797
+      },
+      {
+        "date": "2026-09-16",
+        "book": 27.2682,
+        "book_ew": 25.8024,
+        "universe_ew": 56.391,
+        "benchmark": 18.6049
       }
     ],
     "totals": {
-      "book": 30.28,
-      "book_ew": 29.69,
-      "universe_ew": 56.09,
-      "benchmark": 19.98,
-      "exec_adjusted": 28.44
+      "book": 27.27,
+      "book_ew": 25.8,
+      "universe_ew": 56.39,
+      "benchmark": 18.6,
+      "exec_adjusted": 25.38
     },
     "decomposition": {
-      "weighting_pp": 0.6,
-      "selection_pp": -26.4,
-      "active_pp": -25.81,
-      "excess_vs_btc_pp": 10.3,
-      "excess_vs_ew_pp": -25.81,
-      "basis": "A = score-weighted Top-10; B = the same ten names, equal weight; C = the nightly persisted universe (50 names, median 43 priced on both nights), equal weight; D = BTC. A-B = weighting effect; B-C = selection effect versus the nightly 50-name opportunity set; A-C = total active effect versus that set. C is NOT the ~234-name live board. All four are chained over the same usable legs from the same price endpoints; B is exact, the same selection under the same missing-name rule."
+      "weighting_pp": 1.47,
+      "selection_pp": -30.59,
+      "active_pp": -29.12,
+      "excess_vs_btc_pp": 8.66,
+      "excess_vs_ew_pp": -29.12,
+      "basis": "A = score-weighted Top-10; B = the same ten names, equal weight; C = the nightly persisted universe (50 names, median 44 priced on both nights), equal weight; D = BTC. A-B = weighting effect; B-C = selection effect versus the nightly 50-name opportunity set; A-C = total active effect versus that set. C is NOT the ~234-name live board. All four are chained over the same usable legs from the same price endpoints; B is exact, the same selection under the same missing-name rule."
     },
     "stats": {
       "nights_positive": 24,
       "nights_beat_btc": 20,
       "nights_beat_universe_ew": 16,
-      "nights_beat_book_ew": 22,
+      "nights_beat_book_ew": 23,
       "max_drawdown_pct": {
-        "book": -12.22,
-        "book_ew": -12.37,
+        "book": -13.95,
+        "book_ew": -14.76,
         "universe_ew": -5.6,
-        "benchmark": -5.42
+        "benchmark": -6.36
       },
       "daily_vol_pct": {
-        "book": 3.584,
-        "book_ew": 3.509,
-        "universe_ew": 3.158,
-        "benchmark": 2.392
+        "book": 3.57,
+        "book_ew": 3.513,
+        "universe_ew": 3.123,
+        "benchmark": 2.376
       },
-      "beta_to_btc": 0.9751,
-      "alpha_daily_pct": 0.2475,
-      "residual_pp": 10.15,
-      "t_naive": 0.564,
-      "t_hac": 0.663,
+      "beta_to_btc": 0.985,
+      "alpha_daily_pct": 0.2088,
+      "residual_pp": 8.77,
+      "t_naive": 0.488,
+      "t_hac": 0.568,
       "hac_lag": 3,
       "bootstrap": {
         "ci90_pp": [
-          -13.94,
-          38.74
+          -15.38,
+          37.47
         ],
         "ci95_pp": [
-          -17.97,
-          43.99
+          -20.53,
+          43.45
         ],
-        "p_below_zero": 0.2315,
+        "p_below_zero": 0.259,
         "block": 3,
         "draws": 4000
       },
-      "turnover_oneway_mean_pct": 13.96,
-      "turnover_oneway_total_pct": 572.4,
+      "turnover_oneway_mean_pct": 14.31,
+      "turnover_oneway_total_pct": 601.0,
       "exec_bps_oneway": 25.0,
       "annualized": false,
-      "inference_note": "41 overnight legs cannot establish a residual effect, and cannot establish its absence either. The sign is stable across resampling schemes; the interval is not: a Newey-West t near 0.663 and a block-bootstrap 95% interval that includes zero under the short-block specification. Reported as WEAK / NOT ESTABLISHED."
+      "inference_note": "42 overnight legs cannot establish a residual effect, and cannot establish its absence either. The sign is stable across resampling schemes; the interval is not: a Newey-West t near 0.568 and a block-bootstrap 95% interval that includes zero under the short-block specification. Reported as WEAK / NOT ESTABLISHED."
     },
     "contribution": {
       "linking": "carino",
@@ -390,99 +397,93 @@
       "rows": [
         {
           "symbol": "ZEC",
-          "pp": 12.54,
-          "share_of_gain": 0.3094,
-          "legs_held": 41
+          "pp": 13.61,
+          "share_of_gain": 0.3415,
+          "legs_held": 42
         },
         {
           "symbol": "HYPE",
           "pp": 5.05,
-          "share_of_gain": 0.1245,
-          "legs_held": 41
+          "share_of_gain": 0.1269,
+          "legs_held": 42
         },
         {
           "symbol": "ARB",
-          "pp": 3.04,
-          "share_of_gain": 0.0751,
+          "pp": 3.01,
+          "share_of_gain": 0.0755,
           "legs_held": 6
         },
         {
           "symbol": "ENA",
-          "pp": 2.78,
-          "share_of_gain": 0.0685,
+          "pp": 2.74,
+          "share_of_gain": 0.0688,
           "legs_held": 13
         },
         {
           "symbol": "PUMP",
-          "pp": 2.73,
-          "share_of_gain": 0.0673,
+          "pp": 2.69,
+          "share_of_gain": 0.0676,
           "legs_held": 3
         },
         {
           "symbol": "LINK",
-          "pp": 2.62,
-          "share_of_gain": 0.0647,
+          "pp": 2.59,
+          "share_of_gain": 0.065,
           "legs_held": 32
         },
         {
           "symbol": "XMR",
-          "pp": 2.48,
-          "share_of_gain": 0.0612,
-          "legs_held": 33
+          "pp": 2.24,
+          "share_of_gain": 0.0562,
+          "legs_held": 34
         },
         {
           "symbol": "ETHFI",
-          "pp": 1.89,
-          "share_of_gain": 0.0466,
+          "pp": 1.86,
+          "share_of_gain": 0.0468,
           "legs_held": 1
         },
         {
           "symbol": "WBT",
-          "pp": 1.49,
-          "share_of_gain": 0.0369,
-          "legs_held": 38
-        },
-        {
-          "symbol": "SOL",
-          "pp": 1.33,
-          "share_of_gain": 0.0327,
-          "legs_held": 26
+          "pp": 1.27,
+          "share_of_gain": 0.0319,
+          "legs_held": 39
         },
         {
           "symbol": "BTC",
-          "pp": 1.24,
-          "share_of_gain": 0.0306,
+          "pp": 1.23,
+          "share_of_gain": 0.0308,
           "legs_held": 10
         },
         {
-          "symbol": "BNB",
-          "pp": 0.68,
-          "share_of_gain": 0.0167,
-          "legs_held": 20
+          "symbol": "SOL",
+          "pp": 1.03,
+          "share_of_gain": 0.0258,
+          "legs_held": 27
         },
         {
-          "symbol": "ETH",
-          "pp": 0.6,
-          "share_of_gain": 0.0149,
-          "legs_held": 21
+          "symbol": "BNB",
+          "pp": 0.67,
+          "share_of_gain": 0.0168,
+          "legs_held": 20
         },
         {
           "symbol": "PEPE",
           "pp": 0.45,
-          "share_of_gain": 0.0112,
+          "share_of_gain": 0.0113,
           "legs_held": 1
         },
         {
           "symbol": "NEAR",
           "pp": 0.45,
-          "share_of_gain": 0.0111,
+          "share_of_gain": 0.0112,
           "legs_held": 3
         },
         {
-          "symbol": "XRP",
-          "pp": 0.35,
-          "share_of_gain": 0.0087,
-          "legs_held": 9
+          "symbol": "ETH",
+          "pp": 0.34,
+          "share_of_gain": 0.0086,
+          "legs_held": 22
         },
         {
           "symbol": "TRX",
@@ -492,15 +493,9 @@
         },
         {
           "symbol": "FIGR_HELOC",
-          "pp": 0.3,
-          "share_of_gain": 0.0073,
+          "pp": 0.29,
+          "share_of_gain": 0.0074,
           "legs_held": 14
-        },
-        {
-          "symbol": "UNI",
-          "pp": 0.19,
-          "share_of_gain": 0.0046,
-          "legs_held": 10
         },
         {
           "symbol": "DOGE",
@@ -509,10 +504,10 @@
           "legs_held": 3
         },
         {
-          "symbol": "PONS",
-          "pp": -0.3,
+          "symbol": "XRP",
+          "pp": -0.37,
           "share_of_gain": 0.0,
-          "legs_held": 2
+          "legs_held": 10
         },
         {
           "symbol": "ADA",
@@ -527,8 +522,14 @@
           "legs_held": 2
         },
         {
+          "symbol": "UNI",
+          "pp": -0.51,
+          "share_of_gain": 0.0,
+          "legs_held": 11
+        },
+        {
           "symbol": "WLD",
-          "pp": -0.59,
+          "pp": -0.58,
           "share_of_gain": 0.0,
           "legs_held": 1
         },
@@ -540,51 +541,57 @@
         },
         {
           "symbol": "RAY",
-          "pp": -0.68,
+          "pp": -0.67,
           "share_of_gain": 0.0,
           "legs_held": 1
         },
         {
           "symbol": "PENGU",
-          "pp": -0.76,
+          "pp": -0.75,
           "share_of_gain": 0.0,
           "legs_held": 2
         },
         {
           "symbol": "AAVE",
-          "pp": -0.95,
+          "pp": -0.94,
           "share_of_gain": 0.0,
           "legs_held": 2
         },
         {
-          "symbol": "XLM",
-          "pp": -1.04,
+          "symbol": "PONS",
+          "pp": -1.01,
           "share_of_gain": 0.0,
-          "legs_held": 1
+          "legs_held": 3
         },
         {
           "symbol": "VVV",
-          "pp": -1.21,
+          "pp": -1.19,
           "share_of_gain": 0.0,
           "legs_held": 1
         },
         {
           "symbol": "LEO",
-          "pp": -1.28,
+          "pp": -1.27,
           "share_of_gain": 0.0,
           "legs_held": 12
         },
         {
           "symbol": "RAIN",
-          "pp": -1.85,
+          "pp": -1.83,
           "share_of_gain": 0.0,
           "legs_held": 35
+        },
+        {
+          "symbol": "XLM",
+          "pp": -1.89,
+          "share_of_gain": 0.0,
+          "legs_held": 2
         }
       ],
-      "reconciles_to_pp": 30.28,
+      "reconciles_to_pp": 27.27,
       "residual_pp": -0.0,
-      "top1_share_of_gain": 0.3094,
-      "top5_share_of_gain": 0.6449,
+      "top1_share_of_gain": 0.3415,
+      "top5_share_of_gain": 0.6803,
       "names_ever_held": 32
     },
     "nights": {
@@ -611,126 +618,126 @@
         }
       ],
       "top3_pp": 28.13,
-      "top3_share_of_arithmetic_sum": 0.9689,
-      "arithmetic_sum_pp": 29.03,
+      "top3_share_of_arithmetic_sum": 1.0528,
+      "arithmetic_sum_pp": 26.72,
       "basis": "shares of the arithmetic sum of nightly returns, not of the chained total"
     },
     "holdings": [
       {
         "symbol": "ZEC",
-        "target_weight": 0.146,
-        "live_weight": 0.1481,
-        "drift": 0.0022,
-        "return": -0.0022,
+        "target_weight": 0.1377,
+        "live_weight": 0.1519,
+        "drift": 0.0142,
+        "return": 0.0773,
         "status": "priced",
-        "contribution_pp": 12.54,
-        "legs_held": 41
+        "contribution_pp": 13.61,
+        "legs_held": 42
       },
       {
         "symbol": "HYPE",
-        "target_weight": 0.127,
-        "live_weight": 0.1275,
-        "drift": 0.0005,
-        "return": -0.013,
+        "target_weight": 0.1185,
+        "live_weight": 0.1219,
+        "drift": 0.0034,
+        "return": 0.0051,
         "status": "priced",
         "contribution_pp": 5.05,
-        "legs_held": 41
+        "legs_held": 42
+      },
+      {
+        "symbol": "UNI",
+        "target_weight": 0.1157,
+        "live_weight": 0.1122,
+        "drift": -0.0035,
+        "return": -0.0523,
+        "status": "priced",
+        "contribution_pp": -0.51,
+        "legs_held": 11
       },
       {
         "symbol": "WBT",
-        "target_weight": 0.1182,
-        "live_weight": 0.1188,
-        "drift": 0.0005,
-        "return": -0.0124,
+        "target_weight": 0.1074,
+        "live_weight": 0.1081,
+        "drift": 0.0007,
+        "return": -0.0167,
         "status": "priced",
-        "contribution_pp": 1.49,
-        "legs_held": 38
+        "contribution_pp": 1.27,
+        "legs_held": 39
       },
       {
         "symbol": "XMR",
-        "target_weight": 0.0978,
-        "live_weight": 0.1001,
-        "drift": 0.0023,
-        "return": 0.0066,
+        "target_weight": 0.0964,
+        "live_weight": 0.0968,
+        "drift": 0.0004,
+        "return": -0.0189,
         "status": "priced",
-        "contribution_pp": 2.48,
-        "legs_held": 33
+        "contribution_pp": 2.24,
+        "legs_held": 34
       },
       {
         "symbol": "ETH",
-        "target_weight": 0.0949,
-        "live_weight": 0.0952,
-        "drift": 0.0003,
-        "return": -0.0134,
+        "target_weight": 0.0895,
+        "live_weight": 0.0894,
+        "drift": -0.0001,
+        "return": -0.0246,
         "status": "priced",
-        "contribution_pp": 0.6,
-        "legs_held": 21
+        "contribution_pp": 0.34,
+        "legs_held": 22
+      },
+      {
+        "symbol": "PONS",
+        "target_weight": 0.0868,
+        "live_weight": 0.0824,
+        "drift": -0.0044,
+        "return": -0.0723,
+        "status": "priced",
+        "contribution_pp": -1.01,
+        "legs_held": 3
       },
       {
         "symbol": "SOL",
-        "target_weight": 0.0876,
-        "live_weight": 0.0883,
-        "drift": 0.0007,
-        "return": -0.0092,
+        "target_weight": 0.084,
+        "live_weight": 0.0835,
+        "drift": -0.0005,
+        "return": -0.0291,
         "status": "priced",
-        "contribution_pp": 1.33,
-        "legs_held": 26
+        "contribution_pp": 1.03,
+        "legs_held": 27
       },
       {
-        "symbol": "RAIN",
-        "target_weight": 0.0861,
-        "live_weight": 0.0769,
-        "drift": -0.0093,
-        "return": -0.1225,
+        "symbol": "XLM",
+        "target_weight": 0.084,
+        "live_weight": 0.0783,
+        "drift": -0.0057,
+        "return": -0.0893,
         "status": "priced",
-        "contribution_pp": -1.85,
-        "legs_held": 35
+        "contribution_pp": -1.89,
+        "legs_held": 2
       },
       {
         "symbol": "XRP",
-        "target_weight": 0.0818,
-        "live_weight": 0.0831,
-        "drift": 0.0014,
-        "return": 0.0,
+        "target_weight": 0.0799,
+        "live_weight": 0.0754,
+        "drift": -0.0045,
+        "return": -0.0786,
         "status": "priced",
-        "contribution_pp": 0.35,
-        "legs_held": 9
-      },
-      {
-        "symbol": "BTC",
-        "target_weight": 0.0803,
-        "live_weight": 0.0807,
-        "drift": 0.0004,
-        "return": -0.0112,
-        "status": "priced",
-        "contribution_pp": 1.24,
+        "contribution_pp": -0.37,
         "legs_held": 10
-      },
-      {
-        "symbol": "BNB",
-        "target_weight": 0.0803,
-        "live_weight": 0.0813,
-        "drift": 0.001,
-        "return": -0.0047,
-        "status": "priced",
-        "contribution_pp": 0.68,
-        "legs_held": 20
       }
     ],
     "concentration": {
       "names": 10,
-      "effective_positions": 9.55,
-      "max_weight": 0.146,
+      "effective_positions": 9.68,
+      "max_weight": 0.1377,
       "max_symbol": "ZEC"
     },
     "edge": {
-      "mean_ic": -0.053,
+      "mean_ic": -0.0576,
       "ci": [
-        -0.1048,
-        -0.0012
+        -0.1089,
+        -0.0062
       ],
-      "t_stat": -2.004,
-      "legs": 41,
+      "t_stat": -2.196,
+      "legs": 42,
       "min_legs": 40,
       "measurable": true,
       "verdict": "Conviction orders the universe backwards \u2014 the ranking is inverted."
@@ -738,546 +745,562 @@
   },
   "basket_note": "EXPERIMENTAL / NON-CANONICAL. The fields latest, basket_*, benchmark_*, exec_adjusted_*, risk, current_holdings, latest_holdings and rows describe build_basket()'s hysteresis basket, benchmarked to total crypto market cap. The Index is `canonical`.",
   "latest": {
-    "date": "2026-09-15",
-    "global_market_cap": 2638849620836.0,
-    "basket_return_since_entry": 20.363,
-    "benchmark_return_since_entry": 14.903,
-    "alpha_since_entry": 5.459,
-    "exec_adjusted_return_since_entry": 20.279,
-    "turnover_bps": 381.0,
+    "date": "2026-09-16",
+    "global_market_cap": 2603804356172.0,
+    "basket_return_since_entry": 22.398,
+    "benchmark_return_since_entry": 13.378,
+    "alpha_since_entry": 9.02,
+    "exec_adjusted_return_since_entry": 22.642,
+    "turnover_bps": 230.0,
     "macro_regime": "RISK-ON",
     "eject_delta": -0.0,
     "ejected_syms": "",
-    "entrants_syms": "OP",
-    "n_holdings": 32,
+    "entrants_syms": "EURCV",
+    "n_holdings": 33,
     "rebalanced": true
   },
-  "basket_total_return": 1.2036,
-  "benchmark_total_return": 1.1485,
-  "exec_adjusted_total_return": 1.2028,
+  "basket_total_return": 1.224,
+  "benchmark_total_return": 1.1332,
+  "exec_adjusted_total_return": 1.2264,
   "macro_regime": "RISK-ON",
   "macro_riskoff_days": 0,
   "eject_alpha_cumulative": 0.0907,
   "sharpe_convention": "DEPRECATED - not displayed. rf=0; daily x sqrt(365); 34 days is not a sample",
   "risk": {
-    "sharpe": 4.116,
+    "sharpe": 3.822,
     "max_drawdown_pct": -12.22,
-    "n_days": 40,
+    "n_days": 41,
     "convention": "rf=0; annualized daily x sqrt(365)"
   },
   "current_holdings": [
     {
       "ticker": "HYPE",
       "entry_price": 52.28,
-      "current_price": 78.92,
-      "target_weight": 0.0513,
-      "return": 0.5096,
-      "live_weight": 0.0644
+      "current_price": 79.32,
+      "target_weight": 0.0508,
+      "return": 0.5172,
+      "live_weight": 0.0628
     },
     {
       "ticker": "ZEC",
       "entry_price": 487.08,
-      "current_price": 1128.88,
-      "target_weight": 0.057,
-      "return": 1.3176,
-      "live_weight": 0.1098
+      "current_price": 1216.16,
+      "target_weight": 0.0565,
+      "return": 1.4968,
+      "live_weight": 0.115
     },
     {
       "ticker": "RAIN",
       "entry_price": 0.01275993,
-      "current_price": 0.01319338,
-      "target_weight": 0.049,
-      "return": 0.034,
-      "live_weight": 0.0421
+      "current_price": 0.01368043,
+      "target_weight": 0.0486,
+      "return": 0.0721,
+      "live_weight": 0.0425
     },
     {
       "ticker": "WBT",
       "entry_price": 55.72,
-      "current_price": 79.52,
-      "target_weight": 0.0371,
-      "return": 0.4271,
-      "live_weight": 0.044
+      "current_price": 78.19,
+      "target_weight": 0.0367,
+      "return": 0.4033,
+      "live_weight": 0.042
     },
     {
       "ticker": "XMR",
       "entry_price": 370.83,
-      "current_price": 514.26,
-      "target_weight": 0.0399,
-      "return": 0.3868,
-      "live_weight": 0.046
+      "current_price": 504.52,
+      "target_weight": 0.0395,
+      "return": 0.3605,
+      "live_weight": 0.0438
     },
     {
       "ticker": "BTC",
       "entry_price": 64333,
-      "current_price": 76883,
-      "target_weight": 0.0314,
-      "return": 0.1951,
-      "live_weight": 0.0312
+      "current_price": 76002,
+      "target_weight": 0.0311,
+      "return": 0.1814,
+      "live_weight": 0.03
     },
     {
       "ticker": "LINK",
       "entry_price": 8.76,
-      "current_price": 11.35,
-      "target_weight": 0.0336,
-      "return": 0.2957,
-      "live_weight": 0.0362
+      "current_price": 10.86,
+      "target_weight": 0.0333,
+      "return": 0.2397,
+      "live_weight": 0.0337
     },
     {
       "ticker": "ETH",
       "entry_price": 1914.33,
-      "current_price": 2473.97,
-      "target_weight": 0.0371,
-      "return": 0.2923,
-      "live_weight": 0.0399
+      "current_price": 2413.04,
+      "target_weight": 0.0367,
+      "return": 0.2605,
+      "live_weight": 0.0377
     },
     {
       "ticker": "SOL",
       "entry_price": 86.37,
-      "current_price": 100.54,
-      "target_weight": 0.045,
-      "return": 0.1641,
-      "live_weight": 0.0436
+      "current_price": 97.61,
+      "target_weight": 0.0446,
+      "return": 0.1301,
+      "live_weight": 0.0411
     },
     {
       "ticker": "ENA",
       "entry_price": 0.131506,
-      "current_price": 0.140578,
-      "target_weight": 0.0382,
-      "return": 0.069,
-      "live_weight": 0.034
+      "current_price": 0.144235,
+      "target_weight": 0.0379,
+      "return": 0.0968,
+      "live_weight": 0.0339
     },
     {
       "ticker": "PONS",
       "entry_price": 0.303882,
-      "current_price": 0.631071,
-      "target_weight": 0.0302,
-      "return": 1.0767,
-      "live_weight": 0.0521
+      "current_price": 0.585447,
+      "target_weight": 0.0299,
+      "return": 0.9266,
+      "live_weight": 0.047
     },
     {
       "ticker": "PROM",
       "entry_price": 6.0,
       "current_price": 0,
-      "target_weight": 0.0251,
+      "target_weight": 0.0249,
       "return": 0.0,
-      "live_weight": 0.0209
+      "live_weight": 0.0203
     },
     {
       "ticker": "HNT",
       "entry_price": 0.643979,
       "current_price": 0,
-      "target_weight": 0.0262,
+      "target_weight": 0.026,
       "return": 0.0,
-      "live_weight": 0.0218
+      "live_weight": 0.0212
     },
     {
       "ticker": "DASH",
       "entry_price": 45.66,
-      "current_price": 52.79,
-      "target_weight": 0.0342,
-      "return": 0.1562,
-      "live_weight": 0.0329
+      "current_price": 53.63,
+      "target_weight": 0.0339,
+      "return": 0.1746,
+      "live_weight": 0.0325
     },
     {
       "ticker": "UNI",
       "entry_price": 5.87,
-      "current_price": 6.69,
-      "target_weight": 0.0388,
-      "return": 0.1397,
-      "live_weight": 0.0368
+      "current_price": 6.34,
+      "target_weight": 0.0384,
+      "return": 0.0801,
+      "live_weight": 0.0338
     },
     {
       "ticker": "CASHCAT",
       "entry_price": 0.251976,
-      "current_price": 0.156979,
-      "target_weight": 0.0296,
-      "return": -0.377,
-      "live_weight": 0.0153
+      "current_price": 0.159983,
+      "target_weight": 0.0294,
+      "return": -0.3651,
+      "live_weight": 0.0152
     },
     {
       "ticker": "ARB",
       "entry_price": 0.10756,
-      "current_price": 0.135165,
-      "target_weight": 0.0342,
-      "return": 0.2566,
-      "live_weight": 0.0357
+      "current_price": 0.161995,
+      "target_weight": 0.035,
+      "return": 0.5061,
+      "live_weight": 0.043
     },
     {
       "ticker": "SKR",
       "entry_price": 0.02093987,
-      "current_price": 0.01755962,
-      "target_weight": 0.0274,
-      "return": -0.1614,
-      "live_weight": 0.0191
+      "current_price": 0.01795045,
+      "target_weight": 0.0271,
+      "return": -0.1428,
+      "live_weight": 0.0189
     },
     {
       "ticker": "EGLD",
       "entry_price": 4.92,
-      "current_price": 4.01,
-      "target_weight": 0.0279,
-      "return": -0.185,
-      "live_weight": 0.0189
+      "current_price": 3.82,
+      "target_weight": 0.0277,
+      "return": -0.2236,
+      "live_weight": 0.0175
     },
     {
       "ticker": "USELESS",
       "entry_price": 0.150018,
-      "current_price": 0.203027,
-      "target_weight": 0.0296,
-      "return": 0.3534,
-      "live_weight": 0.0333
+      "current_price": 0.234681,
+      "target_weight": 0.0294,
+      "return": 0.5644,
+      "live_weight": 0.0375
     },
     {
       "ticker": "MARSCOIN",
       "entry_price": 0.114926,
       "current_price": 0,
-      "target_weight": 0.0274,
+      "target_weight": 0.0271,
       "return": 0.0,
-      "live_weight": 0.0228
+      "live_weight": 0.0221
     },
     {
       "ticker": "ZEN",
       "entry_price": 6.33,
-      "current_price": 6.22,
-      "target_weight": 0.0279,
-      "return": -0.0174,
-      "live_weight": 0.0228
+      "current_price": 6.47,
+      "target_weight": 0.0277,
+      "return": 0.0221,
+      "live_weight": 0.0231
     },
     {
       "ticker": "\u725b\u6765",
       "entry_price": 0.114403,
-      "current_price": 0.109866,
-      "target_weight": 0.0268,
-      "return": -0.0397,
+      "current_price": 0.113026,
+      "target_weight": 0.0266,
+      "return": -0.012,
       "live_weight": 0.0214
     },
     {
       "ticker": "INJ",
       "entry_price": 6.23,
-      "current_price": 5.91,
-      "target_weight": 0.0331,
-      "return": -0.0514,
-      "live_weight": 0.0261
+      "current_price": 5.4,
+      "target_weight": 0.0328,
+      "return": -0.1332,
+      "live_weight": 0.0232
     },
     {
       "ticker": "FET",
       "entry_price": 0.181916,
-      "current_price": 0.15723,
-      "target_weight": 0.0222,
-      "return": -0.1357,
-      "live_weight": 0.016
+      "current_price": 0.151478,
+      "target_weight": 0.022,
+      "return": -0.1673,
+      "live_weight": 0.0149
     },
     {
       "ticker": "FORM",
       "entry_price": 0.307162,
       "current_price": 0,
-      "target_weight": 0.0222,
+      "target_weight": 0.022,
       "return": 0.0,
-      "live_weight": 0.0185
+      "live_weight": 0.0179
     },
     {
       "ticker": "STONK",
       "entry_price": 0.22175,
-      "current_price": 0.187905,
-      "target_weight": 0.0257,
-      "return": -0.1526,
-      "live_weight": 0.0181
+      "current_price": 0.174082,
+      "target_weight": 0.0254,
+      "return": -0.215,
+      "live_weight": 0.0163
     },
     {
       "ticker": "MET",
       "entry_price": 0.276865,
-      "current_price": 0.202509,
-      "target_weight": 0.0217,
-      "return": -0.2686,
-      "live_weight": 0.0132
+      "current_price": 0,
+      "target_weight": 0.0215,
+      "return": 0.0,
+      "live_weight": 0.0175
     },
     {
       "ticker": "\u9f99\u867e",
       "entry_price": 0.13403,
-      "current_price": 0.165898,
-      "target_weight": 0.0268,
-      "return": 0.2378,
-      "live_weight": 0.0276
+      "current_price": 0.209453,
+      "target_weight": 0.0266,
+      "return": 0.5627,
+      "live_weight": 0.0339
     },
     {
       "ticker": "RUNE",
       "entry_price": 0.517745,
-      "current_price": 0.505576,
-      "target_weight": 0.0182,
-      "return": -0.0235,
-      "live_weight": 0.0148
+      "current_price": 0.489058,
+      "target_weight": 0.0181,
+      "return": -0.0554,
+      "live_weight": 0.0139
     },
     {
       "ticker": "GLM",
       "entry_price": 0.115856,
-      "current_price": 0.116406,
-      "target_weight": 0.0131,
-      "return": 0.0047,
-      "live_weight": 0.0109
+      "current_price": 0,
+      "target_weight": 0.013,
+      "return": 0.0,
+      "live_weight": 0.0106
     },
     {
       "ticker": "OP",
       "entry_price": 0.098788,
-      "current_price": 0.098788,
-      "target_weight": 0.012,
+      "current_price": 0.093104,
+      "target_weight": 0.009,
+      "return": -0.0575,
+      "live_weight": 0.0069
+    },
+    {
+      "ticker": "EURCV",
+      "entry_price": 1.15,
+      "current_price": 1.15,
+      "target_weight": 0.0107,
       "return": 0.0,
-      "live_weight": 0.01
+      "live_weight": 0.0087
     }
   ],
   "latest_holdings": [
     {
       "ticker": "HYPE",
       "entry_price": 52.28,
-      "current_price": 78.92,
-      "target_weight": 0.0513,
-      "live_weight": 0.0774,
-      "return": 0.5096
+      "current_price": 79.32,
+      "target_weight": 0.0508,
+      "live_weight": 0.0771,
+      "return": 0.5172
     },
     {
       "ticker": "ZEC",
       "entry_price": 487.08,
-      "current_price": 1128.88,
-      "target_weight": 0.057,
-      "live_weight": 0.1321,
-      "return": 1.3176
+      "current_price": 1216.16,
+      "target_weight": 0.0565,
+      "live_weight": 0.1411,
+      "return": 1.4968
     },
     {
       "ticker": "RAIN",
       "entry_price": 0.01275993,
-      "current_price": 0.01319338,
-      "target_weight": 0.049,
-      "live_weight": 0.0507,
-      "return": 0.034
+      "current_price": 0.01368043,
+      "target_weight": 0.0486,
+      "live_weight": 0.0521,
+      "return": 0.0721
     },
     {
       "ticker": "WBT",
       "entry_price": 55.72,
-      "current_price": 79.52,
-      "target_weight": 0.0371,
-      "live_weight": 0.053,
-      "return": 0.4271
+      "current_price": 78.19,
+      "target_weight": 0.0367,
+      "live_weight": 0.0515,
+      "return": 0.4033
     },
     {
       "ticker": "XMR",
       "entry_price": 370.83,
-      "current_price": 514.26,
-      "target_weight": 0.0399,
-      "live_weight": 0.0553,
-      "return": 0.3868
+      "current_price": 504.52,
+      "target_weight": 0.0395,
+      "live_weight": 0.0537,
+      "return": 0.3605
     },
     {
       "ticker": "BTC",
       "entry_price": 64333,
-      "current_price": 76883,
-      "target_weight": 0.0314,
-      "live_weight": 0.0375,
-      "return": 0.1951
+      "current_price": 76002,
+      "target_weight": 0.0311,
+      "live_weight": 0.0367,
+      "return": 0.1814
     },
     {
       "ticker": "LINK",
       "entry_price": 8.76,
-      "current_price": 11.35,
-      "target_weight": 0.0336,
-      "live_weight": 0.0435,
-      "return": 0.2957
+      "current_price": 10.86,
+      "target_weight": 0.0333,
+      "live_weight": 0.0413,
+      "return": 0.2397
     },
     {
       "ticker": "ETH",
       "entry_price": 1914.33,
-      "current_price": 2473.97,
-      "target_weight": 0.0371,
-      "live_weight": 0.048,
-      "return": 0.2923
+      "current_price": 2413.04,
+      "target_weight": 0.0367,
+      "live_weight": 0.0463,
+      "return": 0.2605
     },
     {
       "ticker": "SOL",
       "entry_price": 86.37,
-      "current_price": 100.54,
-      "target_weight": 0.045,
-      "live_weight": 0.0524,
-      "return": 0.1641
+      "current_price": 97.61,
+      "target_weight": 0.0446,
+      "live_weight": 0.0504,
+      "return": 0.1301
     },
     {
       "ticker": "ENA",
       "entry_price": 0.131506,
-      "current_price": 0.140578,
-      "target_weight": 0.0382,
-      "live_weight": 0.0408,
-      "return": 0.069
+      "current_price": 0.144235,
+      "target_weight": 0.0379,
+      "live_weight": 0.0416,
+      "return": 0.0968
     },
     {
       "ticker": "PONS",
       "entry_price": 0.303882,
-      "current_price": 0.631071,
-      "target_weight": 0.0302,
-      "live_weight": 0.0627,
-      "return": 1.0767
+      "current_price": 0.585447,
+      "target_weight": 0.0299,
+      "live_weight": 0.0576,
+      "return": 0.9266
     },
     {
       "ticker": "PROM",
       "entry_price": 6.0,
       "current_price": 0,
-      "target_weight": 0.0251,
-      "live_weight": 0.0251,
+      "target_weight": 0.0249,
+      "live_weight": 0.0249,
       "return": 0.0
     },
     {
       "ticker": "HNT",
       "entry_price": 0.643979,
       "current_price": 0,
-      "target_weight": 0.0262,
-      "live_weight": 0.0262,
+      "target_weight": 0.026,
+      "live_weight": 0.026,
       "return": 0.0
     },
     {
       "ticker": "DASH",
       "entry_price": 45.66,
-      "current_price": 52.79,
-      "target_weight": 0.0342,
-      "live_weight": 0.0395,
-      "return": 0.1562
+      "current_price": 53.63,
+      "target_weight": 0.0339,
+      "live_weight": 0.0398,
+      "return": 0.1746
     },
     {
       "ticker": "UNI",
       "entry_price": 5.87,
-      "current_price": 6.69,
-      "target_weight": 0.0388,
-      "live_weight": 0.0442,
-      "return": 0.1397
+      "current_price": 6.34,
+      "target_weight": 0.0384,
+      "live_weight": 0.0415,
+      "return": 0.0801
     },
     {
       "ticker": "CASHCAT",
       "entry_price": 0.251976,
-      "current_price": 0.156979,
-      "target_weight": 0.0296,
-      "live_weight": 0.0184,
-      "return": -0.377
+      "current_price": 0.159983,
+      "target_weight": 0.0294,
+      "live_weight": 0.0187,
+      "return": -0.3651
     },
     {
       "ticker": "ARB",
       "entry_price": 0.10756,
-      "current_price": 0.135165,
-      "target_weight": 0.0342,
-      "live_weight": 0.043,
-      "return": 0.2566
+      "current_price": 0.161995,
+      "target_weight": 0.035,
+      "live_weight": 0.0527,
+      "return": 0.5061
     },
     {
       "ticker": "SKR",
       "entry_price": 0.02093987,
-      "current_price": 0.01755962,
-      "target_weight": 0.0274,
-      "live_weight": 0.023,
-      "return": -0.1614
+      "current_price": 0.01795045,
+      "target_weight": 0.0271,
+      "live_weight": 0.0232,
+      "return": -0.1428
     },
     {
       "ticker": "EGLD",
       "entry_price": 4.92,
-      "current_price": 4.01,
-      "target_weight": 0.0279,
-      "live_weight": 0.0227,
-      "return": -0.185
+      "current_price": 3.82,
+      "target_weight": 0.0277,
+      "live_weight": 0.0215,
+      "return": -0.2236
     },
     {
       "ticker": "USELESS",
       "entry_price": 0.150018,
-      "current_price": 0.203027,
-      "target_weight": 0.0296,
-      "live_weight": 0.0401,
-      "return": 0.3534
+      "current_price": 0.234681,
+      "target_weight": 0.0294,
+      "live_weight": 0.046,
+      "return": 0.5644
     },
     {
       "ticker": "MARSCOIN",
       "entry_price": 0.114926,
       "current_price": 0,
-      "target_weight": 0.0274,
-      "live_weight": 0.0274,
+      "target_weight": 0.0271,
+      "live_weight": 0.0271,
       "return": 0.0
     },
     {
       "ticker": "ZEN",
       "entry_price": 6.33,
-      "current_price": 6.22,
-      "target_weight": 0.0279,
-      "live_weight": 0.0274,
-      "return": -0.0174
+      "current_price": 6.47,
+      "target_weight": 0.0277,
+      "live_weight": 0.0283,
+      "return": 0.0221
     },
     {
       "ticker": "\u725b\u6765",
       "entry_price": 0.114403,
-      "current_price": 0.109866,
-      "target_weight": 0.0268,
-      "live_weight": 0.0257,
-      "return": -0.0397
+      "current_price": 0.113026,
+      "target_weight": 0.0266,
+      "live_weight": 0.0263,
+      "return": -0.012
     },
     {
       "ticker": "INJ",
       "entry_price": 6.23,
-      "current_price": 5.91,
-      "target_weight": 0.0331,
-      "live_weight": 0.0314,
-      "return": -0.0514
+      "current_price": 5.4,
+      "target_weight": 0.0328,
+      "live_weight": 0.0284,
+      "return": -0.1332
     },
     {
       "ticker": "FET",
       "entry_price": 0.181916,
-      "current_price": 0.15723,
-      "target_weight": 0.0222,
-      "live_weight": 0.0192,
-      "return": -0.1357
+      "current_price": 0.151478,
+      "target_weight": 0.022,
+      "live_weight": 0.0183,
+      "return": -0.1673
     },
     {
       "ticker": "FORM",
       "entry_price": 0.307162,
       "current_price": 0,
-      "target_weight": 0.0222,
-      "live_weight": 0.0222,
+      "target_weight": 0.022,
+      "live_weight": 0.022,
       "return": 0.0
     },
     {
       "ticker": "STONK",
       "entry_price": 0.22175,
-      "current_price": 0.187905,
-      "target_weight": 0.0257,
-      "live_weight": 0.0218,
-      "return": -0.1526
+      "current_price": 0.174082,
+      "target_weight": 0.0254,
+      "live_weight": 0.0199,
+      "return": -0.215
     },
     {
       "ticker": "MET",
       "entry_price": 0.276865,
-      "current_price": 0.202509,
-      "target_weight": 0.0217,
-      "live_weight": 0.0159,
-      "return": -0.2686
+      "current_price": 0,
+      "target_weight": 0.0215,
+      "live_weight": 0.0215,
+      "return": 0.0
     },
     {
       "ticker": "\u9f99\u867e",
       "entry_price": 0.13403,
-      "current_price": 0.165898,
-      "target_weight": 0.0268,
-      "live_weight": 0.0332,
-      "return": 0.2378
+      "current_price": 0.209453,
+      "target_weight": 0.0266,
+      "live_weight": 0.0416,
+      "return": 0.5627
     },
     {
       "ticker": "RUNE",
       "entry_price": 0.517745,
-      "current_price": 0.505576,
-      "target_weight": 0.0182,
-      "live_weight": 0.0178,
-      "return": -0.0235
+      "current_price": 0.489058,
+      "target_weight": 0.0181,
+      "live_weight": 0.0171,
+      "return": -0.0554
     },
     {
       "ticker": "GLM",
       "entry_price": 0.115856,
-      "current_price": 0.116406,
-      "target_weight": 0.0131,
-      "live_weight": 0.0132,
-      "return": 0.0047
+      "current_price": 0,
+      "target_weight": 0.013,
+      "live_weight": 0.013,
+      "return": 0.0
     },
     {
       "ticker": "OP",
       "entry_price": 0.098788,
-      "current_price": 0.098788,
-      "target_weight": 0.012,
-      "live_weight": 0.012,
+      "current_price": 0.093104,
+      "target_weight": 0.009,
+      "live_weight": 0.0085,
+      "return": -0.0575
+    },
+    {
+      "ticker": "EURCV",
+      "entry_price": 1.15,
+      "current_price": 1.15,
+      "target_weight": 0.0107,
+      "live_weight": 0.0107,
       "return": 0.0
     }
   ],
@@ -1839,17 +1862,32 @@
     },
     {
       "date": "2026-09-15",
-      "global_market_cap": 2638849620836.0,
-      "basket_return_since_entry": 20.363,
-      "benchmark_return_since_entry": 14.903,
-      "alpha_since_entry": 5.459,
-      "exec_adjusted_return_since_entry": 20.279,
-      "turnover_bps": 381.0,
+      "global_market_cap": "2638849620836.0",
+      "basket_return_since_entry": "20.363",
+      "benchmark_return_since_entry": "14.903",
+      "alpha_since_entry": "5.459",
+      "exec_adjusted_return_since_entry": "20.279",
+      "turnover_bps": "381.0",
+      "macro_regime": "RISK-ON",
+      "eject_delta": "-0.0",
+      "ejected_syms": "",
+      "entrants_syms": "OP",
+      "n_holdings": "32",
+      "rebalanced": "True"
+    },
+    {
+      "date": "2026-09-16",
+      "global_market_cap": 2603804356172.0,
+      "basket_return_since_entry": 22.398,
+      "benchmark_return_since_entry": 13.378,
+      "alpha_since_entry": 9.02,
+      "exec_adjusted_return_since_entry": 22.642,
+      "turnover_bps": 230.0,
       "macro_regime": "RISK-ON",
       "eject_delta": -0.0,
       "ejected_syms": "",
-      "entrants_syms": "OP",
-      "n_holdings": 32,
+      "entrants_syms": "EURCV",
+      "n_holdings": 33,
       "rebalanced": true
     }
   ]
