@@ -106,6 +106,40 @@ def _strip_comments(js: str) -> str:
     return "\n".join(l for l in out.splitlines() if not l.lstrip().startswith("//"))
 
 
+def run_js_states(cases: list) -> list:
+    """Execute the real frontend's RAW-vs-APPLIED and DOMINANCE helpers.
+
+    AUDIT-PHASE2A. Each case is {"mc", "vol", "fdv"}; the driver derives depth first
+    because liquidityState needs it, exactly as the caller does.
+    """
+    node = shutil.which("node")
+    assert node, "node is required to execute the frontend port"
+    driver = extract_port() + """
+const CASES = %s;
+const out = CASES.map(c => {
+  const d = depthState(c.mc);
+  const l = liquidityState(c.vol === undefined ? null : c.vol, c.mc, d.applied);
+  const s = supplyState(c.fdv === undefined ? null : c.fdv, c.mc);
+  const dom = chainDominance({DEPTH: d.applied, CONFIRM: c.cm, LIQUIDITY: l.applied,
+                              SUPPLY: s.applied, FUNDING: c.perp});
+  return {depth: d, liq: l, sup: s,
+          dom: {factor: dom.factor, share: dom.share, magnitude: dom.magnitude,
+                signed: dom.signed, total: dom.total, warn: dom.warn}};
+});
+console.log(JSON.stringify(out));
+""" % json.dumps(cases)
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(driver)
+        path = fh.name
+    try:
+        res = subprocess.run([node, path], capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            raise AssertionError(f"node failed running the state port: {res.stderr.strip()}")
+        return json.loads(res.stdout.strip().splitlines()[-1])
+    finally:
+        os.unlink(path)
+
+
 def run_js_feed(cases: list) -> list:
     """Execute the real frontend's ARTIFACT TRANSPORT over `cases`.
 
@@ -487,6 +521,79 @@ def check_the_transport_covers_what_the_nightly_scored():
     assert not off, f"the browser would apply a different multiplier on: {off[:20]}"
 
 
+# Every branch of every state helper, plus the dominance control case. Market caps are
+# chosen to straddle the bypass knot and the depth cap, not to sit on them.
+STATE_CASES = [
+    {"mc": 1e12, "vol": 4.5e11, "fdv": None, "cm": 0.55, "perp": 1.0},     # depth cap
+    {"mc": 3.25e9, "vol": 5.8e7, "fdv": 3.7e9, "cm": 0.398, "perp": 1.0},  # HBAR-shaped
+    {"mc": 1.2e8, "vol": 0.0, "fdv": None, "cm": 0.30, "perp": 1.0},       # zero volume
+    {"mc": 1.2e8, "vol": None, "fdv": 1.2e8, "cm": 0.30, "perp": 1.0},     # no volume
+    {"mc": 1e10, "vol": 1e4, "fdv": 1e10, "cm": 0.7, "perp": 1.0},         # bypass, thin
+    {"mc": 8e8, "vol": 3.6e8, "fdv": 2.4e9, "cm": 0.9, "perp": 0.94},      # curve peak-ish
+    {"mc": 8e8, "vol": 1.2e9, "fdv": 8e8, "cm": 0.5, "perp": 1.15},        # wash band
+    {"mc": 0, "vol": 1e6, "fdv": None, "cm": 0.5, "perp": 1.0},            # no mcap
+    {"mc": 2.3e10, "vol": 2.7e9, "fdv": 2.3e10, "cm": 1.0, "perp": 1.071}, # ZEC control
+    {"mc": 1e9, "vol": 1e9, "fdv": 1e9, "cm": 1.0, "perp": 1.0},           # all neutral
+]
+
+
+def check_state_and_dominance_parity():
+    """Raw, applied, state and the dominance readout must match on both sides."""
+    fe_all = run_js_states(STATE_CASES)
+    for c, fe in zip(STATE_CASES, fe_all):
+        d = nightly.depth_state(c["mc"])
+        l = nightly.liquidity_state(c["vol"], c["mc"], d["applied"])
+        s = nightly.supply_state(c["fdv"], c["mc"])
+        dom = nightly.chain_dominance({"DEPTH": d["applied"], "CONFIRM": c["cm"],
+                                       "LIQUIDITY": l["applied"], "SUPPLY": s["applied"],
+                                       "FUNDING": c["perp"]})
+        tag = f"mc={c['mc']} vol={c['vol']}"
+        assert fe["depth"]["state"] == d["state"], f"{tag}: depth state"
+        assert _close(fe["depth"]["raw"], d["raw"]), f"{tag}: depth raw"
+        assert _close(fe["depth"]["applied"], d["applied"]), f"{tag}: depth applied"
+        assert fe["liq"]["state"] == l["state"], f"{tag}: liq state {fe['liq']['state']}"
+        assert _close(fe["liq"]["raw"], l["raw"]), f"{tag}: liq raw"
+        assert _close(fe["liq"]["applied"], l["applied"]), f"{tag}: liq applied"
+        assert fe["liq"]["bypass"] == l["bypass"], f"{tag}: bypass"
+        assert fe["sup"]["state"] == s["state"], f"{tag}: supply state"
+        assert _close(fe["sup"]["applied"], s["applied"]), f"{tag}: supply applied"
+        assert _close(fe["sup"]["drag"], s["drag"]), f"{tag}: supply drag"
+        assert (fe["dom"]["factor"] or None) == dom["factor"], f"{tag}: dom factor"
+        assert _close(fe["dom"]["share"], dom["share"]), f"{tag}: dom share"
+        assert _close(fe["dom"]["magnitude"], dom["magnitude"]), f"{tag}: dom magnitude"
+        assert _close(fe["dom"]["signed"], dom["signed"]), f"{tag}: dom signed"
+        assert fe["dom"]["warn"] == dom["warn"], f"{tag}: dom warn"
+
+
+def check_the_declared_ruler_matches_across_the_port():
+    """SCORING is declared twice and must be the same object on both sides."""
+    fe = json.loads(run_js_raw("console.log(JSON.stringify(SCORING));"))
+    assert fe == nightly.SCORING, "the JS and Python rulers disagree"
+    order = json.loads(run_js_raw("console.log(JSON.stringify(DOM_FACTORS));"))
+    assert tuple(order) == nightly.DOM_FACTORS
+
+
+def run_js_raw(tail: str) -> str:
+    node = shutil.which("node")
+    assert node, "node is required to execute the frontend port"
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(extract_port() + "\n" + tail)
+        path = fh.name
+    try:
+        res = subprocess.run([node, path], capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            raise AssertionError(f"node failed: {res.stderr.strip()}")
+        return res.stdout.strip().splitlines()[-1]
+    finally:
+        os.unlink(path)
+
+
+def _close(a, b, tol=1e-9):
+    if a is None or b is None:
+        return a is None and b is None
+    return abs(float(a) - float(b)) <= tol
+
+
 def check_the_gate_reads_the_real_terminal():
     """A guard on the guard.
 
@@ -508,7 +615,13 @@ def check_the_gate_reads_the_real_terminal():
                # AUDIT-PHASE1.6. perpEntry is the single envelope rule and perpFeed is
                # the artifact transport; these are what decides a published multiplier
                # now, and they must be executable by this gate.
-               "function perpEntry", "function perpFeed"):
+               "function perpEntry", "function perpFeed",
+               # AUDIT-PHASE2A. The declared ruler and the raw-vs-applied helpers. They
+               # reach no score, but they EXPLAIN one, and an explanation that has
+               # drifted from the thing it explains is worse than none.
+               "const SCORING", "const DOM_FACTORS", "function depthState",
+               "function liquidityState", "function supplyState",
+               "function chainDominance"):
         assert fn in port, f"{fn} is no longer inside the MODEL PORT markers"
     # Checked against the CODE, not the prose. The overlay comment quotes the retired
     # `PERP[...] = v` line verbatim — which is the clearest possible statement of what
@@ -554,6 +667,8 @@ _CHECKS = [
     ("overlay boundary over the real ledger",
      check_the_overlay_boundary_holds_over_the_real_ledger),
     ("feed transport parity", check_feed_transport_parity),
+    ("declared ruler parity", check_the_declared_ruler_matches_across_the_port),
+    ("raw/applied + dominance parity", check_state_and_dominance_parity),
     ("transport covers what the nightly scored",
      check_the_transport_covers_what_the_nightly_scored),
     ("frozen conviction regression", check_frozen_conviction_regression),
@@ -639,6 +754,14 @@ else:
     @needs_node
     def test_feed_transport_parity():
         check_feed_transport_parity()
+
+    @needs_node
+    def test_the_declared_ruler_matches_across_the_port():
+        check_the_declared_ruler_matches_across_the_port()
+
+    @needs_node
+    def test_state_and_dominance_parity():
+        check_state_and_dominance_parity()
 
     @needs_node
     def test_the_transport_covers_what_the_nightly_scored():

@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "fields": [
     "date",
     "symbol",
@@ -35,6 +35,13 @@
     "dom_factor",
     "dom_share",
     "dom_logabs",
+    "depth_raw",
+    "depth_state",
+    "liq_raw",
+    "liq_state",
+    "supply_state",
+    "dom_signed",
+    "dom_warn",
     "perp_mult_board",
     "perp_mult_board_date",
     "perp_board_state",
@@ -92,7 +99,7 @@
     "reconciled": "Every row's chain is asserted equal to score()'s own output before it is written \u2014 the three display components to the decimal they publish at, and the clamped integer. A row that fails is written with the v2 columns EMPTY.",
     "dominance": "dom_share is the largest factor's share of the chain's total absolute log; dom_logabs is that log's magnitude. Both are recorded because share alone saturates at 1.0 on a chain whose other four factors are exactly 1.0, which is the most neutral chain there is rather than the most dominated.",
     "perp_mult_vs_board": "perp_mult is the multiplier score() applied, from tonight's live venue feed across the whole universe. perp_mult_board is what a ledger consumer may apply under perp_overlay(): only a value carrying the snapshot's own date and falling inside [0.85, 1.15]. perp_board_state is which of current / absent / rejected / no-row produced it. They differ for any symbol outside the persisted fifty, which the page reads as neutral.",
-    "overlay_history": "Before 2026-09-17 these columns recorded a different rule: every row of signals.json, no date filter, last write in file order winning. That rule served a forty-five-night-old 17.4 to HBAR and put it at the head of the published board on a pre-clamp 242.9. It was replaced under specification boundary 1a4ea6e4d77e -> d237139d81a1. No row was ever written under the old rule."
+    "overlay_history": "Before 2026-09-17 these columns recorded a different rule: every row of signals.json, no date filter, last write in file order winning. That rule served a forty-five-night-old 17.4 to HBAR and put it at the head of the published board on a pre-clamp 242.9. It was replaced under specification boundary 1a4ea6e4d77e -> 8e750228e15a. No row was ever written under the old rule."
   },
   "added_at_v2": [
     "total_volume",
@@ -104,6 +111,13 @@
     "dom_factor",
     "dom_share",
     "dom_logabs",
+    "depth_raw",
+    "depth_state",
+    "liq_raw",
+    "liq_state",
+    "supply_state",
+    "dom_signed",
+    "dom_warn",
     "perp_mult_board",
     "perp_mult_board_date",
     "perp_board_state",

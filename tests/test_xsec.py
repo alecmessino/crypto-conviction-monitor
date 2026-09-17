@@ -72,19 +72,22 @@ def test_the_schema_is_locked():
         "fdv_usd", "funding_apr", "rsi7", "beta_btc",
         "spec_hash", "src",
     ]
-    assert nightly.XSEC_SCHEMA_VERSION == 3
+    assert nightly.XSEC_SCHEMA_VERSION == 4
     assert nightly.XSEC_FIELDS[:25] == v1
     assert nightly.XSEC_FIELDS == v1 + [
         "total_volume", "depth", "confirm", "liquidity",
         "conviction_raw", "clamped",
         "dom_factor", "dom_share", "dom_logabs",
+        # v4 — raw beside applied, and the bound that decided
+        "depth_raw", "depth_state", "liq_raw", "liq_state", "supply_state",
+        "dom_signed", "dom_warn",
         "perp_mult_board", "perp_mult_board_date", "perp_board_state",
         "price_chg_24h", "perp_path",
         "funding_venue", "funding_venues_n", "funding_apr_spread",
         "funding_interval_h", "funding_regime", "oi_usd",
     ]
-    assert len(nightly.XSEC_FIELDS) == 45
-    assert len(set(nightly.XSEC_FIELDS)) == 45
+    assert len(nightly.XSEC_FIELDS) == 52
+    assert len(set(nightly.XSEC_FIELDS)) == 52
     # XSEC_V2_FIELDS must be exactly the tail, or the sidecar's "added_at_v2" lies.
     assert list(nightly.XSEC_V2_FIELDS) == nightly.XSEC_FIELDS[25:]
     assert nightly.XSEC_SOURCES == ("live", "backfill")
@@ -412,7 +415,7 @@ def test_the_wide_ledger_is_wider_than_the_narrow_one():
 
 def test_the_legacy_ledger_did_not_move():
     """signals.csv keeps its columns and its rows, and the score keeps its hash."""
-    assert len(nightly.FIELDS) == 71
+    assert len(nightly.FIELDS) == 71  # signals.csv is untouched by every phase since
     assert nightly.FIELDS[:9] == ["date", "symbol", "name", "price", "market_cap",
                                   "turnover_pct", "erosion_ratio", "conviction", "signal"]
     with (ROOT / "ledger" / "signals.csv").open(newline="", encoding="utf-8") as f:
@@ -421,13 +424,32 @@ def test_the_legacy_ledger_did_not_move():
     # was edited by accident.
     # 1a4ea6e4d77e -> 8e750228e15a (AUDIT-PHASE1.5): the capture was widened to the OVERLAY SELECTION layer — which recorded multiplier a ledger consumer may apply — and unlike the two boundaries before it this one is a re-valuation, not instrumentation: the published board changes. See tests/test_perp_overlay.py.
     # 8e750228e15a -> ab16684ad5c1 (AUDIT-PHASE1.6): the funding TRANSPORT changed. The board reads ledger/perp.json — the whole scored cross-section for the current snapshot — instead of the fifty rows signals.json persists, so 184 rows gain the multiplier score() already applied. Published scores move, so this is a re-valuation like 1.5 before it and nothing canonicalises onto it.
-    assert nightly.SPEC_HASH == "ab16684ad5c1"
+    # ab16684ad5c1 -> 91bbc2a7e466 (AUDIT-PHASE2A): every factor threshold was collected into one captured SCORING object and asserted against the behaviour of the functions that already applied them. No scoring arithmetic was edited and no published score moved, so unlike 1.5 and 1.6 this one IS an instrumentation equivalence and the track record does not segment.
+    assert nightly.SPEC_HASH == "91bbc2a7e466"
+
+
+def _page_code() -> str:
+    """index.html with its JS comments removed.
+
+    Checked against the CODE, not the prose: AUDIT-PHASE2A's scoring config cites the
+    research ledger by path when explaining where its numbers came from, and a guard
+    that forbade naming the evidence would be trading the record for a substring match.
+    What must stay true is that nothing FETCHES it.
+    """
+    import re as _re
+    body = "\n".join(m.group(1) for m in
+                     _re.finditer(r"<script>(.*?)</script>", 
+                                  (ROOT / "index.html").read_text(encoding="utf-8"), _re.S))
+    body = _re.sub(r"/\*.*?\*/", "", body, flags=_re.S)
+    return "\n".join(l for l in body.splitlines() if not l.lstrip().startswith("//"))
 
 
 def test_nothing_in_the_page_reads_the_research_ledger():
     """The browser fetches signals.json whole on every load. This must not join it."""
-    page = (ROOT / "index.html").read_text(encoding="utf-8")
-    assert "ledger/xsec" not in page
+    code = _page_code()
+    assert "ledger/xsec" not in code
+    assert "xsec" not in code
+    assert len(code) > 10000, "the comment strip removed the program"
     assert "xsec" not in (ROOT / "methodology.html").read_text(encoding="utf-8")
 
 
@@ -607,7 +629,10 @@ def test_every_v2_column_has_a_writer():
     from_loop = ("total_volume", "depth", "confirm", "liquidity",
                  "conviction_raw", "clamped", "dom_factor", "dom_share", "dom_logabs",
                  "perp_mult_board", "perp_mult_board_date", "perp_board_state",
-                 "price_chg_24h", "perp_path")
+                 "price_chg_24h", "perp_path",
+                 # v4
+                 "depth_raw", "depth_state", "liq_raw", "liq_state", "supply_state",
+                 "dom_signed", "dom_warn")
     assert set(from_signals) | set(from_loop) == set(nightly.XSEC_V2_FIELDS)
     for f in from_signals:
         assert f in nightly.FIELDS, f

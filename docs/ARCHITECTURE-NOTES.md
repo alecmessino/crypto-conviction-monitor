@@ -107,7 +107,7 @@ source**, strips docstrings, and unparses each scoring function to canonical tex
 Captured: `score`, `_lavl_regime`, `lavl_perp_mult`, `_tier_for`, `emission_drag`,
 `emission_mult`, `_rsi_by_symbol`, the three funding-transport functions
 (`iso_day_diff`, `perp_entry`, `perp_feed`), ten `nightly` constants, nine `funding`
-functions and eighteen `funding` constants — nineteen functions and twenty-eight
+functions and eighteen `funding` constants — nineteen functions and twenty-nine
 constants in all, which `tests/test_perp_overlay.py` counts rather than trusting this
 sentence.
 
@@ -120,9 +120,11 @@ means an edit to dead code re-segments the track record — the mirror image of 
 *bottom* of the module (`nightly.py:4536`) — deliberately, because assigning it at the
 top once hashed five not-yet-defined constants as null.
 
-**Current hash: `ab16684ad5c1`** — two boundaries landed on 2026-09-17,
+**Current hash: `91bbc2a7e466`** — three boundaries landed on 2026-09-17,
 `1a4ea6e4d77e` → `8e750228e15a` (AUDIT-PHASE1.5, overlay selection) →
-`ab16684ad5c1` (AUDIT-PHASE1.6, the transport). Recorded boundaries in
+`ab16684ad5c1` (AUDIT-PHASE1.6, the transport) → `91bbc2a7e466` (AUDIT-PHASE2A, the
+declared ruler — an instrumentation equivalence, so `ab16684ad5c1` canonicalises onto
+it and the track record does **not** segment). Recorded boundaries in
 `ledger/signals.csv`:
 
 | First night | Hash | Note |
@@ -134,7 +136,8 @@ top once hashed five not-yet-defined constants as null.
 | 2026-08-20 | `6f98778fa627` | superseded 2026-09-15 |
 | 2026-09-15 | `1a4ea6e4d77e` | superseded 2026-09-17; `2da60f7efd7b` and `6f98778fa627` canonicalise onto it |
 | 2026-09-17 | `8e750228e15a` | AUDIT-PHASE1.5: overlay selection captured. **A re-valuation**, so nothing canonicalises onto it |
-| *(next run)* | `ab16684ad5c1` | current — AUDIT-PHASE1.6: the transport moved to `ledger/perp.json`. Also a re-valuation |
+| 2026-09-17 | `ab16684ad5c1` | AUDIT-PHASE1.6: the transport moved to `ledger/perp.json`. Also a re-valuation |
+| *(next run)* | `91bbc2a7e466` | current — AUDIT-PHASE2A: the declared ruler. **Instrumentation**, proved by `spec_hash_without`, so `ab16684ad5c1` canonicalises onto it |
 
 Since 2026-09-15 it also captures the layer that decides *which* funding reading reaches
 the score — `funding.consolidate`, `funding.VENUE_PRIORITY`, `INTERVAL_BASIS_REAL`,
@@ -162,16 +165,18 @@ decides *validity*, every time.
 `canonical_spec_hash()` resolves **transitively**, because two instrumentation
 corrections sit on the same body of scoring code.
 
-`SPEC_EQUIVALENT` holds two entries, both instrumentation rather than model changes:
+`SPEC_EQUIVALENT` holds three entries, all instrumentation rather than model changes:
 `2da60f7efd7b` → `6f98778fa627` (five constants hashed as null) and `6f98778fa627` →
 `1a4ea6e4d77e` (the widened capture). `spec_hash_as_recorded_before()` and
 `spec_hash_without()` make both claims re-derivable from today's source rather than
-asserted. **`8e750228e15a` is deliberately absent.** The chain's fixed point is
+asserted. The third, `ab16684ad5c1` → `91bbc2a7e466`, collected every factor
+threshold into the captured `SCORING` object without editing a line of scoring
+arithmetic; removing `SCORING` from today's specification reproduces the superseded
+digest exactly. **`1a4ea6e4d77e` and `8e750228e15a` are deliberately absent.** The chain's fixed point is
 `1a4ea6e4d77e` and it stops there: AUDIT-PHASE1.5 changed which input arrives and moved
 eleven published scores, so folding it in would claim the board said the same thing
 either side of it. `tests/test_persistence.py` asserts the chain ends where it ends and
-that today's hash is its own segment. `8e750228e15a` and `ab16684ad5c1` are both absent
-for the same reason.
+that today's hash is its own segment. 
 
 **The 2026-08-05 boundary the brief refers to is not a hash boundary.** It predates the
 hash entirely and is detected from the data by `_spec_breaks()` (`nightly.py:2276`):

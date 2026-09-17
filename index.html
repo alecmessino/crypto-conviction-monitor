@@ -147,6 +147,11 @@ tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
    it matters is when you are looking at this row and reading STRONG as news. Dotted
    rather than recoloured: it qualifies the label, it is not a sixth signal state. */
 .badge.marginal{border-bottom:1px dotted currentColor;cursor:help}
+/* AUDIT-PHASE2A row markers. Deliberately glyphs on the score cell rather than a new
+   column: the board is already ten columns wide, and a bound hit is an annotation on a
+   number, not a fact about the asset. The inspector carries the explanation. */
+.mk{font-size:9px;letter-spacing:.5px;margin-left:4px;cursor:help;opacity:.85}
+.mk.warn{color:var(--amber)} .mk.bad{color:var(--red)} .mk.mute{color:var(--tert)}
 .chk{display:flex;align-items:baseline;gap:8px;padding:4px 12px;border-bottom:1px solid var(--grid);font-size:10.5px}
 .chk:last-of-type{border-bottom:0}
 .chk-dot{width:6px;height:6px;border-radius:50%;flex:none;transform:translateY(-1px)}
@@ -2126,6 +2131,81 @@ function tierOf(sym){const s=sym.toLowerCase(); if(EXCLUDED.has(s))return "STABL
    green while the live terminal quietly disagreed with the ledger. Keep the block
    self-contained and the check stays honest.
 */
+/* THE DECLARED RULER — AUDIT-PHASE2A, 2026-09-17.
+
+   Every threshold that governs a factor, in one object, named. Nothing here is new and
+   nothing here is a NEW bound: Phase 2A's evidence report concluded that DEPTH and
+   SUPPLY are already bounded by construction, and that LIQUIDITY's problem is the shape
+   of its curve rather than the absence of a clip. The purpose is to make the existing
+   ruler explicit and auditable, not to change it.
+
+   Two of these values used to exist only as bare literals inside the arithmetic —
+   LIQUIDITY's 0.40 floor and its 0.90 depth bypass — and a threshold nobody can point
+   at is a threshold nobody can question. The rest already had names; they are collected
+   here so the ruler is one object rather than five places.
+
+   The arithmetic below is NOT refactored to read from this object, deliberately. In
+   nightly.py the scoring functions' source text is hashed, so rewriting their literals
+   as lookups would move the specification digest on a change that alters no number and
+   would leave the equivalence unprovable by spec_hash_without(). Instead the object
+   DECLARES the ruler and tests/test_scoring_config.py drives the real scoring functions
+   at every declared knot and asserts they behave as declared. A declaration that is
+   checked against behaviour is worth more than an alias that cannot be. */
+const SCORING = {
+  // clamp(( log10(mcap) - ZERO ) / SPAN, MIN, MAX). MIN is unreachable above $1M of
+  // market cap and MAX binds for every asset above $10B — 4.3% of the universe.
+  DEPTH: {MIN: 0, MAX: 1, LOG_MCAP_ZERO: 6, LOG_MCAP_SPAN: 4},
+  // BASE + SPAN * (tanh(rs_blend / TANH_SCALE) + 1) / 2. The code comment beside this
+  // curve claimed a ceiling of 0.91 for most of this repository's life; the arithmetic
+  // gives BASE + SPAN = 1.00, and 37 rows of the 2026-09-17 board sat above 0.91.
+  // Out of Phase 2A scope — recorded here because the ruler should say what it is.
+  CONFIRM: {BASE: 0.10, SPAN: 0.90, TANH_SCALE: 25},
+  // liquidityFit(turnover) / FIT_MAX, floored at FLOOR, except that an asset whose
+  // DEPTH reaches BYPASS_DEPTH is set to 1.0 outright.
+  //
+  // Measured over ledger/xsec/ (703 rows, three nights): 44.1% of rows sit at exactly
+  // FLOOR, 8.3% take the bypass, and NOT ONE of 645 non-bypass rows reached 1.0 through
+  // turnover — the best was 0.9939. The curve peaks at 45% turnover and the universe's
+  // median is 3.3%, so 97.5% of rows sit on its left-hand rising limb. The floor and the
+  // bypass together produce 52.4% of all values this factor emits.
+  //
+  // That is a misspecified curve, not a miscalibrated one, and Phase 2A deliberately
+  // does NOT clip around it — see docs/PHASE2A-CALIBRATION-2026-09-17.md §3.3. The
+  // redesign is deferred until ledger/xsec/ holds 40 genuinely forward cross-sectional
+  // legs, which is an evidence count and not a date.
+  LIQUIDITY: {FLOOR: 0.40, BYPASS_DEPTH: 0.90, FIT_MAX: 30,
+              KNOT_RAMP: 0.30, KNOT_PEAK: 0.45, KNOT_FALL: 0.60, KNOT_WASH: 1.20},
+  // 1 - (1 - FLOOR) * tanh(...). Bounded [FLOOR, CEIL] by construction; the entire
+  // possible influence of this factor is log(1/0.90) = 0.105 nats, which is below the
+  // dominance magnitude threshold — a SUPPLY-dominated chain is by construction a chain
+  // with no dominant factor.
+  SUPPLY: {FLOOR: 0.90, CEIL: 1.0, FREE_RATIO: 1.10, ANCHOR_RATIO: 3.0,
+           ANCHOR_SEVERITY: 0.75},
+  // The envelope funding.regime_modifier can produce, and the age a snapshot may reach.
+  // Landed at AUDIT-PHASE1.5; restated here because it is part of the same ruler.
+  FUNDING: {LO: 0.85, HI: 1.15, NEUTRAL: 1.0, MAX_AGE_DAYS: 1},
+  // The published score, after round.
+  CLAMP: {MIN: 0, MAX: 100},
+  // Diagnostic only. Nothing below reaches conviction — see chainDominance().
+  //
+  // SHARE_WARN is EMPIRICALLY ANCHORED: 0.70 is the pooled 90th percentile of the
+  // concentration distribution over ledger/xsec/ (0.709), and it is stable night to
+  // night (0.694 / 0.705 / 0.711). The rule it encodes is "the decile of chains most
+  // concentrated in one factor".
+  //
+  // MAGNITUDE_WARN is a POLICY threshold and is not derived from any percentile.
+  // 0.22 is log(1.25): the dominant factor, on its own, moves the score by at least a
+  // quarter. It is stated as a multiplier because a percentile of magnitude would drift
+  // with the regime while the meaning of "a quarter" does not. Calling it a calibration
+  // would be claiming the data chose it, and the data did not.
+  DOMINANCE: {SHARE_WARN: 0.70, MAGNITUDE_WARN: 0.22},
+};
+/* The order dominance ties break in. Fixed, and iterated rather than sorted, because
+   `max(by magnitude)` over an unordered map picks a different winner in JS and in Python
+   the moment two factors are exactly equal — which happens whenever two of them sit at
+   the same envelope edge. */
+const DOM_FACTORS = ["DEPTH", "CONFIRM", "LIQUIDITY", "SUPPLY", "FUNDING"];
+
 // ---- scoring (mirrors backend) ----
 // LiquidityFit: linear ramp into the 30-60% turnover sweet spot; sharp penalty
 // below 10% (illiquid) and above 75% (wash-trading risk).
@@ -2188,6 +2268,93 @@ function conviction(t, perp, rsBlend){ perp = perp||1; rsBlend = rsBlend||0; // 
   return {conv, comp};
 }
 function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
+
+/* RAW vs APPLIED — AUDIT-PHASE2A.
+
+   Each of these returns what the factor WOULD have been before its bound, what it
+   actually is after, and which mechanism decided. None of them is in the scoring path:
+   `conviction()` is untouched and computes the applied value itself, exactly as before.
+   These exist so the applied value can be explained, and so the later curve redesign has
+   the raw series to work from instead of having to reconstruct it.
+
+   tests/test_scoring_config.py asserts `applied` here equals what conviction() uses, on
+   every row of the recorded cross-section. Two functions computing one number is two
+   functions that can disagree; the assertion is what stops that being discovered later. */
+function depthState(mc){
+  if(!(mc > 0)) return {raw: null, applied: 0, state: "no-mcap"};
+  const raw = (Math.log10(mc) - SCORING.DEPTH.LOG_MCAP_ZERO) / SCORING.DEPTH.LOG_MCAP_SPAN;
+  const applied = Math.max(SCORING.DEPTH.MIN, Math.min(SCORING.DEPTH.MAX, raw));
+  const state = raw > SCORING.DEPTH.MAX + 1e-12 ? "cap"
+              : raw < SCORING.DEPTH.MIN - 1e-12 ? "floor" : "curve";
+  return {raw, applied, state};
+}
+/* `vol` is the payload field UNMODIFIED — null when the feed published nothing, 0 when
+   it published a zero. Scoring collapses both to 0 and Phase 2A does not change that:
+   `applied` below is identical either way. Only `state` tells them apart, which is the
+   whole point — 15 rows a night are tokenised money-market instruments with no secondary
+   market at all, and today they score exactly as a token trading at 2.9% turnover does.
+   Whether that is right is the curve redesign's question; making it VISIBLE is this
+   phase's. */
+function liquidityState(vol, mc, depth){
+  const known = !(vol === null || vol === undefined);
+  const v = known ? vol : 0;                       // exactly what build() does today
+  const turn = mc > 0 ? v / mc : 0;
+  const raw = liquidityFit(turn) / SCORING.LIQUIDITY.FIT_MAX;
+  const bypass = depth >= SCORING.LIQUIDITY.BYPASS_DEPTH;
+  const applied = bypass ? 1.0 : Math.max(SCORING.LIQUIDITY.FLOOR, raw);
+  const state = bypass ? "bypass"
+              : !known ? "no-volume"
+              : v === 0 ? "zero-volume"
+              : applied > raw + 1e-12 ? "floor" : "curve";
+  return {raw, applied, state, turn, bypass};
+}
+/* `raw` and `applied` are the same number here, and that is not an oversight: the
+   emission envelope is inside the curve rather than around it, so there is no unbounded
+   value to report. `drag` is the pre-envelope severity, which is the quantity a redesign
+   would want. */
+function supplyState(fdv, mc){
+  const drag = emissionDrag(fdv, mc);
+  const applied = emissionMult(fdv, mc);
+  const state = drag === null ? "unpublished" : drag === 0 ? "inert" : "applied";
+  return {raw: applied, applied, drag, state};
+}
+
+/* DOMINANCE — diagnostic, and only ever diagnostic.
+
+   contribution = log(multiplier), magnitude = |contribution|,
+   share = magnitude / sum of magnitudes.
+
+   Both legs are required and they answer different questions. Share alone saturates: a
+   chain with four factors at exactly 1.0 gives its fifth 100% of almost nothing, which
+   is the most nearly NEUTRAL chain there is rather than the most dominated. ZEC on
+   2026-09-17 is exactly that — share 1.000 on a magnitude of 0.069 — and it is the
+   control case this must not flag.
+
+   One structural consequence worth knowing before reading a warning: every factor except
+   FUNDING is bounded above at 1.0, and FUNDING's largest possible magnitude (0.163) is
+   below MAGNITUDE_WARN. A dominance warning can therefore never mean "one factor
+   inflated this score". It always means a single haircut is most of the chain. */
+function chainDominance(m){
+  const contrib = {}, mag = {};
+  let total = 0;
+  for(const k of DOM_FACTORS){
+    const v = m[k];
+    const c = (typeof v === "number" && v > 0) ? Math.log(v) : null;
+    contrib[k] = c;
+    if(c !== null){ mag[k] = Math.abs(c); total += mag[k]; }
+  }
+  let top = null;
+  for(const k of DOM_FACTORS){            // first in declared order wins a tie
+    if(mag[k] === undefined) continue;
+    if(top === null || mag[k] > mag[top]) top = k;
+  }
+  if(top === null || total <= 1e-12)
+    return {factor: null, share: 0, magnitude: 0, signed: 0, total: 0, contrib, warn: false};
+  const share = mag[top] / total;
+  return {factor: top, share, magnitude: mag[top], signed: contrib[top], total, contrib,
+          warn: share > SCORING.DOMINANCE.SHARE_WARN
+             && mag[top] > SCORING.DOMINANCE.MAGNITUDE_WARN};
+}
 
 /* FUNDING OVERLAY SELECTION — AUDIT-PHASE1.5, 2026-09-17.
 
@@ -2511,7 +2678,24 @@ function build(raw){
       // Unrounded, for the factor decomposition only. Everything user-facing reads
       // rsBlend; this exists so the panel reconstructs the published score exactly
       // rather than to within the display rounding.
-      rsBlendRaw:rsBlend, comp};
+      rsBlendRaw:rsBlend, comp,
+      // AUDIT-PHASE2A. Raw beside applied, and which bound decided — computed from the
+      // SAME payload the score came from, and asserted equal to it by the parity gate.
+      // `total_volume` is passed UNMODIFIED so liquidityState can tell a published zero
+      // from a missing field; conviction() collapses both to zero and this does not
+      // change that.
+      factors: (()=>{
+        const d = depthState(mc);
+        const l = liquidityState(t.total_volume, mc, d.applied);
+        const sup = supplyState(t.fully_diluted_valuation, mc);
+        const cmv = 0.10 + 0.90*((Math.tanh(rsBlend/25)+1)/2);
+        const perpM = PERP[(t.symbol||"").toUpperCase()] || 1;
+        const raw = 100*d.applied*cmv*l.applied*sup.applied*perpM;
+        return {depth:d, liq:l, sup, cm:cmv, perp:perpM, raw,
+                clamped: Math.round(raw) > 100 || Math.round(raw) < 0,
+                dom: chainDominance({DEPTH:d.applied, CONFIRM:cmv, LIQUIDITY:l.applied,
+                                     SUPPLY:sup.applied, FUNDING:perpM})};
+      })()};
   }).sort((a,b)=>b.conv-a.conv).map(t=>{
     // Module B proxy ERA from real payload: structural dilution vs 24h volume interest.
     // PROXY ERA = ((FDV/MC) - 1) / (24h volume %). Null when FDV missing or vol% ~ 0.
@@ -2776,7 +2960,7 @@ function rowConv(t,i,gated){
   tr.innerHTML=`<td class="muted num">${i+1}</td>
     <td class="tick">${execLink(t.sym)}<span class="tier ${t.tier}" data-filter title="Filter the board to ${t.tier}">${t.tier}</span></td>
     <td>${sigBadge(t)}</td>
-    <td class="num ${t.conv>=70?'pos':t.conv>=55?'neu':'neg'}">${t.conv}</td>
+    <td class="num ${t.conv>=70?'pos':t.conv>=55?'neu':'neg'}">${t.conv}${rowMarks(t)}</td>
     <td class="num">${fmtPrice(t.price)}</td>
     ${(()=>{ const d=tfDelta(t);
        return d==null
@@ -2788,6 +2972,53 @@ function rowConv(t,i,gated){
     <td><span class="copy" data-copy="${t.sym}">⧉</span></td>`;
   tr.onclick=(e)=>{ if(e.target.dataset.copy){copyTrade(STATE.find(x=>x.sym===e.target.dataset.copy));return;} select(t.sym); };
   return tr;
+}
+/* The four things about a published score that used to be visible only by opening the
+   inspector, as glyphs beside the number. Each carries its full sentence in the title,
+   so the board says THAT something happened and the hover says what.
+
+   Nothing here changes a score. The dominance mark in particular is diagnostic: it
+   reports that one factor holds most of the chain, and under the present envelopes that
+   can only ever mean a single haircut — no factor except FUNDING can exceed 1.0, and
+   FUNDING's largest possible magnitude is below the warning threshold. */
+function rowMarks(t){
+  const F = t.factors;
+  if(!F) return "";
+  const out = [];
+  if(F.clamped)
+    out.push(`<span class="mk bad" title="Clamped. This chain multiplies out to `
+      + `${F.raw.toFixed(1)} and the published score is capped at ${SCORING.CLAMP.MAX}. `
+      + `Only FUNDING can exceed 1.0, so the largest pre-clamp any chain can reach is `
+      + `${(100*SCORING.FUNDING.HI).toFixed(0)}.">▲${F.raw.toFixed(0)}</span>`);
+  if(F.liq.state === "bypass")
+    out.push(`<span class="mk mute" title="LIQUIDITY bypassed. DEPTH is `
+      + `${F.depth.applied.toFixed(3)}, at or above the ${SCORING.LIQUIDITY.BYPASS_DEPTH} `
+      + `bypass, so liquidity is set to 1.000 outright. The turnover curve would have `
+      + `given ${F.liq.raw.toFixed(3)}.">⊘L</span>`);
+  else if(F.liq.state === "floor")
+    out.push(`<span class="mk warn" title="LIQUIDITY at its floor. The turnover curve `
+      + `gives ${F.liq.raw.toFixed(3)} and the floor holds it at `
+      + `${SCORING.LIQUIDITY.FLOOR}. 44% of the board sits here — the curve peaks at `
+      + `45% turnover and this universe's median is 3.3%.">⌊L</span>`);
+  else if(F.liq.state === "zero-volume" || F.liq.state === "no-volume")
+    out.push(`<span class="mk warn" title="${F.liq.state === "zero-volume"
+      ? "No traded volume was reported for this asset"
+      : "The feed published no volume field for this asset"}. LIQUIDITY is the `
+      + `${SCORING.LIQUIDITY.FLOOR} floor, identical to a token trading at 2.9% `
+      + `turnover — the score cannot tell them apart, and that is recorded rather than `
+      + `acted on.">∅L</span>`);
+  if(F.depth.state === "cap")
+    out.push(`<span class="mk mute" title="DEPTH at its cap. log10 market cap puts this `
+      + `at ${F.depth.raw.toFixed(3)}, clamped to ${SCORING.DEPTH.MAX}. Every asset `
+      + `above $10B reads the same here.">⌈D</span>`);
+  if(F.dom.warn)
+    out.push(`<span class="mk warn" title="${F.dom.factor} holds `
+      + `${(F.dom.share*100).toFixed(0)}% of this chain's total movement, at a magnitude `
+      + `of ${F.dom.magnitude.toFixed(2)} — it alone moves the score by `
+      + `${((Math.exp(F.dom.magnitude)-1)*100).toFixed(0)}%. Diagnostic only; the score `
+      + `is unchanged. Above ${SCORING.DOMINANCE.SHARE_WARN} share AND `
+      + `${SCORING.DOMINANCE.MAGNITUDE_WARN} magnitude.">◆${F.dom.factor[0]}</span>`);
+  return out.join("");
 }
 function signalClass(c){return c>=70?"pos":c>=55?"neu":"neg";}
 
@@ -3835,6 +4066,50 @@ function factorBreakdown(sym){
     </div>`;}).join("");
   const saturated = F.rounded > 100;
   const reconstructs = F.clamped === t.conv;
+  // AUDIT-PHASE2A. Raw beside applied, and which bound decided — the full sentence the
+  // board's glyphs only gesture at. Diagnostic throughout: every number here explains
+  // the published score and none of them changes it.
+  const S2 = t.factors;
+  const boundLines = !S2 ? "" : [
+    S2.depth.state === "cap"
+      ? [`DEPTH`, `curve ${S2.depth.raw.toFixed(3)} → capped at ${SCORING.DEPTH.MAX}`,
+         `every asset above $10B reads the same here`] : null,
+    S2.liq.state === "bypass"
+      ? [`LIQUIDITY`, `curve ${S2.liq.raw.toFixed(3)} → bypassed to 1.000`,
+         `DEPTH ${S2.depth.applied.toFixed(3)} is at or above the `
+         + `${SCORING.LIQUIDITY.BYPASS_DEPTH} bypass, so turnover is not consulted`] : null,
+    S2.liq.state === "floor"
+      ? [`LIQUIDITY`, `curve ${S2.liq.raw.toFixed(3)} → floored at ${SCORING.LIQUIDITY.FLOOR}`,
+         `44% of the board sits here; the curve peaks at 45% turnover and this `
+         + `universe's median is 3.3%`] : null,
+    (S2.liq.state === "zero-volume" || S2.liq.state === "no-volume")
+      ? [`LIQUIDITY`, `${S2.liq.state} → floored at ${SCORING.LIQUIDITY.FLOOR}`,
+         S2.liq.state === "zero-volume"
+           ? `no traded volume was reported — scored identically to a token at 2.9% `
+             + `turnover, which the model cannot currently distinguish`
+           : `the feed published no volume field — scored identically to a published `
+             + `zero, which is a different fact and is recorded as one`] : null,
+    S2.sup.state === "unpublished"
+      ? [`SUPPLY`, `no FDV published → 1.000`,
+         `unknown overhang is neutral, never a penalty`] : null,
+  ].filter(Boolean).map(([n2,v,why]) =>
+    `<div class="fb-row"><div class="fb-name">${n2}</div><div class="fd-axis"></div>
+      <div class="fb-val num muted">${esc0(v)}</div><div class="fd-run num"></div>
+      <div class="fb-note muted">${esc0(why)}</div></div>`).join("");
+  const D = S2 && S2.dom;
+  const domLine = !D || !D.factor ? "" :
+    `<div class="fb-row"><div class="fb-name">DOMINANCE</div><div class="fd-axis"></div>
+      <div class="fb-val num" style="color:${D.warn?"var(--amber)":"var(--tert)"}">
+        ${D.factor} ${(D.share*100).toFixed(0)}%</div>
+      <div class="fd-run num muted">${D.magnitude.toFixed(3)}</div>
+      <div class="fb-note muted">${D.warn ? "FLAGGED — " : ""}the largest factor holds
+        ${(D.share*100).toFixed(0)}% of this chain's total movement at a magnitude of
+        ${D.magnitude.toFixed(3)}, which alone moves the score by
+        ${((Math.exp(D.magnitude)-1)*100).toFixed(0)}%. Both legs are required:
+        ${SCORING.DOMINANCE.SHARE_WARN} share is the pooled 90th percentile of the
+        recorded distribution, and ${SCORING.DOMINANCE.MAGNITUDE_WARN} magnitude is
+        log(1.25) — a policy line for "materially", not a percentile. Diagnostic only.
+      </div></div>`;
   wrap.innerHTML =
     `<div class="fd-h">100 × depth × confirm × liquidity × supply × funding</div>`
     + `<div class="fb-row fd-start"><div class="fb-name">START</div><div class="fd-axis"></div>
@@ -3846,6 +4121,10 @@ function factorBreakdown(sym){
           saturated?` <span class="fd-clamp" data-tip="The score is clamped to 100. This name's factors multiply out to ${F.rounded}, so the distance between it and anything else at the ceiling is real and is not being shown by the published number. The sizer allocates on the clamped value, which is why two saturated names receive identical targets.">clamped from ${F.rounded}</span>`:""}${
           reconstructs?"":` <span class="fd-clamp">does not reconstruct: board says ${t.conv}</span>`}
        </div>`
+    + (boundLines || domLine
+        ? `<div class="fd-obs"><div class="fd-obs-h">BOUNDS &amp; DOMINANCE · what decided,
+            and what it would have been</div>${boundLines}${domLine}</div>`
+        : "")
     + `<div class="fd-obs">
         <div class="fd-obs-h">OBSERVATIONAL · not in the score</div>
         <div class="fb-row"><div class="fb-name">VALUE</div>

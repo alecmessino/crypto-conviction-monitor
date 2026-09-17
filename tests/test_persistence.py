@@ -187,7 +187,8 @@ def test_persistence_does_not_touch_the_specification():
     # captured the funding curve and not the input handed to it.
     # 1a4ea6e4d77e -> 8e750228e15a (AUDIT-PHASE1.5): the capture was widened to the OVERLAY SELECTION layer — which recorded multiplier a ledger consumer may apply — and unlike the two boundaries before it this one is a re-valuation, not instrumentation: the published board changes. See tests/test_perp_overlay.py.
     # 8e750228e15a -> ab16684ad5c1 (AUDIT-PHASE1.6): the funding TRANSPORT changed. The board reads ledger/perp.json — the whole scored cross-section for the current snapshot — instead of the fifty rows signals.json persists, so 184 rows gain the multiplier score() already applied. Published scores move, so this is a re-valuation like 1.5 before it and nothing canonicalises onto it.
-    assert nightly.SPEC_HASH == "ab16684ad5c1"
+    # ab16684ad5c1 -> 91bbc2a7e466 (AUDIT-PHASE2A): every factor threshold was collected into one captured SCORING object and asserted against the behaviour of the functions that already applied them. No scoring arithmetic was edited and no published score moved, so unlike 1.5 and 1.6 this one IS an instrumentation equivalence and the track record does not segment.
+    assert nightly.SPEC_HASH == "91bbc2a7e466"
     for fn in nightly.spec()["functions"].values():
         assert "_persistence" not in fn
 
@@ -357,11 +358,22 @@ def test_the_equivalence_table_covers_only_the_verified_correction():
     holds must pass through unchanged.
     """
     table = nightly.SPEC_EQUIVALENT
-    assert set(table) == {"2da60f7efd7b", "6f98778fa627"}, (
+    assert set(table) == {"2da60f7efd7b", "6f98778fa627", "ab16684ad5c1"}, (
         f"the equivalence table holds {sorted(table)} — only the audited "
         f"instrumentation corrections may be aliased")
     assert table["2da60f7efd7b"]["canonical"] == "6f98778fa627"
     assert table["6f98778fa627"]["canonical"] == "1a4ea6e4d77e"
+    # AUDIT-PHASE2A. The third correction to the ruler: a captured declaration of
+    # thresholds that were already in force. Its claim is re-derivable — removing
+    # SCORING from today's specification reproduces the superseded digest — and that is
+    # asserted here rather than trusted.
+    assert table["ab16684ad5c1"]["canonical"] == nightly.SPEC_HASH
+    assert nightly.spec_hash_without(constants=("SCORING",)) == "ab16684ad5c1"
+    # The two Phase 1.5 / 1.6 boundaries are deliberately NOT in the table: both changed
+    # which input arrives and both moved published scores.
+    for revaluation in ("1a4ea6e4d77e", "8e750228e15a"):
+        assert revaluation not in table
+        assert nightly.canonical_spec_hash(revaluation) == revaluation
     for entry in table.values():
         assert entry["reason"] == "instrumentation"
 

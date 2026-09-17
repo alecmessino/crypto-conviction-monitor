@@ -253,9 +253,9 @@ def test_the_specification_is_the_size_the_notes_say_it_is():
     """
     sp = nightly.spec()
     assert len(sp["functions"]) == 19, sorted(sp["functions"])
-    assert len(sp["constants"]) == 28, sorted(sp["constants"])
+    assert len(sp["constants"]) == 29, sorted(sp["constants"])
     assert len(nightly.SPEC_FUNCTIONS) == 10
-    assert len(nightly.SPEC_CONSTANTS) == 10
+    assert len(nightly.SPEC_CONSTANTS) == 11
     assert len(nightly.SPEC_FUNDING_FUNCTIONS) == 9
     assert len(nightly.SPEC_FUNDING_CONSTANTS) == 18
     # Whitespace-normalised: the document is hard-wrapped, so a phrase that spans a
@@ -263,7 +263,7 @@ def test_the_specification_is_the_size_the_notes_say_it_is():
     # which is the kind of brittleness that gets a useful test deleted.
     notes = " ".join(
         (ROOT / "docs" / "ARCHITECTURE-NOTES.md").read_text(encoding="utf-8").split())
-    assert "nineteen functions and twenty-eight constants" in notes
+    assert "nineteen functions and twenty-nine constants" in notes
     assert f"**Current hash: `{nightly.SPEC_HASH}`**" in notes
 
 
@@ -275,9 +275,14 @@ def test_the_boundary_is_a_re_valuation_and_not_an_equivalence():
     published scores. Collapsing it onto the old digest would claim the board said the
     same thing either side of it, and the board did not.
     """
-    assert nightly.SPEC_HASH == "ab16684ad5c1"
+    # ab16684ad5c1 -> 91bbc2a7e466 (AUDIT-PHASE2A): every factor threshold was collected into one captured SCORING object and asserted against the behaviour of the functions that already applied them. No scoring arithmetic was edited and no published score moved, so unlike 1.5 and 1.6 this one IS an instrumentation equivalence and the track record does not segment.
+    assert nightly.SPEC_HASH == "91bbc2a7e466"
     # Neither 1.5 nor 1.6 folds onto anything: both changed which input arrives and
     # both moved published scores. The table's fixed point is still 1a4ea6e4d77e.
-    for h in ("1a4ea6e4d77e", "8e750228e15a", "ab16684ad5c1"):
+    # The two re-valuations stay out of the table. ab16684ad5c1 LEFT this list at
+    # AUDIT-PHASE2A: collecting the thresholds into SCORING moved the digest and no
+    # number, which is an instrumentation equivalence and belongs in the table.
+    for h in ("1a4ea6e4d77e", "8e750228e15a"):
         assert h not in nightly.SPEC_EQUIVALENT, h
         assert nightly.canonical_spec_hash(h) == h, h
+    assert nightly.canonical_spec_hash("ab16684ad5c1") == nightly.SPEC_HASH

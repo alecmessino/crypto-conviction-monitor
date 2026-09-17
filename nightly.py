@@ -211,6 +211,203 @@ rwa = _load_sibling("rwa.py", "cm_rwa")
 
 
 # ---------------------------------------------------------------------------
+# the declared ruler  (AUDIT-PHASE2A)
+# ---------------------------------------------------------------------------
+# Every threshold that governs a factor, in one object, named. Nothing here is new and
+# nothing here is a NEW bound: Phase 2A's evidence concluded that DEPTH and SUPPLY are
+# already bounded by construction and that LIQUIDITY's problem is the shape of its curve
+# rather than the absence of a clip. The purpose is to make the existing ruler explicit
+# and auditable, not to change it.
+#
+# CAPTURED, and the reason is worth stating. These values are not documentation: they are
+# a CLAIM about what the scoring functions do, asserted against behaviour by
+# tests/test_scoring_config.py. Capturing them means the specification digest notices an
+# edit to either side of that claim. It also means a change here re-segments the track
+# record, which is correct — a ruler that can be edited without anyone noticing is the
+# defect AUDIT-2026-09 1.8 was about, from the other direction.
+#
+# The scoring functions are deliberately NOT refactored to read from this object. Their
+# source text is what spec() hashes, so rewriting literals as lookups would move the
+# digest on a change that alters no number and would leave the equivalence unprovable by
+# spec_hash_without(). A declaration checked against behaviour is worth more than an
+# alias that cannot be.
+#
+# Mirrored verbatim in index.html's ported block; tests/test_parity.py executes both.
+SCORING = {
+    # clamp((log10(mcap) - ZERO) / SPAN, MIN, MAX). MIN is unreachable above $1M of
+    # market cap; MAX binds for every asset above $10B — 4.3% of the universe.
+    "DEPTH": {"MIN": 0, "MAX": 1, "LOG_MCAP_ZERO": 6, "LOG_MCAP_SPAN": 4},
+    # BASE + SPAN * (tanh(rs_blend / TANH_SCALE) + 1) / 2. The comment beside this curve
+    # claimed a ceiling of 0.91 for most of this repository's life; the arithmetic gives
+    # BASE + SPAN = 1.00 and 37 rows of the 2026-09-17 board sat above 0.91. Out of
+    # Phase 2A scope — recorded because the ruler should say what it is.
+    "CONFIRM": {"BASE": 0.10, "SPAN": 0.90, "TANH_SCALE": 25},
+    # liquidity_fit(turnover) / FIT_MAX, floored at FLOOR, except that an asset whose
+    # DEPTH reaches BYPASS_DEPTH is set to 1.0 outright.
+    #
+    # Measured over ledger/xsec/ (703 rows, three nights): 44.1% sit at exactly FLOOR,
+    # 8.3% take the bypass, and NOT ONE of 645 non-bypass rows reached 1.0 through
+    # turnover — the best was 0.9939. The curve peaks at 45% turnover against a universe
+    # median of 3.3%, so 97.5% of rows sit on its left-hand rising limb, and the floor
+    # and bypass together produce 52.4% of everything this factor emits.
+    #
+    # A misspecified curve, not a miscalibrated one. Phase 2A deliberately does not clip
+    # around it — see docs/PHASE2A-CALIBRATION-2026-09-17.md 3.3. The redesign is
+    # deferred until ledger/xsec/ holds 40 genuinely forward cross-sectional legs, which
+    # is an evidence count and not a date.
+    "LIQUIDITY": {"FLOOR": 0.40, "BYPASS_DEPTH": 0.90, "FIT_MAX": 30,
+                  "KNOT_RAMP": 0.30, "KNOT_PEAK": 0.45, "KNOT_FALL": 0.60,
+                  "KNOT_WASH": 1.20},
+    # 1 - (1 - FLOOR) * tanh(...). Bounded [FLOOR, CEIL] by construction. This factor's
+    # entire possible influence is log(1/0.90) = 0.105 nats, below the dominance
+    # magnitude threshold — a SUPPLY-dominated chain is by construction a chain with no
+    # dominant factor, which is why Phase 2A proposes no bound for it.
+    "SUPPLY": {"FLOOR": 0.90, "CEIL": 1.0, "FREE_RATIO": 1.10, "ANCHOR_RATIO": 3.0,
+               "ANCHOR_SEVERITY": 0.75},
+    # The envelope funding.regime_modifier can produce, and the age a snapshot may reach.
+    # Landed at AUDIT-PHASE1.5; restated because it is part of the same ruler.
+    "FUNDING": {"LO": 0.85, "HI": 1.15, "NEUTRAL": 1.0, "MAX_AGE_DAYS": 1},
+    # The published score, after round.
+    "CLAMP": {"MIN": 0, "MAX": 100},
+    # Diagnostic only. Nothing here reaches conviction — see chain_dominance().
+    #
+    # SHARE_WARN is EMPIRICALLY ANCHORED: 0.70 is the pooled 90th percentile of the
+    # concentration distribution over ledger/xsec/ (0.709), stable night to night
+    # (0.694 / 0.705 / 0.711). It encodes "the decile of chains most concentrated in one
+    # factor".
+    #
+    # MAGNITUDE_WARN is a POLICY threshold and is not derived from any percentile.
+    # 0.22 is log(1.25): the dominant factor alone moves the score by at least a quarter.
+    # Stated as a multiplier because a percentile of magnitude would drift with the
+    # regime while the meaning of "a quarter" does not. Calling it a calibration would be
+    # claiming the data chose it, and the data did not.
+    "DOMINANCE": {"SHARE_WARN": 0.70, "MAGNITUDE_WARN": 0.22},
+}
+# The order dominance ties break in. Fixed, and iterated rather than sorted, because
+# max-by-magnitude over an unordered map picks a different winner in JS and in Python the
+# moment two factors are exactly equal — which happens whenever two sit at the same
+# envelope edge.
+DOM_FACTORS = ("DEPTH", "CONFIRM", "LIQUIDITY", "SUPPLY", "FUNDING")
+
+
+def depth_state(mc) -> dict:
+    """What DEPTH would have been before its clamp, what it is after, and which bound."""
+    mc = _num(mc)
+    if not mc or mc <= 0:
+        return {"raw": None, "applied": 0.0, "state": "no-mcap"}
+    raw = ((math.log10(mc) - SCORING["DEPTH"]["LOG_MCAP_ZERO"])
+           / SCORING["DEPTH"]["LOG_MCAP_SPAN"])
+    applied = max(SCORING["DEPTH"]["MIN"], min(SCORING["DEPTH"]["MAX"], raw))
+    state = ("cap" if raw > SCORING["DEPTH"]["MAX"] + 1e-12
+             else "floor" if raw < SCORING["DEPTH"]["MIN"] - 1e-12 else "curve")
+    return {"raw": raw, "applied": applied, "state": state}
+
+
+def liquidity_state(vol, mc, depth) -> dict:
+    """The curve value, the applied value, and which mechanism decided.
+
+    ``vol`` is the payload field UNMODIFIED — None when the feed published nothing, 0
+    when it published a zero. Scoring collapses both to 0 and Phase 2A does not change
+    that: ``applied`` is identical either way. Only ``state`` tells them apart, which is
+    the point — fifteen rows a night are tokenised money-market instruments with no
+    secondary market at all, and today they score exactly as a token trading at 2.9%
+    turnover does. Whether that is right is the curve redesign's question; making it
+    visible is this phase's.
+    """
+    known = vol is not None and vol != ""
+    v = _num(vol) if known else 0.0
+    if v is None:
+        known, v = False, 0.0
+    mcn = _num(mc) or 0.0
+    turn = (v / mcn) if mcn > 0 else 0.0
+    raw = _liquidity_fit(turn) / SCORING["LIQUIDITY"]["FIT_MAX"]
+    bypass = depth >= SCORING["LIQUIDITY"]["BYPASS_DEPTH"]
+    applied = 1.0 if bypass else max(SCORING["LIQUIDITY"]["FLOOR"], raw)
+    state = ("bypass" if bypass
+             else "no-volume" if not known
+             else "zero-volume" if v == 0
+             else "floor" if applied > raw + 1e-12 else "curve")
+    return {"raw": raw, "applied": applied, "state": state, "turn": turn,
+            "bypass": bypass}
+
+
+def _liquidity_fit(turn: float) -> float:
+    """Module A's turnover curve, on its 0-30 display scale.
+
+    A transcription, not the original: score() computes this inline and its text is
+    hashed, so it cannot be factored out without moving the digest. This copy is
+    asserted equal to score()'s behaviour at every declared knot by
+    tests/test_scoring_config.py, and reaches no published score.
+    """
+    if turn <= 0:
+        return 0.0
+    if turn <= 0.30:
+        return 10 + (turn / 0.30) * 20
+    if turn <= 0.60:
+        return 30 - abs(turn - 0.45) / 0.15 * 6
+    if turn <= 1.20:
+        return 20 - (turn - 0.60) / 0.60 * 12
+    return max(2, 8 - (turn - 1.20) * 4)
+
+
+def supply_state(fdv, mc) -> dict:
+    """``raw`` and ``applied`` are the same number here, and that is not an oversight.
+
+    The emission envelope is inside the curve rather than around it, so there is no
+    unbounded value to report. ``drag`` is the pre-envelope severity, which is the
+    quantity a redesign would want.
+    """
+    drag = emission_drag(fdv, mc)
+    applied = emission_mult(fdv, mc)
+    state = "unpublished" if drag is None else "inert" if drag == 0 else "applied"
+    return {"raw": applied, "applied": applied, "drag": drag, "state": state}
+
+
+def chain_dominance(m: dict) -> dict:
+    """Which single factor is moving the score, by how much, and whether to say so.
+
+    contribution = log(multiplier), magnitude = |contribution|,
+    share = magnitude / sum of magnitudes.
+
+    Both legs are required and they answer different questions. Share alone saturates: a
+    chain with four factors at exactly 1.0 gives its fifth 100% of almost nothing, which
+    is the most nearly NEUTRAL chain there is rather than the most dominated. ZEC on
+    2026-09-17 is exactly that — share 1.000 on a magnitude of 0.069 — and it is the
+    control case this must not flag.
+
+    One structural consequence worth knowing before reading a warning: every factor
+    except FUNDING is bounded above at 1.0, and FUNDING's largest possible magnitude
+    (0.163) is below MAGNITUDE_WARN. A dominance warning can therefore never mean "one
+    factor inflated this score". It always means a single haircut is most of the chain.
+
+    Diagnostic only. Nothing here reaches conviction.
+    """
+    contrib, mag = {}, {}
+    total = 0.0
+    for k in DOM_FACTORS:
+        v = m.get(k)
+        c = math.log(v) if isinstance(v, (int, float)) and v > 0 else None
+        contrib[k] = c
+        if c is not None:
+            mag[k] = abs(c)
+            total += mag[k]
+    top = None
+    for k in DOM_FACTORS:                 # first in declared order wins a tie
+        if k not in mag:
+            continue
+        if top is None or mag[k] > mag[top]:
+            top = k
+    if top is None or total <= 1e-12:
+        return {"factor": None, "share": 0.0, "magnitude": 0.0, "signed": 0.0,
+                "total": 0.0, "contrib": contrib, "warn": False}
+    share = mag[top] / total
+    return {"factor": top, "share": share, "magnitude": mag[top],
+            "signed": contrib[top], "total": total, "contrib": contrib,
+            "warn": share > SCORING["DOMINANCE"]["SHARE_WARN"]
+                    and mag[top] > SCORING["DOMINANCE"]["MAGNITUDE_WARN"]}
+
+
+# ---------------------------------------------------------------------------
 # specification identity
 # ---------------------------------------------------------------------------
 # Every function whose text can change a published score. Named here rather than
@@ -250,7 +447,13 @@ SPEC_CONSTANTS = ("TIER_CUTS", "STABLES",
                   # either re-admits the class of value this boundary was drawn to
                   # refuse, so both move the hash.
                   "PERP_NEUTRAL", "PERP_ENVELOPE_LO", "PERP_ENVELOPE_HI",
-                  "PERP_MAX_AGE_DAYS")
+                  "PERP_MAX_AGE_DAYS",
+                  # AUDIT-PHASE2A. The declared ruler. Captured because it is a CLAIM
+                  # about what the scoring functions do, asserted against their behaviour
+                  # by tests/test_scoring_config.py — so the digest notices an edit to
+                  # either side of that claim. It adds no bound and changes no number;
+                  # the boundary it moves is proved score-identical below.
+                  "SCORING")
 
 # The same, for funding.py. lavl_perp_mult is a two-line delegation, so without this the
 # specification would capture the *call* and none of the arithmetic behind it: the
@@ -484,6 +687,41 @@ SPEC_EQUIVALENT = {
                    "captured funding.rsi but not _rsi_by_symbol, which decides the "
                    "period and source. Widening the capture changed the digest and no "
                    "scoring arithmetic — scoring-equivalent."),
+    },
+    # The third entry, and the third correction to the RULER rather than to the model.
+    #
+    # AUDIT-PHASE2A collected every threshold that governs a factor into SCORING and
+    # captured it. Not one number moved: the scoring functions are deliberately NOT
+    # refactored to read from the object, precisely so their hashed source text is
+    # untouched and this equivalence stays provable. Removing SCORING from today's
+    # specification reproduces ab16684ad5c1 exactly, and tests/test_persistence.py
+    # re-derives it from source on every run while SPEC_HASH equals `verified_against`.
+    #
+    # What was audited before adding this entry. The commit that introduced it changes:
+    # SCORING and DOM_FACTORS (new, captured), four new uncaptured helpers
+    # (depth_state, liquidity_state, _liquidity_fit, supply_state, chain_dominance),
+    # the xsec writer's column list, the board's markup, the tests and the docs. None of
+    # those is a captured function, and the one captured constant added is new rather
+    # than changed. Verified rather than asserted: every previously-captured function's
+    # canonical source and every previously-captured constant's value are identical
+    # either side of the commit, and score() returns identical results for all 703 rows
+    # of the recorded cross-section — asserted by
+    # tests/test_scoring_config.py::test_the_reorganisation_changed_no_published_score.
+    #
+    # This is why the track record does NOT segment here. A reorganisation that provably
+    # alters no number must not cost a performance segment; that rule is not being
+    # softened, it is being applied.
+    "ab16684ad5c1": {
+        "canonical": "91bbc2a7e466",
+        "reason": "instrumentation",
+        "verified_against": "91bbc2a7e466",
+        # Exactly what the capture added. Removing it — not nulling it; it did not exist
+        # in the old blob at all — reproduces the superseded digest.
+        "added_constants": ("SCORING",),
+        "detail": ("Every factor threshold was collected into one captured SCORING "
+                   "object and asserted against the behaviour of the functions that "
+                   "already applied them. No scoring arithmetic was edited and no "
+                   "published score moved — scoring-equivalent."),
     },
 }
 
@@ -3852,7 +4090,7 @@ XSEC_SCHEMA_JSON = XSEC_DIR / "SCHEMA.json"
 # carry src="live", which this file defines as observed on the night it is dated, and a
 # reconstruction in a live row would make the distinction unenforceable on the first
 # occasion it mattered.
-XSEC_SCHEMA_VERSION = 3
+XSEC_SCHEMA_VERSION = 4
 
 # `live` is observed on the night it is dated. `backfill` is reconstructed from
 # point-in-time inputs and was never observed live. They are recorded in the same shape
@@ -3898,6 +4136,28 @@ XSEC_FIELDS = [
     # other four factors are exactly 1.0 gives its fifth a 100% share of almost nothing,
     # so share alone flags the most neutral rows on the board.
     "dom_factor", "dom_share", "dom_logabs",
+    # --- v4 (AUDIT-PHASE2A): raw beside applied, and the bound that decided ---------
+    # The columns above record what was APPLIED. These record what the factor would have
+    # been before its bound and which mechanism produced the difference — the series a
+    # curve redesign needs and would otherwise have to reconstruct from inputs.
+    #
+    # `liq_state` carries the distinction Phase 2A was asked to make observable without
+    # acting on it: `no-volume` (the feed published nothing) and `zero-volume` (it
+    # published a zero) score identically today and are different facts. Fifteen rows a
+    # night are tokenised money-market instruments with no secondary market, scoring
+    # exactly as a token at 2.9% turnover does.
+    #
+    #   depth_state    curve | cap | floor | no-mcap
+    #   liq_state      curve | floor | bypass | zero-volume | no-volume
+    #   supply_state   applied | inert | unpublished
+    #
+    # `dom_signed` is the dominant factor's log WITH ITS SIGN, so a cohort study can ask
+    # whether haircut-dominated rows behave differently from boost-dominated ones — a
+    # question that is currently answered structurally (no chain can be boost-dominated
+    # under the present envelopes) and should be re-asked if an envelope ever moves.
+    # `dom_warn` is the two-part flag. Diagnostic: nothing reads it back into a score.
+    "depth_raw", "depth_state", "liq_raw", "liq_state", "supply_state",
+    "dom_signed", "dom_warn",
     # --- v2: what the browser applies, beside what the nightly modelled -----------
     # `perp_mult` above is the multiplier score() applied, from tonight's live venue
     # feed. These three are what a ledger consumer — the terminal — is entitled to
@@ -3933,9 +4193,17 @@ XSEC_FIELDS = [
 
 # The columns schema v2 added, named so the sidecar can say which they are and so the
 # migration below can tell an old shard's missing cells from a genuinely absent reading.
+# Everything appended after v1, in XSEC_FIELDS order. The name is historical: it was the
+# v2 set when it was written and has grown with each schema since. What it MEANS, and
+# what the sidecar and the subset invariant both rely on, is "the columns a v1 row does
+# not carry" — so it must stay in field order, and test_the_schema_is_locked asserts it
+# is exactly the tail.
 XSEC_V2_FIELDS = (
     "total_volume", "depth", "confirm", "liquidity",
     "conviction_raw", "clamped", "dom_factor", "dom_share", "dom_logabs",
+    # v4
+    "depth_raw", "depth_state", "liq_raw", "liq_state", "supply_state",
+    "dom_signed", "dom_warn",
     "perp_mult_board", "perp_mult_board_date", "perp_board_state",
     "price_chg_24h", "perp_path",
     "funding_venue", "funding_venues_n", "funding_apr_spread",
@@ -5077,6 +5345,17 @@ def main() -> int:
         chain_bad = factor_chain_reconciles(chain, conv, comp)
         if chain_bad:
             chain_misses.append((sym, chain_bad))
+        # AUDIT-PHASE2A. Raw beside applied, and the bound that decided. `total_volume`
+        # is passed UNMODIFIED so liquidity_state can tell a published zero from a
+        # missing field; score() collapses both to zero and this pass does not change
+        # that, so `applied` is identical either way.
+        st_depth = depth_state(t.get("market_cap"))
+        st_liq = liquidity_state(t.get("total_volume"), t.get("market_cap"),
+                                 st_depth["applied"])
+        st_sup = supply_state(t.get("fully_diluted_valuation"), t.get("market_cap"))
+        st_dom = chain_dominance({"DEPTH": chain["depth"], "CONFIRM": chain["confirm"],
+                                  "LIQUIDITY": chain["liquidity"],
+                                  "SUPPLY": chain["supply"], "FUNDING": chain["funding"]})
         # The same modifier score() applied, with the sentence explaining why. The
         # multiplier is recorded as perp_mult; the reason goes to funding.json, because
         # a 0.85 on screen cannot distinguish "penalised for crowding" from "the feed
@@ -5169,7 +5448,9 @@ def main() -> int:
             # display scale was not enough.
             **({k: None for k in ("total_volume", "depth", "confirm", "liquidity",
                                   "conviction_raw", "clamped", "dom_factor",
-                                  "dom_share", "dom_logabs", "perp_path")}
+                                  "dom_share", "dom_logabs", "perp_path",
+                                  "depth_raw", "depth_state", "liq_raw", "liq_state",
+                                  "supply_state", "dom_signed", "dom_warn")}
                if chain_bad else {
                 "total_volume": t.get("total_volume"),
                 "depth": round(chain["depth"], 6),
@@ -5180,6 +5461,14 @@ def main() -> int:
                 "dom_factor": chain["dom_factor"],
                 "dom_share": round(chain["dom_share"], 4),
                 "dom_logabs": round(chain["dom_logabs"], 4),
+                "depth_raw": (None if st_depth["raw"] is None
+                              else round(st_depth["raw"], 6)),
+                "depth_state": st_depth["state"],
+                "liq_raw": round(st_liq["raw"], 6),
+                "liq_state": st_liq["state"],
+                "supply_state": st_sup["state"],
+                "dom_signed": round(st_dom["signed"], 4),
+                "dom_warn": st_dom["warn"],
                 "perp_path": perp_path(fc.get("funding_apr"),
                                        t.get("price_change_percentage_24h"),
                                        rsi_map.get(sym)),
