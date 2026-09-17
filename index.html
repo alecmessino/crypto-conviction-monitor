@@ -1235,6 +1235,16 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
             <div class="muted" style="padding:8px 12px">Edge measurement pending — accrues with the nightly ledger.</div>
           </div>
         </div>
+        <!-- AUDIT-PHASE3. Every signal against every horizon, beside the single-cell
+             Selection Edge panel it generalises. Deliberately a sibling rather than a
+             replacement: that panel is the incumbent series and the composite 1d cell
+             here reproduces it exactly, which is asserted in tests rather than hoped. -->
+        <div class="glass">
+          <div class="card-h">IC MATRIX <span class="muted">every signal, every horizon — and what each one is entitled to claim</span></div>
+          <div class="card-b" id="ic-matrix">
+            <div class="muted" style="padding:8px 12px">Matrix pending — published by the nightly into <code>ledger/market_breadth.json</code>.</div>
+          </div>
+        </div>
         <div class="glass">
           <div class="card-h">PIPELINE HEALTH <span class="muted" id="mon-obs">operational condition, not predictive power</span></div>
           <div class="card-b" id="monitor">
@@ -2618,11 +2628,32 @@ function tierTitle(sig, edge){
 /* The gate on screen: one status line under the board header, and the header stat's
    own caption, which names the same cut and must not keep saying BUY+ when the board
    has stopped saying BUY. Nothing else in the ribbon moves. */
+/* AUDIT-PHASE3. The publication gate, on the board's own strip rather than in
+   diagnostics. The strip already existed and already carried the measurement the labels
+   rest on; the gate is the same fact one level up, so it leads the line instead of
+   getting a ribbon of its own.
+
+   Three states, and the middle one is the one that usually gets lost:
+     DIAGNOSTIC ONLY  the active horizon's IC is measurable and entirely below zero.
+     NOT ESTABLISHED  insufficient history, a degenerate signal, or an interval that
+                      spans zero — explicitly not a claim either way.
+     PUBLISHED        measurable and positive.
+   The gate changes what the board is CALLED. Scores, tiers, ordering, weights and the
+   basket are untouched, and the ranking is NOT inverted. */
+function pubGate(){ return (BREADTH && BREADTH.publication_gate) || null; }
+function gateChip(){
+  const g = pubGate();
+  if(!g) return "";
+  const col = g.gate === "DIAGNOSTIC_ONLY" ? "var(--red)"
+            : g.gate === "PUBLISHED" ? "var(--green)" : "var(--amber)";
+  return `<b style="color:${col}" title="${esc0(g.detail)}">${esc0(g.headline)}</b> · `;
+}
 function renderLabelGate(){
   const g = labelGateState(_edgeOrCurrent(undefined));
   const line = $("#label-status");
   if(line){
-    line.innerHTML = `<b style="color:${g.actionable ? "var(--green)" : "var(--amber)"}">`
+    line.innerHTML = gateChip()
+      + `<b style="color:${g.actionable ? "var(--green)" : "var(--amber)"}">`
       + `${g.actionable ? "LABELS: ACTIONABLE" : "LABELS: DESCRIPTIVE"}</b> — `
       + `${esc0(g.reason)} <span class="muted">(${esc0(g.stats)})</span>`
       + (g.actionable ? "" :
@@ -3069,7 +3100,64 @@ function renderDiag(){
     const keys=Object.keys(cov), live=keys.filter(k=>cov[k]>0).length;
     bits.push(`<span title="Recorded-but-not-scored fields carrying values. Nulls here are expected; nothing scored depends on them.">context feeds <b>${live}/${keys.length}</b></span>`);
   }
+  const g = pubGate();
+  if(g){
+    const col = g.gate === "DIAGNOSTIC_ONLY" ? "var(--red)"
+              : g.gate === "PUBLISHED" ? "var(--green)" : "var(--amber)";
+    bits.push(`<span title="${esc0(g.detail)}">publication
+      <b style="color:${col}">${esc0(g.gate.replace("_"," "))}</b></span>`);
+  }
   host.innerHTML = bits.join("");
+  renderICMatrix();
+}
+
+/* The full horizon x signal matrix. Every cell carries its own inference state, and a
+   cell with too little history reads INSUFFICIENT rather than borrowing a zero — an
+   interval that has not been earned is not an interval that spans zero.
+
+   The 7d and 30d columns are marked: their legs overlap by six and twenty-nine days, so
+   the effective sample is nearer legs/horizon and the interval is narrower than the
+   evidence supports. Recorded rather than corrected — a Newey-West adjustment is a
+   modelling choice and this phase is not making one. */
+function renderICMatrix(){
+  const host = $("#ic-matrix"); if(!host) return;
+  const m = BREADTH && BREADTH.ic_matrix;
+  if(!m){ host.innerHTML = `<div class="muted" style="padding:10px 12px">The IC matrix
+    is published by the nightly into <code>ledger/market_breadth.json</code>. It has not
+    been written yet, which is reported rather than filled in.</div>`; return; }
+  const cl = st => st === "NEGATIVE" ? "neg" : st === "POSITIVE" ? "pos"
+                 : st === "SPANS_ZERO" ? "neu" : "muted";
+  const cell = c => {
+    if(c.ic == null)
+      return `<td class="num muted" title="${esc0(c.detail||"")}">${esc0(c.state)}
+                <span class="muted">· ${c.legs}L</span></td>`;
+    const ci = c.ci ? `[${c.ci[0]>=0?"+":""}${c.ci[0].toFixed(3)}, ${c.ci[1]>=0?"+":""}${c.ci[1].toFixed(3)}]` : "—";
+    return `<td class="num ${cl(c.state)}" title="${esc0(c.state + " — " + (c.detail||"")
+              + " · " + c.legs + " usable legs of " + c.min_legs + " needed"
+              + (c.effective_legs && c.effective_legs !== c.legs
+                 ? ", effective " + c.effective_legs + " after overlap" : "")
+              + (c.names_mean ? " · " + c.names_mean + " names a leg" : "")
+              + " · " + (c.overlap||""))}">
+        ${c.ic>=0?"+":""}${c.ic.toFixed(4)}
+        <span class="muted">${ci} · ${c.legs}L</span>
+        ${c.state === "INSUFFICIENT" ? `<span class="mk warn">⚠</span>` : ""}</td>`;
+  };
+  const rows = m.signals.map(sig =>
+    `<tr class="row"><td class="tick">${esc0(sig)}${sig === "composite"
+        ? `<span class="tier ALT">PUBLISHED</span>` : ""}</td>`
+    + m.horizons.map(h => cell(m.cells[sig][String(h)])).join("") + `</tr>`).join("");
+  host.innerHTML =
+    `<table><thead><tr><th>signal</th>`
+    + m.horizons.map(h => `<th title="${esc0(m.overlap[String(h)]||"")}">${h}d${
+        h === m.active_horizon ? " · ACTIVE" : ""}</th>`).join("")
+    + `</tr></thead><tbody>${rows}</tbody></table>`
+    + `<div class="muted" style="padding:8px 12px;line-height:1.5">
+        ${esc0(m.estimator)}. ${esc0(m.causality)} Universe: ${esc0(m.universe)}; legs
+        before the detected specification break at <code>${esc0(m.boundary||"—")}</code>
+        are excluded. A cell reading INSUFFICIENT has fewer than ${m.min_legs} usable
+        legs — it is not a zero and not a null result. 7d and 30d legs OVERLAP, so their
+        intervals are narrower than the evidence supports; the effective sample is on
+        each cell's hover.</div>`;
 }
 
 function setFilter(q){

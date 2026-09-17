@@ -1942,6 +1942,279 @@ def _edge_legs(by_date: dict, boundary: str | None) -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# the IC matrix  (AUDIT-PHASE3 — observational; nothing here reaches a score)
+# ---------------------------------------------------------------------------
+# The board reported a 1-day information coefficient of -0.0562 with a 95% interval
+# entirely below zero, and went on ranking by it. Phase 3 closes that loop, and closes
+# it the conservative way: the ranking is NOT inverted, no horizon is selected on the
+# sample that reports it, and no score, tier, weight or basket weight moves. What
+# changes is that the board says what it is.
+#
+# The estimator, the interval convention and the minimum-sample rule are the ones
+# already in use — _spearman, mean +/- 1.96 SE over legs, EDGE_MIN_NAMES per leg and
+# EDGE_MIN_LEGS before anything is called measurable. Inventing a second significance
+# threshold beside the first would mean the board could be honest under one and not the
+# other.
+IC_HORIZONS = (1, 7, 30)
+# The signal in each column, and the recorded field it is read from. Every one is the
+# value STORED AT THE SNAPSHOT, never recomputed from today's payload: a factor
+# evaluated against a return it could not have preceded is not a measurement.
+IC_SIGNALS = (
+    ("composite", "conviction"),
+    ("DEPTH", "c_depth"),
+    ("CONFIRM", "c_momentum"),
+    ("LIQUIDITY", "c_liquidity"),
+    ("SUPPLY", "emission_mult"),
+    ("FUNDING", "perp_mult"),
+)
+# The horizon the board publishes on, and therefore the one the gate reads.
+IC_ACTIVE_HORIZON = 1
+
+
+def ic_by_date(rows: list[dict] | None = None) -> dict:
+    """The ledger as {date: {symbol: row}}, carrying the FACTOR columns as well as price.
+
+    _perf_by_date() projects each row down to price and conviction, which is all the
+    performance curve needs and is not enough to correlate a factor. Same de-duplication
+    rule — latest run per (date, symbol) wins, because 2026-08-02 carries nine runs and a
+    naive read computes returns between a day and itself.
+
+    The factor columns are copied AS RECORDED. They are the values the score was computed
+    from on that night, which is the only version of them that can legitimately be set
+    against a later return; recomputing a factor from today's payload and dating it to a
+    past snapshot is the look-ahead this whole phase exists to avoid.
+    """
+    if rows is None:
+        if not LEDGER_CSV.exists():
+            return {}
+        with LEDGER_CSV.open(newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+    keep = ("price", "conviction") + tuple(f for _, f in IC_SIGNALS)
+    by_date: dict = {}
+    for r in rows:
+        d, sym = r.get("date"), (r.get("symbol") or "").upper()
+        if not d or not sym:
+            continue
+        price = _mon_float(r, "price")
+        if not price or price <= 0:
+            continue
+        by_date.setdefault(d, {})[sym] = {k: r.get(k) for k in keep}
+    return by_date
+
+
+def _ic_legs(by_date: dict, field: str, horizon: int,
+             boundary: str | None = None) -> list[dict]:
+    """Forward legs for one signal at one horizon. Strictly causal, exact offset.
+
+    The snapshot at ``a`` is paired with the price recorded exactly ``horizon`` calendar
+    days later, and with nothing else. No nearest-date fallback: a 30-day horizon that
+    quietly settles for 26 days when the ledger has a gap is a different statistic
+    wearing the same label, and the direction it errs in is unknowable. A date the
+    ledger does not hold simply yields no leg.
+
+    A symbol must appear at BOTH ends. One that left the universe has no return, and
+    imputing zero for it would be the most expensive kind of fabrication here —
+    delistings are not flat.
+    """
+    out = []
+    dates = sorted(by_date)
+    have = set(dates)
+    for a in dates:
+        if boundary and a < boundary:
+            continue
+        try:
+            b = (date.fromisoformat(a) + timedelta(days=horizon)).isoformat()
+        except ValueError:
+            continue
+        if b not in have:
+            continue
+        prev, curr = by_date[a], by_date[b]
+        xs, ys = [], []
+        for sym, row in prev.items():
+            nxt = curr.get(sym)
+            v = _mon_float(row, field)
+            p0 = _mon_float(row, "price")
+            p1 = _mon_float(nxt, "price") if nxt else None
+            if v is None or not p0 or not p1:
+                continue
+            xs.append(v)
+            ys.append(p1 / p0 - 1.0)
+        if len(xs) < EDGE_MIN_NAMES:
+            continue
+        rho = _spearman(xs, ys)
+        out.append({"from": a, "to": b, "ic": rho, "names": len(xs),
+                    # A signal that is constant across the cross-section has no rank to
+                    # correlate. Recorded as a leg with a null IC rather than dropped,
+                    # so "this factor did not vary" is distinguishable from "this night
+                    # had no data".
+                    "degenerate": rho is None})
+    return out
+
+
+# How far a horizon's legs overlap, and therefore how much the interval understates.
+# A 1-day leg starting each night shares no day with the next, so the legs are close to
+# independent and the standard error means what it says. A 7-day leg shares six days with
+# the next and a 30-day leg twenty-nine: those legs are heavily autocorrelated, the
+# effective sample is roughly legs/horizon rather than legs, and the 95% interval is
+# correspondingly too narrow. Recorded per horizon rather than corrected, because a
+# Newey-West style correction is a modelling choice and this phase is not making one —
+# what it does is refuse to let a tight-looking interval be read as a precise one.
+IC_OVERLAP_NOTE = {
+    1: "legs are disjoint; the interval means what it says",
+    7: "legs overlap by six days — effective sample is nearer legs/7, so the interval "
+       "is narrower than the evidence supports",
+    30: "legs overlap by twenty-nine days — effective sample is nearer legs/30, so the "
+        "interval is much narrower than the evidence supports",
+}
+
+
+def _ic_cell(legs: list[dict]) -> dict:
+    """One cell of the matrix, under the repository's existing inferential contract.
+
+    States, and they are not interchangeable:
+
+      INSUFFICIENT  fewer than EDGE_MIN_LEGS usable legs. Reported as insufficient and
+                    never as zero, neutral or "no effect" — an interval that has not been
+                    earned is not an interval that spans zero.
+      SPANS_ZERO    enough legs, and the 95% interval includes zero. Neither evidence the
+                    signal works nor evidence it does not.
+      NEGATIVE      enough legs, and the interval lies entirely below zero.
+      POSITIVE      enough legs, and the interval lies entirely above zero.
+      DEGENERATE    the signal did not vary across the cross-section on any usable leg,
+                    so there is no ranking to correlate.
+    """
+    usable = [l for l in legs if l["ic"] is not None]
+    ics = [l["ic"] for l in usable]
+    base = {"legs": len(usable), "legs_seen": len(legs), "min_legs": EDGE_MIN_LEGS,
+            "names_mean": (round(sum(l["names"] for l in usable) / len(usable), 1)
+                           if usable else None),
+            "ic": None, "ci": None, "se": None, "t_stat": None,
+            "legs_positive": sum(1 for i in ics if i > 0) if ics else 0,
+            "sufficient": False}
+    if legs and not usable:
+        return {**base, "state": "DEGENERATE",
+                "detail": "the signal did not vary across the cross-section on any leg"}
+    if len(ics) < 2:
+        return {**base, "state": "INSUFFICIENT",
+                "detail": f"{len(ics)} usable leg(s); {EDGE_MIN_LEGS} needed"}
+    mean = sum(ics) / len(ics)
+    var = sum((i - mean) ** 2 for i in ics) / (len(ics) - 1)
+    se = (var / len(ics)) ** 0.5
+    lo, hi = mean - 1.96 * se, mean + 1.96 * se
+    enough = len(ics) >= EDGE_MIN_LEGS
+    state = ("INSUFFICIENT" if not enough
+             else "NEGATIVE" if hi < 0
+             else "POSITIVE" if lo > 0
+             else "SPANS_ZERO")
+    detail = {
+        "INSUFFICIENT": f"{len(ics)} of {EDGE_MIN_LEGS} legs — not yet measurable",
+        "NEGATIVE": "the interval lies entirely below zero",
+        "POSITIVE": "the interval lies entirely above zero",
+        "SPANS_ZERO": "the interval includes zero — neither evidence for nor against",
+    }[state]
+    return {**base, "ic": round(mean, 4), "se": round(se, 4),
+            "ci": [round(lo, 4), round(hi, 4)],
+            "t_stat": round(mean / se, 3) if se else None,
+            "sufficient": enough, "state": state, "detail": detail}
+
+
+def ic_matrix(by_date: dict, boundary: str | None = None,
+              universe: str = "signals.csv (top fifty by conviction)") -> dict:
+    """Every signal against every horizon, with its inference state.
+
+    Observational throughout. The publication gate reads ONE cell of this — composite at
+    IC_ACTIVE_HORIZON — and reads it to decide what the board is CALLED, never to
+    reorder it.
+    """
+    cells = {}
+    for name, field in IC_SIGNALS:
+        cells[name] = {}
+        for h in IC_HORIZONS:
+            cell = _ic_cell(_ic_legs(by_date, field, h, boundary))
+            cell["overlap"] = IC_OVERLAP_NOTE.get(h, "")
+            # The effective sample once overlap is accounted for, stated so a reader
+            # cannot mistake forty overlapping legs for forty observations.
+            cell["effective_legs"] = round(cell["legs"] / h, 1) if cell["legs"] else 0
+            cells[name][str(h)] = cell
+    return {
+        "horizons": list(IC_HORIZONS),
+        "signals": [n for n, _ in IC_SIGNALS],
+        "active_horizon": IC_ACTIVE_HORIZON,
+        "boundary": boundary,
+        "universe": universe,
+        "min_legs": EDGE_MIN_LEGS,
+        "min_names": EDGE_MIN_NAMES,
+        "estimator": "Spearman rank correlation, ties averaged; mean over legs with a "
+                     "95% interval at +/- 1.96 standard errors — the same contract the "
+                     "Selection Edge panel has always used",
+        "overlap": dict(IC_OVERLAP_NOTE),
+        "causality": "A snapshot at t is paired with the price recorded at exactly "
+                     "t + horizon days. No nearest-date fallback, and a symbol must "
+                     "appear at both ends — a name that left the universe has no return "
+                     "and is not imputed one.",
+        "cells": cells,
+    }
+
+
+def publication_gate(matrix: dict) -> dict:
+    """What the board may call itself, from the active horizon's composite IC.
+
+    Three states, and the middle one is the one that usually gets lost:
+
+      PUBLISHED        the active horizon's IC is measurable and positive.
+      DIAGNOSTIC_ONLY  it is measurable and NEGATIVE. The ranking is not inverted — an
+                       interval below zero is a finding about forty-odd nights of
+                       one-day returns, and reversing a published order on the strength
+                       of it would be acting on the same thin evidence in the other
+                       direction. The board is marked, and nothing about it moves.
+      NOT_ESTABLISHED  insufficient history, a degenerate signal, or an interval that
+                       spans zero. Explicitly NOT a claim that the signal is validated,
+                       and explicitly not a claim that it is broken.
+
+    The gate changes what the board is CALLED. It never changes a score, a tier, an
+    ordering, a weight or a basket.
+    """
+    h = str(matrix.get("active_horizon", IC_ACTIVE_HORIZON))
+    cell = ((matrix.get("cells") or {}).get("composite") or {}).get(h) or {}
+    state = cell.get("state", "INSUFFICIENT")
+    ci = cell.get("ci")
+    stats = (f"{cell.get('legs', 0)} legs, IC {cell['ic']:+.3f}, "
+             f"95% CI [{ci[0]:+.3f}, {ci[1]:+.3f}]"
+             if cell.get("ic") is not None and ci
+             else f"{cell.get('legs', 0)} of {EDGE_MIN_LEGS} legs")
+    if state == "NEGATIVE":
+        return {"gate": "DIAGNOSTIC_ONLY", "horizon": int(h), "ic_state": state,
+                "ic": cell.get("ic"), "ci": ci, "legs": cell.get("legs"), "stats": stats,
+                "headline": f"DIAGNOSTIC ONLY · {h}D IC {cell['ic']:+.3f} · "
+                            f"95% CI [{ci[0]:+.3f}, {ci[1]:+.3f}]",
+                "reason": f"the {h}-day information coefficient is measurable and "
+                          f"entirely below zero",
+                "detail": f"The board is ordered by a score whose {h}-day rank "
+                          f"correlation with the next return is measurably negative "
+                          f"({stats}). It is published as a diagnostic. The ranking is "
+                          f"NOT inverted: an interval below zero is a finding about "
+                          f"these legs, not a licence to print the order backwards."}
+    if state == "POSITIVE":
+        return {"gate": "PUBLISHED", "horizon": int(h), "ic_state": state,
+                "ic": cell.get("ic"), "ci": ci, "legs": cell.get("legs"), "stats": stats,
+                "headline": f"PUBLISHED · {h}D IC {cell['ic']:+.3f}",
+                "reason": f"the {h}-day information coefficient is measurable and positive",
+                "detail": f"The {h}-day rank correlation between conviction and the next "
+                          f"return is measurable and above zero ({stats})."}
+    why = ("no history yet" if state == "INSUFFICIENT" and not cell.get("legs")
+           else "not enough legs yet" if state == "INSUFFICIENT"
+           else "the signal did not vary" if state == "DEGENERATE"
+           else "the interval includes zero")
+    return {"gate": "NOT_ESTABLISHED", "horizon": int(h), "ic_state": state,
+            "ic": cell.get("ic"), "ci": ci, "legs": cell.get("legs"), "stats": stats,
+            "headline": f"NOT ESTABLISHED · {h}D IC {stats}",
+            "reason": f"the {h}-day information coefficient is not established — {why}",
+            "detail": f"Nothing here says the ranking works and nothing says it does "
+                      f"not: {why} ({stats}). Absence of a measured effect is not "
+                      f"evidence of absence, and is not published as either."}
+
+
 _ATTRIB_BASIS = (
     "Arithmetic, not evidence. Contribution = active weight x (return - equal-weight "
     "return) per leg, linked across legs by the Carino method so the parts sum to the "
@@ -2471,6 +2744,18 @@ def _canonical_index(edge: dict | None = None) -> dict:
     _CANON_CACHE["key"] = key
     _CANON_CACHE["v"] = v
     return v
+
+
+def _ic_block() -> dict:
+    """The matrix and the gate, computed once and written into market_breadth.json.
+
+    The boundary is the one the performance curve already uses — a detected specification
+    break, not a hash boundary — so the matrix and the incumbent Selection Edge panel are
+    measured over the same legs and cannot disagree about which nights count.
+    """
+    perf = _compute_performance()
+    matrix = ic_matrix(ic_by_date(), perf.get("spec_boundary"))
+    return {"ic_matrix": matrix, "publication_gate": publication_gate(matrix)}
 
 
 def _compute_edge() -> dict:
@@ -3874,6 +4159,10 @@ def _compute_market_breadth() -> dict:
         # Whether the ordering is informative at all — the question that decides
         # whether any of the rest is worth acting on.
         "edge": _compute_edge(),
+        # AUDIT-PHASE3. Every signal against every horizon, and the one cell the board
+        # reads to decide what it may call itself. Observational: publication_gate()
+        # changes a LABEL and never a score, a tier, an ordering, a weight or a basket.
+        **_ic_block(),
         # Which names hold conviction across nights versus spike for one.
         "persistence": _persistence(series, sorted(set(all_dates))),
         # Model health, for the ribbon: is tonight a trend or a twitch.
