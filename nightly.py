@@ -10,6 +10,7 @@ fetched; otherwise Module B columns stay null (never fabricated).
 """
 from __future__ import annotations
 
+import collections
 import csv
 import json
 import math
@@ -4841,6 +4842,316 @@ def perp_path(funding_apr, price_chg_24h, rsi7) -> str:
     return "cold-downtrend" if r <= funding.MOD_SQUEEZE_RSI else "cold-squeeze"
 
 
+# ---------------------------------------------------------------------------
+# the walk-forward harness  (AUDIT-PHASE4 — observational)
+# ---------------------------------------------------------------------------
+# Formalisation, not another redesign. ledger/xsec/ already holds what a walk-forward
+# study needs; what it lacked was a documented outcome layer and a report that runs
+# TODAY, reports its own insufficiency honestly, and becomes informative on its own as
+# nights accumulate rather than on someone remembering to re-run it.
+#
+# Nothing here recalibrates anything. The Phase 2A deferrals stand: no factor bound and
+# no dominance threshold is fitted from this sample, which is three nights long.
+WALKFWD_JSON = LEDGER_DIR / "walkforward.json"
+WALKFWD_VERSION = 1
+# The horizons the outcome layer links. Same set as the IC matrix, because a walk-forward
+# report that measured different windows from the published matrix would be a second
+# answer to the same question.
+WALKFWD_HORIZONS = IC_HORIZONS
+# Below this a cohort statistic is not computed. A hit rate over four names is a
+# statement about four names.
+WALKFWD_MIN_COHORT = 20
+
+
+def _wilson(k: int, n: int, z: float = 1.96) -> list | None:
+    """Wilson interval for a proportion. None below one observation.
+
+    Wilson rather than the normal approximation because hit rates here sit near 0.5 on
+    small samples, where the normal interval runs past 0 and 1 and reports coverage it
+    does not have.
+    """
+    if n <= 0:
+        return None
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return [round(max(0.0, c - h), 4), round(min(1.0, c + h), 4)]
+
+
+# Why a snapshot has no outcome. Four reasons, and they are four different facts — a
+# report that collapsed them into "no data" would hide the one that matters (a symbol
+# that left the universe is not a symbol whose horizon has not elapsed).
+OUTCOME_STATES = ("realised", "horizon-incomplete", "left-universe", "unpriced")
+
+
+def link_outcomes(by_date: dict, horizons=WALKFWD_HORIZONS) -> list[dict]:
+    """Join every snapshot to the prices recorded strictly later, and to nothing else.
+
+    Deterministic and causal by construction:
+
+    * the target date is ``snapshot + horizon`` days EXACTLY. There is no nearest-date
+      fallback, because a fallback can only err in one direction — toward whichever
+      neighbouring date happens to exist — and the direction is unknowable after the
+      fact.
+    * a horizon whose target date is beyond the last recorded night is
+      ``horizon-incomplete``, never a shorter return relabelled.
+    * a symbol absent from the target night is ``left-universe``, never a zero. A
+      delisting is not a flat day, and imputing one would be the most expensive
+      fabrication available here.
+    * ``unpriced`` is a row that exists at both ends with no usable price.
+
+    Returns one record per (snapshot, symbol), with one entry per horizon. Pure: it reads
+    the dict it is given and touches no file.
+    """
+    dates = sorted(by_date)
+    have = set(dates)
+    last = dates[-1] if dates else None
+    out = []
+    for d in dates:
+        for sym, row in by_date[d].items():
+            p0 = _num(row.get("price"))
+            rec = {"date": d, "symbol": sym, "outcomes": {}}
+            for h in horizons:
+                try:
+                    tgt = (date.fromisoformat(d) + timedelta(days=h)).isoformat()
+                except ValueError:
+                    continue
+                if last is None or tgt > last:
+                    rec["outcomes"][str(h)] = {"state": "horizon-incomplete",
+                                               "to": tgt, "ret": None}
+                    continue
+                if tgt not in have:
+                    # The target night was never recorded. Not an incomplete horizon —
+                    # the horizon has elapsed, the observation is simply missing.
+                    rec["outcomes"][str(h)] = {"state": "unpriced", "to": tgt,
+                                               "ret": None}
+                    continue
+                nxt = by_date[tgt].get(sym)
+                if nxt is None:
+                    rec["outcomes"][str(h)] = {"state": "left-universe", "to": tgt,
+                                               "ret": None}
+                    continue
+                p1 = _num(nxt.get("price"))
+                if not p0 or not p1 or p0 <= 0 or p1 <= 0:
+                    rec["outcomes"][str(h)] = {"state": "unpriced", "to": tgt,
+                                               "ret": None}
+                    continue
+                rec["outcomes"][str(h)] = {"state": "realised", "to": tgt,
+                                           "ret": p1 / p0 - 1.0}
+            out.append(rec)
+    return out
+
+
+def _cohort(pairs: list) -> dict:
+    """Hit rate and mean return for one cohort, with an interval and a count.
+
+    ``pairs`` is a list of returns. Insufficiency is reported, never smoothed: below
+    WALKFWD_MIN_COHORT the statistics are None and the state says why.
+    """
+    n = len(pairs)
+    if n < WALKFWD_MIN_COHORT:
+        return {"n": n, "hit_rate": None, "hit_ci": None, "mean_ret_pct": None,
+                "state": "INSUFFICIENT",
+                "detail": f"{n} of {WALKFWD_MIN_COHORT} observations"}
+    k = sum(1 for r in pairs if r > 0)
+    return {"n": n, "hit_rate": round(k / n, 4), "hit_ci": _wilson(k, n),
+            "mean_ret_pct": round(sum(pairs) / n * 100, 4), "state": "MEASURED",
+            "detail": f"{k} of {n} positive"}
+
+
+def walkforward_report(by_date: dict, regimes: dict | None = None,
+                       universe: str = "ledger/xsec/ (whole scored cross-section)") -> dict:
+    """IC, hit rate and cohort diagnostics by factor, horizon, tier, regime and flag.
+
+    Runs today. On three nights of history almost every cell reads INSUFFICIENT, and
+    that is the correct output — the harness is built so it becomes informative as nights
+    accumulate rather than waiting for someone to decide it is ready.
+
+    ``regimes`` maps a date to the RISK-ON / RISK-OFF flag recorded for that night.
+    Absent, the regime split reports as unavailable rather than as one bucket.
+    """
+    dates = sorted(by_date)
+    links = link_outcomes(by_date)
+    ret = {(r["date"], r["symbol"]): r["outcomes"] for r in links}
+
+    def realised(h):
+        return [(d, s, o[str(h)]["ret"]) for (d, s), o in ret.items()
+                if str(h) in o and o[str(h)]["state"] == "realised"]
+
+    # --- coverage: what the linker could and could not join ---------------------
+    coverage = {}
+    for h in WALKFWD_HORIZONS:
+        c = collections.Counter(o[str(h)]["state"] for o in ret.values() if str(h) in o)
+        coverage[str(h)] = {**{k: c.get(k, 0) for k in OUTCOME_STATES},
+                            "total": sum(c.values())}
+
+    # --- IC by signal x horizon, on this universe -------------------------------
+    ic = {}
+    for name, field in IC_SIGNALS:
+        ic[name] = {}
+        for h in WALKFWD_HORIZONS:
+            ic[name][str(h)] = _ic_cell(_ic_legs(by_date, field, h, None))
+
+    # --- hit rate by factor: the cohort a factor's own bound produced ------------
+    def bucket(pred, h):
+        vals = []
+        for d, s, r in realised(h):
+            row = by_date[d].get(s) or {}
+            if pred(row):
+                vals.append(r)
+        return _cohort(vals)
+
+    def tier_of(row):
+        c = _num(row.get("conviction"))
+        if c is None:
+            return None
+        return ("T1" if c >= 80 else "T2" if c >= 70 else "T3" if c >= 55
+                else "T4" if c >= 40 else "T5")
+
+    tiers = {t: {str(h): bucket(lambda r, t=t: tier_of(r) == t, h)
+                 for h in WALKFWD_HORIZONS} for t in ("T1", "T2", "T3", "T4", "T5")}
+
+    regime_rows = {}
+    if regimes:
+        for reg in sorted({v for v in regimes.values() if v}):
+            regime_rows[reg] = {str(h): bucket(
+                lambda r, reg=reg, d=None: False, h) for h in WALKFWD_HORIZONS}
+        # rebuilt with the date in hand — the predicate above cannot see it
+        for reg in regime_rows:
+            for h in WALKFWD_HORIZONS:
+                vals = [r for d, s, r in realised(h) if regimes.get(d) == reg]
+                regime_rows[reg][str(h)] = _cohort(vals)
+
+    def flag_split(pred, label, column):
+        """A cohort split, and whether the column it splits on has been recorded at all.
+
+        These two are not the same fact and a report that showed them the same way would
+        be lying by omission: a flag with no members because nothing qualified, and a
+        flag with no members because the writer that fills its column has not run yet,
+        look identical in a count. The v4 columns landed at AUDIT-PHASE2A and are empty
+        on every night recorded before it, by design.
+        """
+        recorded = any(str((row or {}).get(column) or "").strip()
+                       for day in by_date.values() for row in day.values())
+        out = {}
+        for h in WALKFWD_HORIZONS:
+            if not recorded:
+                out[str(h)] = {"flagged": None, "unflagged": None}
+                continue
+            yes = [r for d, s, r in realised(h) if pred(by_date[d].get(s) or {})]
+            no = [r for d, s, r in realised(h) if not pred(by_date[d].get(s) or {})]
+            out[str(h)] = {"flagged": _cohort(yes), "unflagged": _cohort(no)}
+        return {"label": label, "column": column, "recorded": recorded,
+                "detail": (f"`{column}` is recorded" if recorded else
+                           f"`{column}` has not been written on any recorded night — "
+                           f"this cohort begins when the v4 writer next runs, and is "
+                           f"reported as absent rather than as empty"),
+                "by_horizon": out}
+
+    truthy = lambda v: str(v).strip().lower() in ("true", "1", "yes")
+    cohorts = {
+        "dominance_warning": flag_split(
+            lambda r: truthy(r.get("dom_warn")),
+            "rows where one factor holds most of the chain", "dom_warn"),
+        "liquidity_floor": flag_split(
+            lambda r: r.get("liq_state") == "floor",
+            "rows whose LIQUIDITY came from the floor", "liq_state"),
+        "liquidity_bypass": flag_split(
+            lambda r: r.get("liq_state") == "bypass",
+            "rows whose LIQUIDITY came from the depth bypass", "liq_state"),
+        "no_volume": flag_split(
+            lambda r: r.get("liq_state") in ("no-volume", "zero-volume"),
+            "rows with no traded volume, or none reported", "liq_state"),
+        "depth_cap": flag_split(
+            lambda r: r.get("depth_state") == "cap",
+            "rows whose DEPTH is at its cap", "depth_state"),
+        "clamped": flag_split(
+            lambda r: str(r.get("clamped") or "") in ("high", "low"),
+            "rows whose published score was clamped", "clamped"),
+    }
+
+    n_meas = sum(1 for sig in ic.values() for c in sig.values()
+                 if c["state"] in ("NEGATIVE", "POSITIVE"))
+    return {
+        "version": WALKFWD_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "spec_hash": SPEC_HASH,
+        "universe": universe,
+        "nights": len(dates),
+        "from": dates[0] if dates else None,
+        "to": dates[-1] if dates else None,
+        "horizons": list(WALKFWD_HORIZONS),
+        "min_legs": EDGE_MIN_LEGS,
+        "min_cohort": WALKFWD_MIN_COHORT,
+        "measurable_cells": n_meas,
+        "coverage": coverage,
+        "ic": ic,
+        "hit_rate_by_tier": tiers,
+        "by_regime": regime_rows or None,
+        "cohorts": cohorts,
+        "basis": ("Walk-forward over the recorded cross-section. Every snapshot is "
+                  "joined to prices recorded at exactly snapshot + horizon days and to "
+                  "nothing else; a horizon that has not elapsed, a symbol that left the "
+                  "universe and a night that was never recorded are three different "
+                  "states and are reported as three. Nothing here is calibrated from: "
+                  "the factor bounds and the dominance thresholds are fixed by "
+                  "AUDIT-PHASE2A and are not re-fitted on this sample."),
+        "sufficiency": ("This report runs on whatever history exists and says so. With "
+                        f"{len(dates)} night(s) recorded, {n_meas} of "
+                        f"{len(IC_SIGNALS) * len(WALKFWD_HORIZONS)} IC cells are "
+                        "measurable; the rest read INSUFFICIENT, which is a statement "
+                        "about the sample and not about the signal."),
+    }
+
+
+def recorded_regimes() -> dict:
+    """{date: "RISK-ON" | "RISK-OFF"} from ledger/index.csv.
+
+    Read from the recorded column rather than recomputed, for the same reason the factor
+    values are: a regime recomputed today and dated to a past night is a label the board
+    never actually carried. "N/A" nights are omitted, so the regime split reports them as
+    absent rather than folding them into one of the two real buckets.
+    """
+    out = {}
+    try:
+        for r in read_index_rows():
+            reg = (r.get("macro_regime") or "").strip()
+            if r.get("date") and reg in ("RISK-ON", "RISK-OFF"):
+                out[r["date"]] = reg
+    except Exception:  # noqa: BLE001 — a missing or unreadable index is no regimes
+        return {}
+    return out
+
+
+def write_walkforward(doc: dict) -> Path:
+    """Deterministic bytes for a given report, except for generated_at."""
+    LEDGER_DIR.mkdir(parents=True, exist_ok=True)
+    WALKFWD_JSON.write_text(json.dumps(doc, indent=1, sort_keys=False) + "\n",
+                            encoding="utf-8")
+    return WALKFWD_JSON
+
+
+def xsec_by_date(shard_dir: Path | None = None, src: str = "live") -> dict:
+    """The cross-sectional research ledger as {date: {symbol: row}}.
+
+    The wide equivalent of ic_by_date(). Reads only rows matching ``src`` so a future
+    backfill cannot be pooled with observed nights by accident — the distinction the
+    ``src`` column exists for is enforced at the reader rather than trusted downstream.
+    """
+    d = shard_dir or XSEC_DIR
+    if not d.exists():
+        return {}
+    by: dict = {}
+    for path in sorted(d.glob("*.csv")):
+        with path.open(newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                if r.get("src") != src or not r.get("date") or not r.get("symbol"):
+                    continue
+                by.setdefault(r["date"], {})[r["symbol"].upper()] = r
+    return by
+
+
 def _xsec_rank(rows: list[dict], field: str) -> dict:
     """Dense 1-based ranks over `rows`, descending by `field`, ties broken by symbol.
 
@@ -4951,6 +5262,35 @@ def write_xsec_schema() -> Path:
                                 "was replaced under specification boundary "
                                 "1a4ea6e4d77e -> 8e750228e15a. No row was ever written "
                                 "under the old rule."),
+        },
+        # AUDIT-PHASE4. What this store IS, stated in the store, so a reader picking the
+        # directory up does not have to infer its contract from a commit message.
+        "contract": {
+            "role": ("The durable append-only research ledger. One row per (date, "
+                     "symbol, src) covering the WHOLE scored cross-section — not a "
+                     "truncation — carrying every input, every raw multiplier, every "
+                     "applied multiplier, the state that produced each, the pre-clamp "
+                     "product, the published score and the specification hash that "
+                     "governed it."),
+            "append_only": ("A shard is never rewritten except to replace the rows of "
+                            "its own (date, src), which is what a same-night re-run "
+                            "does. Prior dates are untouched by every writer here, and "
+                            "a closed month is never opened again."),
+            "reproducibility": ("Every row carries what is needed to recompute its own "
+                                "score: market_cap, total_volume, fdv_usd, the four "
+                                "relative-strength windows and how many were observed, "
+                                "the five multipliers, perp_mult and spec_hash. "
+                                "conviction_raw x round x clamp equals conviction, and "
+                                "the writer asserts it before writing."),
+            "provenance": ("`src` separates live from backfill and the reader enforces "
+                           "it: xsec_by_date() takes one source and never pools them. "
+                           "`spec_hash` says which specification produced the row. "
+                           "Columns added at a later schema version are EMPTY on "
+                           "earlier rows and are never reconstructed into them."),
+            "outcomes": ("Returns are NOT stored. They are derived by link_outcomes() "
+                         "at read time from prices recorded on later nights, which "
+                         "makes look-ahead structurally impossible: there is no field "
+                         "a future value could be written into."),
         },
         "added_at_v2": [f for f in XSEC_FIELDS if f in XSEC_V2_FIELDS],
         "v2_note": ("Columns added at schema v2 are EMPTY on rows dated before the "
@@ -5925,6 +6265,18 @@ def main() -> int:
     print(f"[xsec] {xsec_n} row(s) for {today} -> {xsec_path.name} "
           f"({xsec_path.stat().st_size / 1024:.1f} KB shard, "
           f"{len(XSEC_FIELDS)} columns, schema v{XSEC_SCHEMA_VERSION})",
+          file=__import__("sys").stderr)
+
+    # AUDIT-PHASE4 — the walk-forward report. Written from the cross-sectional ledger
+    # AFTER tonight's rows have landed in it, so the report describes the shard on disk.
+    # It runs on whatever history exists and states its own insufficiency; on three
+    # nights almost every cell reads INSUFFICIENT, which is the correct output.
+    wf = walkforward_report(xsec_by_date(), recorded_regimes())
+    wf_path = write_walkforward(wf)
+    print(f"[walkfwd] {wf['nights']} night(s) {wf['from']}..{wf['to']} -> "
+          f"{wf_path.name}; {wf['measurable_cells']} of "
+          f"{len(IC_SIGNALS) * len(WALKFWD_HORIZONS)} IC cell(s) measurable, "
+          f"{wf['coverage'][str(WALKFWD_HORIZONS[0])]['realised']} realised 1d outcome(s)",
           file=__import__("sys").stderr)
 
     # AUDIT-PHASE1.6 — the funding transport. Written from `rows`, which is the WHOLE

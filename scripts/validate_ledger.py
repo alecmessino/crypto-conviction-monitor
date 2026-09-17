@@ -632,6 +632,38 @@ def check_perp_transport(ledger: Path) -> list[str]:
     return problems
 
 
+def check_walkforward(ledger: Path) -> list[str]:
+    """ledger/walkforward.json — the report must describe the ledger beside it.
+
+    AUDIT-PHASE4. The failure this guards against is a stale report: a harness that ran
+    once, produced encouraging numbers and was never re-run reads exactly like a current
+    one. So the counts are reconciled against the shard on disk rather than trusted.
+    """
+    problems: list[str] = []
+    path = ledger / "walkforward.json"
+    if not path.exists():
+        return problems
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        return [f"walkforward.json: unreadable ({e})"]
+    by = nightly.xsec_by_date(ledger / "xsec")
+    rows = sum(len(v) for v in by.values())
+    if doc.get("nights") != len(by):
+        problems.append(f"walkforward.json: reports {doc.get('nights')} night(s) while "
+                        f"the cross-section holds {len(by)} — the report is stale")
+    if by and doc.get("to") != max(by):
+        problems.append(f"walkforward.json: reports through {doc.get('to')} while the "
+                        f"cross-section runs to {max(by)}")
+    for h, cov in (doc.get("coverage") or {}).items():
+        got = sum(cov.get(k, 0) for k in nightly.OUTCOME_STATES)
+        if got != cov.get("total") or cov.get("total") != rows:
+            problems.append(f"walkforward.json: horizon {h} accounts for {got} of "
+                            f"{cov.get('total')} outcomes against {rows} recorded rows "
+                            f"— every snapshot must land in exactly one state")
+    return problems
+
+
 def check_rwa(ledger: Path) -> list[str]:
     """The RWA ledgers, and one property that has no equivalent on the crypto side.
 
@@ -882,6 +914,7 @@ def main() -> int:
     problems += check_context_ledgers(ledger)
     problems += check_xsec(ledger)
     problems += check_perp_transport(ledger)
+    problems += check_walkforward(ledger)
     problems += check_rwa(ledger)
 
     # Context, printed whether or not the gate passes — a validator that only speaks up

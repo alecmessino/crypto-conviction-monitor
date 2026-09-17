@@ -101,6 +101,13 @@
     "perp_mult_vs_board": "perp_mult is the multiplier score() applied, from tonight's live venue feed across the whole universe. perp_mult_board is what a ledger consumer may apply under perp_overlay(): only a value carrying the snapshot's own date and falling inside [0.85, 1.15]. perp_board_state is which of current / absent / rejected / no-row produced it. They differ for any symbol outside the persisted fifty, which the page reads as neutral.",
     "overlay_history": "Before 2026-09-17 these columns recorded a different rule: every row of signals.json, no date filter, last write in file order winning. That rule served a forty-five-night-old 17.4 to HBAR and put it at the head of the published board on a pre-clamp 242.9. It was replaced under specification boundary 1a4ea6e4d77e -> 8e750228e15a. No row was ever written under the old rule."
   },
+  "contract": {
+    "role": "The durable append-only research ledger. One row per (date, symbol, src) covering the WHOLE scored cross-section \u2014 not a truncation \u2014 carrying every input, every raw multiplier, every applied multiplier, the state that produced each, the pre-clamp product, the published score and the specification hash that governed it.",
+    "append_only": "A shard is never rewritten except to replace the rows of its own (date, src), which is what a same-night re-run does. Prior dates are untouched by every writer here, and a closed month is never opened again.",
+    "reproducibility": "Every row carries what is needed to recompute its own score: market_cap, total_volume, fdv_usd, the four relative-strength windows and how many were observed, the five multipliers, perp_mult and spec_hash. conviction_raw x round x clamp equals conviction, and the writer asserts it before writing.",
+    "provenance": "`src` separates live from backfill and the reader enforces it: xsec_by_date() takes one source and never pools them. `spec_hash` says which specification produced the row. Columns added at a later schema version are EMPTY on earlier rows and are never reconstructed into them.",
+    "outcomes": "Returns are NOT stored. They are derived by link_outcomes() at read time from prices recorded on later nights, which makes look-ahead structurally impossible: there is no field a future value could be written into."
+  },
   "added_at_v2": [
     "total_volume",
     "depth",
