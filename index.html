@@ -1883,6 +1883,9 @@ let PERP_LOADED = false;
 let PERP_STATE = {};
 let PERP_AS_OF = null;      // the snapshot date the overlay was taken from, or null
 let PERP_REJECTED = [];     // rows refused for being outside [0.85, 1.15]
+let PERP_DOC = null;        // ledger/perp.json as fetched, for the provenance readouts
+let PERP_WITHHELD = null;   // null, "no-artifact" or "stale" — why there is no overlay
+let PERP_STALE_AS_OF = null;// the snapshot date that was refused for being too old
 let PERPS = {};    // symbol -> recorded derivatives context (Module 1, non-scoring)
 let CHOP = {};     // symbol -> {chop, regime, bars} (Module 2, non-scoring)
 let TF = "24h";    // active timeframe for the delta column
@@ -1942,10 +1945,16 @@ async function loadLedger(){
     // Build per-asset LAVL RiskMult_perp map so the live Alpha Map uses the SAME
     // leverage overlay as the nightly conviction-weighted index (single source of truth).
     //
-    // The selection rule is perpOverlay(), which lives inside the ported scoring block
-    // below — see the comment there for the defect it replaces and why it had to move
-    // inside. This function's job is now only to hand it the rows and today's date and
-    // to unpack the result; it makes no decision about which multiplier is eligible.
+    // AUDIT-PHASE1.6. The overlay comes from `ledger/perp.json`, NOT from the rows
+    // above. signals.json persists fifty names a night out of ~235 scored, so reading
+    // the overlay out of it left 184 board rows at a neutral 1.000 while the nightly
+    // had a live cross-venue reading for a hundred and fifty of them — correct, and a
+    // different information set from the model it claims to publish.
+    //
+    // The selection rule is perpFeed(), inside the ported scoring block below. This
+    // function's job is to fetch the artifact and unpack the result; it makes no
+    // decision about which multiplier is eligible. There is deliberately NO FALLBACK to
+    // the signals.json path: a missing or stale artifact withholds the overlay whole.
     //
     // The two marker strings the parity gate searches for are deliberately not spelled
     // out anywhere above the block they delimit. `extract_port()` takes the FIRST
@@ -1955,11 +1964,19 @@ async function loadLedger(){
     // runner that runs at 06:17 UTC, and comparing those against a local calendar day
     // would make the overlay's freshness depend on where the reader is sitting.
     const _today = new Date().toISOString().slice(0, 10);
-    const _ov = perpOverlay(ALL_ROWS, overlayAsOf(ALL_ROWS, _today));
+    let _doc = null;
+    try{
+      const rp = await fetch("ledger/perp.json", {cache: "no-store"});
+      if(rp.ok) _doc = await rp.json();
+    }catch(e){ /* absent — the overlay is withheld below, and the board says so */ }
+    PERP_DOC = _doc;
+    const _ov = perpFeed(_doc, _today);
     PERP = _ov.mults;
     PERP_STATE = _ov.states;
     PERP_AS_OF = _ov.asOf;
     PERP_REJECTED = _ov.rejected;
+    PERP_WITHHELD = _ov.withheld;
+    PERP_STALE_AS_OF = _ov.staleAsOf;
     PERP_LOADED = Object.keys(PERP).length > 0;
     if(PERP_REJECTED.length){
       // An out-of-envelope value on the CURRENT snapshot is a live integrity fault in
@@ -2256,6 +2273,83 @@ function overlayAsOf(rows, today){
   if(age === null || age < 0 || age > PERP_MAX_AGE_DAYS) return null;
   return latest;
 }
+/* One cell, one verdict. Extracted so the envelope rule has exactly one definition:
+   the transport changed in Phase 1.6 and the rule for what a value is allowed to be
+   did not, and two copies of it would be two things that can drift.
+
+   Strict, not parseFloat. parseFloat("1.07 garbage") is 1.07 and float("1.07 garbage")
+   raises, so the two sides of the parity gate would disagree on exactly the kind of
+   malformed cell this exists to refuse. One regex, mirrored in nightly.perp_entry. */
+function perpEntry(raw){
+  if(raw === null || raw === undefined || raw === "" || raw === "None")
+    return {mult: PERP_NEUTRAL, state: "absent", value: null};
+  const txt = String(raw).trim();
+  const v = PERP_NUMERIC.test(txt) ? Number(txt) : NaN;
+  if(!isFinite(v) || v < PERP_ENVELOPE_LO - 1e-9 || v > PERP_ENVELOPE_HI + 1e-9)
+    return {mult: PERP_NEUTRAL, state: "rejected", value: isFinite(v) ? v : null};
+  return {mult: v, state: "current", value: v};
+}
+
+/* THE TRANSPORT — AUDIT-PHASE1.6, 2026-09-17.
+
+   Phase 1.5 stopped the board applying a stale multiplier. It did so by reading only
+   rows carrying the snapshot's own date out of signals.json — and signals.json persists
+   fifty names a night out of ~235 scored. The board was therefore correct and
+   under-informed: 184 of 234 rows scored at a neutral 1.000 while nightly.score() had a
+   live cross-venue reading for 153 of them. Two consumers, one model, different
+   information sets, and the gap invisible unless you diffed them.
+
+   `ledger/perp.json` closes it. A slim artifact written by the nightly, covering the
+   WHOLE scored cross-section for the current snapshot and nothing else: no history, no
+   per-venue nesting, no research columns. The browser reads it under the same envelope
+   rule as before.
+
+   Two properties worth stating, because they are what make this a transport rather than
+   a second model:
+
+     * The artifact carries AVAILABILITY and the browser derives VALIDITY. `s:"absent"`
+       is the writer saying no funding reading existed for that symbol, which only the
+       writer can know. Whether a value is acceptable is decided here, every time, by
+       perpEntry — an artifact can never talk this page into applying a number outside
+       the envelope.
+     * There is NO FALLBACK to the old path. If the artifact is missing or its snapshot
+       is stale the overlay is withheld entirely and the board says so. A fallback would
+       reintroduce the divergence this phase exists to remove, silently, on exactly the
+       nights something is already wrong. */
+function perpFeed(doc, today){
+  const mults = {}, states = {}, rejected = [];
+  const asOf = (doc && typeof doc.as_of === "string" && PERP_ISO_DATE.test(doc.as_of))
+             ? doc.as_of : null;
+  const age = asOf === null ? null : isoDayDiff(asOf, today);
+  if(age === null || age < 0 || age > PERP_MAX_AGE_DAYS)
+    return {mults, states, asOf: null, rejected, n: 0,
+            withheld: asOf === null ? "no-artifact" : "stale", staleAsOf: asOf};
+  const rows = (doc && doc.rows) || {};
+  for(const key of Object.keys(rows)){
+    const sym = String(key || "").toUpperCase();
+    if(!sym) continue;
+    const row = rows[key] || {};
+    const e = perpEntry(row.m);
+    if(e.state === "rejected"){
+      mults[sym] = PERP_NEUTRAL; states[sym] = "rejected";
+      rejected.push({symbol: sym, value: e.value, date: asOf});
+      continue;
+    }
+    mults[sym] = e.mult;
+    // The writer may downgrade a neutral to "absent" — it is the only party that knows
+    // whether a reading existed. It may not upgrade anything: a row the envelope
+    // refused was handled above and never reaches here.
+    states[sym] = (e.state === "current" && row.s === "absent") ? "absent" : e.state;
+  }
+  return {mults, states, asOf, rejected, n: Object.keys(mults).length,
+          withheld: null, staleAsOf: null};
+}
+
+/* RETIRED 2026-09-17 by perpFeed, and retained uncaptured. This is the Phase 1.5 rule —
+   the signals.json path — kept so tests/test_perp_overlay.py can still run the
+   generation it replaced against the generation before it. It reaches no published
+   score, which is why it and overlayAsOf/ledgerLatestDate left SPEC_FUNCTIONS: capturing
+   dead code means an edit to dead code re-segments the track record. */
 function perpOverlay(rows, asOf){
   const mults = {}, states = {}, rejected = [];
   if(!asOf) return {mults, states, asOf: null, rejected, n: 0};
@@ -2263,21 +2357,9 @@ function perpOverlay(rows, asOf){
     if(!r || r.date !== asOf) continue;
     const sym = String(r.symbol || "").toUpperCase();
     if(!sym) continue;
-    const raw = r.perp_mult;
-    if(raw === null || raw === undefined || raw === "" || raw === "None"){
-      mults[sym] = PERP_NEUTRAL; states[sym] = "absent"; continue;
-    }
-    // Strict, not parseFloat. parseFloat("1.07 garbage") is 1.07 and float("1.07 garbage")
-    // raises, so the two sides of the parity gate would disagree on exactly the kind of
-    // malformed cell this function exists to refuse. One regex, mirrored in
-    // nightly.perp_overlay, is the only version of this that can be gated.
-    const v = PERP_NUMERIC.test(String(raw).trim()) ? Number(String(raw).trim()) : NaN;
-    if(!isFinite(v) || v < PERP_ENVELOPE_LO - 1e-9 || v > PERP_ENVELOPE_HI + 1e-9){
-      mults[sym] = PERP_NEUTRAL; states[sym] = "rejected";
-      rejected.push({symbol: sym, value: isFinite(v) ? v : null, date: asOf});
-      continue;
-    }
-    mults[sym] = v; states[sym] = "current";
+    const e = perpEntry(r.perp_mult);
+    mults[sym] = e.mult; states[sym] = e.state;
+    if(e.state === "rejected") rejected.push({symbol: sym, value: e.value, date: asOf});
   }
   return {mults, states, asOf, rejected, n: Object.keys(mults).length};
 }
@@ -3709,14 +3791,14 @@ function factorBreakdown(sym){
   const perpState = PERP_STATE[t.sym] || (PERP[t.sym]==null ? "no-row" : "current");
   const asOf = PERP_AS_OF ? " · snapshot " + PERP_AS_OF : "";
   const perpNote = !PERP_LOADED
-    ? (PERP_AS_OF===null
-        ? "overlay withheld: no snapshot within " + PERP_MAX_AGE_DAYS
-          + " day(s) — neutral by absence, not by reading"
-        : "no derivatives feed tonight: neutral by absence, not by reading")
+    ? (PERP_WITHHELD==="stale"
+        ? "overlay withheld: funding snapshot " + (PERP_STALE_AS_OF||"?") + " is older than "
+          + PERP_MAX_AGE_DAYS + " day(s) — neutral by absence, not by reading"
+        : "no funding artifact tonight: neutral by absence, not by reading")
     : perpState==="no-row"
-       ? "unavailable — not in this snapshot's recorded cross-section; neutral" + asOf
+       ? "unavailable — not in this snapshot's scored cross-section; neutral" + asOf
     : perpState==="absent"
-       ? "unavailable — recorded with no funding reading; neutral" + asOf
+       ? "unavailable — no perpetual market or no venue reading; neutral" + asOf
     : perpState==="rejected"
        ? "REFUSED — recorded value outside [" + PERP_ENVELOPE_LO + ", " + PERP_ENVELOPE_HI
          + "], which the funding model cannot produce; neutral" + asOf
@@ -7305,11 +7387,11 @@ async function load(){
     if(PERP_LOADED){ st.textContent=lf.label; st.className=lf.cls==="pos"?"live":lf.cls; }
     else { st.textContent=lf.label==="LIVE"?"DEGRADED":lf.label; st.className="neu";
            // Two reasons the overlay can be absent, and they are not the same fault.
-           const why = PERP_AS_OF===null && ALL_ROWS.length
-             ? `the newest recorded snapshot is <code>${esc0(ledgerLatestDate(ALL_ROWS)||"none")}</code>,
+           const why = PERP_WITHHELD==="stale"
+             ? `<code>ledger/perp.json</code> is dated <code>${esc0(PERP_STALE_AS_OF||"?")}</code>,
                 more than ${PERP_MAX_AGE_DAYS} day(s) old, so the overlay is withheld rather
                 than applied stale`
-             : `<code>ledger/signals.json</code> did not load`;
+             : `<code>ledger/perp.json</code> did not load`;
            $("#tbl-conv").insertAdjacentHTML("beforebegin",
              `<div class="err" id="perp-warn" style="padding:6px 12px">Leverage overlay
               unavailable — ${why}, so every RiskMult_perp defaults to 1.0 and this
@@ -7321,7 +7403,7 @@ async function load(){
     if(PERP_REJECTED.length){
       $("#tbl-conv").insertAdjacentHTML("beforebegin",
         `<div class="err" id="perp-reject" style="padding:6px 12px">Funding overlay
-         refused ${PERP_REJECTED.length} recorded value(s) outside
+         refused ${PERP_REJECTED.length} value(s) from <code>ledger/perp.json</code> outside
          <code>[${PERP_ENVELOPE_LO}, ${PERP_ENVELOPE_HI}]</code> — the envelope the
          funding model can produce — on snapshot <code>${esc0(PERP_AS_OF||"?")}</code>:
          ${esc0(PERP_REJECTED.map(r=>r.symbol+"="+r.value).join(", "))}. Those names are

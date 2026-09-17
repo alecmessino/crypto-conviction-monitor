@@ -220,16 +220,28 @@ def test_the_overlay_never_reaches_back_past_its_own_snapshot():
 # --------------------------------------------------------------- the capture
 
 def test_the_selection_rule_is_in_the_specification():
-    """The lesson of AUDIT-2026-09 1.8, applied to the layer above venue selection."""
+    """The lesson of AUDIT-2026-09 1.8, applied to the layer above venue selection.
+
+    The captured set is exactly what can move a published multiplier, and it shrank at
+    1.6 as well as grew: three functions left it with the signals.json path they served.
+    Capturing dead code means an edit to dead code re-segments the track record, which
+    is the mirror image of the hole 1.8 closed and costs just as much.
+    """
     captured = nightly.spec()["functions"]
-    for name in ("ledger_latest_date", "iso_day_diff", "overlay_as_of", "perp_overlay"):
+    for name in ("iso_day_diff", "perp_entry", "perp_feed"):
         assert name in captured, name
     consts = nightly.spec()["constants"]
     for name in ("PERP_NEUTRAL", "PERP_ENVELOPE_LO", "PERP_ENVELOPE_HI",
                  "PERP_MAX_AGE_DAYS"):
         assert name in consts, name
-    # The retired rule must NOT be captured: it reaches no score any more.
-    assert "board_perp_map" not in captured
+    # Retired rules reach no score and must NOT be captured. board_perp_map is the
+    # pre-1.5 rule; the other three are the 1.5 rule, retired by the 1.6 transport.
+    for name in ("board_perp_map", "ledger_latest_date", "overlay_as_of",
+                 "perp_overlay"):
+        assert name not in captured, name
+    # Writers are never captured either: recording a number is not valuing one.
+    for name in ("perp_artifact", "write_perp_artifact"):
+        assert name not in captured, name
 
 
 def test_the_specification_is_the_size_the_notes_say_it_is():
@@ -240,14 +252,18 @@ def test_the_specification_is_the_size_the_notes_say_it_is():
     and a deliberate change fails here and gets the document updated with it.
     """
     sp = nightly.spec()
-    assert len(sp["functions"]) == 20, sorted(sp["functions"])
+    assert len(sp["functions"]) == 19, sorted(sp["functions"])
     assert len(sp["constants"]) == 28, sorted(sp["constants"])
-    assert len(nightly.SPEC_FUNCTIONS) == 11
+    assert len(nightly.SPEC_FUNCTIONS) == 10
     assert len(nightly.SPEC_CONSTANTS) == 10
     assert len(nightly.SPEC_FUNDING_FUNCTIONS) == 9
     assert len(nightly.SPEC_FUNDING_CONSTANTS) == 18
-    notes = (ROOT / "docs" / "ARCHITECTURE-NOTES.md").read_text(encoding="utf-8")
-    assert "twenty functions" in notes and "twenty-eight constants" in notes
+    # Whitespace-normalised: the document is hard-wrapped, so a phrase that spans a
+    # line break is still the phrase. Asserting on the raw text would fail on a reflow,
+    # which is the kind of brittleness that gets a useful test deleted.
+    notes = " ".join(
+        (ROOT / "docs" / "ARCHITECTURE-NOTES.md").read_text(encoding="utf-8").split())
+    assert "nineteen functions and twenty-eight constants" in notes
     assert f"**Current hash: `{nightly.SPEC_HASH}`**" in notes
 
 
@@ -259,7 +275,9 @@ def test_the_boundary_is_a_re_valuation_and_not_an_equivalence():
     published scores. Collapsing it onto the old digest would claim the board said the
     same thing either side of it, and the board did not.
     """
-    assert nightly.SPEC_HASH == "8e750228e15a"
-    assert "1a4ea6e4d77e" not in nightly.SPEC_EQUIVALENT
-    assert nightly.canonical_spec_hash("8e750228e15a") == "8e750228e15a"
-    assert nightly.canonical_spec_hash("1a4ea6e4d77e") == "1a4ea6e4d77e"
+    assert nightly.SPEC_HASH == "ab16684ad5c1"
+    # Neither 1.5 nor 1.6 folds onto anything: both changed which input arrives and
+    # both moved published scores. The table's fixed point is still 1a4ea6e4d77e.
+    for h in ("1a4ea6e4d77e", "8e750228e15a", "ab16684ad5c1"):
+        assert h not in nightly.SPEC_EQUIVALENT, h
+        assert nightly.canonical_spec_hash(h) == h, h

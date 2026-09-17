@@ -234,8 +234,14 @@ SPEC_FUNCTIONS = ("score", "_lavl_regime", "lavl_perp_mult", "_tier_for",
                   # arithmetic but not which input arrives is a description of one half
                   # of a function. These three are mirrored verbatim in index.html's
                   # ported block, and the parity gate executes both sides.
-                  "ledger_latest_date", "iso_day_diff", "overlay_as_of",
-                  "perp_overlay")
+                  # AUDIT-PHASE1.6 replaced the transport. `perp_entry` is the
+                  # envelope rule and `perp_feed` reads ledger/perp.json; those two plus
+                  # iso_day_diff are what decides a published multiplier now.
+                  # ledger_latest_date, overlay_as_of and perp_overlay LEFT this tuple
+                  # with the signals.json path they served — they reach no score any
+                  # more, and capturing dead code means an edit to dead code
+                  # re-segments the track record.
+                  "iso_day_diff", "perp_entry", "perp_feed")
 SPEC_CONSTANTS = ("TIER_CUTS", "STABLES",
                   "EMISSION_FREE_RATIO", "EMISSION_ANCHOR_RATIO",
                   "EMISSION_ANCHOR_SEVERITY", "EMISSION_MAX_PENALTY",
@@ -1147,8 +1153,93 @@ def overlay_as_of(rows, today) -> str | None:
     return latest
 
 
+def perp_entry(raw) -> dict:
+    """One cell, one verdict: ``{"mult", "state", "value"}``.
+
+    Extracted so the envelope rule has exactly one definition. The TRANSPORT changed in
+    Phase 1.6 and the rule for what a value is allowed to BE did not, and two copies of
+    it would be two things that can drift apart.
+
+    Strict, and deliberately not float(). parseFloat("1.07 garbage") is 1.07 on the JS
+    side; float() raises here. One regex, applied on both sides.
+    """
+    if raw is None or raw in ("", "None"):
+        return {"mult": PERP_NEUTRAL, "state": "absent", "value": None}
+    txt = str(raw).strip()
+    v = float(txt) if PERP_NUMERIC.match(txt) else None
+    if v is None or v != v or v in (float("inf"), float("-inf")) \
+            or v < PERP_ENVELOPE_LO - 1e-9 or v > PERP_ENVELOPE_HI + 1e-9:
+        ok = v is not None and v == v and v not in (float("inf"), float("-inf"))
+        return {"mult": PERP_NEUTRAL, "state": "rejected", "value": v if ok else None}
+    return {"mult": v, "state": "current", "value": v}
+
+
+def perp_feed(doc, today) -> dict:
+    """The funding multipliers a consumer may apply, from ``ledger/perp.json``.
+
+    AUDIT-PHASE1.6. Phase 1.5 stopped the board applying a STALE multiplier, by reading
+    only rows carrying the snapshot's own date out of signals.json — and signals.json
+    persists fifty names a night out of ~235 scored. The board came out correct and
+    under-informed: 184 of 234 rows at a neutral 1.000 while score() had a live
+    cross-venue reading for 153 of them. Two consumers, one model, different information
+    sets, and the gap invisible unless you diffed them.
+
+    ``ledger/perp.json`` is the transport that closes it: the whole scored cross-section
+    for the current snapshot, and nothing else. No history, no per-venue nesting, no
+    research columns — funding.json is the rich artifact and stays that way, because a
+    transport that can grow is a transport that will.
+
+    Two properties make this a transport rather than a second model:
+
+    * The artifact carries AVAILABILITY and this function derives VALIDITY. ``s:"absent"``
+      is the writer saying no funding reading existed for a symbol, which only the writer
+      can know. Whether a value is *acceptable* is decided here, every time, by
+      :func:`perp_entry` — an artifact can never talk a consumer into applying a number
+      outside the envelope.
+    * There is NO FALLBACK to the signals.json path. A missing or stale artifact
+      withholds the overlay entirely. A fallback would reintroduce the divergence this
+      phase removes, silently, on exactly the nights something is already wrong.
+    """
+    mults: dict = {}
+    states: dict = {}
+    rejected: list = []
+    raw_as_of = (doc or {}).get("as_of")
+    as_of = raw_as_of if isinstance(raw_as_of, str) and PERP_ISO_DATE.match(raw_as_of) else None
+    age = None if as_of is None else iso_day_diff(as_of, today)
+    if age is None or age < 0 or age > PERP_MAX_AGE_DAYS:
+        return {"mults": mults, "states": states, "as_of": None, "rejected": rejected,
+                "n": 0, "withheld": "no-artifact" if as_of is None else "stale",
+                "stale_as_of": as_of}
+    for key, row in ((doc or {}).get("rows") or {}).items():
+        sym = str(key or "").upper()
+        if not sym:
+            continue
+        row = row or {}
+        e = perp_entry(row.get("m"))
+        if e["state"] == "rejected":
+            mults[sym] = PERP_NEUTRAL
+            states[sym] = "rejected"
+            rejected.append({"symbol": sym, "value": e["value"], "date": as_of})
+            continue
+        mults[sym] = e["mult"]
+        # The writer may downgrade a neutral to "absent" — it is the only party that
+        # knows whether a reading existed. It may not upgrade anything: a row the
+        # envelope refused was handled above and never reaches here.
+        states[sym] = "absent" if (e["state"] == "current" and row.get("s") == "absent") \
+            else e["state"]
+    return {"mults": mults, "states": states, "as_of": as_of, "rejected": rejected,
+            "n": len(mults), "withheld": None, "stale_as_of": None}
+
+
 def perp_overlay(rows, as_of) -> dict:
-    """The funding multipliers eligible on `as_of`, and the state behind each.
+    """RETIRED 2026-09-17 by :func:`perp_feed`. The Phase 1.5 rule, over signals.json.
+
+    Retained, and uncaptured, so ``tests/test_perp_overlay.py`` can run the generation
+    perp_feed replaced against the generation before it. It reaches no published score,
+    which is why it and overlay_as_of / ledger_latest_date left SPEC_FUNCTIONS: capturing
+    dead code means an edit to dead code re-segments the track record.
+
+    The funding multipliers eligible on `as_of`, and the state behind each.
 
     Returns ``{"mults": {sym: float}, "states": {sym: str}, "as_of": str|None,
     "rejected": [...], "n": int}``. Three states, and they are three different facts
@@ -1178,20 +1269,11 @@ def perp_overlay(rows, as_of) -> dict:
         sym = str(r.get("symbol") or "").upper()
         if not sym:
             continue
-        raw = r.get("perp_mult")
-        if raw is None or raw in ("", "None"):
-            mults[sym] = PERP_NEUTRAL
-            states[sym] = "absent"
-            continue
-        txt = str(raw).strip()
-        v = float(txt) if PERP_NUMERIC.match(txt) else None
-        if v is None or v != v or v < PERP_ENVELOPE_LO - 1e-9 or v > PERP_ENVELOPE_HI + 1e-9:
-            mults[sym] = PERP_NEUTRAL
-            states[sym] = "rejected"
-            rejected.append({"symbol": sym, "value": v, "date": as_of})
-            continue
-        mults[sym] = v
-        states[sym] = "current"
+        e = perp_entry(r.get("perp_mult"))
+        mults[sym] = e["mult"]
+        states[sym] = e["state"]
+        if e["state"] == "rejected":
+            rejected.append({"symbol": sym, "value": e["value"], "date": as_of})
     return {"mults": mults, "states": states, "as_of": as_of,
             "rejected": rejected, "n": len(mults)}
 
@@ -4022,6 +4104,117 @@ def factor_chain_reconciles(chain: dict, conviction, comp: dict) -> list[str]:
     return bad
 
 
+# ---------------------------------------------------------------------------
+# the funding transport  (AUDIT-PHASE1.6 — writer, deliberately not captured)
+# ---------------------------------------------------------------------------
+PERP_JSON = LEDGER_DIR / "perp.json"
+PERP_ARTIFACT_VERSION = 1
+# Short keys. Two hundred and thirty-five rows fetched on every page load, and
+# `funding_apr_spread` costs eighteen bytes a row more than `sp` for no reader's
+# benefit — the schema block inside the artifact names every one of them, so the file
+# still explains itself to anything that opens it.
+PERP_ROW_KEYS = {
+    "m": "perp_mult — the multiplier score() applied, or 1.0 by absence",
+    "s": "current (a funding reading existed) | absent (none did)",
+    "apr": "funding_apr — annualised carry, percent, from the selected venue",
+    "v": "funding_venue — which venue supplied the headline rate",
+    "n": "funding_venues_n — how many venues listed the market",
+    "sp": "funding_apr_spread — dispersion across real-interval venues, percentage points",
+    "ih": "funding_interval_h — settlement clock, hours; the rate is meaningless without it",
+    "rg": "funding_regime",
+    "rsi": "rsi7 — the 7d RSI that gates the squeeze boost, null below eight closes",
+}
+
+
+def perp_artifact(rows: list[dict], day: str, generated_at: str | None = None,
+                  source: str = "nightly") -> dict:
+    """The slim current-snapshot funding artifact the terminal scores from.
+
+    One row per scored symbol — the WHOLE cross-section, which is the point: the ledger
+    persists fifty and the board scores every one of them, and before this file existed
+    the difference was 184 rows silently neutral on the page and not in the model.
+
+    Deliberately NOT ledger/funding.json. That artifact is the rich one: eight venues
+    nested per asset, the carry screen, the thresholds, seventy kilobytes of it, and
+    fifty rows. This one is the transport, and it stays slim because a transport that
+    can grow is a transport that will. The two never merge and neither is derived from
+    the other; both are projections of the same row loop.
+
+    Also deliberately NOT a state this page is asked to trust. `s` tells a consumer
+    whether a reading EXISTED, which only this writer knows. Whether a value is
+    acceptable is decided by perp_entry at the point of use, every time.
+
+    `source` is recorded because this artifact can be produced two ways: by the nightly
+    from its own row loop, or transported out of an already-recorded cross-section. The
+    second is not a backfill — it carries the snapshot's own date and its own observed
+    values — but it is a different provenance and says so.
+    """
+    def num(v):
+        n = _num(v)
+        return n
+
+    out = {}
+    with_reading = 0
+    for r in rows:
+        sym = (r.get("symbol") or "").upper()
+        if not sym:
+            continue
+        apr = num(r.get("funding_apr"))
+        has = apr is not None
+        with_reading += has
+        row = {"m": num(r.get("perp_mult")), "s": "current" if has else "absent"}
+        for key, field in (("apr", "funding_apr"), ("v", "funding_venue"),
+                           ("n", "funding_venues_n"), ("sp", "funding_apr_spread"),
+                           ("ih", "funding_interval_h"), ("rg", "funding_regime"),
+                           ("rsi", "rsi7")):
+            val = r.get(field)
+            if val in (None, "", "None"):
+                continue
+            if key in ("v", "rg"):
+                row[key] = val                      # venue and regime are labels
+            elif key == "n":
+                v = num(val)                        # a venue COUNT, so an integer
+                row[key] = None if v is None else int(v)
+            else:
+                row[key] = num(val)
+        out[sym] = row
+    return {
+        "schema_version": PERP_ARTIFACT_VERSION,
+        "as_of": day,
+        # The artifact's age, which is the only age available. The consolidation layer
+        # publishes no per-quote timestamp — Binance's premiumIndex carries a
+        # nextFundingTime and no venue carries a "as of", and a single next-settlement
+        # stamp cannot yield the age of the reading before it. `ih` is the nearest
+        # honest proxy for how often a rate refreshes, and is on every row that has one.
+        "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
+        "spec_hash": SPEC_HASH,
+        "source": source,
+        "universe": len(out),
+        "with_reading": with_reading,
+        # Recorded so a consumer that somehow skipped the envelope check can still be
+        # audited against the rule that was in force. It is NOT read back by perp_feed:
+        # the envelope lives in the consumer, or an artifact could widen it.
+        "envelope": [PERP_ENVELOPE_LO, PERP_ENVELOPE_HI],
+        "max_age_days": PERP_MAX_AGE_DAYS,
+        "row_keys": dict(PERP_ROW_KEYS),
+        "note": ("Current-snapshot funding transport for the terminal. One row per "
+                 "scored symbol. `s` is availability, asserted by the writer; validity "
+                 "is decided by the consumer's own envelope check at the point of use. "
+                 "Not a history — a snapshot older than max_age_days is refused whole."),
+        "rows": out,
+    }
+
+
+def write_perp_artifact(rows: list[dict], day: str, generated_at: str | None = None,
+                        source: str = "nightly") -> tuple[Path, int]:
+    """Write ledger/perp.json. Returns ``(path, rows_written)``."""
+    doc = perp_artifact(rows, day, generated_at, source)
+    LEDGER_DIR.mkdir(parents=True, exist_ok=True)
+    PERP_JSON.write_text(json.dumps(doc, separators=(",", ":"), sort_keys=False) + "\n",
+                         encoding="utf-8")
+    return PERP_JSON, len(doc["rows"])
+
+
 def board_perp_map(rows: list[dict] | None = None) -> dict:
     """RETIRED 2026-09-17. The overlay rule index.html applied until AUDIT-PHASE1.5.
 
@@ -5001,21 +5194,20 @@ def main() -> int:
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
 
-    # AUDIT-PHASE1.5 — what the PAGE is entitled to apply, stamped on every row.
+    # AUDIT-PHASE1.6 — what the PAGE will apply, stamped on every row.
     #
-    # Through the captured perp_overlay(), which is the same rule index.html runs and is
-    # gated against it by tests/test_parity.py. Stamped after the sort because the map
-    # is taken from the ledger AS IT WILL BE PUBLISHED — prior nights plus tonight's
-    # persisted fifty — and `rows[:50]` is not known before the sort.
+    # Through the captured perp_feed() over the artifact this run is about to write,
+    # which is the same rule index.html runs and is gated against it by
+    # tests/test_parity.py. Built here rather than after write_perp_artifact() so the
+    # column is a property of the DOCUMENT and not of the disk: if these two ever
+    # disagree, the file is what shipped and the column is what we thought shipped.
     #
-    # For the fifty names in tonight's cut this equals `perp_mult`. For everything else
-    # the page is now neutral by absence: the ledger has no row for that symbol on this
-    # snapshot, so there is nothing it may apply. That gap is real and is the reason
-    # this column stayed after the rule was fixed — the nightly reads a live feed across
-    # the whole universe and the ledger persists fifty rows.
-    _board_prior = [r for r in _read_signals_rows() if r.get("date") != today]
-    _board_rows = _board_prior + [{k: r.get(k) for k in FIELDS} for r in rows[:50]]
-    _ov = perp_overlay(_board_rows, overlay_as_of(_board_rows, today))
+    # Under Phase 1.5 this column measured a real gap — the page read fifty rows and
+    # score() read a hundred and fifty. Under 1.6 it should be identically equal to
+    # `perp_mult` on every row, and the divergence count below is how that is asserted
+    # nightly rather than argued once. The column stays because a transport that is
+    # correct today is not a transport that cannot regress.
+    _ov = perp_feed(perp_artifact(rows, today), today)
     for r in rows:
         sym = r["symbol"]
         if sym in _ov["mults"]:
@@ -5023,21 +5215,26 @@ def main() -> int:
             r["perp_mult_board_date"] = _ov["as_of"]
             r["perp_board_state"] = _ov["states"][sym]
         else:
-            # No row for this symbol on this snapshot. The page's own `|| 1` supplies
-            # the neutral; recorded as the 1.0 it will apply rather than blank, because
-            # a blank would read as "not measured" when the multiplication is certain.
+            # Not in the artifact at all, which after 1.6 should be impossible — the
+            # artifact is written from these same rows. Recorded as the 1.0 the page's
+            # own `|| 1` will apply rather than blank, because a blank would read as
+            # "not measured" when the multiplication is certain.
             r["perp_mult_board"] = PERP_NEUTRAL
             r["perp_mult_board_date"] = _ov["as_of"] or ""
             r["perp_board_state"] = "no-row"
     _states = {}
     for r in rows:
         _states[r["perp_board_state"]] = _states.get(r["perp_board_state"], 0) + 1
-    _diverge = sum(1 for r in rows
-                   if _num(r.get("perp_mult")) is not None
-                   and abs(float(r["perp_mult"]) - float(r["perp_mult_board"])) > 5e-4)
-    print(f"[overlay] snapshot {_ov['as_of'] or 'NONE — withheld as stale'}: "
-          f"{dict(sorted(_states.items()))}; {_diverge} row(s) differ from the "
+    _diverge = [r["symbol"] for r in rows
+                if _num(r.get("perp_mult")) is not None
+                and abs(float(r["perp_mult"]) - float(r["perp_mult_board"])) > 5e-4]
+    print(f"[overlay] snapshot {_ov['as_of'] or 'NONE — withheld'}: "
+          f"{dict(sorted(_states.items()))}; {len(_diverge)} row(s) differ from the "
           f"multiplier score() applied", file=__import__("sys").stderr)
+    if _diverge:
+        print(f"[overlay] COVERAGE GAP — the page and score() would disagree on "
+              f"{len(_diverge)} row(s): " + ", ".join(sorted(_diverge)[:20]),
+              file=__import__("sys").stderr)
     if _ov["rejected"]:
         print(f"[overlay] REFUSED {len(_ov['rejected'])} value(s) outside "
               f"[{PERP_ENVELOPE_LO}, {PERP_ENVELOPE_HI}] on the current snapshot — this "
@@ -5151,6 +5348,31 @@ def main() -> int:
           f"({xsec_path.stat().st_size / 1024:.1f} KB shard, "
           f"{len(XSEC_FIELDS)} columns, schema v{XSEC_SCHEMA_VERSION})",
           file=__import__("sys").stderr)
+
+    # AUDIT-PHASE1.6 — the funding transport. Written from `rows`, which is the WHOLE
+    # scored cross-section, not `fresh`, which is the persisted fifty. That distinction
+    # is the entire phase: the terminal used to read the fifty and score the rest at a
+    # neutral 1.000 while this loop had a live reading for a hundred and fifty of them.
+    perp_path_, perp_n = write_perp_artifact(rows, today)
+    _pf = perp_feed(json.loads(perp_path_.read_text(encoding="utf-8")), today)
+    _mismatch = [r["symbol"] for r in rows
+                 if abs(_pf["mults"].get(r["symbol"], PERP_NEUTRAL)
+                        - float(r["perp_mult"])) > 5e-4]
+    print(f"[perp] {perp_n} row(s) -> {perp_path_.name} "
+          f"({perp_path_.stat().st_size / 1024:.1f} KB, schema v{PERP_ARTIFACT_VERSION}); "
+          f"the terminal will apply the same multiplier as score() on "
+          f"{perp_n - len(_mismatch)}/{perp_n} rows", file=__import__("sys").stderr)
+    if _mismatch:
+        # The whole point of the artifact is that this list is empty. A non-empty one
+        # means the transport dropped or altered a value between score() and the page,
+        # which is the defect the phase removed, returning.
+        print(f"[perp] TRANSPORT MISMATCH on {len(_mismatch)} row(s): "
+              + ", ".join(sorted(_mismatch)[:20]), file=__import__("sys").stderr)
+    if _pf["rejected"]:
+        print(f"[perp] the transport carries {len(_pf['rejected'])} value(s) the "
+              f"consumer will refuse: "
+              + ", ".join(f"{x['symbol']}={x['value']}" for x in _pf["rejected"]),
+              file=__import__("sys").stderr)
 
     # Module 3 artifact. Written whatever the venues did — a file that only appears on
     # good nights makes "no funding tonight" indistinguishable from "the step did not

@@ -106,6 +106,34 @@ def _strip_comments(js: str) -> str:
     return "\n".join(l for l in out.splitlines() if not l.lstrip().startswith("//"))
 
 
+def run_js_feed(cases: list) -> list:
+    """Execute the real frontend's ARTIFACT TRANSPORT over `cases`.
+
+    AUDIT-PHASE1.6. Each case is {"doc": <ledger/perp.json shape>, "today": "YYYY-MM-DD"}.
+    """
+    node = shutil.which("node")
+    assert node, "node is required to execute the frontend port"
+    driver = extract_port() + """
+const CASES = %s;
+const out = CASES.map(c => {
+  const o = perpFeed(c.doc, c.today);
+  return {asOf: o.asOf, mults: o.mults, states: o.states, rejected: o.rejected,
+          n: o.n, withheld: o.withheld, staleAsOf: o.staleAsOf};
+});
+console.log(JSON.stringify(out));
+""" % json.dumps(cases)
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(driver)
+        path = fh.name
+    try:
+        res = subprocess.run([node, path], capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            raise AssertionError(f"node failed running the feed port: {res.stderr.strip()}")
+        return json.loads(res.stdout.strip().splitlines()[-1])
+    finally:
+        os.unlink(path)
+
+
 def run_js_overlay(cases: list) -> list:
     """Execute the real frontend's OVERLAY SELECTION over `cases`.
 
@@ -363,6 +391,102 @@ def check_the_overlay_boundary_holds_over_the_real_ledger():
             assert 0.85 - 1e-9 <= v <= 1.15 + 1e-9, f"{case['today']}/{sym} = {v}"
 
 
+# Every branch of the transport, plus the shapes a malformed or hostile artifact can
+# take. An artifact is a file on disk that a deploy can get wrong; the consumer's job is
+# to be unsurprised by any of this.
+FEED_CASES = [
+    # the ordinary case: a reading, a genuine neutral-by-absence, and a refusal
+    {"doc": {"as_of": "2026-09-17", "rows": {
+        "ZEC": {"m": 1.071, "s": "current"},
+        "BTC": {"m": 1.0, "s": "absent"},
+        "ETH": {"m": 1.0, "s": "current"},
+        "BAD": {"m": 9.9, "s": "current"}}}, "today": "2026-09-17"},
+    # the artifact may downgrade a neutral to absent; it may NOT rescue a refusal
+    {"doc": {"as_of": "2026-09-17", "rows": {
+        "A": {"m": 17.4, "s": "absent"},
+        "B": {"m": 17.4, "s": "current"},
+        "C": {"m": 0.85, "s": "current"},
+        "D": {"m": 1.15, "s": "absent"}}}, "today": "2026-09-17"},
+    # malformed cells of every shape a JSON writer can produce
+    {"doc": {"as_of": "2026-09-17", "rows": {
+        "A": {"m": None, "s": "current"},
+        "B": {"m": "", "s": "current"},
+        "C": {"m": "None", "s": "current"},
+        "D": {"m": "1.07 garbage", "s": "current"},
+        "E": {"s": "current"},
+        "F": {},
+        "G": {"m": "1.05"}}}, "today": "2026-09-17"},
+    # freshness: same day, a day late, two days late, dated ahead
+    {"doc": {"as_of": "2026-09-17", "rows": {"ZEC": {"m": 1.071, "s": "current"}}},
+     "today": "2026-09-18"},
+    {"doc": {"as_of": "2026-09-17", "rows": {"ZEC": {"m": 1.071, "s": "current"}}},
+     "today": "2026-09-19"},
+    {"doc": {"as_of": "2026-09-20", "rows": {"ZEC": {"m": 1.071, "s": "current"}}},
+     "today": "2026-09-17"},
+    # no artifact, and artifacts with nothing usable in them
+    {"doc": None, "today": "2026-09-17"},
+    {"doc": {}, "today": "2026-09-17"},
+    {"doc": {"as_of": "not-a-date", "rows": {"ZEC": {"m": 1.071}}}, "today": "2026-09-17"},
+    {"doc": {"as_of": "2026-09-17"}, "today": "2026-09-17"},
+    {"doc": {"as_of": "2026-09-17", "rows": {}}, "today": "2026-09-17"},
+    # lower-case keys, as the page upper-cases them
+    {"doc": {"as_of": "2026-09-17", "rows": {"ada": {"m": 0.94, "s": "current"}}},
+     "today": "2026-09-17"},
+]
+
+
+def check_feed_transport_parity():
+    """The artifact must resolve to the SAME multipliers and states on both sides."""
+    fe_all = run_js_feed(FEED_CASES)
+    for case, fe in zip(FEED_CASES, fe_all):
+        be = nightly.perp_feed(case["doc"], case["today"])
+        label = f"{case['today']}/{(case['doc'] or {}).get('as_of')}"
+        assert fe["asOf"] == (be["as_of"] or None), f"{label}: asOf"
+        assert fe["mults"] == be["mults"], f"{label}: {fe['mults']} vs {be['mults']}"
+        assert fe["states"] == be["states"], f"{label}: {fe['states']} vs {be['states']}"
+        assert fe["n"] == be["n"], f"{label}: n"
+        assert (fe["withheld"] or None) == be["withheld"], f"{label}: withheld"
+        assert (fe["staleAsOf"] or None) == (be["stale_as_of"] or None), f"{label}: staleAsOf"
+        fe_rej = sorted((r["symbol"], r["value"]) for r in fe["rejected"])
+        be_rej = sorted((r["symbol"], r["value"]) for r in be["rejected"])
+        assert fe_rej == be_rej, f"{label}: rejected {fe_rej} vs {be_rej}"
+
+
+def check_the_transport_covers_what_the_nightly_scored():
+    """The point of Phase 1.6, asserted against the artifact actually on disk.
+
+    Symbol for symbol, the multiplier the browser will apply must equal the one
+    `score()` recorded for that symbol on that snapshot. Not "mostly", not "for the
+    persisted fifty" — that was the defect.
+    """
+    path = os.path.join(_ROOT, "ledger", "perp.json")
+    if not os.path.exists(path):
+        return
+    doc = json.load(open(path, encoding="utf-8"))
+    day = doc["as_of"]
+    fe = run_js_feed([{"doc": doc, "today": day}])[0]
+    be = nightly.perp_feed(doc, day)
+    assert fe["mults"] == be["mults"], "the two implementations disagree on the real file"
+
+    shard = os.path.join(_ROOT, "ledger", "xsec", day[:7] + ".csv")
+    if not os.path.exists(shard):
+        return
+    import csv as _csv
+    with open(shard, newline="", encoding="utf-8") as fh:
+        scored = {r["symbol"].upper(): r for r in _csv.DictReader(fh)
+                  if r["date"] == day and r.get("src") == "live"}
+    if not scored:
+        return
+    missing = sorted(set(scored) - set(fe["mults"]))
+    assert not missing, f"scored but not in the transport: {missing[:20]}"
+    extra = sorted(set(fe["mults"]) - set(scored))
+    assert not extra, f"in the transport but not scored: {extra[:20]}"
+    off = [s for s, r in scored.items()
+           if r["perp_mult"] not in ("", "None")
+           and abs(float(r["perp_mult"]) - fe["mults"][s]) > 5e-4]
+    assert not off, f"the browser would apply a different multiplier on: {off[:20]}"
+
+
 def check_the_gate_reads_the_real_terminal():
     """A guard on the guard.
 
@@ -380,7 +504,11 @@ def check_the_gate_reads_the_real_terminal():
                # If they drift back out, every assertion above still passes and the
                # board can quietly go stale again.
                "function ledgerLatestDate", "function isoDayDiff",
-               "function overlayAsOf", "function perpOverlay"):
+               "function overlayAsOf", "function perpOverlay",
+               # AUDIT-PHASE1.6. perpEntry is the single envelope rule and perpFeed is
+               # the artifact transport; these are what decides a published multiplier
+               # now, and they must be executable by this gate.
+               "function perpEntry", "function perpFeed"):
         assert fn in port, f"{fn} is no longer inside the MODEL PORT markers"
     # Checked against the CODE, not the prose. The overlay comment quotes the retired
     # `PERP[...] = v` line verbatim — which is the clearest possible statement of what
@@ -425,6 +553,9 @@ _CHECKS = [
     ("overlay selection parity", check_overlay_selection_parity),
     ("overlay boundary over the real ledger",
      check_the_overlay_boundary_holds_over_the_real_ledger),
+    ("feed transport parity", check_feed_transport_parity),
+    ("transport covers what the nightly scored",
+     check_the_transport_covers_what_the_nightly_scored),
     ("frozen conviction regression", check_frozen_conviction_regression),
     ("gate reads the real terminal", check_the_gate_reads_the_real_terminal),
 ]
@@ -504,6 +635,14 @@ else:
     @needs_node
     def test_the_overlay_boundary_holds_over_the_real_ledger():
         check_the_overlay_boundary_holds_over_the_real_ledger()
+
+    @needs_node
+    def test_feed_transport_parity():
+        check_feed_transport_parity()
+
+    @needs_node
+    def test_the_transport_covers_what_the_nightly_scored():
+        check_the_transport_covers_what_the_nightly_scored()
 
     def test_frozen_conviction_regression():
         check_frozen_conviction_regression()

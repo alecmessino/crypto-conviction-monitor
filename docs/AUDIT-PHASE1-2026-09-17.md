@@ -383,7 +383,8 @@ Accepted from §3 and shipped as its own boundary, ahead of Phase 2 calibration.
 was deliberately narrow: this is the removal of a stale/corrupted-data path, not factor
 calibration. No factor curve, threshold or bound was touched.
 
-**Specification boundary `1a4ea6e4d77e` → `8e750228e15a`.**
+**Specification boundary `1a4ea6e4d77e` → `8e750228e15a`.** (Superseded the same day by
+Phase 1.6 → `ab16684ad5c1`; §1.5.5 names the gap 1.6 closes.)
 
 ## 1.5.1 — The rule
 
@@ -490,11 +491,136 @@ rows are now scored at a neutral funding multiplier. That is the honest reading 
 the published artifact contains — but it is a real loss of information relative to what
 the nightly computed, which is a live cross-venue reading for 153 of 235 symbols.
 
-Closing that gap means the page reading the wide cross-section, which `tests/test_xsec.py`
-currently forbids by design (the browser fetches `signals.json` whole on every load).
-It is a deliberate scope call, not an oversight, and it is not Phase 1.5's to make.
-`ledger/xsec/` records `perp_mult` beside `perp_mult_board` and `perp_board_state` on
-every row, so the size of that gap is measured from tonight forward rather than argued.
+**Closed by Phase 1.6, below.**
+
+---
+
+# Phase 1.6 — funding transport parity, 2026-09-17
+
+Data plumbing. No factor curve, threshold or bound was touched, and no calibration was
+attempted. **Specification boundary `8e750228e15a` → `ab16684ad5c1`.**
+
+## 1.6.1 — The artifact
+
+`ledger/perp.json`, written by the nightly from the same row loop that feeds `score()`.
+One row per scored symbol for the current snapshot: **235 rows, 13.4 KB**.
+
+```
+{"schema_version":1, "as_of":"2026-09-17", "generated_at":"...", "spec_hash":"...",
+ "source":"nightly", "universe":235, "with_reading":153,
+ "envelope":[0.85,1.15], "max_age_days":1, "row_keys":{...},
+ "rows":{"ZEC":{"m":1.071,"s":"current","apr":-25.185,"v":"gateio","n":5,
+                "sp":33.8855,"ih":8.0,"rg":"SHORT_SQUEEZE_RISK","rsi":74.96},
+         "PONS":{"m":1.0,"s":"absent"}, ...}}
+```
+
+Short keys, with `row_keys` documenting every one of them inside the file. Deliberately
+**not** `ledger/funding.json`: that is the rich artifact — eight venues nested per asset,
+the carry screen, 70 KB, fifty rows. This is the transport and stays slim, because a
+transport that can grow is a transport that will. Neither is derived from the other;
+both are projections of the same row loop. `tests/test_perp_transport.py` fails the build
+above 64 KB and if `by_venue` ever appears in it.
+
+**Quote age, honestly.** The consolidation layer publishes no per-quote timestamp — no
+venue returns an "as of", and Binance's `nextFundingTime` is a next-settlement stamp
+from which the age of the reading before it cannot be recovered. The artifact therefore
+carries `generated_at` (the age of the *snapshot*) and `ih` per row, the settlement
+clock, which is the nearest honest proxy for how often a rate refreshes. Nothing claims
+a per-quote age that was not measured.
+
+## 1.6.2 — Authority: availability is the writer's, validity is the consumer's
+
+The single property that makes this a transport and not a second model.
+
+- `s: "absent"` is the writer asserting **no funding reading existed** for that symbol.
+  Only the writer can know that, so the consumer accepts it — a ×1.000 that means "the
+  market is flat" and one that means "there is no market" are different facts.
+- **Validity is never the artifact's to assert.** Every value goes through `perpEntry`
+  at the point of use, every time. `tests/test_perp_transport.py` feeds HBAR's 17.4 back
+  in through the new path with the writer vouching for it four ways — `s:"current"`,
+  `s:"absent"`, `s:"verified"`, no `s` at all — and a fifth with the artifact declaring
+  its own wider `envelope`. All five are refused.
+
+**No fallback.** A missing, undated or stale artifact withholds the overlay *whole*; the
+page does not revert to the `signals.json` path. A fallback would reintroduce the
+divergence this phase removes, silently, on exactly the nights something is already
+wrong. `test_the_page_has_no_path_back_to_the_signals_overlay` asserts it on the source,
+because a fallback is the kind of thing someone adds back later.
+
+## 1.6.3 — Capture, and what left it
+
+`perp_entry` (the envelope rule, now the single definition shared by both paths) and
+`perp_feed` (the transport) join `SPEC_FUNCTIONS`. **Three functions left it** —
+`ledger_latest_date`, `overlay_as_of`, `perp_overlay` — with the `signals.json` path
+they served. They reach no published score any more, and capturing dead code means an
+edit to dead code re-segments the track record: the mirror image of the hole
+`AUDIT-2026-09` §1.8 closed, and it costs just as much. All are retained, uncaptured, so
+the regressions can run each generation of the rule against the one before it:
+`board_perp_map` (pre-1.5) → `perp_overlay` (1.5) → `perp_feed` (1.6).
+
+The parity gate runs **nine** checks now, including a third node driver over the
+transport and a coverage regression against the artifact actually on disk.
+
+## 1.6.4 — Coverage and board reconciliation
+
+Three boards, all computed by executing the real ported block under node against the
+same live payload.
+
+| | pre-1.5 | post-1.5 | **post-1.6** |
+|---|---|---|---|
+| symbols in the overlay | 170 *(42 nights)* | 50 | **235** *(one snapshot)* |
+| board rows with a real reading | 50 current + 120 stale | 50 | **153** |
+| board rows neutral-by-absence | 93 | 184 | **81** |
+| non-neutral multipliers applied | 15 *(10 of them stale)* | 5 | **9** |
+| values refused | 0 — the 17.4 was applied | 0 | **0** |
+
+The nine now applied: `BTW 0.939 · ETHFI 1.039 · FF 0.977 · PONS 1.075 · RAY 1.133 ·
+STX 1.015 · XPL 1.109 · ZEC 1.071 · ZEN 0.924`.
+
+**Phase 1.6 in isolation** — the shipped post-1.5 board against the transport:
+
+| | |
+|---|---|
+| scores changed | **2** — XPL 18 → 20 *(FUND 1.000 → 1.109)*, ETHFI 21 → 22 *(1.000 → 1.039)* |
+| tiers changed | **0** |
+| rank moves ≥ 5 | 2 (max 10) |
+| rows that re-ranked at all | 19 |
+| clamped rows | 1 → **1** |
+| largest pre-clamp | 107.1 → **107.1** |
+| top ten | unchanged |
+
+That is the shape a transport fix should have: the information set widens, a handful of
+names that genuinely had a reading get it, and nothing at the top of the board moves —
+because the names at the top were in the persisted fifty and already had theirs.
+
+**Cumulative across 1.5 + 1.6**, against the board as it stood this morning: 13 scores
+changed, 1 tier (HBAR STRONG → AVOID, rank 2 → 121), clamped 2 → 1, largest pre-clamp
+242.9 → 107.1, top ten loses HBAR and gains SOL.
+
+## 1.6.5 — Remaining browser/nightly mismatches
+
+**Multiplier mismatches on the 232 symbols the two share: zero.**
+
+The residual is membership, not value. The board fetches the live top-250 and the
+artifact is last night's snapshot, so the two universes drift intraday:
+
+- 2 board rows are absent from the artifact (`MARSCOIN`, `SENT`) — too new. They read
+  `no-row` → neutral 1.000, with the reason on the panel.
+- 3 artifact rows are absent from the board (`U`, `JPYC`, `PC0000023`) — they left the
+  top 250. Harmless; nothing looks them up.
+
+This is inherent to a nightly snapshot feeding a live board and cannot be closed by a
+transport. It is bounded (single digits), visible per row, and fails to neutral. The
+nightly prints the count of rows where `perp_mult` and `perp_mult_board` disagree on
+every run, so a regression in the transport is loud rather than quiet.
+
+## 1.6.6 — What did not change
+
+`nightly.score()` is untouched — it reads the live venue feed and always did. No
+recorded score, basket weight, leg or information coefficient moves; the 43-leg IC
+stands at −0.0562, CI [−0.1065, −0.0060]. Prior history keeps its digest. **No
+`SPEC_EQUIVALENT` entry**, for the same reason as 1.5: published scores moved, so this
+is a re-valuation and not a correction to the ruler.
 
 ---
 

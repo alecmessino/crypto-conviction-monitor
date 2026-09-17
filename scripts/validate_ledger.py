@@ -555,6 +555,83 @@ def check_xsec(ledger: Path) -> list[str]:
     return problems
 
 
+def check_perp_transport(ledger: Path) -> list[str]:
+    """ledger/perp.json — the funding transport the terminal scores from.
+
+    AUDIT-PHASE1.6. This file is the ONLY funding input the board has; there is no
+    fallback by design. So a deploy that ships a stale, truncated or out-of-envelope
+    artifact does not degrade the board gracefully — it withholds the overlay entirely,
+    or worse, applies something it should not. The gate is here rather than only in the
+    tests because this is the check that runs against what is about to be published.
+    """
+    problems: list[str] = []
+    path = ledger / "perp.json"
+    if not path.exists():
+        # Not a failure on its own: a ledger predating the transport is a ledger the
+        # page will simply find no artifact for, and it says so on screen.
+        return problems
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        return [f"perp.json: unreadable ({e}) — the board would score every row neutral"]
+
+    day = doc.get("as_of")
+    # Read against its OWN date first, which only catches a malformed or missing as_of —
+    # a file is never stale relative to itself. Freshness is checked below, against the
+    # ledger, which is the only thing that knows what "current" means.
+    fed = nightly.perp_feed(doc, day)
+    if fed["withheld"]:
+        problems.append(f"perp.json: unusable even on its own date ({fed['withheld']}) "
+                        f"— as_of is {day!r}")
+        return problems
+
+    # Staleness. The artifact is the board's only funding input and there is no
+    # fallback, so an artifact the nightly failed to regenerate is a board quietly
+    # scoring against an older market — which is the class of defect Phase 1.5 removed,
+    # arriving through the new path. Compared against signals.csv rather than against
+    # the clock, because the clock cannot tell a late run from a missed one.
+    sig = ledger / "signals.csv"
+    if sig.exists():
+        with sig.open(newline="", encoding="utf-8") as f:
+            recorded = sorted({r.get("date") for r in csv.DictReader(f) if r.get("date")})
+        newest = recorded[-1] if recorded else None
+        if newest and day != newest:
+            lag = nightly.iso_day_diff(day, newest)
+            problems.append(
+                f"perp.json: dated {day} while the ledger records through {newest}"
+                + (f" ({lag} night(s) behind)" if lag is not None else "")
+                + " — the transport was not regenerated, and the board has no fallback")
+    if fed["rejected"]:
+        problems.append(
+            f"perp.json: {len(fed['rejected'])} value(s) outside "
+            f"[{nightly.PERP_ENVELOPE_LO}, {nightly.PERP_ENVELOPE_HI}] — the consumer "
+            f"refuses them, so these rows would score neutral: "
+            + ", ".join(f"{x['symbol']}={x['value']}" for x in fed["rejected"][:5]))
+
+    # The coverage invariant: the transport must carry the whole scored cross-section
+    # for its snapshot, with the multiplier score() actually applied. A transport that
+    # is also fifty rows is the defect this phase removed, wearing a new path.
+    shard = ledger / "xsec" / f"{(day or '')[:7]}.csv"
+    if shard.exists():
+        with shard.open(newline="", encoding="utf-8") as f:
+            scored = {r["symbol"].upper(): r for r in csv.DictReader(f)
+                      if r.get("date") == day and r.get("src") == "live"}
+        if scored:
+            missing = sorted(set(scored) - set(fed["mults"]))
+            if missing:
+                problems.append(f"perp.json: {len(missing)} scored symbol(s) absent from "
+                                f"the transport, e.g. {missing[:5]} — the board would "
+                                f"score them neutral while the nightly did not")
+            off = [sym for sym, r in scored.items()
+                   if sym in fed["mults"] and r.get("perp_mult") not in ("", "None", None)
+                   and abs(float(r["perp_mult"]) - fed["mults"][sym]) > 5e-4]
+            if off:
+                problems.append(f"perp.json: {len(off)} row(s) where the board would "
+                                f"apply a different multiplier from score(), e.g. "
+                                f"{off[:5]}")
+    return problems
+
+
 def check_rwa(ledger: Path) -> list[str]:
     """The RWA ledgers, and one property that has no equivalent on the crypto side.
 
@@ -804,6 +881,7 @@ def main() -> int:
     problems += check_monitor(ledger)
     problems += check_context_ledgers(ledger)
     problems += check_xsec(ledger)
+    problems += check_perp_transport(ledger)
     problems += check_rwa(ledger)
 
     # Context, printed whether or not the gate passes — a validator that only speaks up

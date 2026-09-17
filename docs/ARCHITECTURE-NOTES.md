@@ -105,16 +105,25 @@ the same guarded block, and `convictionFactors()` at 3429 rendering the decompos
 `nightly.spec()` (`nightly.py:250`) does not enumerate constants — it **parses the
 source**, strips docstrings, and unparses each scoring function to canonical text.
 Captured: `score`, `_lavl_regime`, `lavl_perp_mult`, `_tier_for`, `emission_drag`,
-`emission_mult`, `_rsi_by_symbol`, the four overlay-selection functions
-(`ledger_latest_date`, `iso_day_diff`, `overlay_as_of`, `perp_overlay`), ten `nightly`
-constants, nine `funding` functions and eighteen `funding` constants — twenty functions
-and twenty-eight constants in all, which `tests/test_persistence.py` counts rather than
-trusting this sentence. `spec_hash()` is a 12-char SHA-256 of that blob, assigned at the
+`emission_mult`, `_rsi_by_symbol`, the three funding-transport functions
+(`iso_day_diff`, `perp_entry`, `perp_feed`), ten `nightly` constants, nine `funding`
+functions and eighteen `funding` constants — nineteen functions and twenty-eight
+constants in all, which `tests/test_perp_overlay.py` counts rather than trusting this
+sentence.
+
+The captured set **shrinks** as well as grows. `ledger_latest_date`, `overlay_as_of` and
+`perp_overlay` left it at Phase 1.6 with the `signals.json` path they served, and
+`board_perp_map` was never in it. All four are retained, uncaptured, so the regression
+tests can run each generation of the rule against the one before it. Capturing dead code
+means an edit to dead code re-segments the track record — the mirror image of the hole
+§1.8 closed, and it costs just as much. `spec_hash()` is a 12-char SHA-256 of that blob, assigned at the
 *bottom* of the module (`nightly.py:4536`) — deliberately, because assigning it at the
 top once hashed five not-yet-defined constants as null.
 
-**Current hash: `8e750228e15a`** (was `1a4ea6e4d77e` until 2026-09-17; see
-AUDIT-PHASE1.5). Recorded boundaries in `ledger/signals.csv`:
+**Current hash: `ab16684ad5c1`** — two boundaries landed on 2026-09-17,
+`1a4ea6e4d77e` → `8e750228e15a` (AUDIT-PHASE1.5, overlay selection) →
+`ab16684ad5c1` (AUDIT-PHASE1.6, the transport). Recorded boundaries in
+`ledger/signals.csv`:
 
 | First night | Hash | Note |
 |---|---|---|
@@ -124,7 +133,8 @@ AUDIT-PHASE1.5). Recorded boundaries in `ledger/signals.csv`:
 | 2026-08-19 | `2da60f7efd7b` | Module F lands |
 | 2026-08-20 | `6f98778fa627` | superseded 2026-09-15 |
 | 2026-09-15 | `1a4ea6e4d77e` | superseded 2026-09-17; `2da60f7efd7b` and `6f98778fa627` canonicalise onto it |
-| *(next run)* | `8e750228e15a` | current; overlay selection captured — **a re-valuation, not instrumentation**, so nothing canonicalises onto it |
+| 2026-09-17 | `8e750228e15a` | AUDIT-PHASE1.5: overlay selection captured. **A re-valuation**, so nothing canonicalises onto it |
+| *(next run)* | `ab16684ad5c1` | current — AUDIT-PHASE1.6: the transport moved to `ledger/perp.json`. Also a re-valuation |
 
 Since 2026-09-15 it also captures the layer that decides *which* funding reading reaches
 the score — `funding.consolidate`, `funding.VENUE_PRIORITY`, `INTERVAL_BASIS_REAL`,
@@ -133,12 +143,21 @@ source. `perp_context` and `funding_context` are deliberately **not** captured: 
 build recorded columns and reach no score. One hole remains and is named in the source:
 the `consolidated` → `perps_map` projection inside `main()`. See AUDIT-2026-09 §1.8.
 
-Since 2026-09-17 it also captures the layer above that: *which recorded multiplier a
-consumer of the ledger may apply at all*. `perp_overlay` and its three helpers are
-mirrored verbatim in `index.html`'s ported block and both sides are executed by
-`tests/test_parity.py`. That gate is the other half of the fix — the rule it replaced
-lived in `loadLedger()`, outside the markers the gate extracts, and the gate reported
-PASS for the whole six weeks the board was serving HBAR a forty-five-night-old 17.4.
+Since 2026-09-17 it also captures the layer above that: *which multiplier a consumer is
+allowed to apply at all*. `perp_entry` (the envelope rule) and `perp_feed` (the artifact
+transport) are mirrored verbatim in `index.html`'s ported block and both sides are
+executed by `tests/test_parity.py`. That gate is the other half of the fix — the rule
+1.5 replaced lived in `loadLedger()`, outside the markers the gate extracts, and the
+gate reported PASS for the whole six weeks the board was serving HBAR a
+forty-five-night-old 17.4.
+
+**`ledger/perp.json`** (AUDIT-PHASE1.6) is the transport: one row per scored symbol for
+the current snapshot, ~13 KB, written by the nightly from the same row loop that feeds
+`score()`. Deliberately not `ledger/funding.json`, which is the rich artifact — eight
+venues nested per asset, the carry screen, 70 KB, fifty rows. The browser applies
+`perp_feed` to it and has **no fallback**: a missing or stale artifact withholds the
+overlay whole and the board says so. The artifact asserts *availability*; the consumer
+decides *validity*, every time.
 
 `canonical_spec_hash()` resolves **transitively**, because two instrumentation
 corrections sit on the same body of scoring code.
@@ -151,7 +170,8 @@ asserted. **`8e750228e15a` is deliberately absent.** The chain's fixed point is
 `1a4ea6e4d77e` and it stops there: AUDIT-PHASE1.5 changed which input arrives and moved
 eleven published scores, so folding it in would claim the board said the same thing
 either side of it. `tests/test_persistence.py` asserts the chain ends where it ends and
-that today's hash is its own segment.
+that today's hash is its own segment. `8e750228e15a` and `ab16684ad5c1` are both absent
+for the same reason.
 
 **The 2026-08-05 boundary the brief refers to is not a hash boundary.** It predates the
 hash entirely and is detected from the data by `_spec_breaks()` (`nightly.py:2276`):

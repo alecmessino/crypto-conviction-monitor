@@ -107,6 +107,7 @@ def test_the_recorder_does_not_touch_the_specification():
     nightly = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(nightly)
     # 1a4ea6e4d77e -> 8e750228e15a (AUDIT-PHASE1.5): the capture was widened to the OVERLAY SELECTION layer — which recorded multiplier a ledger consumer may apply — and unlike the two boundaries before it this one is a re-valuation, not instrumentation: the published board changes. See tests/test_perp_overlay.py.
-    assert nightly.SPEC_HASH == "8e750228e15a"
+    # 8e750228e15a -> ab16684ad5c1 (AUDIT-PHASE1.6): the funding TRANSPORT changed. The board reads ledger/perp.json — the whole scored cross-section for the current snapshot — instead of the fifty rows signals.json persists, so 184 rows gain the multiplier score() already applied. Published scores move, so this is a re-valuation like 1.5 before it and nothing canonicalises onto it.
+    assert nightly.SPEC_HASH == "ab16684ad5c1"
     src = (ROOT / "scripts" / "observe.py").read_text(encoding="utf-8")
     assert "import nightly" not in src
