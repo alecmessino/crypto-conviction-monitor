@@ -375,7 +375,8 @@ def test_the_edge_panel_does_not_touch_the_specification():
     the legs either side of it stay one track record — but the pin still moves, because
     the pin asserts what the specification captures and that is what changed.
     """
-    assert nightly.SPEC_HASH == "1a4ea6e4d77e"
+    # 1a4ea6e4d77e -> 8e750228e15a (AUDIT-PHASE1.5): the capture was widened to the OVERLAY SELECTION layer — which recorded multiplier a ledger consumer may apply — and unlike the two boundaries before it this one is a re-valuation, not instrumentation: the published board changes. See tests/test_perp_overlay.py.
+    assert nightly.SPEC_HASH == "8e750228e15a"
     captured = nightly.spec()["functions"]
     for fn in captured.values():
         for name in ("_edge_legs", "_compute_edge", "_active_contributions"):

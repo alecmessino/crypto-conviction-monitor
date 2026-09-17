@@ -15,6 +15,7 @@ import json
 import math
 import random
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -226,10 +227,24 @@ SPEC_FUNCTIONS = ("score", "_lavl_regime", "lavl_perp_mult", "_tier_for",
                   # that tonight's live price is appended before computing. Change the
                   # period to 14 here and every squeeze boost on the board moves, with
                   # funding.rsi untouched and, until now, the hash unmoved with it.
-                  "_rsi_by_symbol")
+                  "_rsi_by_symbol",
+                  # AUDIT-PHASE1.5. WHICH multiplier reaches a published score, as
+                  # opposed to what a reading is worth. Captured for the reason 1.8
+                  # gives about VENUE_PRIORITY: a specification that captures the
+                  # arithmetic but not which input arrives is a description of one half
+                  # of a function. These three are mirrored verbatim in index.html's
+                  # ported block, and the parity gate executes both sides.
+                  "ledger_latest_date", "iso_day_diff", "overlay_as_of",
+                  "perp_overlay")
 SPEC_CONSTANTS = ("TIER_CUTS", "STABLES",
                   "EMISSION_FREE_RATIO", "EMISSION_ANCHOR_RATIO",
-                  "EMISSION_ANCHOR_SEVERITY", "EMISSION_MAX_PENALTY")
+                  "EMISSION_ANCHOR_SEVERITY", "EMISSION_MAX_PENALTY",
+                  # AUDIT-PHASE1.5. The envelope a ledger value must fall inside to be
+                  # consumed, and how old the snapshot it came from may be. Widening
+                  # either re-admits the class of value this boundary was drawn to
+                  # refuse, so both move the hash.
+                  "PERP_NEUTRAL", "PERP_ENVELOPE_LO", "PERP_ENVELOPE_HI",
+                  "PERP_MAX_AGE_DAYS")
 
 # The same, for funding.py. lavl_perp_mult is a two-line delegation, so without this the
 # specification would capture the *call* and none of the arithmetic behind it: the
@@ -1043,6 +1058,143 @@ def lavl_perp_mult(ticker: str, perps_map: dict) -> float:
     mult, _reason = funding.regime_modifier(apr, info.get("price_chg_24h"),
                                             info.get("rsi7"))
     return mult
+
+# ---------------------------------------------------------------------------
+# funding overlay selection  (AUDIT-PHASE1.5 — captured; this decides a score)
+# ---------------------------------------------------------------------------
+# WHICH multiplier a consumer of the ledger may apply, as opposed to what a given
+# funding reading is worth. lavl_perp_mult answers the second question and always has;
+# nothing answered the first, and for six weeks the terminal answered it wrongly.
+#
+# `index.html` built its overlay from every row of signals.json with no date filter,
+# last write in file order winning. The ledger persists fifty names a night out of ~235
+# scored, so a name outside that cut kept whatever multiplier it last carried. On
+# 2026-09-17: 91 symbols on values from 42 distinct earlier nights, and HBAR on a
+# forty-five-night-old 17.4 — a number regime_modifier cannot return, from four rows in
+# the seeded portion of the ledger whose tail columns are misaligned. It multiplied
+# HBAR's chain to a pre-clamp 242.9 and published the clamped 100 at the head of the
+# board, against 14 and 130th place on its own factors.
+#
+# These three functions are the replacement and they are CAPTURED, for the reason
+# AUDIT-2026-09 1.8 gives about VENUE_PRIORITY: a specification that captures the
+# arithmetic but not which input arrives is a description of one half of a function.
+# They are mirrored verbatim in the ported block of index.html and the parity gate
+# executes both sides — which is the second half of the fix, because the old rule was
+# invisible to that gate for exactly as long as it sat outside the markers.
+#
+# Two independent defences. Either one alone stops the HBAR row, and
+# tests/test_perp_overlay.py proves each does so with the other disabled.
+PERP_NEUTRAL = 1.0
+# The envelope funding.regime_modifier can actually produce. Written as literals rather
+# than imported from that module because the JS side has to execute standalone under
+# node; tests/test_perp_overlay.py asserts the two agree, so a drift fails there rather
+# than silently widening what the board will accept.
+PERP_ENVELOPE_LO = 0.85
+PERP_ENVELOPE_HI = 1.15
+# How stale the snapshot itself may be. The nightly runs daily, so the newest recorded
+# date is today or yesterday in normal operation. Past that the overlay is withheld
+# ENTIRELY rather than applied at reduced confidence: a funding rate is a point-in-time
+# reading of a market whose half-life is hours, and the defect above is what "a slightly
+# old reading is better than none" looks like once it has run for six weeks.
+PERP_MAX_AGE_DAYS = 1
+# Strict, and deliberately not float(). parseFloat("1.07 garbage") is 1.07 on the JS
+# side; float() raises here. One regex, applied on both sides, is the only version of
+# this the parity gate can hold to account.
+PERP_NUMERIC = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
+# Shape only. `9999-99-99` passes this and fails date.fromisoformat / Date.parse on the
+# other side, so both end up at iso_day_diff -> None and the overlay is withheld. Shape
+# here, meaning there, and the two agree on every input either way.
+PERP_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def ledger_latest_date(rows) -> str | None:
+    """The newest ISO date present in `rows`, or None."""
+    best = None
+    for r in rows or []:
+        d = (r or {}).get("date")
+        if isinstance(d, str) and PERP_ISO_DATE.match(d) and (best is None or d > best):
+            best = d
+    return best
+
+
+def iso_day_diff(frm, to) -> int | None:
+    """Whole days between two ISO dates, or None if either is unreadable.
+
+    Both sides at UTC midnight, so the answer never depends on the reader's time zone.
+    """
+    try:
+        a = date.fromisoformat(str(frm))
+        b = date.fromisoformat(str(to))
+    except (TypeError, ValueError):
+        return None
+    return (b - a).days
+
+
+def overlay_as_of(rows, today) -> str | None:
+    """The snapshot the overlay may be taken from, or None for 'none is current enough'.
+
+    `today` is passed rather than read from the clock so the rule is a pure function and
+    the parity gate can execute it deterministically on both sides.
+    """
+    latest = ledger_latest_date(rows)
+    if latest is None:
+        return None
+    age = iso_day_diff(latest, today)
+    # age < 0 is a ledger dated ahead of the caller — clock skew, or a hand-edited file.
+    # Refused for the same reason as an out-of-envelope value: it cannot be what it says.
+    if age is None or age < 0 or age > PERP_MAX_AGE_DAYS:
+        return None
+    return latest
+
+
+def perp_overlay(rows, as_of) -> dict:
+    """The funding multipliers eligible on `as_of`, and the state behind each.
+
+    Returns ``{"mults": {sym: float}, "states": {sym: str}, "as_of": str|None,
+    "rejected": [...], "n": int}``. Three states, and they are three different facts
+    that a bare 1.000 cannot tell apart — the same argument funding.py makes about its
+    own reason strings:
+
+      current   a reading from this snapshot, inside the envelope
+      absent    the snapshot records the symbol with no reading
+      rejected  a value outside [0.85, 1.15], refused rather than consumed
+
+    A symbol with no row at all on `as_of` appears in none of them, and the caller's
+    own ``|| 1`` / ``.get(sym, 1.0)`` supplies the same neutral by a different route.
+
+    The rows holding refused values are NOT corrected. They are the record of what
+    happened, and a ledger edited to remove the evidence of a defect is worth less than
+    one that carries it.
+    """
+    mults: dict = {}
+    states: dict = {}
+    rejected: list = []
+    if not as_of:
+        return {"mults": mults, "states": states, "as_of": None,
+                "rejected": rejected, "n": 0}
+    for r in rows or []:
+        if not r or r.get("date") != as_of:
+            continue
+        sym = str(r.get("symbol") or "").upper()
+        if not sym:
+            continue
+        raw = r.get("perp_mult")
+        if raw is None or raw in ("", "None"):
+            mults[sym] = PERP_NEUTRAL
+            states[sym] = "absent"
+            continue
+        txt = str(raw).strip()
+        v = float(txt) if PERP_NUMERIC.match(txt) else None
+        if v is None or v != v or v < PERP_ENVELOPE_LO - 1e-9 or v > PERP_ENVELOPE_HI + 1e-9:
+            mults[sym] = PERP_NEUTRAL
+            states[sym] = "rejected"
+            rejected.append({"symbol": sym, "value": v, "date": as_of})
+            continue
+        mults[sym] = v
+        states[sym] = "current"
+    return {"mults": mults, "states": states, "as_of": as_of,
+            "rejected": rejected, "n": len(mults)}
+
 
 # The legacy annualisation constant, for the Bybit feed only: that venue quotes per
 # 8-hour interval, so three settlements a day. It is NOT a general constant — Hyperliquid
@@ -3618,7 +3770,7 @@ XSEC_SCHEMA_JSON = XSEC_DIR / "SCHEMA.json"
 # carry src="live", which this file defines as observed on the night it is dated, and a
 # reconstruction in a live row would make the distinction unenforceable on the first
 # occasion it mattered.
-XSEC_SCHEMA_VERSION = 2
+XSEC_SCHEMA_VERSION = 3
 
 # `live` is observed on the night it is dated. `backfill` is reconstructed from
 # point-in-time inputs and was never observed live. They are recorded in the same shape
@@ -3664,14 +3816,21 @@ XSEC_FIELDS = [
     # other four factors are exactly 1.0 gives its fifth a 100% share of almost nothing,
     # so share alone flags the most neutral rows on the board.
     "dom_factor", "dom_share", "dom_logabs",
-    # --- v2: what the browser applies, which is a different number ----------------
-    # index.html builds its funding overlay by walking every row of signals.json with no
-    # date filter, last write in file order winning, so a symbol that left the top fifty
-    # keeps whatever multiplier it carried on its last recorded night — indefinitely.
-    # perp_mult above is what the nightly computed tonight; these two are what the page
-    # would have used and how old it is. Recording both is the only way the divergence
-    # is measurable, and it is observational in the strict sense: nothing reads it.
-    "perp_mult_board", "perp_mult_board_date",
+    # --- v2: what the browser applies, beside what the nightly modelled -----------
+    # `perp_mult` above is the multiplier score() applied, from tonight's live venue
+    # feed. These three are what a ledger consumer — the terminal — is entitled to
+    # apply, via the captured perp_overlay(): the value, the snapshot it came from, and
+    # which of the three states produced it (current / absent / rejected).
+    #
+    # Until 2026-09-17 these recorded a different and much worse rule, and the column
+    # exists because of it: the page read every row of signals.json with no date filter,
+    # so a symbol outside the persisted fifty kept its last recorded multiplier
+    # indefinitely. AUDIT-PHASE1.5 replaced that rule; these columns now record the
+    # replacement, and they stayed because the two numbers can still differ — the
+    # nightly sees a live feed for the whole universe while the ledger persists fifty
+    # rows, so a name outside the cut is neutral to the page and not to score().
+    # Observational in the strict sense: nothing reads them.
+    "perp_mult_board", "perp_mult_board_date", "perp_board_state",
     # --- v2: the funding inputs, across the whole cross-section -------------------
     # Every one of these already exists as a signals.csv column, for the top fifty rows
     # only. The funding modifier is the factor with the least cross-sectional dispersion
@@ -3695,7 +3854,7 @@ XSEC_FIELDS = [
 XSEC_V2_FIELDS = (
     "total_volume", "depth", "confirm", "liquidity",
     "conviction_raw", "clamped", "dom_factor", "dom_share", "dom_logabs",
-    "perp_mult_board", "perp_mult_board_date",
+    "perp_mult_board", "perp_mult_board_date", "perp_board_state",
     "price_chg_24h", "perp_path",
     "funding_venue", "funding_venues_n", "funding_apr_spread",
     "funding_interval_h", "funding_regime", "oi_usd",
@@ -3864,9 +4023,15 @@ def factor_chain_reconciles(chain: dict, conviction, comp: dict) -> list[str]:
 
 
 def board_perp_map(rows: list[dict] | None = None) -> dict:
-    """The funding overlay index.html actually applies, and the date each value is from.
+    """RETIRED 2026-09-17. The overlay rule index.html applied until AUDIT-PHASE1.5.
 
-    A transcription of ``loadLedger()``, and deliberately a literal one::
+    Kept, and kept exact, for one reason: ``tests/test_perp_overlay.py`` asserts that
+    this returns HBAR's 17.4 and that :func:`perp_overlay` does not. A regression test
+    for a defect that cannot reproduce the defect proves nothing, and deleting this
+    would have left the fix asserted rather than demonstrated. It reaches no score, is
+    not in SPEC_FUNCTIONS, and nothing but that test calls it.
+
+    A transcription of the old ``loadLedger()``, and deliberately a literal one::
 
         PERP = {};
         (j.rows||[]).forEach(r=>{ const pm=r.perp_mult;
@@ -3881,10 +4046,7 @@ def board_perp_map(rows: list[dict] | None = None) -> dict:
     ``funding.regime_modifier`` at all (its envelope is [0.85, 1.15]) and that put HBAR
     at the head of the published board on a pre-clamp product of 242.9.
 
-    Returns ``{symbol: {"value": float, "date": str|None}}``. This function is
-    observational: it reads the ledger, it reaches no score, and reproducing the
-    browser's rule here is what makes the divergence between the two a recorded column
-    instead of an argument.
+    Returns ``{symbol: {"value": float, "date": str|None}}``.
     """
     if rows is None:
         rows = _read_signals_rows()
@@ -4022,13 +4184,23 @@ def write_xsec_schema() -> Path:
                           "recorded because share alone saturates at 1.0 on a chain "
                           "whose other four factors are exactly 1.0, which is the most "
                           "neutral chain there is rather than the most dominated."),
-            "perp_mult_vs_board": ("perp_mult is what the nightly computed tonight. "
-                                   "perp_mult_board is what index.html would apply, "
-                                   "which it derives from signals.json with no date "
-                                   "filter and last-write-in-file-order winning; "
-                                   "perp_mult_board_date is the night that value was "
-                                   "recorded. They differ for any symbol outside "
-                                   "tonight's top fifty."),
+            "perp_mult_vs_board": ("perp_mult is the multiplier score() applied, from "
+                                   "tonight's live venue feed across the whole "
+                                   "universe. perp_mult_board is what a ledger "
+                                   "consumer may apply under perp_overlay(): only a "
+                                   "value carrying the snapshot's own date and falling "
+                                   "inside [0.85, 1.15]. perp_board_state is which of "
+                                   "current / absent / rejected / no-row produced it. "
+                                   "They differ for any symbol outside the persisted "
+                                   "fifty, which the page reads as neutral."),
+            "overlay_history": ("Before 2026-09-17 these columns recorded a different "
+                                "rule: every row of signals.json, no date filter, last "
+                                "write in file order winning. That rule served a "
+                                "forty-five-night-old 17.4 to HBAR and put it at the "
+                                "head of the published board on a pre-clamp 242.9. It "
+                                "was replaced under specification boundary "
+                                "1a4ea6e4d77e -> 8e750228e15a. No row was ever written "
+                                "under the old rule."),
         },
         "added_at_v2": [f for f in XSEC_FIELDS if f in XSEC_V2_FIELDS],
         "v2_note": ("Columns added at schema v2 are EMPTY on rows dated before the "
@@ -4825,54 +4997,52 @@ def main() -> int:
             "price_chg_24h": t.get("price_change_percentage_24h"),
             # Stamped after the sort, once the file the browser will fetch is known.
             "perp_mult_board": None, "perp_mult_board_date": None,
+            "perp_board_state": None,
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
 
-    # AUDIT-PHASE1 1B — what the PAGE will apply, stamped on every row.
+    # AUDIT-PHASE1.5 — what the PAGE is entitled to apply, stamped on every row.
     #
-    # index.html builds its funding overlay from signals.json with no date filter and
-    # last-write-in-file-order winning, so the map it ends up with is a function of the
-    # file as published: prior nights, then tonight's top fifty overwriting the symbols
-    # they cover. That is reproduced here rather than approximated, which is why it is
-    # stamped after the sort — `rows[:50]` is not known before it — and why it is built
-    # from the ledger as it will exist, not as it does now.
+    # Through the captured perp_overlay(), which is the same rule index.html runs and is
+    # gated against it by tests/test_parity.py. Stamped after the sort because the map
+    # is taken from the ledger AS IT WILL BE PUBLISHED — prior nights plus tonight's
+    # persisted fifty — and `rows[:50]` is not known before the sort.
     #
-    # For the 50 names in tonight's cut these two columns equal `perp_mult`. For
-    # everything else they are whatever that symbol carried on its last recorded night,
-    # which on 2026-09-17 was a median of 14 nights ago across 91 symbols and 45 nights
-    # for the one that reached the top of the board. Nothing here changes a score; it
-    # makes the gap between the modelled multiplier and the applied one a column.
+    # For the fifty names in tonight's cut this equals `perp_mult`. For everything else
+    # the page is now neutral by absence: the ledger has no row for that symbol on this
+    # snapshot, so there is nothing it may apply. That gap is real and is the reason
+    # this column stayed after the rule was fixed — the nightly reads a live feed across
+    # the whole universe and the ledger persists fifty rows.
     _board_prior = [r for r in _read_signals_rows() if r.get("date") != today]
-    _board_map = board_perp_map(_board_prior + [{k: r.get(k) for k in FIELDS}
-                                                for r in rows[:50]])
+    _board_rows = _board_prior + [{k: r.get(k) for k in FIELDS} for r in rows[:50]]
+    _ov = perp_overlay(_board_rows, overlay_as_of(_board_rows, today))
     for r in rows:
-        hit = _board_map.get(r["symbol"])
-        if hit is not None:
-            r["perp_mult_board"] = hit["value"]
-            r["perp_mult_board_date"] = hit["date"]
+        sym = r["symbol"]
+        if sym in _ov["mults"]:
+            r["perp_mult_board"] = _ov["mults"][sym]
+            r["perp_mult_board_date"] = _ov["as_of"]
+            r["perp_board_state"] = _ov["states"][sym]
         else:
-            # No row in the whole ledger, so the page falls back to `PERP[sym] || 1`.
-            # Recorded as the 1.0 it will apply, with no date: a blank value would read
-            # as "not measured" when the page is definitely going to multiply by one.
-            r["perp_mult_board"] = 1.0
-            r["perp_mult_board_date"] = ""
-    _stale = sum(1 for r in rows
-                 if r.get("perp_mult_board_date") not in (today, "", None))
+            # No row for this symbol on this snapshot. The page's own `|| 1` supplies
+            # the neutral; recorded as the 1.0 it will apply rather than blank, because
+            # a blank would read as "not measured" when the multiplication is certain.
+            r["perp_mult_board"] = PERP_NEUTRAL
+            r["perp_mult_board_date"] = _ov["as_of"] or ""
+            r["perp_board_state"] = "no-row"
+    _states = {}
+    for r in rows:
+        _states[r["perp_board_state"]] = _states.get(r["perp_board_state"], 0) + 1
     _diverge = sum(1 for r in rows
                    if _num(r.get("perp_mult")) is not None
                    and abs(float(r["perp_mult"]) - float(r["perp_mult_board"])) > 5e-4)
-    _outside = [r["symbol"] for r in rows
-                if not (funding.MOD_MAX_PENALTY - 1e-9
-                        <= float(r["perp_mult_board"])
-                        <= funding.MOD_MAX_BOOST + 1e-9)]
-    print(f"[xsec] funding overlay: {_stale} of {len(rows)} rows would be served a "
-          f"multiplier from an earlier night; {_diverge} differ from tonight's modelled "
-          f"value", file=__import__("sys").stderr)
-    if _outside:
-        print(f"[xsec] {len(_outside)} row(s) would be served a multiplier outside "
-              f"funding.regime_modifier's [{funding.MOD_MAX_PENALTY}, "
-              f"{funding.MOD_MAX_BOOST}] envelope: {', '.join(sorted(_outside))} "
-              f"— recorded, not corrected (Phase 1 changes no scoring)",
+    print(f"[overlay] snapshot {_ov['as_of'] or 'NONE — withheld as stale'}: "
+          f"{dict(sorted(_states.items()))}; {_diverge} row(s) differ from the "
+          f"multiplier score() applied", file=__import__("sys").stderr)
+    if _ov["rejected"]:
+        print(f"[overlay] REFUSED {len(_ov['rejected'])} value(s) outside "
+              f"[{PERP_ENVELOPE_LO}, {PERP_ENVELOPE_HI}] on the current snapshot — this "
+              f"is a fault in tonight's writer, not a historical artifact: "
+              + ", ".join(f"{x['symbol']}={x['value']}" for x in _ov["rejected"]),
               file=__import__("sys").stderr)
     if chain_misses:
         print(f"[xsec] {len(chain_misses)} row(s) did not reconcile against score(); "

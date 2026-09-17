@@ -1875,6 +1875,14 @@ let PERP = {};     // symbol -> RiskMult_perp (LAVL leverage overlay) from night
 // defaults to 1.0 and the board reorders — a live table that quietly disagrees with the
 // published one is worse than a table that says it is degraded, so this is rendered.
 let PERP_LOADED = false;
+// The state behind each multiplier: "current" (a reading from this snapshot),
+// "absent" (the snapshot records the symbol with no reading) or "rejected" (a value
+// outside the model's own envelope, refused). A symbol with no row at all is in none of
+// these and falls through to `PERP[sym] || 1` at the call site, which is the same
+// neutral by a different route — the inspector says which.
+let PERP_STATE = {};
+let PERP_AS_OF = null;      // the snapshot date the overlay was taken from, or null
+let PERP_REJECTED = [];     // rows refused for being outside [0.85, 1.15]
 let PERPS = {};    // symbol -> recorded derivatives context (Module 1, non-scoring)
 let CHOP = {};     // symbol -> {chop, regime, bars} (Module 2, non-scoring)
 let TF = "24h";    // active timeframe for the delta column
@@ -1933,10 +1941,34 @@ async function loadLedger(){
     LEDGER = ALL_ROWS.filter(r=>r.era!=null && r.era!=="None" && r.era!=="");
     // Build per-asset LAVL RiskMult_perp map so the live Alpha Map uses the SAME
     // leverage overlay as the nightly conviction-weighted index (single source of truth).
-    PERP = {};
-    (j.rows||[]).forEach(r=>{ const pm=r.perp_mult;
-      if(pm!=null && pm!=="None" && pm!==""){ const v=parseFloat(pm); if(!isNaN(v)) PERP[(r.symbol||"").toUpperCase()]=v; } });
+    //
+    // The selection rule is perpOverlay(), which lives inside the ported scoring block
+    // below — see the comment there for the defect it replaces and why it had to move
+    // inside. This function's job is now only to hand it the rows and today's date and
+    // to unpack the result; it makes no decision about which multiplier is eligible.
+    //
+    // The two marker strings the parity gate searches for are deliberately not spelled
+    // out anywhere above the block they delimit. `extract_port()` takes the FIRST
+    // occurrence of the opening one, so a mention of it in prose up here silently moves
+    // the slice and hands node a fragment of a function.
+    // UTC, because the ledger's dates are: the nightly stamps `date.today()` on a
+    // runner that runs at 06:17 UTC, and comparing those against a local calendar day
+    // would make the overlay's freshness depend on where the reader is sitting.
+    const _today = new Date().toISOString().slice(0, 10);
+    const _ov = perpOverlay(ALL_ROWS, overlayAsOf(ALL_ROWS, _today));
+    PERP = _ov.mults;
+    PERP_STATE = _ov.states;
+    PERP_AS_OF = _ov.asOf;
+    PERP_REJECTED = _ov.rejected;
     PERP_LOADED = Object.keys(PERP).length > 0;
+    if(PERP_REJECTED.length){
+      // An out-of-envelope value on the CURRENT snapshot is a live integrity fault in
+      // the writer, not a historical artifact, so it is logged loudly rather than
+      // absorbed. The board says so too — see the banner in load().
+      console.error("[overlay] refused " + PERP_REJECTED.length
+        + " funding multiplier(s) outside [" + PERP_ENVELOPE_LO + ", " + PERP_ENVELOPE_HI
+        + "]: " + PERP_REJECTED.map(r=>r.symbol + "=" + r.value).join(", "));
+    }
     // Module 1: the recorded derivatives columns, keyed by symbol. Observational —
     // none of this feeds conviction, and the drawer says so where it is displayed.
     PERPS = {};
@@ -2139,6 +2171,117 @@ function conviction(t, perp, rsBlend){ perp = perp||1; rsBlend = rsBlend||0; // 
   return {conv, comp};
 }
 function signal(c){ return c>=80?["STRONG","g"]:c>=70?["BUY","g"]:c>=55?["HOLD","n"]:c>=40?["WATCH","a"]:["AVOID","r"];}
+
+/* FUNDING OVERLAY SELECTION — AUDIT-PHASE1.5, 2026-09-17.
+
+   WHICH multiplier reaches the score, as opposed to what a given funding reading is
+   worth. Inside the port because it decides a scoring input and therefore a published
+   score, and because the defect it replaces was invisible for exactly as long as it sat
+   outside: `loadLedger()` built the overlay, the parity gate executes this block, and
+   the gate was green throughout.
+
+   What it replaces, verbatim:
+
+       PERP = {};
+       (j.rows||[]).forEach(r=>{ const pm=r.perp_mult;
+         if(pm!=null && pm!=="None" && pm!==""){ const v=parseFloat(pm);
+           if(!isNaN(v)) PERP[(r.symbol||"").toUpperCase()]=v; } });
+
+   Every row of the ledger, no date filter, last write in file order winning. The ledger
+   persists fifty names a night out of ~235 scored, so a name outside that cut kept
+   whatever multiplier it last carried — for as long as it stayed out. On 2026-09-17
+   that was 91 symbols on values from 42 distinct earlier nights, and HBAR on a
+   forty-five-night-old 17.4: a number `funding.regime_modifier` cannot return, from
+   four rows in the seeded portion of the ledger whose tail columns are misaligned. It
+   multiplied HBAR's chain to a pre-clamp 242.9 and published the clamped 100 at the top
+   of the board, against 14 and 130th place on its own factors.
+
+   Two independent defences, because either one alone would have stopped that row and a
+   single defence is a single point of failure:
+
+     DATE     only rows carrying the snapshot's own date are read at all. A symbol
+              absent from that snapshot is neutral, not last-seen.
+     ENVELOPE a value outside [0.85, 1.15] cannot have come from the model that is
+              supposed to produce it, so it is refused rather than consumed. The
+              historical rows holding such values are left exactly as they are — they
+              are the record of what happened and correcting them would erase it.
+
+   Both resolve to the same neutral 1.0, and the STATE is returned beside it so the
+   panel can say which. "No reading" and "reading refused" are different facts about an
+   asset and a bare 1.000 cannot tell them apart — the same argument funding.py makes
+   about its own reason strings.
+
+   The envelope is written as literals here rather than read from funding.json, because
+   this block has to execute standalone under node. tests/test_perp_overlay.py asserts
+   they equal funding.MOD_MAX_PENALTY and funding.MOD_MAX_BOOST, so a drift fails there
+   rather than silently widening what the board will accept. */
+const PERP_NEUTRAL = 1.0;
+const PERP_ENVELOPE_LO = 0.85, PERP_ENVELOPE_HI = 1.15;
+/* How stale the snapshot itself may be. The nightly runs daily, so in normal operation
+   the newest recorded date is today or yesterday. Past that the overlay is withheld
+   ENTIRELY rather than applied at reduced confidence: a funding rate is a point-in-time
+   reading of a perpetual market whose half-life is hours, and the defect above is what
+   "a slightly old reading is better than none" looks like once it runs for six weeks. */
+const PERP_MAX_AGE_DAYS = 1;
+const PERP_NUMERIC = /^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/;
+/* Shape only. "9999-99-99" passes this and fails Date.parse / date.fromisoformat on the
+   other side, so both end up at isoDayDiff -> null and the overlay is withheld. Shape
+   here, meaning there, and the two agree on every input either way. */
+const PERP_ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function ledgerLatestDate(rows){
+  let best = null;
+  for(const r of (rows||[])){
+    const d = r && r.date;
+    if(typeof d === "string" && PERP_ISO_DATE.test(d) && (best === null || d > best)) best = d;
+  }
+  return best;
+}
+/* Whole days between two ISO dates, or null if either is unreadable. Parsed at UTC
+   midnight on both sides so the answer never depends on the reader's time zone. */
+function isoDayDiff(from, to){
+  const a = Date.parse(String(from) + "T00:00:00Z"), b = Date.parse(String(to) + "T00:00:00Z");
+  if(isNaN(a) || isNaN(b)) return null;
+  return Math.round((b - a) / 86400000);
+}
+/* The snapshot the overlay may be taken from, or null for "none is current enough".
+   `today` is passed rather than read from the clock so the rule is a pure function and
+   the parity gate can execute it deterministically. */
+function overlayAsOf(rows, today){
+  const latest = ledgerLatestDate(rows);
+  if(latest === null) return null;
+  const age = isoDayDiff(latest, today);
+  // age < 0 is a ledger dated ahead of the caller — clock skew or a hand-edited file.
+  // Refused for the same reason as an out-of-envelope value: it cannot be what it says.
+  if(age === null || age < 0 || age > PERP_MAX_AGE_DAYS) return null;
+  return latest;
+}
+function perpOverlay(rows, asOf){
+  const mults = {}, states = {}, rejected = [];
+  if(!asOf) return {mults, states, asOf: null, rejected, n: 0};
+  for(const r of (rows||[])){
+    if(!r || r.date !== asOf) continue;
+    const sym = String(r.symbol || "").toUpperCase();
+    if(!sym) continue;
+    const raw = r.perp_mult;
+    if(raw === null || raw === undefined || raw === "" || raw === "None"){
+      mults[sym] = PERP_NEUTRAL; states[sym] = "absent"; continue;
+    }
+    // Strict, not parseFloat. parseFloat("1.07 garbage") is 1.07 and float("1.07 garbage")
+    // raises, so the two sides of the parity gate would disagree on exactly the kind of
+    // malformed cell this function exists to refuse. One regex, mirrored in
+    // nightly.perp_overlay, is the only version of this that can be gated.
+    const v = PERP_NUMERIC.test(String(raw).trim()) ? Number(String(raw).trim()) : NaN;
+    if(!isFinite(v) || v < PERP_ENVELOPE_LO - 1e-9 || v > PERP_ENVELOPE_HI + 1e-9){
+      mults[sym] = PERP_NEUTRAL; states[sym] = "rejected";
+      rejected.push({symbol: sym, value: isFinite(v) ? v : null, date: asOf});
+      continue;
+    }
+    mults[sym] = v; states[sym] = "current";
+  }
+  return {mults, states, asOf, rejected, n: Object.keys(mults).length};
+}
+/* END FUNDING OVERLAY SELECTION */
 
 /* LABEL GATE — AUDIT-2026-09 1.2.
 
@@ -3558,10 +3701,27 @@ function factorBreakdown(sym){
   const wrap=$("#fb");
   if(!t){ wrap.innerHTML='<div class="muted" style="padding:30px 12px">Select a token to see its factor tilt.</div>'; return; }
   const F=convictionFactors(t);
+  // Four states, and they are four different facts. A bare x1.000 cannot tell "the
+  // market is flat" from "nothing was recorded" from "what was recorded was refused",
+  // and before AUDIT-PHASE1.5 a non-neutral value could not be distinguished from a
+  // stale one at all — which is how a forty-five-night-old 17.4 read as a funding
+  // signal on this very panel.
+  const perpState = PERP_STATE[t.sym] || (PERP[t.sym]==null ? "no-row" : "current");
+  const asOf = PERP_AS_OF ? " · snapshot " + PERP_AS_OF : "";
   const perpNote = !PERP_LOADED
-    ? "no derivatives feed tonight: neutral by absence, not by reading"
-    : (PERP[t.sym]==null ? "no perp recorded for this name"
-       : F.perp<1 ? "overheated longs" : F.perp>1 ? "short capitulation" : "inside the inert band");
+    ? (PERP_AS_OF===null
+        ? "overlay withheld: no snapshot within " + PERP_MAX_AGE_DAYS
+          + " day(s) — neutral by absence, not by reading"
+        : "no derivatives feed tonight: neutral by absence, not by reading")
+    : perpState==="no-row"
+       ? "unavailable — not in this snapshot's recorded cross-section; neutral" + asOf
+    : perpState==="absent"
+       ? "unavailable — recorded with no funding reading; neutral" + asOf
+    : perpState==="rejected"
+       ? "REFUSED — recorded value outside [" + PERP_ENVELOPE_LO + ", " + PERP_ENVELOPE_HI
+         + "], which the funding model cannot produce; neutral" + asOf
+    : (F.perp<1 ? "overheated longs" : F.perp>1 ? "short capitulation"
+       : "inside the inert band") + asOf;
   const rows=[
     ["DEPTH", F.depth, `log10 mcap ${fmtUsd(t.mc)}`],
     ["CONFIRM", F.cm, `tanh(RS blend ${F.rs.toFixed(1)} / 25) vs BTC, 7/14/30/200d`],
@@ -7144,11 +7304,29 @@ async function load(){
     const lf=liveFeedState();
     if(PERP_LOADED){ st.textContent=lf.label; st.className=lf.cls==="pos"?"live":lf.cls; }
     else { st.textContent=lf.label==="LIVE"?"DEGRADED":lf.label; st.className="neu";
+           // Two reasons the overlay can be absent, and they are not the same fault.
+           const why = PERP_AS_OF===null && ALL_ROWS.length
+             ? `the newest recorded snapshot is <code>${esc0(ledgerLatestDate(ALL_ROWS)||"none")}</code>,
+                more than ${PERP_MAX_AGE_DAYS} day(s) old, so the overlay is withheld rather
+                than applied stale`
+             : `<code>ledger/signals.json</code> did not load`;
            $("#tbl-conv").insertAdjacentHTML("beforebegin",
              `<div class="err" id="perp-warn" style="padding:6px 12px">Leverage overlay
-              unavailable — <code>ledger/signals.json</code> did not load, so every
-              RiskMult_perp defaults to 1.0 and this ranking will not match the
-              published board. Scores shown are unadjusted, not wrong-but-close.</div>`); }
+              unavailable — ${why}, so every RiskMult_perp defaults to 1.0 and this
+              ranking will not match the published board. Scores shown are unadjusted,
+              not wrong-but-close.</div>`); }
+    // A refused value is an integrity fault in tonight's writer, not a degraded feed,
+    // so it is reported even when the overlay otherwise loaded cleanly.
+    const oldRej=$("#perp-reject"); if(oldRej) oldRej.remove();
+    if(PERP_REJECTED.length){
+      $("#tbl-conv").insertAdjacentHTML("beforebegin",
+        `<div class="err" id="perp-reject" style="padding:6px 12px">Funding overlay
+         refused ${PERP_REJECTED.length} recorded value(s) outside
+         <code>[${PERP_ENVELOPE_LO}, ${PERP_ENVELOPE_HI}]</code> — the envelope the
+         funding model can produce — on snapshot <code>${esc0(PERP_AS_OF||"?")}</code>:
+         ${esc0(PERP_REJECTED.map(r=>r.symbol+"="+r.value).join(", "))}. Those names are
+         scored at a neutral 1.000. The ledger rows are left as recorded.</div>`);
+    }
     $("#sys-rl").textContent="nominal";
     renderDiag();
   }catch(e){

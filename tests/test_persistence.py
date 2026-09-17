@@ -185,7 +185,8 @@ def test_persistence_does_not_touch_the_specification():
     # chooses the RSI period and source. Every one of those changes published scores
     # and none of them moved the digest. Not a scoring change; a specification that
     # captured the funding curve and not the input handed to it.
-    assert nightly.SPEC_HASH == "1a4ea6e4d77e"
+    # 1a4ea6e4d77e -> 8e750228e15a (AUDIT-PHASE1.5): the capture was widened to the OVERLAY SELECTION layer — which recorded multiplier a ledger consumer may apply — and unlike the two boundaries before it this one is a re-valuation, not instrumentation: the published board changes. See tests/test_perp_overlay.py.
+    assert nightly.SPEC_HASH == "8e750228e15a"
     for fn in nightly.spec()["functions"].values():
         assert "_persistence" not in fn
 
@@ -377,14 +378,26 @@ def test_the_equivalence_table_resolves_transitively():
     recorded under 6f98778fa627 went on to 1a4ea6e4d77e — one track record split in two
     by the mechanism built to stop exactly that. Every digest in the chain must land on
     the same canonical hash.
+
+    The chain's fixed point is 1a4ea6e4d77e, and it is deliberately NOT today's hash.
+    Both entries in the table are corrections to the RULER: same arithmetic, different
+    digest. AUDIT-PHASE1.5 is not — it changed which recorded multiplier a consumer may
+    apply, and the published board moved. Folding it in would claim the board said the
+    same thing either side of it, which is the one thing this table must never be used
+    to say. So the assertion is that the three fold onto one another and stop THERE.
     """
-    end = nightly.SPEC_HASH
+    end = "1a4ea6e4d77e"
     for recorded in ("2da60f7efd7b", "6f98778fa627", "1a4ea6e4d77e"):
         assert nightly.canonical_spec_hash(recorded) == end, (
             f"{recorded} did not resolve to {end}")
     # Idempotent: canonicalising a canonical hash is a no-op, so the monitor can apply
     # it to already-folded values without walking the chain twice to a different answer.
     assert nightly.canonical_spec_hash(end) == end
+    # And today's hash is its own segment, reached by nothing and folding onto itself.
+    assert nightly.SPEC_HASH != end
+    assert nightly.SPEC_HASH not in nightly.SPEC_EQUIVALENT
+    assert end not in nightly.SPEC_EQUIVALENT
+    assert nightly.canonical_spec_hash(nightly.SPEC_HASH) == nightly.SPEC_HASH
 
 
 def test_the_equivalence_table_refuses_a_cycle():

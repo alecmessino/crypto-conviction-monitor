@@ -164,6 +164,7 @@ def test_the_ribbon_does_not_touch_the_specification():
     # chooses the RSI period and source. Every one of those changes published scores
     # and none of them moved the digest. Not a scoring change; a specification that
     # captured the funding curve and not the input handed to it.
-    assert nightly.SPEC_HASH == "1a4ea6e4d77e"
+    # 1a4ea6e4d77e -> 8e750228e15a (AUDIT-PHASE1.5): the capture was widened to the OVERLAY SELECTION layer — which recorded multiplier a ledger consumer may apply — and unlike the two boundaries before it this one is a re-valuation, not instrumentation: the published board changes. See tests/test_perp_overlay.py.
+    assert nightly.SPEC_HASH == "8e750228e15a"
     for fn in nightly.spec()["functions"].values():
         assert "_model_health" not in fn

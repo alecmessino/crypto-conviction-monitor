@@ -106,6 +106,7 @@ def test_the_recorder_does_not_touch_the_specification():
     spec = importlib.util.spec_from_file_location("n_obs", ROOT / "nightly.py")
     nightly = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(nightly)
-    assert nightly.SPEC_HASH == "1a4ea6e4d77e"
+    # 1a4ea6e4d77e -> 8e750228e15a (AUDIT-PHASE1.5): the capture was widened to the OVERLAY SELECTION layer — which recorded multiplier a ledger consumer may apply — and unlike the two boundaries before it this one is a re-valuation, not instrumentation: the published board changes. See tests/test_perp_overlay.py.
+    assert nightly.SPEC_HASH == "8e750228e15a"
     src = (ROOT / "scripts" / "observe.py").read_text(encoding="utf-8")
     assert "import nightly" not in src

@@ -105,13 +105,16 @@ the same guarded block, and `convictionFactors()` at 3429 rendering the decompos
 `nightly.spec()` (`nightly.py:250`) does not enumerate constants — it **parses the
 source**, strips docstrings, and unparses each scoring function to canonical text.
 Captured: `score`, `_lavl_regime`, `lavl_perp_mult`, `_tier_for`, `emission_drag`,
-`emission_mult`, six `nightly` constants, eight `funding` functions and fifteen
-`funding` constants. `spec_hash()` is a 12-char SHA-256 of that blob, assigned at the
+`emission_mult`, `_rsi_by_symbol`, the four overlay-selection functions
+(`ledger_latest_date`, `iso_day_diff`, `overlay_as_of`, `perp_overlay`), ten `nightly`
+constants, nine `funding` functions and eighteen `funding` constants — twenty functions
+and twenty-eight constants in all, which `tests/test_persistence.py` counts rather than
+trusting this sentence. `spec_hash()` is a 12-char SHA-256 of that blob, assigned at the
 *bottom* of the module (`nightly.py:4536`) — deliberately, because assigning it at the
 top once hashed five not-yet-defined constants as null.
 
-**Current hash: `1a4ea6e4d77e`** (was `6f98778fa627` until 2026-09-15; see
-AUDIT-2026-09 §1.8). Recorded boundaries in `ledger/signals.csv`:
+**Current hash: `8e750228e15a`** (was `1a4ea6e4d77e` until 2026-09-17; see
+AUDIT-PHASE1.5). Recorded boundaries in `ledger/signals.csv`:
 
 | First night | Hash | Note |
 |---|---|---|
@@ -120,7 +123,8 @@ AUDIT-2026-09 §1.8). Recorded boundaries in `ledger/signals.csv`:
 | 2026-08-16 | `e65f7dc59d55` | |
 | 2026-08-19 | `2da60f7efd7b` | Module F lands |
 | 2026-08-20 | `6f98778fa627` | superseded 2026-09-15 |
-| *(next run)* | `1a4ea6e4d77e` | current; `2da60f7efd7b` and `6f98778fa627` canonicalise onto it |
+| 2026-09-15 | `1a4ea6e4d77e` | superseded 2026-09-17; `2da60f7efd7b` and `6f98778fa627` canonicalise onto it |
+| *(next run)* | `8e750228e15a` | current; overlay selection captured — **a re-valuation, not instrumentation**, so nothing canonicalises onto it |
 
 Since 2026-09-15 it also captures the layer that decides *which* funding reading reaches
 the score — `funding.consolidate`, `funding.VENUE_PRIORITY`, `INTERVAL_BASIS_REAL`,
@@ -129,14 +133,25 @@ source. `perp_context` and `funding_context` are deliberately **not** captured: 
 build recorded columns and reach no score. One hole remains and is named in the source:
 the `consolidated` → `perps_map` projection inside `main()`. See AUDIT-2026-09 §1.8.
 
+Since 2026-09-17 it also captures the layer above that: *which recorded multiplier a
+consumer of the ledger may apply at all*. `perp_overlay` and its three helpers are
+mirrored verbatim in `index.html`'s ported block and both sides are executed by
+`tests/test_parity.py`. That gate is the other half of the fix — the rule it replaced
+lived in `loadLedger()`, outside the markers the gate extracts, and the gate reported
+PASS for the whole six weeks the board was serving HBAR a forty-five-night-old 17.4.
+
 `canonical_spec_hash()` resolves **transitively**, because two instrumentation
-corrections now sit on the same body of scoring code.
+corrections sit on the same body of scoring code.
 
 `SPEC_EQUIVALENT` holds two entries, both instrumentation rather than model changes:
 `2da60f7efd7b` → `6f98778fa627` (five constants hashed as null) and `6f98778fa627` →
 `1a4ea6e4d77e` (the widened capture). `spec_hash_as_recorded_before()` and
 `spec_hash_without()` make both claims re-derivable from today's source rather than
-asserted.
+asserted. **`8e750228e15a` is deliberately absent.** The chain's fixed point is
+`1a4ea6e4d77e` and it stops there: AUDIT-PHASE1.5 changed which input arrives and moved
+eleven published scores, so folding it in would claim the board said the same thing
+either side of it. `tests/test_persistence.py` asserts the chain ends where it ends and
+that today's hash is its own segment.
 
 **The 2026-08-05 boundary the brief refers to is not a hash boundary.** It predates the
 hash entirely and is detected from the data by `_spec_breaks()` (`nightly.py:2276`):

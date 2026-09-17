@@ -323,7 +323,8 @@ plus `emission_mult`, `perp_mult`, and the clamped integer. A row that fails is 
 with its v2 columns **empty** and the disagreement printed to stderr. It reconciles on
 all 235 of tonight's rows. `factor_chain` is deliberately **not** in `SPEC_FUNCTIONS`,
 and `test_the_writer_is_not_part_of_the_specification` asserts it is unreachable from
-any captured function. `SPEC_HASH` is unchanged at `1a4ea6e4d77e`.
+any captured function. Phase 1B landed under `SPEC_HASH = 1a4ea6e4d77e` and moved no
+digest of its own; **Phase 1.5, below, moved it to `8e750228e15a`.**
 
 Columns added at v2 are **empty** on the three nights recorded under v1. Several are
 reconstructible; they are left blank deliberately, because those rows carry `src="live"`,
@@ -374,12 +375,136 @@ distinction stays enforceable the first time it matters.
 per-factor IC, the funding liquidity floor, and whether dominance predicts anything all
 need the outcome side, and nothing reconstructs that.
 
+---
+
+# Phase 1.5 — funding overlay integrity, 2026-09-17
+
+Accepted from §3 and shipped as its own boundary, ahead of Phase 2 calibration. Scope
+was deliberately narrow: this is the removal of a stale/corrupted-data path, not factor
+calibration. No factor curve, threshold or bound was touched.
+
+**Specification boundary `1a4ea6e4d77e` → `8e750228e15a`.**
+
+## 1.5.1 — The rule
+
+`perpOverlay(rows, asOf)` and its three helpers now live inside `index.html`'s ported
+scoring block and are captured in `SPEC_FUNCTIONS`, mirrored verbatim in `nightly.py`.
+Two independent defences:
+
+| defence | rule | what it stops |
+|---|---|---|
+| **date** | only rows carrying the snapshot's own date are read at all | a symbol outside the persisted fifty keeping its last-seen multiplier |
+| **envelope** | a value outside `[0.85, 1.15]` is refused, not consumed | a value `funding.regime_modifier` cannot produce reaching a score, whatever its date |
+
+`tests/test_perp_overlay.py` proves **each defence stops HBAR's 17.4 with the other
+disabled** — one for the date filter with the envelope widened to admit it, one for the
+envelope with the row re-dated to the current snapshot. A single defence is a single
+point of failure, and the value in question already got past everything once.
+
+Beyond those two: the whole overlay is withheld if the newest snapshot is more than
+`PERP_MAX_AGE_DAYS = 1` old, or is dated ahead of the caller. Parsing is a shared regex
+rather than `parseFloat`/`float()`, which disagree on `"1.07 garbage"` — the exact class
+of malformed cell this function exists to refuse.
+
+Three states are recorded and shown, because a bare `×1.000` cannot tell them apart:
+`current` (a reading from this snapshot), `absent` (recorded with no reading), `rejected`
+(refused). A symbol with no row at all reads `no-row`.
+
+## 1.5.2 — The gate that missed it, closed
+
+The old rule lived in `loadLedger()`, outside the markers `tests/test_parity.py`
+extracts. The gate was green for the entire six weeks the board was wrong. It now runs
+**two** node drivers — one for the scoring chain, one for overlay selection — and
+asserts the two implementations return the same map, the same states, the same refusals
+and the same snapshot date over ten synthetic cases covering every branch, plus every
+night of the real `signals.json` replayed through both. `check_the_gate_reads_the_real_terminal`
+now also requires the four overlay functions to be inside the markers, so they cannot
+drift back out.
+
+## 1.5.3 — Board reconciliation, 2026-09-17
+
+Both boards computed by executing the real ported block under node, one with the retired
+rule and one with the shipped one, against the same live `/coins/markets` payload.
+
+Overlay coverage: **170 symbols → 50**, all `current`, zero rejected on this snapshot.
+The other 184 rows are neutral by absence — which was already the case for 93 of them.
+
+| | before | after |
+|---|---|---|
+| rows whose score changed | — | **11** |
+| rows whose tier changed | — | **1** (HBAR, STRONG → AVOID) |
+| rows that re-ranked on displacement alone | — | 167 (median displacement 1 place) |
+| rank moves ≥ 5 places | — | 10 |
+| clamped rows | 2 | **1** |
+| largest pre-clamp overshoot | **+142.9** | **+7.1** |
+| top ten | ZEC HBAR UNI HYPE NEAR WBT XMR DASH PONS ETH | ZEC UNI HYPE NEAR WBT XMR DASH PONS ETH **SOL** |
+
+The eleven rows whose score moved, and why:
+
+| sym | rank | score | tier | FUNDING before → after |
+|---|---|---|---|---|
+| **HBAR** | 2 → **121** | 100 → **14** | STRONG → **AVOID** | 17.400 → 1.000 *(2026-08-03 row, out of envelope)* |
+| ONDO | 29 → 38 | 39 → 34 | AVOID | 1.150 → 1.000 *(2026-08-08)* |
+| OP | 53 → 58 | 28 → 25 | AVOID | 1.150 → 1.000 *(2026-08-02)* |
+| CRO | 99 → 110 | 17 → 15 | AVOID | 1.150 → 1.000 *(2026-08-02)* |
+| ETC | 102 → 115 | 17 → 15 | AVOID | 1.150 → 1.000 *(2026-08-02)* |
+| BONK | 149 → 184 | 13 → 11 | AVOID | 1.150 → 1.000 *(2026-08-02)* |
+| WLFI | 189 → 204 | 10 → 9 | AVOID | 1.150 → 1.000 *(2026-08-02)* |
+| SNX | 215 → 224 | 9 → 8 | AVOID | 1.150 → 1.000 *(2026-08-04)* |
+| FF | 75 → 68 | 22 → 23 | AVOID | 0.942 → 1.000 *(2026-09-16)* |
+| PIEVERSE | 82 → 69 | 21 → 23 | AVOID | 0.916 → 1.000 *(2026-09-08)* |
+| H | 226 → 223 | 7 → 8 | AVOID | 0.966 → 1.000 *(2026-08-18)* |
+
+**HBAR**: rank 2 → 121, score 100 → 14, pre-clamp **242.9 → 14.0**, STRONG → AVOID.
+**ZEC**: unmoved — rank 1, score 100, pre-clamp 107.1, FUNDING 1.071. Its row is from
+this snapshot and inside the envelope, so both rules agree on it. That is the control:
+the fix removes a stale value and leaves a current one exactly where it was.
+
+Note what the fix does **not** remove: ZEC still clamps, at +7.1. That is CONFIRM
+saturation (`AUDIT-2026-09` §1.1), a separate defect on a separate boundary, and it is
+Phase 2's.
+
+## 1.5.4 — What did not change
+
+`nightly.score()` never read the ledger for funding — it reads the live venue feed — so
+**no recorded score, no basket weight, no leg and no information coefficient moves.**
+The 43-leg IC stands at −0.0562, CI [−0.1065, −0.0060]. `_spec_breaks()` detects
+boundaries from recorded score movement, not from the digest, so the edge series is not
+re-segmented either.
+
+The digest does segment: rows written from tonight carry `8e750228e15a`. Prior rows keep
+what they carried. **No `SPEC_EQUIVALENT` entry was added, deliberately** — both existing
+entries are corrections to the ruler (same arithmetic, different digest), and this one
+changed which input arrives and moved eleven published scores. Folding it in would claim
+the board said the same thing either side of it.
+
+The four malformed 2026-08-03 rows are **left exactly as recorded**, misalignment and
+all, and a test asserts they still are. They are the record of what happened, and they
+are what every number in §3 was reconstructed from.
+
+## 1.5.5 — The cost, stated
+
+Coverage of the funding overlay drops from 170 symbols to 50, because the ledger
+persists fifty rows a night and the terminal reads only the ledger. 184 of 234 board
+rows are now scored at a neutral funding multiplier. That is the honest reading of what
+the published artifact contains — but it is a real loss of information relative to what
+the nightly computed, which is a live cross-venue reading for 153 of 235 symbols.
+
+Closing that gap means the page reading the wide cross-section, which `tests/test_xsec.py`
+currently forbids by design (the browser fetches `signals.json` whole on every load).
+It is a deliberate scope call, not an oversight, and it is not Phase 1.5's to make.
+`ledger/xsec/` records `perp_mult` beside `perp_mult_board` and `perp_board_state` on
+every row, so the size of that gap is measured from tonight forward rather than argued.
+
+---
+
 ## 9 — What this audit does not claim
 
 - That any proposed Phase 2 bound will improve the information coefficient. Nothing here
   was tested against forward returns.
 - That the four misaligned 2026-08-03 rows are the only ledger corruption. They are the
   only rows whose `perp_mult` is outside `[0.85, 1.15]`; other columns were not swept.
-- That correcting the funding overlay would move the IC. It moves 11 board rows by five
-  places or more and removes a 142.9-point overshoot from the published #1. Whether that
-  is an improvement in *ranking* is a Phase 3 measurement, not a Phase 1 claim.
+- That correcting the funding overlay improved the IC. It cannot have: the measured IC
+  is computed on `nightly.score()`'s output, which never consumed the stale overlay.
+  What Phase 1.5 fixed is the gap between the published board and the measured model,
+  not the model. Whether the board's ranking is any good remains what §6 says it is.

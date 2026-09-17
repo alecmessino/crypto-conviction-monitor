@@ -51,15 +51,18 @@ def ledger(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- schema
 
 def test_the_schema_is_locked():
-    """Forty-four columns, in this order, at version 2.
+    """Forty-five columns, in this order, at version 3.
 
     Pinned as a literal rather than derived, because Phase 2's backfill writes into this
     shape and a column appearing or moving silently would leave two files that parse and
     disagree. Changing this list is a deliberate act that fails here first.
 
-    v2 is strictly APPEND-ONLY over v1: the first twenty-five columns are byte-identical
-    in name and order, so a reader written against v1 still parses a v2 shard and the
-    three nights recorded under v1 did not move.
+    Each version is strictly APPEND-ONLY over the last: the first twenty-five columns
+    are byte-identical in name and order, so a reader written against v1 still parses a
+    v3 shard and the three nights recorded under v1 did not move. v3 added
+    `perp_board_state` when AUDIT-PHASE1.5 replaced the rule the two `perp_mult_board`
+    columns record — the columns kept their names and changed what they mean, and no row
+    had been written under the old meaning.
     """
     v1 = [
         "date", "symbol", "rank_mcap", "rank_conv",
@@ -69,19 +72,19 @@ def test_the_schema_is_locked():
         "fdv_usd", "funding_apr", "rsi7", "beta_btc",
         "spec_hash", "src",
     ]
-    assert nightly.XSEC_SCHEMA_VERSION == 2
+    assert nightly.XSEC_SCHEMA_VERSION == 3
     assert nightly.XSEC_FIELDS[:25] == v1
     assert nightly.XSEC_FIELDS == v1 + [
         "total_volume", "depth", "confirm", "liquidity",
         "conviction_raw", "clamped",
         "dom_factor", "dom_share", "dom_logabs",
-        "perp_mult_board", "perp_mult_board_date",
+        "perp_mult_board", "perp_mult_board_date", "perp_board_state",
         "price_chg_24h", "perp_path",
         "funding_venue", "funding_venues_n", "funding_apr_spread",
         "funding_interval_h", "funding_regime", "oi_usd",
     ]
-    assert len(nightly.XSEC_FIELDS) == 44
-    assert len(set(nightly.XSEC_FIELDS)) == 44
+    assert len(nightly.XSEC_FIELDS) == 45
+    assert len(set(nightly.XSEC_FIELDS)) == 45
     # XSEC_V2_FIELDS must be exactly the tail, or the sidecar's "added_at_v2" lies.
     assert list(nightly.XSEC_V2_FIELDS) == nightly.XSEC_FIELDS[25:]
     assert nightly.XSEC_SOURCES == ("live", "backfill")
@@ -416,7 +419,8 @@ def test_the_legacy_ledger_did_not_move():
         assert next(csv.reader(f)) == nightly.FIELDS
     # This change is persistence only. If it moved the hash, something scoring-shaped
     # was edited by accident.
-    assert nightly.SPEC_HASH == "1a4ea6e4d77e"
+    # 1a4ea6e4d77e -> 8e750228e15a (AUDIT-PHASE1.5): the capture was widened to the OVERLAY SELECTION layer — which recorded multiplier a ledger consumer may apply — and unlike the two boundaries before it this one is a re-valuation, not instrumentation: the published board changes. See tests/test_perp_overlay.py.
+    assert nightly.SPEC_HASH == "8e750228e15a"
 
 
 def test_nothing_in_the_page_reads_the_research_ledger():
@@ -601,8 +605,8 @@ def test_every_v2_column_has_a_writer():
                     "funding_interval_h", "funding_regime", "oi_usd")
     from_loop = ("total_volume", "depth", "confirm", "liquidity",
                  "conviction_raw", "clamped", "dom_factor", "dom_share", "dom_logabs",
-                 "perp_mult_board", "perp_mult_board_date", "price_chg_24h",
-                 "perp_path")
+                 "perp_mult_board", "perp_mult_board_date", "perp_board_state",
+                 "price_chg_24h", "perp_path")
     assert set(from_signals) | set(from_loop) == set(nightly.XSEC_V2_FIELDS)
     for f in from_signals:
         assert f in nightly.FIELDS, f

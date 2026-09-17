@@ -95,6 +95,55 @@ console.log(JSON.stringify(out));
         os.unlink(path)
 
 
+def _strip_comments(js: str) -> str:
+    """The executable part of the port, with comments removed.
+
+    Block comments first, then whole-line `//` comments. Deliberately not a general JS
+    tokenizer: it never touches the middle of a line, so the two regex literals in the
+    overlay block survive intact, and anything it cannot classify it leaves alone.
+    """
+    out = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+    return "\n".join(l for l in out.splitlines() if not l.lstrip().startswith("//"))
+
+
+def run_js_overlay(cases: list) -> list:
+    """Execute the real frontend's OVERLAY SELECTION over `cases`.
+
+    A second driver rather than a second case shape on the first one, because this half
+    of the port answers a different question — which multiplier is eligible, not what a
+    reading is worth — and merging them would mean neither could be run alone.
+
+    That this needs a driver at all is the point of AUDIT-PHASE1.5. The rule it executes
+    used to live in `loadLedger()`, outside the markers, where this gate could not reach
+    it; the board applied a forty-five-night-old 17.4 to HBAR for six weeks and every
+    parity run in that window reported PASS.
+
+    Each case is {"rows": [...], "today": "YYYY-MM-DD"}.
+    """
+    node = shutil.which("node")
+    assert node, "node is required to execute the frontend port"
+    driver = extract_port() + """
+const CASES = %s;
+const out = CASES.map(c => {
+  const asOf = overlayAsOf(c.rows, c.today);
+  const o = perpOverlay(c.rows, asOf);
+  return {asOf: o.asOf, mults: o.mults, states: o.states,
+          rejected: o.rejected, n: o.n};
+});
+console.log(JSON.stringify(out));
+""" % json.dumps(cases)
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(driver)
+        path = fh.name
+    try:
+        res = subprocess.run([node, path], capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            raise AssertionError(f"node failed running the overlay port: {res.stderr.strip()}")
+        return json.loads(res.stdout.strip().splitlines()[-1])
+    finally:
+        os.unlink(path)
+
+
 # ---- shared fixture: BTC reference + fixed assets (deterministic inputs) ----
 BTC = {
     "symbol": "BTC", "market_cap": 1.3e12, "total_volume": 3e10,
@@ -223,6 +272,97 @@ def check_emission_drag_parity():
         "not neutral")
 
 
+# The cases this gate runs the overlay over. Every branch of the rule, plus the row
+# that caused the boundary — because a parity gate that agrees on the easy inputs and
+# was never handed the hard one is the gate that was green through this defect.
+OVERLAY_CASES = [
+    # the defect itself: a 45-night-old out-of-envelope value, six weeks later
+    {"rows": [{"date": "2026-08-03", "symbol": "HBAR", "perp_mult": "17.4"},
+              {"date": "2026-09-17", "symbol": "ZEC", "perp_mult": "1.071"}],
+     "today": "2026-09-17"},
+    # the same value, dated to the snapshot — the envelope has to catch it alone
+    {"rows": [{"date": "2026-09-17", "symbol": "HBAR", "perp_mult": "17.4"},
+              {"date": "2026-09-17", "symbol": "ZEC", "perp_mult": "1.071"}],
+     "today": "2026-09-17"},
+    # envelope edges, both sides, admitted and refused
+    {"rows": [{"date": "2026-09-17", "symbol": "LO", "perp_mult": "0.85"},
+              {"date": "2026-09-17", "symbol": "HI", "perp_mult": "1.15"},
+              {"date": "2026-09-17", "symbol": "UNDER", "perp_mult": "0.8499"},
+              {"date": "2026-09-17", "symbol": "OVER", "perp_mult": "1.1501"}],
+     "today": "2026-09-17"},
+    # parse divergence: parseFloat coerces the first, float() raises. Both must refuse.
+    {"rows": [{"date": "2026-09-17", "symbol": "A", "perp_mult": "1.07 garbage"},
+              {"date": "2026-09-17", "symbol": "B", "perp_mult": "nan"},
+              {"date": "2026-09-17", "symbol": "C", "perp_mult": "inf"},
+              {"date": "2026-09-17", "symbol": "D", "perp_mult": "None"},
+              {"date": "2026-09-17", "symbol": "E", "perp_mult": ""}],
+     "today": "2026-09-17"},
+    # snapshot freshness: same day, one day late, two days late, dated ahead
+    {"rows": [{"date": "2026-09-17", "symbol": "ZEC", "perp_mult": "1.071"}],
+     "today": "2026-09-18"},
+    {"rows": [{"date": "2026-09-17", "symbol": "ZEC", "perp_mult": "1.071"}],
+     "today": "2026-09-19"},
+    {"rows": [{"date": "2026-09-20", "symbol": "ZEC", "perp_mult": "1.071"}],
+     "today": "2026-09-17"},
+    # nothing to read
+    {"rows": [], "today": "2026-09-17"},
+    {"rows": [{"symbol": "X", "perp_mult": "1.1"},
+              {"date": "not-a-date", "symbol": "Y", "perp_mult": "1.1"}],
+     "today": "2026-09-17"},
+    # lower-case symbols, as the page upper-cases them
+    {"rows": [{"date": "2026-09-17", "symbol": "ada", "perp_mult": "0.94"}],
+     "today": "2026-09-17"},
+]
+
+
+def check_overlay_selection_parity():
+    """Which multiplier is eligible must be the SAME answer on both sides of the port.
+
+    Not "the same shape" — the same map, the same states, the same refusals, the same
+    snapshot date, over every branch of the rule.
+    """
+    fe_all = run_js_overlay(OVERLAY_CASES)
+    for case, fe in zip(OVERLAY_CASES, fe_all):
+        rows, today = case["rows"], case["today"]
+        as_of = nightly.overlay_as_of(rows, today)
+        be = nightly.perp_overlay(rows, as_of)
+        assert fe["asOf"] == (be["as_of"] or None), \
+            f"{today}: asOf fe={fe['asOf']} be={be['as_of']}"
+        assert fe["mults"] == be["mults"], \
+            f"{today}: mults fe={fe['mults']} be={be['mults']}"
+        assert fe["states"] == be["states"], \
+            f"{today}: states fe={fe['states']} be={be['states']}"
+        assert fe["n"] == be["n"], f"{today}: n fe={fe['n']} be={be['n']}"
+        fe_rej = sorted((r["symbol"], r["value"]) for r in fe["rejected"])
+        be_rej = sorted((r["symbol"], r["value"]) for r in be["rejected"])
+        assert fe_rej == be_rej, f"{today}: rejected fe={fe_rej} be={be_rej}"
+
+
+def check_the_overlay_boundary_holds_over_the_real_ledger():
+    """The same agreement, over every night this repository has actually recorded.
+
+    The synthetic cases above name the branches; this one is the file that produced the
+    defect, replayed night by night through both implementations.
+    """
+    path = os.path.join(_ROOT, "ledger", "signals.json")
+    if not os.path.exists(path):
+        return
+    rows = json.load(open(path, encoding="utf-8"))["rows"]
+    dates = sorted({r["date"] for r in rows if r.get("date")})
+    # Each night replayed as if it were that night, plus the day after.
+    cases = [{"rows": rows, "today": d} for d in dates[-6:]]
+    cases += [{"rows": rows, "today": "2026-09-18"}, {"rows": rows, "today": "2026-10-01"}]
+    fe_all = run_js_overlay(cases)
+    for case, fe in zip(cases, fe_all):
+        be = nightly.perp_overlay(case["rows"],
+                                  nightly.overlay_as_of(case["rows"], case["today"]))
+        assert fe["mults"] == be["mults"], case["today"]
+        assert fe["states"] == be["states"], case["today"]
+        # And the property the boundary exists for, asserted on both sides at once.
+        for sym, v in fe["mults"].items():
+            assert 0.85 - 1e-9 <= v <= 1.15 + 1e-9, f"{case['today']}/{sym} = {v}"
+
+
 def check_the_gate_reads_the_real_terminal():
     """A guard on the guard.
 
@@ -231,12 +371,25 @@ def check_the_gate_reads_the_real_terminal():
     whole rewrite exists to remove, so it is asserted rather than assumed.
     """
     port = extract_port()
+    code = _strip_comments(port)
     for fn in ("function conviction", "function liquidityFit", "function depthScore",
                "function signal", "function rsBlendOf",
-               "function emissionDrag", "function emissionMult"):
+               "function emissionDrag", "function emissionMult",
+               # AUDIT-PHASE1.5. These decide WHICH multiplier reaches conviction, and
+               # they lived outside these markers while the board was wrong about it.
+               # If they drift back out, every assertion above still passes and the
+               # board can quietly go stale again.
+               "function ledgerLatestDate", "function isoDayDiff",
+               "function overlayAsOf", "function perpOverlay"):
         assert fn in port, f"{fn} is no longer inside the MODEL PORT markers"
-    assert "document." not in port and "PERP[" not in port, \
+    # Checked against the CODE, not the prose. The overlay comment quotes the retired
+    # `PERP[...] = v` line verbatim — which is the clearest possible statement of what
+    # this boundary replaced, and a guard that forbade documenting the defect would be
+    # trading the record for a substring match.
+    assert "document." not in code and "PERP[" not in code, \
         "the port block touches page state and can no longer be executed standalone"
+    # The guard's own premise: a strip that removed everything would pass vacuously.
+    assert "function perpOverlay" in code and len(code) > 1000
 
 
 # ---- frozen regression: the v2 multiplicative scoring engine must not drift ----
@@ -263,15 +416,23 @@ def check_frozen_conviction_regression():
 
 
 # ---- dual-mode entrypoint ----
+# Named once. The count used to be written as a literal 5 in two places beside this
+# list, so adding a check reported "5 of 5 passed" while running seven.
+_CHECKS = [
+    ("frontend/backend parity", check_frontend_backend_parity),
+    ("parity under perp overlay", check_parity_under_perp_overlay),
+    ("emission drag parity", check_emission_drag_parity),
+    ("overlay selection parity", check_overlay_selection_parity),
+    ("overlay boundary over the real ledger",
+     check_the_overlay_boundary_holds_over_the_real_ledger),
+    ("frozen conviction regression", check_frozen_conviction_regression),
+    ("gate reads the real terminal", check_the_gate_reads_the_real_terminal),
+]
+
+
 def _run_all():
     failures = []
-    for name, fn in [
-        ("frontend/backend parity", check_frontend_backend_parity),
-        ("parity under perp overlay", check_parity_under_perp_overlay),
-        ("emission drag parity", check_emission_drag_parity),
-        ("frozen conviction regression", check_frozen_conviction_regression),
-        ("gate reads the real terminal", check_the_gate_reads_the_real_terminal),
-    ]:
+    for name, fn in _CHECKS:
         try:
             fn()
             print(f"  PASS  {name}")
@@ -308,10 +469,10 @@ if __name__ == "__main__":
         # Not a skip. The gate cannot verify the frontend without node, and reporting
         # success it did not establish is the failure mode this file exists to remove.
         print("  ERROR node is not available — the frontend port cannot be executed")
-        _write_result(["node unavailable"], 5)
+        _write_result(["node unavailable"], len(_CHECKS))
         sys.exit(1)
     failures = _run_all()
-    _write_result(failures, 5)
+    _write_result(failures, len(_CHECKS))
     if failures:
         print(f"\nFAILED: {len(failures)} check(s): {failures}")
         sys.exit(1)
@@ -335,6 +496,14 @@ else:
     @needs_node
     def test_parity_under_perp_overlay():
         check_parity_under_perp_overlay()
+
+    @needs_node
+    def test_overlay_selection_parity():
+        check_overlay_selection_parity()
+
+    @needs_node
+    def test_the_overlay_boundary_holds_over_the_real_ledger():
+        check_the_overlay_boundary_holds_over_the_real_ledger()
 
     def test_frozen_conviction_regression():
         check_frozen_conviction_regression()
