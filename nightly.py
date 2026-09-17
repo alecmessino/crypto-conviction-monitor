@@ -3603,7 +3603,22 @@ MARKET_INTEL_JSON = LEDGER_DIR / "market_intel.json"
 # honest number over a stated population, not that it is a better one.
 XSEC_DIR = LEDGER_DIR / "xsec"
 XSEC_SCHEMA_JSON = XSEC_DIR / "SCHEMA.json"
-XSEC_SCHEMA_VERSION = 1
+# v2 — AUDIT-PHASE1 1B. v1 recorded the published score and the three DISPLAY-SCALED
+# components (c_depth = depth x 20, c_momentum = cm x 20, c_liquidity = a_frac x 30),
+# each rounded to one decimal. That is enough to rank a factor and not enough to audit
+# one: the chain cannot be multiplied back out to the published number, the PRE-CLAMP
+# product is nowhere on disk, and the inputs the funding modifier actually reads were
+# recorded for the top fifty rows of signals.csv only. v2 adds the exact multipliers,
+# the pre-clamp product, the clamp flag, the dominance readout, the funding inputs
+# across the whole cross-section, and — separately from all of those — what the
+# BROWSER would have applied, which is not always what the nightly did.
+#
+# Columns added at v2 are EMPTY on rows dated before the writer emitted them. They are
+# reconstructible for 2026-09-15..17 and are deliberately left blank anyway: those rows
+# carry src="live", which this file defines as observed on the night it is dated, and a
+# reconstruction in a live row would make the distinction unenforceable on the first
+# occasion it mattered.
+XSEC_SCHEMA_VERSION = 2
 
 # `live` is observed on the night it is dated. `backfill` is reconstructed from
 # point-in-time inputs and was never observed live. They are recorded in the same shape
@@ -3630,7 +3645,61 @@ XSEC_FIELDS = [
     "c_depth", "c_momentum", "c_liquidity", "emission_mult", "perp_mult",
     "fdv_usd", "funding_apr", "rsi7", "beta_btc",
     "spec_hash", "src",
+    # --- v2: the chain, exactly -------------------------------------------------
+    # The three multipliers score() actually multiplied, unrounded, beside the volume
+    # the turnover came from. c_depth/c_momentum/c_liquidity above stay exactly as they
+    # were — they are a shared column with signals.csv and an invariant is asserted on
+    # them — but they are display scales rounded to 0.1, which on a x20 scale is 0.005
+    # of a multiplier, and a bound calibrated off a percentile of that is calibrated off
+    # the rounding as much as the data.
+    "total_volume", "depth", "confirm", "liquidity",
+    # The product BEFORE round-and-clamp, and whether the clamp bound. On 2026-09-17 the
+    # published board carried a name whose factors multiplied out to 242.9 and whose
+    # published score was 100: a 142.9-point overshoot that no column on disk recorded
+    # and no panel outside the inspector showed. Recording the raw product is what makes
+    # "how often does the clamp bind, and by how much" a query rather than a re-run.
+    "conviction_raw", "clamped",
+    # Which single factor is moving the score, how much of the chain's total log it
+    # holds, and how large that log is in absolute terms. Both are needed: a row whose
+    # other four factors are exactly 1.0 gives its fifth a 100% share of almost nothing,
+    # so share alone flags the most neutral rows on the board.
+    "dom_factor", "dom_share", "dom_logabs",
+    # --- v2: what the browser applies, which is a different number ----------------
+    # index.html builds its funding overlay by walking every row of signals.json with no
+    # date filter, last write in file order winning, so a symbol that left the top fifty
+    # keeps whatever multiplier it carried on its last recorded night — indefinitely.
+    # perp_mult above is what the nightly computed tonight; these two are what the page
+    # would have used and how old it is. Recording both is the only way the divergence
+    # is measurable, and it is observational in the strict sense: nothing reads it.
+    "perp_mult_board", "perp_mult_board_date",
+    # --- v2: the funding inputs, across the whole cross-section -------------------
+    # Every one of these already exists as a signals.csv column, for the top fifty rows
+    # only. The funding modifier is the factor with the least cross-sectional dispersion
+    # (226 of 235 rows sat at exactly 1.000 on 2026-09-17) and the most venue-dependent
+    # input, so the question Phase 2 has to answer — whether a liquidity floor is
+    # warranted, and where the reading stops being informative — needs open interest,
+    # venue count and cross-venue spread over the population, not over the top fifth.
+    #
+    # price_chg_24h is here because it is a confirming LEG of the modifier and was
+    # recorded nowhere: a 0.94 with no 24h move beside it cannot be re-derived.
+    # perp_path is the branch regime_modifier took, as an enum rather than its prose —
+    # the sentence is fully determined by (funding_apr, price_chg_24h, rsi7), all three
+    # of which are on the row, so storing it would be storing a derived column.
+    "price_chg_24h", "perp_path",
+    "funding_venue", "funding_venues_n", "funding_apr_spread",
+    "funding_interval_h", "funding_regime", "oi_usd",
 ]
+
+# The columns schema v2 added, named so the sidecar can say which they are and so the
+# migration below can tell an old shard's missing cells from a genuinely absent reading.
+XSEC_V2_FIELDS = (
+    "total_volume", "depth", "confirm", "liquidity",
+    "conviction_raw", "clamped", "dom_factor", "dom_share", "dom_logabs",
+    "perp_mult_board", "perp_mult_board_date",
+    "price_chg_24h", "perp_path",
+    "funding_venue", "funding_venues_n", "funding_apr_spread",
+    "funding_interval_h", "funding_regime", "oi_usd",
+)
 
 # Columns this ledger shares with signals.csv, which must be EQUAL on every row the two
 # files have in common. Asserted by tests/test_xsec.py rather than trusted: two writers
@@ -3640,7 +3709,14 @@ XSEC_SHARED_FIELDS = ("conviction", "price", "market_cap", "turnover_pct",
                       "rs7", "rs14", "rs30", "rs200", "rs_blend",
                       "c_depth", "c_momentum", "c_liquidity",
                       "emission_mult", "perp_mult",
-                      "fdv_usd", "funding_apr", "rsi7", "beta_btc", "spec_hash")
+                      "fdv_usd", "funding_apr", "rsi7", "beta_btc", "spec_hash",
+                      # v2. Six of the new columns are already signals.csv columns
+                      # taken from the same source dict, so they join the invariant
+                      # rather than sitting outside it — a widened ledger that could
+                      # disagree with the narrow one on a column both hold is the
+                      # defect this file exists to make impossible.
+                      "funding_venue", "funding_venues_n", "funding_apr_spread",
+                      "funding_interval_h", "funding_regime", "oi_usd")
 
 # The windows blended into rs_blend by score(). Named here rather than repeated, because
 # this list and score()'s must not drift.
@@ -3663,6 +3739,194 @@ def observed_rs_windows(t: dict, btc: dict | None) -> int:
     return sum(1 for tf in RS_WINDOWS
                if t.get(f"price_change_percentage_{tf}d_in_currency") is not None
                and (btc or {}).get(f"price_change_percentage_{tf}d_in_currency") is not None)
+
+
+# ---------------------------------------------------------------------------
+# the chain, recorded rather than inferred  (AUDIT-PHASE1 1B — observational)
+# ---------------------------------------------------------------------------
+# NOT captured in SPEC_FUNCTIONS, and the omission is the point: this function must
+# never be able to move a published score. It re-derives the five multipliers score()
+# multiplied, and the writer below RECONCILES every row against score()'s own output
+# before writing — four equalities, and a row that fails any of them is written with the
+# v2 columns blank and a line on stderr, never with a number that does not multiply out.
+#
+# A second derivation of scoring arithmetic is exactly the thing this repository warns
+# about, so it is worth saying why it is the right shape here rather than reading the
+# components back out of `comp`. `comp` publishes depth x 20, cm x 20 and a_frac x 30,
+# each rounded to one decimal. Dividing those back gives a multiplier good to about
+# 0.005 — larger than the gap between several adjacent published scores, and far larger
+# than the precision a percentile bound needs. The alternative is to widen `comp`, which
+# means editing score(), which is a captured function: recording a number differently
+# would re-segment the track record. An uncaptured re-derivation that is asserted equal
+# on every row, every night, is the only version of this that costs no hash and can
+# still be trusted — and unlike a silent duplicate, it fails loudly the first night the
+# two disagree.
+FACTOR_NAMES = ("DEPTH", "CONFIRM", "LIQUIDITY", "SUPPLY", "FUNDING")
+
+
+def factor_chain(t: dict, perps_map: dict | None, btc: dict | None) -> dict:
+    """The five multipliers, the pre-clamp product, and which factor dominates it.
+
+    Mirrors score() line for line. Returns the multipliers UNROUNDED, the product
+    ``100 x depth x confirm x liquidity x supply x funding`` before ``round`` and before
+    the clamp to [0, 100], and the dominance readout.
+
+    Dominance is reported as two numbers because one is not enough. ``dom_share`` is the
+    largest factor's share of the chain's total absolute log; ``dom_logabs`` is that
+    log's magnitude. On 2026-09-17 ZEC carried four factors at exactly 1.000 and a fifth
+    at 1.071, giving its funding factor a dom_share of 1.00 — a perfect score on a
+    dominance flag, for the most nearly neutral chain on the board. Share says how
+    concentrated the chain is; magnitude says whether there is anything in it to
+    concentrate. A flag built on either alone fires on the wrong rows.
+    """
+    mc = t.get("market_cap") or 0
+    vol = t.get("total_volume") or 0
+    turnover = (vol / mc) if mc else 0.0
+
+    def _pct(tf: int) -> float:
+        return float(t.get(f"price_change_percentage_{tf}d_in_currency") or 0.0)
+
+    def _btc(tf: int) -> float:
+        return float((btc or {}).get(f"price_change_percentage_{tf}d_in_currency") or 0.0)
+
+    rs_blend = (0.30 * (_pct(7) - _btc(7)) + 0.25 * (_pct(14) - _btc(14))
+                + 0.25 * (_pct(30) - _btc(30)) + 0.20 * (_pct(200) - _btc(200)))
+
+    depth = max(0.0, min(1.0, (math.log10(mc) - 6) / 4.0)) if mc else 0.0
+    confirm = 0.10 + 0.90 * ((math.tanh(rs_blend / 25.0) + 1.0) / 2.0)
+    if depth >= 0.90:
+        liquidity = 1.0
+    else:
+        if turnover <= 0:
+            liquidity = 0.0
+        elif turnover <= 0.30:
+            liquidity = (10 + (turnover / 0.30) * 20) / 30.0
+        elif turnover <= 0.60:
+            liquidity = (30 - abs(turnover - 0.45) / 0.15 * 6) / 30.0
+        elif turnover <= 1.20:
+            liquidity = (20 - (turnover - 0.60) / 0.60 * 12) / 30.0
+        else:
+            liquidity = max(2.0, 8 - (turnover - 1.20) * 4) / 30.0
+        liquidity = max(0.4, liquidity)
+    supply = emission_mult(t.get("fully_diluted_valuation"), mc)
+    funding_mult = (lavl_perp_mult((t.get("symbol") or "").upper(), perps_map)
+                    if perps_map is not None else 1.0)
+
+    raw = 100.0 * depth * confirm * liquidity * supply * funding_mult
+    published = max(0, min(100, int(round(raw))))
+    clamped = "high" if round(raw) > 100 else "low" if round(raw) < 0 else ""
+
+    mults = dict(zip(FACTOR_NAMES, (depth, confirm, liquidity, supply, funding_mult)))
+    logs = {k: abs(math.log(v)) for k, v in mults.items() if v > 0}
+    total = sum(logs.values())
+    if logs and total > 0:
+        top = max(logs, key=logs.get)
+        dom_factor, dom_logabs, dom_share = top, logs[top], logs[top] / total
+    else:
+        # Either a zero multiplier (the chain is zero and nothing dominates it) or five
+        # factors at exactly 1.0 (no factor moved anything). Neither is a dominance
+        # reading and neither is written as one.
+        dom_factor, dom_logabs, dom_share = "", 0.0, 0.0
+
+    return {
+        "depth": depth, "confirm": confirm, "liquidity": liquidity,
+        "supply": supply, "funding": funding_mult,
+        "turnover": turnover, "rs_blend": rs_blend,
+        "conviction_raw": raw, "conviction": published, "clamped": clamped,
+        "dom_factor": dom_factor, "dom_share": dom_share, "dom_logabs": dom_logabs,
+    }
+
+
+def factor_chain_reconciles(chain: dict, conviction, comp: dict) -> list[str]:
+    """Every way ``chain`` can disagree with what score() published, named.
+
+    Empty list means the re-derivation reproduced score() exactly: the same three
+    display components to the decimal they are published at, and a product that rounds
+    and clamps to the same integer. Anything else is returned as a list of one-line
+    disagreements for the caller to print and to blank the row on.
+    """
+    bad = []
+    for key, scale, comp_key in (("depth", 20.0, "depth"),
+                                 ("confirm", 20.0, "momentum"),
+                                 ("liquidity", 30.0, "liquidity")):
+        mine, theirs = round(chain[key] * scale, 1), comp.get(comp_key)
+        if theirs is None or abs(mine - float(theirs)) > 1e-9:
+            bad.append(f"{key}: chain {mine} vs comp {theirs}")
+    if _num(comp.get("emission_mult")) is not None and \
+            abs(chain["supply"] - float(comp["emission_mult"])) > 1e-9:
+        bad.append(f"supply: chain {chain['supply']} vs comp {comp['emission_mult']}")
+    if _num(comp.get("perp_mult")) is not None and \
+            abs(chain["funding"] - float(comp["perp_mult"])) > 5e-4:
+        bad.append(f"funding: chain {chain['funding']} vs comp {comp['perp_mult']}")
+    if conviction is not None and chain["conviction"] != int(conviction):
+        bad.append(f"conviction: chain {chain['conviction']} vs published {conviction}")
+    return bad
+
+
+def board_perp_map(rows: list[dict] | None = None) -> dict:
+    """The funding overlay index.html actually applies, and the date each value is from.
+
+    A transcription of ``loadLedger()``, and deliberately a literal one::
+
+        PERP = {};
+        (j.rows||[]).forEach(r=>{ const pm=r.perp_mult;
+          if(pm!=null && pm!=="None" && pm!==""){ const v=parseFloat(pm);
+            if(!isNaN(v)) PERP[(r.symbol||"").toUpperCase()]=v; } });
+
+    No date filter, no envelope check, last row in FILE ORDER wins. signals.csv is
+    append-by-date, so in practice that is the most recent night a symbol appeared in
+    the top fifty — which for a symbol that has since dropped out is however long ago
+    that was. On 2026-09-17 the map held 170 symbols of which 50 were from that night;
+    HBAR's entry was 45 nights old and carried 17.4, a value that cannot be produced by
+    ``funding.regime_modifier`` at all (its envelope is [0.85, 1.15]) and that put HBAR
+    at the head of the published board on a pre-clamp product of 242.9.
+
+    Returns ``{symbol: {"value": float, "date": str|None}}``. This function is
+    observational: it reads the ledger, it reaches no score, and reproducing the
+    browser's rule here is what makes the divergence between the two a recorded column
+    instead of an argument.
+    """
+    if rows is None:
+        rows = _read_signals_rows()
+    out: dict = {}
+    for r in rows or []:
+        pm = r.get("perp_mult")
+        if pm is None or pm in ("", "None"):
+            continue
+        try:
+            v = float(pm)
+        except (TypeError, ValueError):
+            continue
+        if v != v:            # NaN, which parseFloat would also reject
+            continue
+        sym = (r.get("symbol") or "").upper()
+        if not sym:
+            continue
+        out[sym] = {"value": v, "date": r.get("date")}
+    return out
+
+
+def perp_path(funding_apr, price_chg_24h, rsi7) -> str:
+    """Which branch of ``funding.regime_modifier`` produced tonight's multiplier.
+
+    The enum, not the prose. regime_modifier returns a sentence, and that sentence is
+    fully determined by the three inputs beside it on the row, so recording it would be
+    recording a derived column at about a hundred bytes a row. The branch is what a
+    query wants: "how many rows had their squeeze boost withheld for want of an RSI" is
+    a `WHERE perp_path = 'cold-no-rsi'`, and the sentence would have to be parsed.
+    """
+    regime = funding.classify_regime(funding_apr)
+    if regime is None:
+        return "no-feed"
+    sev = funding.funding_severity(float(funding_apr))
+    if sev == 0.0:
+        return "inert-band"
+    if sev < 0:
+        return "hot-unconfirmed" if _num(price_chg_24h) is None else "hot-confirmed"
+    r = _num(rsi7)
+    if r is None:
+        return "cold-no-rsi"
+    return "cold-downtrend" if r <= funding.MOD_SQUEEZE_RSI else "cold-squeeze"
 
 
 def _xsec_rank(rows: list[dict], field: str) -> dict:
@@ -3744,6 +4008,33 @@ def write_xsec_schema() -> Path:
                  "top-fifty-by-conviction series unchanged; the two are never pooled. "
                  "Rows marked backfill were reconstructed from point-in-time inputs and "
                  "were not observed on the date they carry."),
+        "chain": {
+            "identity": ("conviction_raw = 100 x depth x confirm x liquidity x "
+                         "emission_mult x perp_mult, before round and before the clamp "
+                         "to [0, 100]. `conviction` is that product rounded and "
+                         "clamped; `clamped` is 'high', 'low' or empty."),
+            "reconciled": ("Every row's chain is asserted equal to score()'s own output "
+                           "before it is written — the three display components to the "
+                           "decimal they publish at, and the clamped integer. A row "
+                           "that fails is written with the v2 columns EMPTY."),
+            "dominance": ("dom_share is the largest factor's share of the chain's total "
+                          "absolute log; dom_logabs is that log's magnitude. Both are "
+                          "recorded because share alone saturates at 1.0 on a chain "
+                          "whose other four factors are exactly 1.0, which is the most "
+                          "neutral chain there is rather than the most dominated."),
+            "perp_mult_vs_board": ("perp_mult is what the nightly computed tonight. "
+                                   "perp_mult_board is what index.html would apply, "
+                                   "which it derives from signals.json with no date "
+                                   "filter and last-write-in-file-order winning; "
+                                   "perp_mult_board_date is the night that value was "
+                                   "recorded. They differ for any symbol outside "
+                                   "tonight's top fifty."),
+        },
+        "added_at_v2": [f for f in XSEC_FIELDS if f in XSEC_V2_FIELDS],
+        "v2_note": ("Columns added at schema v2 are EMPTY on rows dated before the "
+                    "writer emitted them. Several are reconstructible for those dates "
+                    "and are deliberately left blank: those rows carry src='live', "
+                    "which this file defines as observed on the night it is dated."),
     }
     XSEC_SCHEMA_JSON.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
     return XSEC_SCHEMA_JSON
@@ -3767,8 +4058,13 @@ def write_xsec(rows: list[dict], day: str, src: str = "live") -> tuple[Path, int
         with path.open(newline="", encoding="utf-8") as f:
             kept = [r for r in csv.DictReader(f)
                     if not (r.get("date") == day and r.get("src") == src)]
-    everything = kept + [{k: ("" if r.get(k) is None else r.get(k)) for k in XSEC_FIELDS}
-                         for r in fresh]
+    # Rows written under an earlier schema are widened here, not dropped and not filled
+    # in. A column this file gained after a row was recorded is EMPTY on that row: the
+    # reading was not taken, and the only honest cell for a reading that was not taken
+    # is a blank one. Projecting `kept` explicitly rather than leaning on DictWriter's
+    # restval makes that a decision in the source instead of a default in the stdlib.
+    everything = [{k: ("" if r.get(k) is None else r.get(k)) for k in XSEC_FIELDS}
+                  for r in kept + fresh]
     # Deterministic bytes for a given set of rows, so a re-run that changes nothing
     # produces a file that changes nothing and git records no commit for it.
     everything.sort(key=lambda r: (r.get("date") or "", r.get("src") or "",
@@ -4399,6 +4695,7 @@ def main() -> int:
     basket = build_basket(markets, today, btc)
     rows = []
     seen = set()
+    chain_misses: list = []
     for t in markets:
         sym = (t.get("symbol") or "").upper()
         if not sym or sym in seen or sym in STABLES:
@@ -4406,6 +4703,15 @@ def main() -> int:
         seen.add(sym)
         era, conv, sig, comp = score(t, perps_map, btc)
         pm = lavl_perp_mult(sym, perps_map)
+        # AUDIT-PHASE1 1B. The same chain, unrounded, reconciled against what score()
+        # just published before any of it is written. `chain_bad` is non-empty only if
+        # the re-derivation and score() disagree, in which case every v2 column on this
+        # row is written empty and the disagreement is printed: a blank cell is a gap in
+        # the record, a wrong one is a fabrication.
+        chain = factor_chain(t, perps_map, btc)
+        chain_bad = factor_chain_reconciles(chain, conv, comp)
+        if chain_bad:
+            chain_misses.append((sym, chain_bad))
         # The same modifier score() applied, with the sentence explaining why. The
         # multiplier is recorded as perp_mult; the reason goes to funding.json, because
         # a 0.85 on screen cannot distinguish "penalised for crowding" from "the feed
@@ -4488,8 +4794,94 @@ def main() -> int:
             # Module J. Filled after the loop, once the board has been ranked — the
             # divergence is between two RANKINGS and neither exists per row.
             "trending_rank": None, "tmd_divergence": None, "tmd_label": None,
+            # AUDIT-PHASE1 1B — the cross-sectional ledger's v2 columns. None of these
+            # is in FIELDS, so signals.csv is untouched: `fresh` below projects onto
+            # FIELDS and drops every key added here. They reach ledger/xsec/ only.
+            #
+            # Written empty when the re-derivation did not reconcile with score(). Six
+            # decimals on the multipliers because a percentile bound is calibrated off
+            # them and the whole reason this column exists is that one decimal on a
+            # display scale was not enough.
+            **({k: None for k in ("total_volume", "depth", "confirm", "liquidity",
+                                  "conviction_raw", "clamped", "dom_factor",
+                                  "dom_share", "dom_logabs", "perp_path")}
+               if chain_bad else {
+                "total_volume": t.get("total_volume"),
+                "depth": round(chain["depth"], 6),
+                "confirm": round(chain["confirm"], 6),
+                "liquidity": round(chain["liquidity"], 6),
+                "conviction_raw": round(chain["conviction_raw"], 4),
+                "clamped": chain["clamped"],
+                "dom_factor": chain["dom_factor"],
+                "dom_share": round(chain["dom_share"], 4),
+                "dom_logabs": round(chain["dom_logabs"], 4),
+                "perp_path": perp_path(fc.get("funding_apr"),
+                                       t.get("price_change_percentage_24h"),
+                                       rsi_map.get(sym)),
+               }),
+            # The confirming leg of the funding modifier. Recorded nowhere before this:
+            # a multiplier of 0.94 with no 24h move beside it cannot be re-derived, and
+            # "was the crowding confirmed" is the question Phase 2 asks of it.
+            "price_chg_24h": t.get("price_change_percentage_24h"),
+            # Stamped after the sort, once the file the browser will fetch is known.
+            "perp_mult_board": None, "perp_mult_board_date": None,
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
+
+    # AUDIT-PHASE1 1B — what the PAGE will apply, stamped on every row.
+    #
+    # index.html builds its funding overlay from signals.json with no date filter and
+    # last-write-in-file-order winning, so the map it ends up with is a function of the
+    # file as published: prior nights, then tonight's top fifty overwriting the symbols
+    # they cover. That is reproduced here rather than approximated, which is why it is
+    # stamped after the sort — `rows[:50]` is not known before it — and why it is built
+    # from the ledger as it will exist, not as it does now.
+    #
+    # For the 50 names in tonight's cut these two columns equal `perp_mult`. For
+    # everything else they are whatever that symbol carried on its last recorded night,
+    # which on 2026-09-17 was a median of 14 nights ago across 91 symbols and 45 nights
+    # for the one that reached the top of the board. Nothing here changes a score; it
+    # makes the gap between the modelled multiplier and the applied one a column.
+    _board_prior = [r for r in _read_signals_rows() if r.get("date") != today]
+    _board_map = board_perp_map(_board_prior + [{k: r.get(k) for k in FIELDS}
+                                                for r in rows[:50]])
+    for r in rows:
+        hit = _board_map.get(r["symbol"])
+        if hit is not None:
+            r["perp_mult_board"] = hit["value"]
+            r["perp_mult_board_date"] = hit["date"]
+        else:
+            # No row in the whole ledger, so the page falls back to `PERP[sym] || 1`.
+            # Recorded as the 1.0 it will apply, with no date: a blank value would read
+            # as "not measured" when the page is definitely going to multiply by one.
+            r["perp_mult_board"] = 1.0
+            r["perp_mult_board_date"] = ""
+    _stale = sum(1 for r in rows
+                 if r.get("perp_mult_board_date") not in (today, "", None))
+    _diverge = sum(1 for r in rows
+                   if _num(r.get("perp_mult")) is not None
+                   and abs(float(r["perp_mult"]) - float(r["perp_mult_board"])) > 5e-4)
+    _outside = [r["symbol"] for r in rows
+                if not (funding.MOD_MAX_PENALTY - 1e-9
+                        <= float(r["perp_mult_board"])
+                        <= funding.MOD_MAX_BOOST + 1e-9)]
+    print(f"[xsec] funding overlay: {_stale} of {len(rows)} rows would be served a "
+          f"multiplier from an earlier night; {_diverge} differ from tonight's modelled "
+          f"value", file=__import__("sys").stderr)
+    if _outside:
+        print(f"[xsec] {len(_outside)} row(s) would be served a multiplier outside "
+              f"funding.regime_modifier's [{funding.MOD_MAX_PENALTY}, "
+              f"{funding.MOD_MAX_BOOST}] envelope: {', '.join(sorted(_outside))} "
+              f"— recorded, not corrected (Phase 1 changes no scoring)",
+              file=__import__("sys").stderr)
+    if chain_misses:
+        print(f"[xsec] {len(chain_misses)} row(s) did not reconcile against score(); "
+              f"their v2 columns are written empty:", file=__import__("sys").stderr)
+        for sym, why in chain_misses[:10]:
+            print(f"        {sym}: {'; '.join(why)}", file=__import__("sys").stderr)
+    else:
+        print(f"[xsec] factor chain reconciles against score() on all {len(rows)} rows",
+              file=__import__("sys").stderr)
 
     # Module J, now that conviction exists for every row. The intel artifact is built
     # from the same call so the per-row columns and the panel can never disagree about

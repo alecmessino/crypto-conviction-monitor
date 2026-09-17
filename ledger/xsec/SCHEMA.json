@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "fields": [
     "date",
     "symbol",
@@ -25,7 +25,26 @@
     "rsi7",
     "beta_btc",
     "spec_hash",
-    "src"
+    "src",
+    "total_volume",
+    "depth",
+    "confirm",
+    "liquidity",
+    "conviction_raw",
+    "clamped",
+    "dom_factor",
+    "dom_share",
+    "dom_logabs",
+    "perp_mult_board",
+    "perp_mult_board_date",
+    "price_chg_24h",
+    "perp_path",
+    "funding_venue",
+    "funding_venues_n",
+    "funding_apr_spread",
+    "funding_interval_h",
+    "funding_regime",
+    "oi_usd"
   ],
   "shared_with_signals_csv": [
     "conviction",
@@ -46,7 +65,13 @@
     "funding_apr",
     "rsi7",
     "beta_btc",
-    "spec_hash"
+    "spec_hash",
+    "funding_venue",
+    "funding_venues_n",
+    "funding_apr_spread",
+    "funding_interval_h",
+    "funding_regime",
+    "oi_usd"
   ],
   "sources": [
     "live",
@@ -60,5 +85,33 @@
     "src"
   ],
   "universe": "every de-duplicated non-stable asset that scored from that night's fetched markets \u2014 not a truncation",
-  "note": "Research ledger. Separate from signals.csv, which keeps its own top-fifty-by-conviction series unchanged; the two are never pooled. Rows marked backfill were reconstructed from point-in-time inputs and were not observed on the date they carry."
+  "note": "Research ledger. Separate from signals.csv, which keeps its own top-fifty-by-conviction series unchanged; the two are never pooled. Rows marked backfill were reconstructed from point-in-time inputs and were not observed on the date they carry.",
+  "chain": {
+    "identity": "conviction_raw = 100 x depth x confirm x liquidity x emission_mult x perp_mult, before round and before the clamp to [0, 100]. `conviction` is that product rounded and clamped; `clamped` is 'high', 'low' or empty.",
+    "reconciled": "Every row's chain is asserted equal to score()'s own output before it is written \u2014 the three display components to the decimal they publish at, and the clamped integer. A row that fails is written with the v2 columns EMPTY.",
+    "dominance": "dom_share is the largest factor's share of the chain's total absolute log; dom_logabs is that log's magnitude. Both are recorded because share alone saturates at 1.0 on a chain whose other four factors are exactly 1.0, which is the most neutral chain there is rather than the most dominated.",
+    "perp_mult_vs_board": "perp_mult is what the nightly computed tonight. perp_mult_board is what index.html would apply, which it derives from signals.json with no date filter and last-write-in-file-order winning; perp_mult_board_date is the night that value was recorded. They differ for any symbol outside tonight's top fifty."
+  },
+  "added_at_v2": [
+    "total_volume",
+    "depth",
+    "confirm",
+    "liquidity",
+    "conviction_raw",
+    "clamped",
+    "dom_factor",
+    "dom_share",
+    "dom_logabs",
+    "perp_mult_board",
+    "perp_mult_board_date",
+    "price_chg_24h",
+    "perp_path",
+    "funding_venue",
+    "funding_venues_n",
+    "funding_apr_spread",
+    "funding_interval_h",
+    "funding_regime",
+    "oi_usd"
+  ],
+  "v2_note": "Columns added at schema v2 are EMPTY on rows dated before the writer emitted them. Several are reconstructible for those dates and are deliberately left blank: those rows carry src='live', which this file defines as observed on the night it is dated."
 }

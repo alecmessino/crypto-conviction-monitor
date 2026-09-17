@@ -521,7 +521,22 @@ def check_xsec(ledger: Path) -> list[str]:
                 missing.append((r.get("date"), r.get("symbol")))
                 continue
             compared += 1
+            # Six shared columns arrived with schema v2 and are empty on rows written
+            # before it — see nightly.XSEC_V2_FIELDS. The invariant is a claim about
+            # columns a row was WRITTEN with, so it is scoped per row rather than
+            # relaxed for everyone: `perp_mult_board` is populated on every v2 row and
+            # on no v1 row. A v1 row is still checked on every column it does hold, and
+            # a v1 row carrying a v2 value is itself a failure — otherwise this scoping
+            # could hide a real disagreement.
+            written_at_v2 = wide.get("perp_mult_board") not in ("", None)
             for field in nightly.XSEC_SHARED_FIELDS:
+                v2_only = field in nightly.XSEC_V2_FIELDS
+                if v2_only and not written_at_v2:
+                    if wide.get(field) not in ("", None):
+                        mismatched.append(
+                            f"{r.get('date')}/{r.get('symbol')}.{field}: predates "
+                            f"schema v2 but carries {wide.get(field)!r}")
+                    continue
                 if wide.get(field) != r.get(field):
                     mismatched.append(
                         f"{r.get('date')}/{r.get('symbol')}.{field}: "
