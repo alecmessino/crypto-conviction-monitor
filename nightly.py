@@ -2188,6 +2188,27 @@ def ic_matrix(by_date: dict, boundary: str | None = None,
         # nothing would notice. An id that must exist cannot.
         raise ValueError(f"ic_matrix sample must be one of {sorted(IC_SAMPLES)}, "
                          f"got {sample!r}")
+    # AUDIT-CLOSURE, second pass: the id above stops a caller naming the WRONG sample.
+    # It does not stop one naming NO sample, and `sample` has a default. So
+    # `ic_matrix(xsec_by_date())` returned three nights of the full cross-section under
+    # "LEGACY SELECTION HISTORY", and none of the three guards caught it: the gate only
+    # rejects sample != "legacy" and this matrix SAID legacy, the validator's leg ceiling
+    # is nights-h which the real counts satisfy, and the cross-file check compares two
+    # ids that differ. The counts were self-consistent; it was the label that was false,
+    # and the board would have moved from DIAGNOSTIC_ONLY to NOT_ESTABLISHED on two legs.
+    # Same `src` discriminator and same reasoning as the guard in ic_by_date(): signals
+    # .csv rows carry no src, ledger/xsec/ rows always do.
+    if sample == "legacy":
+        foreign = sum(1 for day in (by_date or {}).values()
+                      for r in (day or {}).values()
+                      if isinstance(r, dict) and r.get("src") in XSEC_SOURCES)
+        if foreign:
+            raise ValueError(
+                f"ic_matrix was given sample='legacy' over {foreign} row(s) carrying "
+                f"src= from ledger/xsec/ — that is the forward cross-section, a "
+                f"different population measured on a different universe. Pass "
+                f"sample='forward', or use ic_by_date() for the legacy selection "
+                f"history.")
     meta = IC_SAMPLES[sample]
     cells = {}
     for name, field in IC_SIGNALS:
@@ -5113,6 +5134,14 @@ def _cohort(pairs: list) -> dict:
             "detail": f"{k} of {n} positive symbol-days"}
 
 
+# The mirror of ic_matrix()'s guard is deliberately NOT here, and the asymmetry is the
+# point rather than an oversight. `src` discriminates in one direction only: xsec rows
+# always carry it and signals.csv rows never do, so "legacy label over src-bearing rows"
+# is checkable while "forward label over rows without src" is indistinguishable from the
+# synthetic fixtures this function is driven with in tests. Guarding it by absence would
+# reject the legitimate case to catch a hypothetical one. The exposure is also smaller:
+# nothing published reads this with legacy data — write_walkforward() is the only caller
+# and passes xsec_by_date() — and no gate reads its output at all.
 def walkforward_report(by_date: dict, regimes: dict | None = None,
                        sample: str = "forward") -> dict:
     """IC, hit rate and cohort diagnostics by factor, horizon, tier, regime and flag.

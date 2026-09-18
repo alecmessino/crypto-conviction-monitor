@@ -122,8 +122,12 @@ def test_the_matrix_cannot_be_given_a_sample_it_does_not_know():
 def test_a_swapped_source_cannot_keep_the_old_label():
     """The label is derived from the sample id, so it moves with the data by construction.
 
-    This is what makes mutation 1 impossible rather than merely detectable: there is no
-    free-text universe string a caller can leave behind when it changes source.
+    There is no free-text universe string a caller can leave behind when it changes
+    source. That alone does NOT make mutation 1 impossible — it only covers the caller
+    who names the wrong sample. The id is still a default, so a caller who names none
+    keeps the legacy label over any data at all;
+    test_the_legacy_label_cannot_be_kept_by_omission covers that path, and this docstring
+    claimed a guarantee the code did not have until it did.
     """
     wide = nightly.ic_matrix(nightly.xsec_by_date(), None, "forward")
     assert wide["sample"] == "forward"
@@ -137,6 +141,44 @@ def test_a_swapped_source_cannot_keep_the_old_label():
     assert "universe" not in sig.parameters, \
         "a free-text universe parameter would let a label outlive its source"
     assert "universe" not in inspect.signature(nightly.walkforward_report).parameters
+
+
+def test_the_legacy_label_cannot_be_kept_by_omission():
+    """Mutation 1's remaining path: the sample argument LEFT OFF, not passed wrong.
+
+    `sample` defaults to "legacy", so this call once returned a fully formed matrix
+    reading LEGACY SELECTION HISTORY over three nights of the full cross-section —
+    nights 3, rows/night 234, composite 1d over 2 legs at names_mean 230. None of the
+    three guards fired. `publication_gate()` only rejects sample != "legacy" and this
+    matrix said legacy, so it accepted it and returned NOT_ESTABLISHED, moving the
+    published board off DIAGNOSTIC_ONLY on two forward legs. The validator's leg ceiling
+    is nights - horizon, which 2 legs from 3 nights satisfies exactly. The cross-file
+    check compares "legacy" against "forward" and they differed. The counts were all
+    self-consistent; the label was the false part, and no count can falsify a label.
+    """
+    wide = nightly.xsec_by_date()
+    if not wide:
+        pytest.skip("no cross-section recorded")
+    with pytest.raises(ValueError, match="forward"):
+        nightly.ic_matrix(wide)               # no sample argument at all
+    with pytest.raises(ValueError, match="forward"):
+        nightly.ic_matrix(wide, None)         # nor a boundary-only positional call
+    # and the legitimate pairings are untouched
+    assert nightly.ic_matrix(wide, None, "forward")["sample"] == "forward"
+    assert nightly.ic_matrix(nightly.ic_by_date())["sample"] == "legacy"
+
+
+def test_the_gate_cannot_be_reached_by_a_mislabelled_matrix():
+    """The consequence, asserted at the surface that would have carried it.
+
+    The gate's own refusal is necessary and not sufficient: it reads a label. The only
+    thing that makes it safe is that a mislabelled matrix can no longer be constructed.
+    """
+    wide = nightly.xsec_by_date()
+    if not wide:
+        pytest.skip("no cross-section recorded")
+    with pytest.raises(ValueError):
+        nightly.publication_gate(nightly.ic_matrix(wide))
 
 
 def test_the_published_block_is_the_legacy_sample():
