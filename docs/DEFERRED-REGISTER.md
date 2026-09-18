@@ -114,8 +114,12 @@ DefiLlama call is made anywhere in this repository.
 **Trigger — remains unstarted.** Observational only when **explicitly authorised**:
 a `REVENUE` column recorded at ×1.0 for every row, with a visible "no revenue data" badge
 for tokens that have none — never a silent penalty, which would read as a signal.
-**Score eligibility only after ≥ 40 forward legs with its standalone IC interval not
-spanning zero**, under the same contract as every other cell in the matrix. A factor may
+**Score eligibility only after ≥ 40 legs in the FORWARD sample** (`ledger/xsec/`) **with
+its standalone IC interval not spanning zero**, under the same contract as every other
+cell in the matrix. The store matters and is stated because "the matrix" would otherwise
+resolve to the published one — which is the legacy conviction-truncated sample and
+already stands at 43 legs, so a REVENUE factor could appear to clear a bar it had never
+been measured against. A factor may
 not enter the score on the strength of being a good idea.
 
 ---

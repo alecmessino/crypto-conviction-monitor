@@ -2685,7 +2685,11 @@ def _canonical_index(edge: dict | None = None) -> dict:
     # The size of the equal-weight control's opportunity set, measured: the median count
     # of names present on both nights of a leg. This is what "universe" means on every
     # Index surface, and it is NOT the browser's live board (234 names): the nightly
-    # persists rows[:50] by market cap, so the control is those ~50.
+    # persists rows[:50] AFTER A CONVICTION SORT, so the control is those ~50.
+    # (Corrected 2026-09-18. This comment said "by market cap"; AUDIT-2026-09 1.0
+    # established from the data that the cut is a conviction sort and corrected four
+    # sibling comments, and this fifth copy was missed. It is not cosmetic: a control
+    # universe selected on conviction is selected on the variable the edge is about.)
     shared_n = sorted(len(l["shared"]) for l in usable)
     universe_n = shared_n[len(shared_n) // 2] if shared_n else None
     # ...and the size of the persisted universe itself: rows on the prior night. Fifty

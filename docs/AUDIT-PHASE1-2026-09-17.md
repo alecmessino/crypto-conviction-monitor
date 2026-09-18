@@ -285,8 +285,10 @@ made incremental — `market_chart` returns the whole window every time.
 ## 6 — The IC the board already ignores
 
 `market_breadth.json` → `edge`, unchanged by this audit and restated for the Phase 3
-record: **43 legs, mean IC −0.0562, 95% CI [−0.1065, −0.0060], t = −2.195, `measurable:
-true`**, 16 of 43 legs positive, mean quintile spread −119.3bp. Verdict as written by
+record. It is measured on the **LEGACY selection history** — `ledger/signals.csv`, the
+persisted top fifty *by conviction*, which is a truncation of the board and not the board:
+**43 legs, mean IC −0.0562, 95% CI [−0.1065, −0.0060], t = −2.195, `measurable: true`**,
+16 of 43 legs positive, mean quintile spread −119.3bp. Verdict as written by
 `_compute_edge()`: *"Conviction orders the universe backwards — the ranking is
 inverted."*
 
@@ -469,7 +471,7 @@ Phase 2's.
 
 `nightly.score()` never read the ledger for funding — it reads the live venue feed — so
 **no recorded score, no basket weight, no leg and no information coefficient moves.**
-The 43-leg IC stands at −0.0562, CI [−0.1065, −0.0060]. `_spec_breaks()` detects
+The 43-leg IC (LEGACY sample — `ledger/signals.csv`) stands at −0.0562, CI [−0.1065, −0.0060] — measured on the LEGACY selection history (`ledger/signals.csv`, the persisted top fifty by conviction), which is a different sample from the wide cross-section this section is otherwise about. `_spec_breaks()` detects
 boundaries from recorded score movement, not from the digest, so the edge series is not
 re-segmented either.
 
@@ -617,7 +619,7 @@ every run, so a regression in the transport is loud rather than quiet.
 ## 1.6.6 — What did not change
 
 `nightly.score()` is untouched — it reads the live venue feed and always did. No
-recorded score, basket weight, leg or information coefficient moves; the 43-leg IC
+recorded score, basket weight, leg or information coefficient moves; the 43-leg IC (LEGACY sample — `ledger/signals.csv`)
 stands at −0.0562, CI [−0.1065, −0.0060]. Prior history keeps its digest. **No
 `SPEC_EQUIVALENT` entry**, for the same reason as 1.5: published scores moved, so this
 is a re-valuation and not a correction to the ruler.

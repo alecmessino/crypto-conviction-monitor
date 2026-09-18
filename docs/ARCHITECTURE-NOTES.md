@@ -4,6 +4,10 @@ Written 2026-09-14 as Phase 0 of the audit. Factual map of file → responsibili
 so the Phase 1 findings can be reviewed against something. Nothing here is a
 proposal; everything is what the code does today at `6492e5d`.
 
+*Extended 2026-09-18 at closure.* The Phase 0 snapshot is left as written; §5 and §7 gain
+the artifacts and the distinction the audit added after it, marked with their dates. A map
+that omits a file is a map that says the file does not exist.
+
 ## 1. The shape of the thing
 
 One scheduled Python job writes a directory of flat files; one self-contained HTML
@@ -194,12 +198,40 @@ and it is what the Selection Edge panel starts counting legs from. Confirmed by 
 at 4137. Today's rows are replaced rather than appended, so a re-run does not duplicate a night.
 
 > Note for the audit: four comments in `nightly.py` (lines 1486, 1689, 1693, 1779)
-> describe this as "the top 50 **by market cap**". It is the top 50 by **conviction**.
-> See AUDIT-2026-09 §1.0 — this is the finding with the widest blast radius.
+> describe this as "the top 50 **by market cap**". That description is wrong and has been
+> **corrected**: it is the top 50 by **conviction**. See AUDIT-2026-09 §1.0 — the finding
+> with the widest blast radius, because a universe selected on conviction is selected on
+> the variable any edge measured over it is about.
 
 **`ledger/sectors.csv`** — one row per surviving category per night, 416 KB. The
 category endpoint has no history at all, so multi-day sector flow is *accumulated* here
 rather than fetched.
+
+**`ledger/xsec/` — added 2026-09-15, after this note was written.** Month-sharded CSV of
+the **whole scored cross-section**, 234–235 rows a night, schema-locked by
+`ledger/xsec/SCHEMA.json` (v4, 52 columns). Append-only per night, rewritten in place on a
+re-run. Read by `xsec_by_date()` and by nothing else.
+
+**`ledger/walkforward.json` — added 2026-09-17.** The forward outcome study computed from
+`ledger/xsec/` by `walkforward_report()`: IC cells per signal × horizon, hit-rate cohorts
+counted in **symbol-days**, and a `sample_state` banner derived from those cells rather
+than typed.
+
+**`ledger/perp.json` — added 2026-09-17.** The current funding cross-section, 235 rows,
+so the browser and the nightly engine score from the same information set. Before it, the
+page rebuilt its overlay from the full history with no date filter — see AUDIT-PHASE1 §1.5.
+
+> **There are two information-coefficient samples in this repository, and they are not the
+> same measurement.** The **legacy selection history** is `ledger/signals.csv`: 48 nights
+> deep, fifty rows a night, and those fifty are the top fifty *by conviction*, so the
+> coefficient is computed inside the top conviction quintile rather than across the board.
+> `ic_by_date()` reads it; the published IC matrix and the publication gate are measured on
+> it, because it is the only sample deep enough to say anything. The **forward
+> cross-sectional sample** is `ledger/xsec/`: the whole published population, begun
+> 2026-09-15, read by `xsec_by_date()` and powering `ledger/walkforward.json` only. On
+> every shared night the first is a strict subset of the second. The two must never be
+> averaged or compared. See `docs/CLOSURE-2026-09-18.md` §1 and
+> `tests/test_ic_provenance.py`, which enforces this rather than asserting it.
 
 Other ledger artifacts: `index.{csv,json}` (the paper book), `monitor.json` (pipeline
 health), `market_breadth.json`, `market_intel.json` (sectors / correlation / trending /
@@ -224,6 +256,12 @@ gate.io supplied the headline for 43 of 50 rows. `ledger/venue_health.csv` recor
 **Dune.** Module B only. Absent key ⇒ the columns are null, which is where they are.
 
 ## 7. Selection Edge / IC
+
+**Which sample.** All of the below is measured on the **legacy selection history** —
+`ledger/signals.csv`, the persisted top fifty by conviction — and never on `ledger/xsec/`.
+The population is the sample's own truncation, not the board: an IC over it is an IC
+inside the top conviction quintile. The reader is `ic_by_date()`, which since 2026-09-18
+refuses any row carrying the cross-section's `src` marker.
 
 `_compute_edge()` (`nightly.py:1871`) → `_edge_legs()` (1306):
 

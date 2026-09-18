@@ -273,9 +273,16 @@ def test_the_page_never_prints_one_samples_numbers_under_the_others_label():
         "the forward block must not reach into the legacy sample"
 
 
+# Every document that can quote a leg count. The regression covered two of these and
+# passed; run over the rest it failed at once, which is what a partial guard is worth.
+_DOCS = ("docs/DEFERRED-REGISTER.md", "methodology.html",
+         "docs/AUDIT-PHASE1-2026-09-17.md", "docs/PHASE2A-CALIBRATION-2026-09-17.md",
+         "docs/ARCHITECTURE-NOTES.md", "docs/CLOSURE-2026-09-18.md")
+
+
 def test_the_docs_name_the_sample_wherever_they_quote_a_leg_count():
     """Any document quoting the 43-leg result must say which history it came from."""
-    for name in ("docs/DEFERRED-REGISTER.md", "methodology.html"):
+    for name in _DOCS:
         path = ROOT / name
         if not path.exists():
             continue
@@ -284,3 +291,36 @@ def test_the_docs_name_the_sample_wherever_they_quote_a_leg_count():
             window = text[max(0, hit.start() - 400):hit.end() + 400]
             assert re.search(r"signals\.csv|legacy|top fifty|top-fifty|truncat", window, re.I), \
                 f"{name} quotes a 43-leg figure without naming the legacy sample"
+
+
+def test_no_document_says_the_persisted_universe_is_a_market_cap_cut():
+    """It is a conviction sort, and the distinction is the whole point of the caveat.
+
+    AUDIT-2026-09 1.0 settled this from the data and corrected four source comments; a
+    rendered provenance string and two sentences on the Method page kept the error, and
+    those are the copies a reader actually sees. Selected on conviction means selected on
+    the variable any edge measured over the sample is about — which is not a detail.
+    """
+    pat = re.compile(r"(persisted universe|persists?|rows\[:50\]|top[ -]?50|top fifty)"
+                     r"[^.]{0,120}by market cap", re.I)
+    for name in _DOCS + ("nightly.py", "index.html"):
+        path = ROOT / name
+        if not path.exists():
+            continue
+        text = " ".join(path.read_text(encoding="utf-8").split())
+        for hit in pat.finditer(text):
+            window = text[max(0, hit.start() - 200):hit.end() + 200]
+            # a sentence that NAMES the correction is allowed to quote the old wording
+            assert re.search(r"corrected|was wrong|said otherwise|error|not a market.cap",
+                             window, re.I), \
+                f"{name}: {hit.group(0)!r} — the persisted cut is by conviction"
+
+
+def test_the_architecture_map_records_both_samples():
+    """The file-to-responsibility map documented one IC history and not the other."""
+    notes = (ROOT / "docs" / "ARCHITECTURE-NOTES.md").read_text(encoding="utf-8")
+    for token in ("ledger/xsec", "walkforward.json", "signals.csv"):
+        assert token in notes, f"the architecture map omits {token}"
+    flat = " ".join(notes.split())
+    assert re.search(r"two\s+(information[- ]coefficient|IC)\s+samples", flat, re.I), \
+        "the architecture map must state that there are two IC samples"

@@ -155,6 +155,17 @@ a specific way: `signals.csv` keeps the top fifty **by conviction**, and turnove
 input to conviction — selecting on conviction selects on turnover. Its LIQUIDITY column
 spans a restricted range by construction, so an IC over it is an IC over that restriction.
 
+> **Why forty-seven here and forty-three on the published matrix — the same ledger.** Both
+> read the LEGACY selection history (`ledger/signals.csv`, 48 nights, 2026-08-01 …
+> 2026-09-17). This table is a calibration probe and pairs *every* consecutive night:
+> 48 − 1 = **47**. The published estimator does not. `_edge_legs()` starts at the spec
+> boundary `_spec_breaks()` detects — 2026-08-05, the night the median asset's score moved
+> 36 points on a 1.21% price move — and discards the four nights before it, because a
+> conviction recorded under a different scoring function is not comparable to one recorded
+> under this one: 2026-08-05 … 2026-09-17 is 44 nights, so **43** legs. Neither figure is
+> the forward sample, which admits at most two. The difference is the boundary, not the
+> source, and the two numbers should not be reconciled by averaging them.
+
 **Nothing available justifies redesigning the curve.** That is the finding, and it is the
 reason the recommendation below is conservative.
 
