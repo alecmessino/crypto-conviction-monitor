@@ -2656,7 +2656,18 @@ function gateChip(){
   if(!g) return "";
   const col = g.gate === "DIAGNOSTIC_ONLY" ? "var(--red)"
             : g.gate === "PUBLISHED" ? "var(--green)" : "var(--amber)";
-  return `<b style="color:${col}" title="${esc0(g.detail)}">${esc0(g.headline)}</b> · `;
+  // RELEASE GATE, 2026-09-18. The chip published a gated verdict over 43 legs and named
+  // no sample, on the default route every reader lands on, while the Selection Edge
+  // panel, the IC matrix, both artifacts and every document name it. A reader saw
+  // "1D IC -0.056 · 43 legs" directly above a 234-name board and had no way to know the
+  // coefficient is measured on the conviction-truncated top fifty. The label is READ
+  // FROM the gate block, not typed here: if the gate ever reported a different sample
+  // this line would change with it, and publication_gate() refuses anything but legacy.
+  const smp = g.sample_label
+    ? ` <span class="muted" title="${esc0(g.measured_on || g.universe || "")}">on `
+      + `${esc0(g.sample_label)}</span> · `
+    : " · ";
+  return `<b style="color:${col}" title="${esc0(g.detail)}">${esc0(g.headline)}</b>${smp}`;
 }
 function renderLabelGate(){
   const g = labelGateState(_edgeOrCurrent(undefined));
@@ -2669,7 +2680,8 @@ function renderLabelGate(){
       + (g.actionable ? "" :
          ` <span class="muted">· tiers read as rank bands; scores, ordering, cuts and `
          + `colours are unchanged, and the ranking is not inverted to match.</span>`);
-    line.title = g.detail;
+    const _pg = pubGate();
+    line.title = g.detail + (_pg && _pg.measured_on ? "\n\nMeasured on: " + _pg.measured_on : "");
   }
   const cap = $("#rb-str-lbl");
   if(cap) cap.textContent = g.actionable ? "BUY+ (≥70)" : "TIER 1-2 (≥70)";

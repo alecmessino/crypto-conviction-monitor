@@ -298,6 +298,37 @@ def test_the_page_labels_both_samples_visibly():
         "a PUBLISHED badge beside a DIAGNOSTIC ONLY gate reads as its opposite"
 
 
+def test_the_board_trust_strip_names_its_sample():
+    """RELEASE GATE: the most prominent IC surface was the only one that did not.
+
+    `#label-status` sits on the default route, directly above a 234-name board, and read
+    "DIAGNOSTIC ONLY · 1D IC -0.056 · 95% CI [-0.106, -0.006] · ... (43 legs ...)" with no
+    sample named anywhere in it. The Selection Edge panel, the IC matrix, the forward
+    block, both artifacts, the validator and all six documents name it. A reader of the
+    board could only conclude the coefficient was measured on the board.
+
+    The label must be READ FROM the gate block rather than typed into the page: a typed
+    one would survive the sample changing underneath it, which is the whole failure mode
+    this file exists to prevent.
+    """
+    page = (ROOT / "index.html").read_text(encoding="utf-8")
+    m = re.search(r"function gateChip\(\)\{(.*?)\n\}", page, re.S)
+    assert m, "gateChip not found"
+    body = m.group(1)
+    assert "sample_label" in body, \
+        "the publication-gate chip must name the sample it was measured on"
+    assert "g.sample_label" in body or "gate.sample_label" in body, \
+        "the label must be read from the gate block, not typed into the page"
+    assert not re.search(r'"LEGACY[^"]*"|\'LEGACY[^\']*\'', body), \
+        "a typed LEGACY string would outlive the sample it describes"
+    # and the gate block it reads actually carries the field
+    doc = json.loads((ROOT / "ledger" / "market_breadth.json").read_text(encoding="utf-8"))
+    g = doc["publication_gate"]
+    assert g.get("sample_label") and g.get("measured_on"), \
+        "the chip reads sample_label/measured_on; the artifact must publish them"
+    assert g["sample"] == "legacy"
+
+
 def test_the_page_never_prints_one_samples_numbers_under_the_others_label():
     """Structural: the two render paths must read from different globals."""
     page = (ROOT / "index.html").read_text(encoding="utf-8")
