@@ -149,8 +149,13 @@ def test_a_signal_that_does_not_vary_reads_degenerate_not_zero():
     assert c["state"] == "DEGENERATE"
     assert c["ic"] is None
     assert c["legs"] == 0 and c["legs_seen"] > 0
+    # the gate refuses a matrix that does not name the legacy sample, so the hand-built
+    # one must name it — which is the point of the refusal
     assert nightly.publication_gate({"cells": {"composite": {"1": c}},
-                                     "active_horizon": 1})["gate"] == "NOT_ESTABLISHED"
+                                     "active_horizon": 1,
+                                     "sample": "legacy"})["gate"] == "NOT_ESTABLISHED"
+    with pytest.raises(ValueError):
+        nightly.publication_gate({"cells": {"composite": {"1": c}}, "active_horizon": 1})
 
 
 # ---------------------------------------- 3. the gate moves nothing but a label

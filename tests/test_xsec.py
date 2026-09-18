@@ -13,6 +13,7 @@ between them would reproduce the exact defect that AUDIT-2026-09 1.0 exists to f
 other asserts the legacy series did not move: same columns, same rows, same hash.
 """
 import csv
+import re
 import importlib.util
 import json
 from pathlib import Path
@@ -445,12 +446,36 @@ def _page_code() -> str:
 
 
 def test_nothing_in_the_page_reads_the_research_ledger():
-    """The browser fetches signals.json whole on every load. This must not join it."""
+    """The browser must not FETCH the shards. It may name them, and now must.
+
+    The original rule was "xsec appears nowhere in the page or the Method". That was
+    right while naming the store served no reader. AUDIT-CLOSURE changed the
+    requirement: there are two IC samples, the page shows both, and a page that could
+    not say which ledger a number came from would be committing the exact error the
+    closure exists to prevent.
+
+    So the invariant is narrowed to what actually costs something. The shards are a
+    growing CSV directory and the browser fetches `signals.json` whole on every load;
+    joining them client-side is what must never happen. Reading the small derived
+    report the nightly writes from them — `ledger/walkforward.json`, ~13 KB, one
+    document — is a different act and is allowed.
+    """
     code = _page_code()
-    assert "ledger/xsec" not in code
-    assert "xsec" not in code
     assert len(code) > 10000, "the comment strip removed the program"
-    assert "xsec" not in (ROOT / "methodology.html").read_text(encoding="utf-8")
+    # No fetch of the shards, by any spelling.
+    # Only tokens that would mean the page had reached INTO the shards. The page
+    # legitimately names other ledger CSVs (index.csv, sectors.csv), so a blanket
+    # ".csv" ban would fail on files this rule was never about.
+    for forbidden in ('fetch("ledger/xsec', "fetch('ledger/xsec", "ledger/xsec/20",
+                      "XSEC_DIR", "xsec/SCHEMA.json"):
+        assert forbidden not in code, forbidden
+    assert not re.search(r"""fetch\(\s*[`'"][^`'"]*xsec""", code),         "the page must not fetch the research shards"
+    # The derived report IS allowed, and is how the forward sample reaches the page.
+    assert 'fetch("ledger/walkforward.json"' in code
+    # The Method may describe the store; it must do so accurately when it does.
+    method = (ROOT / "methodology.html").read_text(encoding="utf-8")
+    if "xsec" in method:
+        assert "cross-section" in method,             "if the Method names the research ledger it must say what it is"
 
 
 def test_the_writer_is_not_part_of_the_specification():

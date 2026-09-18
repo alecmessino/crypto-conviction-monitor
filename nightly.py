@@ -1957,6 +1957,50 @@ def _edge_legs(by_date: dict, boundary: str | None) -> list[dict]:
 # EDGE_MIN_LEGS before anything is called measurable. Inventing a second significance
 # threshold beside the first would mean the board could be honest under one and not the
 # other.
+# AUDIT-CLOSURE. There are TWO IC samples in this repository and they are not the same
+# measurement. Naming them once, here, is what stops every downstream surface having to
+# re-describe them — and re-describing them is how they get conflated.
+#
+#   LEGACY   ledger/signals.csv, read by ic_by_date(). 48 nights back to 2026-08-01, but
+#            fifty rows a night and those fifty are the TOP FIFTY BY CONVICTION — the
+#            very variable whose predictive power is being measured. It is deep in time
+#            and truncated in population, and it is the only sample with enough legs to
+#            say anything, which is why the publication gate reads it.
+#
+#   FORWARD  ledger/xsec/, read by xsec_by_date(). The WHOLE scored cross-section,
+#            234-235 rows a night, but it began on 2026-09-15 and is three nights old.
+#            It is wide and shallow, and it has measured nothing yet.
+#
+# On the nights both cover, LEGACY's symbols are a strict subset of FORWARD's. Their leg
+# counts cannot coincide: three nights admit at most two one-day legs, so a 43-leg figure
+# is arithmetically impossible from FORWARD and can only be LEGACY.
+IC_SAMPLES = {
+    "legacy": {
+        "id": "legacy",
+        "source": "ledger/signals.csv",
+        "label": "LEGACY SELECTION HISTORY",
+        "universe": "signals.csv — the top fifty by conviction, each night",
+        "population": "conviction-truncated (top ~50 of ~235 scored)",
+        "caveat": ("Selected on conviction, which is the variable being measured. The "
+                   "information coefficient is therefore computed WITHIN the top "
+                   "conviction quintile, not across the board."),
+        "powers": "the published IC matrix and the publication gate",
+    },
+    "forward": {
+        "id": "forward",
+        "source": "ledger/xsec/",
+        "label": "FORWARD CROSS-SECTIONAL SAMPLE",
+        "universe": "ledger/xsec/ — the whole scored cross-section",
+        "population": "complete (every de-duplicated non-stable asset scored that night)",
+        "caveat": ("Began accumulating 2026-09-15. Wide and shallow: it measures the "
+                   "population the board actually publishes, and it has not yet "
+                   "measured anything."),
+        "powers": "the walk-forward report; nothing published reads it",
+    },
+}
+# The banner a surface must carry while the forward sample cannot measure its own cells.
+FORWARD_INSUFFICIENT_BANNER = "FORWARD SAMPLE — INSUFFICIENT"
+
 IC_HORIZONS = (1, 7, 30)
 # The signal in each column, and the recorded field it is read from. Every one is the
 # value STORED AT THE SNAPSHOT, never recomputed from today's payload: a factor
@@ -1991,6 +2035,17 @@ def ic_by_date(rows: list[dict] | None = None) -> dict:
             return {}
         with LEDGER_CSV.open(newline="", encoding="utf-8") as f:
             rows = list(csv.DictReader(f))
+    # The two ledgers share column names — XSEC_SHARED_FIELDS is the list of them — so a
+    # caller who handed xsec rows to this reader would get a fully formed matrix labelled
+    # LEGACY. The `src` column exists on xsec rows and on no signals.csv row, which makes
+    # the provenance checkable rather than assumed.
+    foreign = [r for r in (rows or []) if r.get("src") in XSEC_SOURCES]
+    if foreign:
+        raise ValueError(
+            f"ic_by_date was handed {len(foreign)} row(s) carrying src="
+            f"{sorted({r.get('src') for r in foreign})} — those are cross-sectional "
+            f"research rows. Use xsec_by_date() and the 'forward' sample for them; this "
+            f"reader is the legacy selection history.")
     keep = ("price", "conviction") + tuple(f for _, f in IC_SIGNALS)
     by_date: dict = {}
     for r in rows:
@@ -2121,18 +2176,28 @@ def _ic_cell(legs: list[dict]) -> dict:
 
 
 def ic_matrix(by_date: dict, boundary: str | None = None,
-              universe: str = "signals.csv (top fifty by conviction)") -> dict:
+              sample: str = "legacy") -> dict:
     """Every signal against every horizon, with its inference state.
 
     Observational throughout. The publication gate reads ONE cell of this — composite at
     IC_ACTIVE_HORIZON — and reads it to decide what the board is CALLED, never to
     reorder it.
     """
+    if sample not in IC_SAMPLES:
+        # A free-text universe label could go stale the moment its source changed and
+        # nothing would notice. An id that must exist cannot.
+        raise ValueError(f"ic_matrix sample must be one of {sorted(IC_SAMPLES)}, "
+                         f"got {sample!r}")
+    meta = IC_SAMPLES[sample]
     cells = {}
     for name, field in IC_SIGNALS:
         cells[name] = {}
         for h in IC_HORIZONS:
             cell = _ic_cell(_ic_legs(by_date, field, h, boundary))
+            # Stamped per cell, not only at the root: both files key their cells by the
+            # same six signals and three horizons, so a consumer could join them by
+            # shape without ever reading a root label.
+            cell["sample"] = meta["id"]
             cell["overlap"] = IC_OVERLAP_NOTE.get(h, "")
             # The effective sample once overlap is accounted for, stated so a reader
             # cannot mistake forty overlapping legs for forty observations.
@@ -2143,13 +2208,44 @@ def ic_matrix(by_date: dict, boundary: str | None = None,
         "signals": [n for n, _ in IC_SIGNALS],
         "active_horizon": IC_ACTIVE_HORIZON,
         "boundary": boundary,
-        "universe": universe,
+        "sample": meta["id"],
+        "sample_label": meta["label"],
+        "universe": meta["universe"],
+        "population": meta["population"],
+        "sample_caveat": meta["caveat"],
+        # The shape of the sample this was actually computed over. Recorded because a
+        # LABEL can be wrong and a COUNT cannot: three nights admit at most two one-day
+        # legs, so nights+leg counts let any reader falsify the label from the file
+        # alone. Without them the walk-forward report was self-describing and the
+        # published matrix was not.
+        "nights": len(by_date),
+        "from": min(by_date) if by_date else None,
+        "to": max(by_date) if by_date else None,
+        "rows_per_night_median": (sorted(len(v) for v in by_date.values())[len(by_date)//2]
+                                  if by_date else 0),
         "min_legs": EDGE_MIN_LEGS,
         "min_names": EDGE_MIN_NAMES,
         "estimator": "Spearman rank correlation, ties averaged; mean over legs with a "
                      "95% interval at +/- 1.96 standard errors — the same contract the "
                      "Selection Edge panel has always used",
         "overlap": dict(IC_OVERLAP_NOTE),
+        # The pointer the other way. walkforward.json already declares itself not
+        # comparable to this matrix; a reader arriving at THIS file first had no such
+        # warning, and this is the file the board renders from.
+        "companion_sample": {
+            "file": "ledger/walkforward.json",
+            "sample": IC_SAMPLES["forward"]["id"],
+            "label": IC_SAMPLES["forward"]["label"],
+            "comparable": False,
+            "why": ("A different population over a different window. The two are not "
+                    "alternative estimates of one quantity and must never be averaged, "
+                    "compared, or presented as though one confirms the other."),
+        },
+        "boundary_rule": (
+            "Legs before the detected specification break are excluded. The legacy "
+            "sample spans that break (2026-08-05) and is cut at it; the forward sample "
+            "begins after every recorded break, so no cut applies and its boundary is "
+            "null. The two therefore differ in boundary by circumstance, not by rule."),
         "causality": "A snapshot at t is paired with the price recorded at exactly "
                      "t + horizon days. No nearest-date fallback, and a symbol must "
                      "appear at both ends — a name that left the universe has no return "
@@ -2176,6 +2272,16 @@ def publication_gate(matrix: dict) -> dict:
     The gate changes what the board is CALLED. It never changes a score, a tier, an
     ordering, a weight or a basket.
     """
+    # The gate decides what the published board is CALLED, so it may only read the
+    # sample the board is published from. It used to accept any dict that had the right
+    # shape — and both samples produce identically shaped cells, so a forward matrix
+    # would have gated the board on two legs without anything noticing.
+    sample = matrix.get("sample")
+    if sample != "legacy":
+        raise ValueError(
+            f"publication_gate may only read the legacy sample (the published board's "
+            f"own history); got sample={sample!r}. The forward cross-section measures a "
+            f"different population and has its own report.")
     h = str(matrix.get("active_horizon", IC_ACTIVE_HORIZON))
     cell = ((matrix.get("cells") or {}).get("composite") or {}).get(h) or {}
     state = cell.get("state", "INSUFFICIENT")
@@ -2184,8 +2290,18 @@ def publication_gate(matrix: dict) -> dict:
              f"95% CI [{ci[0]:+.3f}, {ci[1]:+.3f}]"
              if cell.get("ic") is not None and ci
              else f"{cell.get('legs', 0)} of {EDGE_MIN_LEGS} legs")
+    meta = IC_SAMPLES[sample]
+    # `measured_on` keeps the wording honest as well as sourced: the coefficient is
+    # computed INSIDE the top conviction quintile, so it is not a statement about the
+    # whole published board even though it decides what that board is called.
+    prov = {"universe": meta["universe"], "population": meta["population"],
+            "measured_on": ("the persisted top fifty by conviction, not the whole "
+                            "published board — the sample is selected on the variable "
+                            "being measured, so this is a coefficient within the top "
+                            "conviction quintile")}
     if state == "NEGATIVE":
-        return {"gate": "DIAGNOSTIC_ONLY", "horizon": int(h), "ic_state": state,
+        return {**prov, "gate": "DIAGNOSTIC_ONLY", "sample": sample,
+            "sample_label": IC_SAMPLES[sample]["label"], "horizon": int(h), "ic_state": state,
                 "ic": cell.get("ic"), "ci": ci, "legs": cell.get("legs"), "stats": stats,
                 "headline": f"DIAGNOSTIC ONLY · {h}D IC {cell['ic']:+.3f} · "
                             f"95% CI [{ci[0]:+.3f}, {ci[1]:+.3f}]",
@@ -2193,21 +2309,24 @@ def publication_gate(matrix: dict) -> dict:
                           f"entirely below zero",
                 "detail": f"The board is ordered by a score whose {h}-day rank "
                           f"correlation with the next return is measurably negative "
-                          f"({stats}). It is published as a diagnostic. The ranking is "
+                          f"across {meta['universe']} ({stats}). It is published as a diagnostic. The ranking is "
                           f"NOT inverted: an interval below zero is a finding about "
                           f"these legs, not a licence to print the order backwards."}
     if state == "POSITIVE":
-        return {"gate": "PUBLISHED", "horizon": int(h), "ic_state": state,
+        return {**prov, "gate": "PUBLISHED", "sample": sample,
+            "sample_label": IC_SAMPLES[sample]["label"], "horizon": int(h), "ic_state": state,
                 "ic": cell.get("ic"), "ci": ci, "legs": cell.get("legs"), "stats": stats,
                 "headline": f"PUBLISHED · {h}D IC {cell['ic']:+.3f}",
                 "reason": f"the {h}-day information coefficient is measurable and positive",
                 "detail": f"The {h}-day rank correlation between conviction and the next "
-                          f"return is measurable and above zero ({stats})."}
+                          f"return is measurable and above zero across "
+                          f"{meta['universe']} ({stats})."}
     why = ("no history yet" if state == "INSUFFICIENT" and not cell.get("legs")
            else "not enough legs yet" if state == "INSUFFICIENT"
            else "the signal did not vary" if state == "DEGENERATE"
            else "the interval includes zero")
-    return {"gate": "NOT_ESTABLISHED", "horizon": int(h), "ic_state": state,
+    return {**prov, "gate": "NOT_ESTABLISHED", "sample": sample,
+            "sample_label": IC_SAMPLES[sample]["label"], "horizon": int(h), "ic_state": state,
             "ic": cell.get("ic"), "ci": ci, "legs": cell.get("legs"), "stats": stats,
             "headline": f"NOT ESTABLISHED · {h}D IC {stats}",
             "reason": f"the {h}-day information coefficient is not established — {why}",
@@ -2362,7 +2481,8 @@ def _active_contributions(usable_legs: list, limit: int = 8) -> dict:
 # weighted paper portfolio that _perf_weights() has published since the ledger began:
 #
 #   * the ten highest-conviction names on the prior night, over the universe the
-#     nightly persisted (the top 50 by market cap of the 250 fetched — rows[:50]);
+#     nightly persisted (the top 50 BY CONVICTION of the 250 fetched — rows[:50],
+#     taken after a conviction sort; see AUDIT-2026-09 1.0);
 #   * weight_i = conviction_i / sum(conviction) over those ten;
 #   * NO conjunctive qualification gate. _perf_by_date() reads price and conviction
 #     only; no gate flag is persisted and none was ever applied here. On 2026-08-05,
@@ -2633,10 +2753,17 @@ def _canonical_index(edge: dict | None = None) -> dict:
         "definition": {
             "book": "Top-10 by conviction, score-proportional weights",
             "top_n": PERF_TOP_N,
-            "universe": ("the nightly persisted universe: the top %s names by market cap of the "
-                         "250 fetched, written to signals.csv each night, of which a median %s "
-                         "are priced on both nights of a leg and form the equal-weight control. "
-                         "NOT the live board, which scores ~234."
+            # BY CONVICTION, not by market cap. This string was rendered on the study
+            # route and said "by market cap"; AUDIT-2026-09 1.0 established from the data
+            # that the persisted cut is a conviction sort, and four comments in this file
+            # said otherwise. The comments were corrected then and this string was
+            # missed, so the one copy a reader actually saw kept the error.
+            "universe": ("the nightly persisted universe: the top %s names BY CONVICTION "
+                         "of the 250 fetched, written to signals.csv each night, of which "
+                         "a median %s are priced on both nights of a leg and form the "
+                         "equal-weight control. NOT the live board, which scores ~234 — "
+                         "and selected on conviction, which is the variable any edge "
+                         "measured over it is about."
                          % (universe_persisted_n or "~50", universe_n or "~43")),
             "universe_persisted_n": universe_persisted_n,
             "universe_n": universe_n,
@@ -2738,9 +2865,16 @@ def _canonical_index(edge: dict | None = None) -> dict:
         },
         "holdings": holdings,
         "concentration": conc,
+        # The most widely-read copy of this number. It shipped with no source, no night
+        # count and no population — a consumer reading index.json alone could not have
+        # told which of the two IC samples it came from. It is the LEGACY one.
         "edge": {"mean_ic": e.get("mean_ic"), "ci": e.get("ci"), "t_stat": e.get("t_stat"),
                  "legs": e.get("legs"), "min_legs": e.get("min_legs"),
-                 "measurable": e.get("measurable"), "verdict": e.get("verdict")},
+                 "measurable": e.get("measurable"), "verdict": e.get("verdict"),
+                 "sample": IC_SAMPLES["legacy"]["id"],
+                 "sample_label": IC_SAMPLES["legacy"]["label"],
+                 "universe": IC_SAMPLES["legacy"]["universe"],
+                 "population": IC_SAMPLES["legacy"]["population"]},
     }
     _CANON_CACHE["key"] = key
     _CANON_CACHE["v"] = v
@@ -2779,6 +2913,15 @@ def _compute_edge() -> dict:
     spreads = [l["spread_bp"] for l in legs]
     base = {"legs": len(legs), "min_legs": EDGE_MIN_LEGS, "boundary": boundary,
             "spec_hash": SPEC_HASH, "series": legs, "attribution": attribution,
+            # AUDIT-CLOSURE. This block predates the two-sample distinction and never
+            # said which history it was measured on. It is the LEGACY sample — and a
+            # consumer reading only this file could not previously have known that, nor
+            # that the population is selected on the very variable being measured.
+            "sample": IC_SAMPLES["legacy"]["id"],
+            "sample_label": IC_SAMPLES["legacy"]["label"],
+            "universe": IC_SAMPLES["legacy"]["universe"],
+            "population": IC_SAMPLES["legacy"]["population"],
+            "sample_caveat": IC_SAMPLES["legacy"]["caveat"],
             # The realised gap the attribution reconciles to. Carried here so the panel
             # can state the underperformance and the null result side by side, which is
             # the pairing that stops either being misread on its own.
@@ -2786,8 +2929,8 @@ def _compute_edge() -> dict:
             "equal_weight_total": perf.get("equal_weight_total"),
             "benchmark_total": perf.get("benchmark_total"),
             "basis": ("Information coefficient = rank correlation between tonight's "
-                      "conviction and tomorrow's return, across the assets scored on "
-                      "both nights. It answers whether the ordering is informative, "
+                      "conviction and tomorrow's return, across the persisted top-fifty "
+                      "rows present on both nights — not across the whole scored board. It answers whether the ordering is informative, "
                       "which is a different question from whether the basket beat the "
                       "benchmark — a concentrated book with no edge underperforms an "
                       "equal-weight control as a matter of course.")}
@@ -4951,17 +5094,23 @@ def _cohort(pairs: list) -> dict:
     """
     n = len(pairs)
     if n < WALKFWD_MIN_COHORT:
-        return {"n": n, "hit_rate": None, "hit_ci": None, "mean_ret_pct": None,
-                "state": "INSUFFICIENT",
-                "detail": f"{n} of {WALKFWD_MIN_COHORT} observations"}
+        return {"n": n, "unit": "symbol-days", "hit_rate": None, "hit_ci": None,
+                "mean_ret_pct": None, "state": "INSUFFICIENT",
+                "detail": f"{n} of {WALKFWD_MIN_COHORT} symbol-days"}
     k = sum(1 for r in pairs if r > 0)
-    return {"n": n, "hit_rate": round(k / n, 4), "hit_ci": _wilson(k, n),
+    # `n` counts SYMBOL-DAYS, not legs. A cohort can read MEASURED on 409 symbol-days
+    # drawn from two legs while every IC cell in the same file reads INSUFFICIENT, and
+    # those are consistent rather than contradictory: a proportion needs observations, a
+    # rank correlation needs independent nights. The unit is carried so nobody has to
+    # infer that from the numbers.
+    return {"n": n, "unit": "symbol-days", "hit_rate": round(k / n, 4),
+            "hit_ci": _wilson(k, n),
             "mean_ret_pct": round(sum(pairs) / n * 100, 4), "state": "MEASURED",
-            "detail": f"{k} of {n} positive"}
+            "detail": f"{k} of {n} positive symbol-days"}
 
 
 def walkforward_report(by_date: dict, regimes: dict | None = None,
-                       universe: str = "ledger/xsec/ (whole scored cross-section)") -> dict:
+                       sample: str = "forward") -> dict:
     """IC, hit rate and cohort diagnostics by factor, horizon, tier, regime and flag.
 
     Runs today. On three nights of history almost every cell reads INSUFFICIENT, and
@@ -4971,6 +5120,10 @@ def walkforward_report(by_date: dict, regimes: dict | None = None,
     ``regimes`` maps a date to the RISK-ON / RISK-OFF flag recorded for that night.
     Absent, the regime split reports as unavailable rather than as one bucket.
     """
+    if sample not in IC_SAMPLES:
+        raise ValueError(f"walkforward_report sample must be one of "
+                         f"{sorted(IC_SAMPLES)}, got {sample!r}")
+    meta = IC_SAMPLES[sample]
     dates = sorted(by_date)
     links = link_outcomes(by_date)
     ret = {(r["date"], r["symbol"]): r["outcomes"] for r in links}
@@ -4991,7 +5144,9 @@ def walkforward_report(by_date: dict, regimes: dict | None = None,
     for name, field in IC_SIGNALS:
         ic[name] = {}
         for h in WALKFWD_HORIZONS:
-            ic[name][str(h)] = _ic_cell(_ic_legs(by_date, field, h, None))
+            cell = _ic_cell(_ic_legs(by_date, field, h, None))
+            cell["sample"] = meta["id"]          # see ic_matrix — same reasoning
+            ic[name][str(h)] = cell
 
     # --- hit rate by factor: the cohort a factor's own bound produced ------------
     def bucket(pred, h):
@@ -5073,11 +5228,21 @@ def walkforward_report(by_date: dict, regimes: dict | None = None,
 
     n_meas = sum(1 for sig in ic.values() for c in sig.values()
                  if c["state"] in ("NEGATIVE", "POSITIVE"))
+    # DERIVED, never typed. The banner is a function of whether any cell in THIS report
+    # has cleared the same bar the published matrix has to clear. It lifts on its own the
+    # night the sample earns it, and nothing has to remember to remove it.
+    total_cells = len(IC_SIGNALS) * len(WALKFWD_HORIZONS)
+    sample_state = FORWARD_INSUFFICIENT_BANNER if n_meas == 0 else (
+        f"{meta['label']} — {n_meas} of {total_cells} cells measurable")
     return {
         "version": WALKFWD_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "spec_hash": SPEC_HASH,
-        "universe": universe,
+        "sample": meta["id"],
+        "sample_label": meta["label"],
+        "universe": meta["universe"],
+        "population": meta["population"],
+        "sample_caveat": meta["caveat"],
         "nights": len(dates),
         "from": dates[0] if dates else None,
         "to": dates[-1] if dates else None,
@@ -5085,6 +5250,25 @@ def walkforward_report(by_date: dict, regimes: dict | None = None,
         "min_legs": EDGE_MIN_LEGS,
         "min_cohort": WALKFWD_MIN_COHORT,
         "measurable_cells": n_meas,
+        "total_cells": total_cells,
+        "cells_counted": ("measurable_cells counts the IC grid only — signal x horizon. "
+                          "The hit-rate and cohort blocks are counted in SYMBOL-DAYS and "
+                          "can read MEASURED while every IC cell reads INSUFFICIENT."),
+        "sample_state": sample_state,
+        "src": "live",
+        "src_contract": ("observed on the night it is dated; backfill rows are never "
+                         "pooled with them, and xsec_by_date() takes one source at a "
+                         "time so the two cannot be mixed by a reader either"),
+        "comparable_to_published_matrix": False,
+        "not_comparable_because": (
+            "The published IC matrix is measured on the LEGACY sample — "
+            "ledger/signals.csv, the top fifty by conviction, 48 nights. This report is "
+            "measured on the FORWARD sample — ledger/xsec/, the whole scored "
+            "cross-section, which began on 2026-09-15. Different populations over "
+            "different windows: the numbers are not alternative estimates of one "
+            "quantity and must never be averaged, compared or presented as though one "
+            "confirms or contradicts the other. Three nights admit at most two one-day "
+            "legs, so this report cannot reproduce a 43-leg figure at any horizon."),
         "coverage": coverage,
         "ic": ic,
         "hit_rate_by_tier": tiers,

@@ -664,6 +664,79 @@ def check_walkforward(ledger: Path) -> list[str]:
     return problems
 
 
+def check_ic_provenance(ledger: Path) -> list[str]:
+    """Every published IC must name its sample, and the counts must corroborate the name.
+
+    AUDIT-CLOSURE. The validator gated performance and tier_diff out of market_breadth.json
+    and never looked at the IC blocks at all, so a matrix computed over the wrong ledger
+    — or a label left behind when its source changed — would have published cleanly.
+
+    A label alone is not checkable. A label beside a night count is: three nights admit
+    at most two one-day legs, so any block claiming more legs than its own recorded
+    nights allow is a block whose numbers did not come from the sample it names.
+    """
+    problems: list[str] = []
+    mb = ledger / "market_breadth.json"
+    if not mb.exists():
+        return problems
+    try:
+        doc = json.loads(mb.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        return [f"market_breadth.json: unreadable ({e})"]
+
+    for key in ("edge", "ic_matrix"):
+        block = doc.get(key)
+        if not block:
+            continue
+        for field in ("sample", "sample_label", "universe", "population"):
+            if not block.get(field):
+                problems.append(f"market_breadth.json: `{key}` carries an information "
+                                f"coefficient and does not name its {field}")
+        if block.get("sample") and block["sample"] not in nightly.IC_SAMPLES:
+            problems.append(f"market_breadth.json: `{key}` names sample "
+                            f"{block['sample']!r}, which is not one of "
+                            f"{sorted(nightly.IC_SAMPLES)}")
+
+    gate = doc.get("publication_gate")
+    if gate and gate.get("sample") != "legacy":
+        problems.append(f"market_breadth.json: the publication gate reports sample "
+                        f"{gate.get('sample')!r} — the board may only be gated on the "
+                        f"legacy selection history it is published from")
+
+    m = doc.get("ic_matrix") or {}
+    nights = m.get("nights")
+    if nights:
+        for sig, byh in (m.get("cells") or {}).items():
+            for h, cell in byh.items():
+                ceiling = max(0, nights - int(h))
+                if (cell.get("legs") or 0) > ceiling:
+                    problems.append(
+                        f"market_breadth.json: ic_matrix {sig}@{h}d claims "
+                        f"{cell['legs']} legs from {nights} recorded night(s); at most "
+                        f"{ceiling} are possible — these figures did not come from the "
+                        f"sample this matrix names")
+
+    wf = ledger / "walkforward.json"
+    if wf.exists() and m:
+        try:
+            w = json.loads(wf.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return problems
+        if w.get("sample") == m.get("sample"):
+            problems.append(
+                f"walkforward.json and market_breadth.json both report sample "
+                f"{w.get('sample')!r} — the two studies measure different populations "
+                f"and one of them is mislabelled")
+        if w.get("comparable_to_published_matrix") is not False:
+            problems.append("walkforward.json must declare itself not comparable to the "
+                            "published matrix; the two are different samples")
+        if w.get("measurable_cells") == 0 and \
+                w.get("sample_state") != nightly.FORWARD_INSUFFICIENT_BANNER:
+            problems.append(f"walkforward.json measures nothing but does not carry the "
+                            f"{nightly.FORWARD_INSUFFICIENT_BANNER!r} banner")
+    return problems
+
+
 def check_rwa(ledger: Path) -> list[str]:
     """The RWA ledgers, and one property that has no equivalent on the crypto side.
 
@@ -915,6 +988,7 @@ def main() -> int:
     problems += check_xsec(ledger)
     problems += check_perp_transport(ledger)
     problems += check_walkforward(ledger)
+    problems += check_ic_provenance(ledger)
     problems += check_rwa(ledger)
 
     # Context, printed whether or not the gate passes — a validator that only speaks up

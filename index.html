@@ -1240,7 +1240,7 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
              replacement: that panel is the incumbent series and the composite 1d cell
              here reproduces it exactly, which is asserted in tests rather than hoped. -->
         <div class="glass">
-          <div class="card-h">IC MATRIX <span class="muted">every signal, every horizon — and what each one is entitled to claim</span></div>
+          <div class="card-h">IC MATRIX <span class="muted">legacy selection history — the forward cross-sectional sample is reported beneath it, separately</span></div>
           <div class="card-b" id="ic-matrix">
             <div class="muted" style="padding:8px 12px">Matrix pending — published by the nightly into <code>ledger/market_breadth.json</code>.</div>
           </div>
@@ -1907,6 +1907,9 @@ let TF = "24h";    // active timeframe for the delta column
 let PARITY = null; // parity.json: the real result of the gate that admitted the ledger
 let LATENCY = null;// measured round-trip to the price feed, in ms
 let BREADTH = null; // market_breadth.json: conviction time-series, breadth, dispersion, persistence
+let WALKFWD = null; // walkforward.json: the FORWARD cross-sectional study — a DIFFERENT
+                    // sample from BREADTH.ic_matrix, and never to be read beside it as
+                    // though the two were estimates of one quantity. See renderICMatrix.
 let MONITOR = null; // monitor.json: pipeline health, stability, field presence, spec continuity
 let FUNDING = null; // funding.json: cross-venue funding, regimes, modifiers, carry screen
 let FUND = {};      // the same, keyed by symbol
@@ -2021,6 +2024,13 @@ async function loadLedger(){
     const rb=await fetch("ledger/market_breadth.json",{cache:"no-store"});
     if(rb.ok){ BREADTH = await rb.json(); CHOP = BREADTH.chop || {}; }
   }catch(e){ /* breadth absent — change feed pending */ }
+  // AUDIT-CLOSURE. The FORWARD sample's own study. Fetched so the page can show that a
+  // second, wider, shallower IC study exists and has measured nothing yet — a reader
+  // shown only the populated LEGACY matrix would reasonably assume it is the only one.
+  try{
+    const rw=await fetch("ledger/walkforward.json",{cache:"no-store"});
+    if(rw.ok) WALKFWD = await rw.json();
+  }catch(e){ /* absent — the panel says so rather than implying there is nothing to say */ }
   try{
     const rm=await fetch("ledger/monitor.json",{cache:"no-store"});
     if(rm.ok) MONITOR = await rm.json();
@@ -3124,7 +3134,10 @@ function renderICMatrix(){
   const m = BREADTH && BREADTH.ic_matrix;
   if(!m){ host.innerHTML = `<div class="muted" style="padding:10px 12px">The IC matrix
     is published by the nightly into <code>ledger/market_breadth.json</code>. It has not
-    been written yet, which is reported rather than filled in.</div>`; return; }
+    been written yet, which is reported rather than filled in.</div>`
+    // The forward sample's state does not depend on whether the legacy matrix exists,
+    // and a reader seeing neither would otherwise conclude there is no IC work at all.
+    + forwardSampleBlock(); return; }
   const cl = st => st === "NEGATIVE" ? "neg" : st === "POSITIVE" ? "pos"
                  : st === "SPANS_ZERO" ? "neu" : "muted";
   const cell = c => {
@@ -3142,22 +3155,65 @@ function renderICMatrix(){
         <span class="muted">${ci} · ${c.legs}L</span>
         ${c.state === "INSUFFICIENT" ? `<span class="mk warn">⚠</span>` : ""}</td>`;
   };
+  // The composite row used to carry a badge reading PUBLISHED, meaning "this is the
+  // signal the board publishes on". Beside a gate whose state is DIAGNOSTIC ONLY that
+  // reads as its opposite — as though the signal were validated. It says GATED ON now:
+  // which is what it always meant, and cannot be read as a verdict.
   const rows = m.signals.map(sig =>
     `<tr class="row"><td class="tick">${esc0(sig)}${sig === "composite"
-        ? `<span class="tier ALT">PUBLISHED</span>` : ""}</td>`
+        ? `<span class="tier ALT" title="The signal the publication gate reads. It is a
+             pointer, not a verdict — the gate's own state is on the board strip.">GATED ON</span>`
+        : ""}</td>`
     + m.horizons.map(h => cell(m.cells[sig][String(h)])).join("") + `</tr>`).join("");
   host.innerHTML =
-    `<table><thead><tr><th>signal</th>`
+    `<div style="padding:7px 12px;border-bottom:1px solid var(--border);font-size:9.5px;
+                 line-height:1.45">
+       <b style="color:var(--blue)">${esc0(m.sample_label || "LEGACY SELECTION HISTORY")}</b>
+       <span class="muted"> · ${esc0(m.universe)} · ${esc0(m.population || "")}</span>
+       <div class="muted" style="margin-top:3px">${esc0(m.sample_caveat || "")}</div>
+     </div>`
+    + `<table><thead><tr><th>signal</th>`
     + m.horizons.map(h => `<th title="${esc0(m.overlap[String(h)]||"")}">${h}d${
         h === m.active_horizon ? " · ACTIVE" : ""}</th>`).join("")
     + `</tr></thead><tbody>${rows}</tbody></table>`
     + `<div class="muted" style="padding:8px 12px;line-height:1.5">
-        ${esc0(m.estimator)}. ${esc0(m.causality)} Universe: ${esc0(m.universe)}; legs
-        before the detected specification break at <code>${esc0(m.boundary||"—")}</code>
+        ${esc0(m.estimator)}. ${esc0(m.causality)}
+        Legs before the detected specification break at <code>${esc0(m.boundary||"—")}</code>
         are excluded. A cell reading INSUFFICIENT has fewer than ${m.min_legs} usable
         legs — it is not a zero and not a null result. 7d and 30d legs OVERLAP, so their
         intervals are narrower than the evidence supports; the effective sample is on
-        each cell's hover.</div>`;
+        each cell's hover.</div>`
+    + forwardSampleBlock();
+}
+
+/* The OTHER sample, rendered directly beneath the first and deliberately not in a table
+   of its own shape. A reader shown only the populated LEGACY matrix would reasonably
+   conclude it is the only information-coefficient study in this repository. It is not:
+   there is a second one over the whole scored cross-section — the population the board
+   actually publishes — and it has measured nothing yet.
+
+   These two must never be read as competing estimates of one quantity. Different
+   populations over different windows. Three nights admit at most two one-day legs, so
+   the forward study cannot reproduce a 43-leg figure at any horizon, and if it ever
+   shows one that is a bug and not a result. */
+function forwardSampleBlock(){
+  const w = WALKFWD;
+  if(!w) return `<div class="muted" style="padding:8px 12px;border-top:1px solid var(--border)">
+    <b style="color:var(--amber)">FORWARD SAMPLE — NOT PUBLISHED</b> ·
+    <code>ledger/walkforward.json</code> was not produced, so the wide cross-sectional
+    study cannot be shown. That is reported rather than taken to mean there is nothing
+    to report.</div>`;
+  const measurable = (w.measurable_cells || 0) > 0;
+  return `<div style="padding:8px 12px;border-top:1px solid var(--border);line-height:1.5">
+    <b style="color:${measurable ? "var(--green)" : "var(--amber)"}">${esc0(w.sample_state
+      || "FORWARD SAMPLE — INSUFFICIENT")}</b>
+    <span class="muted"> · ${esc0(w.universe || "")} · ${w.nights} night(s)
+      ${esc0(w.from || "?")} → ${esc0(w.to || "?")} ·
+      ${w.measurable_cells}/${w.total_cells || 18} cells measurable ·
+      ${(w.coverage && w.coverage["1"] ? w.coverage["1"].realised : 0)} realised 1d
+      outcome(s)</span>
+    <div class="muted" style="margin-top:4px">${esc0(w.not_comparable_because || "")}</div>
+  </div>`;
 }
 
 function setFilter(q){
@@ -5071,9 +5127,24 @@ function renderPersistence(){
    wrongly in isolation. The basket losing to equal weight looks like proof the
    selection subtracts value; it is what a concentrated book with no measurable edge
    does by construction, since concentration adds variance and not expected return. */
+/* AUDIT-CLOSURE. This card prints the same 43-leg figures the IC MATRIX card prints,
+   directly above it. Until now it named no sample, so two cards showed one sample's
+   numbers and only one of them said so — which is the conflation in its most literal
+   form. The header strip is the same one renderICMatrix uses, deliberately: two
+   surfaces showing one sample should announce it the same way. */
+function sampleStrip(o){
+  if(!o || !o.sample_label) return "";
+  return `<div style="padding:7px 12px;border-bottom:1px solid var(--border);
+                      font-size:9.5px;line-height:1.45">
+     <b style="color:var(--blue)">${esc0(o.sample_label)}</b>
+     <span class="muted"> · ${esc0(o.universe||"")}${o.population ? " · " + esc0(o.population) : ""}</span>
+     ${o.sample_caveat ? `<div class="muted" style="margin-top:3px">${esc0(o.sample_caveat)}</div>` : ""}
+   </div>`;
+}
 function renderEdge(){
   const host=$("#edge"); if(!host) return;
   const e=(BREADTH&&BREADTH.edge)||null;
+  const strip = sampleStrip(e);
   if(!e || !e.legs){
     host.innerHTML=`<div class="muted" style="padding:8px 12px">No measured legs yet.
       The edge cannot be estimated before the ledger has two boards inside one
@@ -5088,7 +5159,7 @@ function renderEdge(){
 
   // The verdict first, in the tone the numbers actually support.
   const tone = e.measurable ? (e.mean_ic>0?"var(--green)":"var(--red)") : "var(--amber)";
-  let html=`<div style="padding:8px 12px 4px">
+  let html=strip+`<div style="padding:8px 12px 4px">
     <div style="font-size:11px;color:${tone};font-weight:700;margin-bottom:4px">
       ${e.measurable?(e.mean_ic>0?"EDGE PRESENT":"EDGE INVERTED"):"NOT YET MEASURABLE"}</div>
     <div class="muted" style="font-size:10px;line-height:1.5">${e.verdict}</div>

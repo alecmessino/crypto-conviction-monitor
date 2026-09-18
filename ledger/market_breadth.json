@@ -815,7 +815,7 @@
   "legs": 43,
   "min_legs": 40,
   "boundary": "2026-08-05",
-  "spec_hash": "1a4ea6e4d77e",
+  "spec_hash": "91bbc2a7e466",
   "series": [
    {
     "from": "2026-08-05",
@@ -1298,10 +1298,15 @@
    ],
    "basis": "Arithmetic, not evidence. Contribution = active weight x (return - equal-weight return) per leg, linked across legs by the Carino method so the parts sum to the chained gap exactly rather than approximately. An unlinked sum does not: it is a sum of arithmetic pieces set against a difference of geometric wholes, and the error grows with the number of legs. Over this many legs the ordering is still mostly sampling noise, so it is a description of what happened and not a list of names to act on. An overweight name that fell is a selection error; an underweight name that rose is an omission."
   },
+  "sample": "legacy",
+  "sample_label": "LEGACY SELECTION HISTORY",
+  "universe": "signals.csv \u2014 the top fifty by conviction, each night",
+  "population": "conviction-truncated (top ~50 of ~235 scored)",
+  "sample_caveat": "Selected on conviction, which is the variable being measured. The information coefficient is therefore computed WITHIN the top conviction quintile, not across the board.",
   "book_total": 31.4602,
   "equal_weight_total": 63.3569,
   "benchmark_total": 18.8592,
-  "basis": "Information coefficient = rank correlation between tonight's conviction and tomorrow's return, across the assets scored on both nights. It answers whether the ordering is informative, which is a different question from whether the basket beat the benchmark \u2014 a concentrated book with no edge underperforms an equal-weight control as a matter of course.",
+  "basis": "Information coefficient = rank correlation between tonight's conviction and tomorrow's return, across the persisted top-fifty rows present on both nights \u2014 not across the whole scored board. It answers whether the ordering is informative, which is a different question from whether the basket beat the benchmark \u2014 a concentrated book with no edge underperforms an equal-weight control as a matter of course.",
   "measurable": true,
   "mean_ic": -0.0562,
   "median_ic": -0.1071,
@@ -6420,7 +6425,15 @@
   ],
   "active_horizon": 1,
   "boundary": "2026-08-05",
-  "universe": "signals.csv (top fifty by conviction)",
+  "sample": "legacy",
+  "sample_label": "LEGACY SELECTION HISTORY",
+  "universe": "signals.csv \u2014 the top fifty by conviction, each night",
+  "population": "conviction-truncated (top ~50 of ~235 scored)",
+  "sample_caveat": "Selected on conviction, which is the variable being measured. The information coefficient is therefore computed WITHIN the top conviction quintile, not across the board.",
+  "nights": 48,
+  "from": "2026-08-01",
+  "to": "2026-09-17",
+  "rows_per_night_median": 50,
   "min_legs": 40,
   "min_names": 10,
   "estimator": "Spearman rank correlation, ties averaged; mean over legs with a 95% interval at +/- 1.96 standard errors \u2014 the same contract the Selection Edge panel has always used",
@@ -6429,6 +6442,14 @@
    "7": "legs overlap by six days \u2014 effective sample is nearer legs/7, so the interval is narrower than the evidence supports",
    "30": "legs overlap by twenty-nine days \u2014 effective sample is nearer legs/30, so the interval is much narrower than the evidence supports"
   },
+  "companion_sample": {
+   "file": "ledger/walkforward.json",
+   "sample": "forward",
+   "label": "FORWARD CROSS-SECTIONAL SAMPLE",
+   "comparable": false,
+   "why": "A different population over a different window. The two are not alternative estimates of one quantity and must never be averaged, compared, or presented as though one confirms the other."
+  },
+  "boundary_rule": "Legs before the detected specification break are excluded. The legacy sample spans that break (2026-08-05) and is cut at it; the forward sample begins after every recorded break, so no cut applies and its boundary is null. The two therefore differ in boundary by circumstance, not by rule.",
   "causality": "A snapshot at t is paired with the price recorded at exactly t + horizon days. No nearest-date fallback, and a symbol must appear at both ends \u2014 a name that left the universe has no return and is not imputed one.",
   "cells": {
    "composite": {
@@ -6448,6 +6469,7 @@
      "sufficient": true,
      "state": "NEGATIVE",
      "detail": "the interval lies entirely below zero",
+     "sample": "legacy",
      "overlap": "legs are disjoint; the interval means what it says",
      "effective_legs": 43.0
     },
@@ -6467,6 +6489,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "37 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by six days \u2014 effective sample is nearer legs/7, so the interval is narrower than the evidence supports",
      "effective_legs": 5.3
     },
@@ -6486,6 +6509,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "14 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by twenty-nine days \u2014 effective sample is nearer legs/30, so the interval is much narrower than the evidence supports",
      "effective_legs": 0.5
     }
@@ -6507,6 +6531,7 @@
      "sufficient": true,
      "state": "SPANS_ZERO",
      "detail": "the interval includes zero \u2014 neither evidence for nor against",
+     "sample": "legacy",
      "overlap": "legs are disjoint; the interval means what it says",
      "effective_legs": 43.0
     },
@@ -6526,6 +6551,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "37 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by six days \u2014 effective sample is nearer legs/7, so the interval is narrower than the evidence supports",
      "effective_legs": 5.3
     },
@@ -6545,6 +6571,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "14 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by twenty-nine days \u2014 effective sample is nearer legs/30, so the interval is much narrower than the evidence supports",
      "effective_legs": 0.5
     }
@@ -6566,6 +6593,7 @@
      "sufficient": true,
      "state": "SPANS_ZERO",
      "detail": "the interval includes zero \u2014 neither evidence for nor against",
+     "sample": "legacy",
      "overlap": "legs are disjoint; the interval means what it says",
      "effective_legs": 43.0
     },
@@ -6585,6 +6613,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "37 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by six days \u2014 effective sample is nearer legs/7, so the interval is narrower than the evidence supports",
      "effective_legs": 5.3
     },
@@ -6604,6 +6633,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "14 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by twenty-nine days \u2014 effective sample is nearer legs/30, so the interval is much narrower than the evidence supports",
      "effective_legs": 0.5
     }
@@ -6625,6 +6655,7 @@
      "sufficient": true,
      "state": "SPANS_ZERO",
      "detail": "the interval includes zero \u2014 neither evidence for nor against",
+     "sample": "legacy",
      "overlap": "legs are disjoint; the interval means what it says",
      "effective_legs": 43.0
     },
@@ -6644,6 +6675,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "37 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by six days \u2014 effective sample is nearer legs/7, so the interval is narrower than the evidence supports",
      "effective_legs": 5.3
     },
@@ -6663,6 +6695,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "14 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by twenty-nine days \u2014 effective sample is nearer legs/30, so the interval is much narrower than the evidence supports",
      "effective_legs": 0.5
     }
@@ -6684,6 +6717,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "29 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs are disjoint; the interval means what it says",
      "effective_legs": 29.0
     },
@@ -6703,6 +6737,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "23 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by six days \u2014 effective sample is nearer legs/7, so the interval is narrower than the evidence supports",
      "effective_legs": 3.3
     },
@@ -6719,6 +6754,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "0 usable leg(s); 40 needed",
+     "sample": "legacy",
      "overlap": "legs overlap by twenty-nine days \u2014 effective sample is nearer legs/30, so the interval is much narrower than the evidence supports",
      "effective_legs": 0
     }
@@ -6740,6 +6776,7 @@
      "sufficient": true,
      "state": "SPANS_ZERO",
      "detail": "the interval includes zero \u2014 neither evidence for nor against",
+     "sample": "legacy",
      "overlap": "legs are disjoint; the interval means what it says",
      "effective_legs": 40.0
     },
@@ -6759,6 +6796,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "33 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by six days \u2014 effective sample is nearer legs/7, so the interval is narrower than the evidence supports",
      "effective_legs": 4.7
     },
@@ -6778,6 +6816,7 @@
      "sufficient": false,
      "state": "INSUFFICIENT",
      "detail": "11 of 40 legs \u2014 not yet measurable",
+     "sample": "legacy",
      "overlap": "legs overlap by twenty-nine days \u2014 effective sample is nearer legs/30, so the interval is much narrower than the evidence supports",
      "effective_legs": 0.4
     }
@@ -6785,7 +6824,12 @@
   }
  },
  "publication_gate": {
+  "universe": "signals.csv \u2014 the top fifty by conviction, each night",
+  "population": "conviction-truncated (top ~50 of ~235 scored)",
+  "measured_on": "the persisted top fifty by conviction, not the whole published board \u2014 the sample is selected on the variable being measured, so this is a coefficient within the top conviction quintile",
   "gate": "DIAGNOSTIC_ONLY",
+  "sample": "legacy",
+  "sample_label": "LEGACY SELECTION HISTORY",
   "horizon": 1,
   "ic_state": "NEGATIVE",
   "ic": -0.0562,
@@ -6797,6 +6841,6 @@
   "stats": "43 legs, IC -0.056, 95% CI [-0.106, -0.006]",
   "headline": "DIAGNOSTIC ONLY \u00b7 1D IC -0.056 \u00b7 95% CI [-0.106, -0.006]",
   "reason": "the 1-day information coefficient is measurable and entirely below zero",
-  "detail": "The board is ordered by a score whose 1-day rank correlation with the next return is measurably negative (43 legs, IC -0.056, 95% CI [-0.106, -0.006]). It is published as a diagnostic. The ranking is NOT inverted: an interval below zero is a finding about these legs, not a licence to print the order backwards."
+  "detail": "The board is ordered by a score whose 1-day rank correlation with the next return is measurably negative across signals.csv \u2014 the top fifty by conviction, each night (43 legs, IC -0.056, 95% CI [-0.106, -0.006]). It is published as a diagnostic. The ranking is NOT inverted: an interval below zero is a finding about these legs, not a licence to print the order backwards."
  }
 }
