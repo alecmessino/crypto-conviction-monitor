@@ -13,6 +13,7 @@ between them would reproduce the exact defect that AUDIT-2026-09 1.0 exists to f
 other asserts the legacy series did not move: same columns, same rows, same hash.
 """
 import csv
+import re
 import importlib.util
 import json
 from pathlib import Path
@@ -51,14 +52,20 @@ def ledger(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- schema
 
 def test_the_schema_is_locked():
-    """Twenty-five columns, in this order, at version 1.
+    """Forty-five columns, in this order, at version 3.
 
     Pinned as a literal rather than derived, because Phase 2's backfill writes into this
     shape and a column appearing or moving silently would leave two files that parse and
     disagree. Changing this list is a deliberate act that fails here first.
+
+    Each version is strictly APPEND-ONLY over the last: the first twenty-five columns
+    are byte-identical in name and order, so a reader written against v1 still parses a
+    v3 shard and the three nights recorded under v1 did not move. v3 added
+    `perp_board_state` when AUDIT-PHASE1.5 replaced the rule the two `perp_mult_board`
+    columns record — the columns kept their names and changed what they mean, and no row
+    had been written under the old meaning.
     """
-    assert nightly.XSEC_SCHEMA_VERSION == 1
-    assert nightly.XSEC_FIELDS == [
+    v1 = [
         "date", "symbol", "rank_mcap", "rank_conv",
         "conviction", "price", "market_cap", "turnover_pct",
         "rs7", "rs14", "rs30", "rs200", "rs_blend", "rs_windows_n",
@@ -66,8 +73,24 @@ def test_the_schema_is_locked():
         "fdv_usd", "funding_apr", "rsi7", "beta_btc",
         "spec_hash", "src",
     ]
-    assert len(nightly.XSEC_FIELDS) == 25
-    assert len(set(nightly.XSEC_FIELDS)) == 25
+    assert nightly.XSEC_SCHEMA_VERSION == 4
+    assert nightly.XSEC_FIELDS[:25] == v1
+    assert nightly.XSEC_FIELDS == v1 + [
+        "total_volume", "depth", "confirm", "liquidity",
+        "conviction_raw", "clamped",
+        "dom_factor", "dom_share", "dom_logabs",
+        # v4 — raw beside applied, and the bound that decided
+        "depth_raw", "depth_state", "liq_raw", "liq_state", "supply_state",
+        "dom_signed", "dom_warn",
+        "perp_mult_board", "perp_mult_board_date", "perp_board_state",
+        "price_chg_24h", "perp_path",
+        "funding_venue", "funding_venues_n", "funding_apr_spread",
+        "funding_interval_h", "funding_regime", "oi_usd",
+    ]
+    assert len(nightly.XSEC_FIELDS) == 52
+    assert len(set(nightly.XSEC_FIELDS)) == 52
+    # XSEC_V2_FIELDS must be exactly the tail, or the sidecar's "added_at_v2" lies.
+    assert list(nightly.XSEC_V2_FIELDS) == nightly.XSEC_FIELDS[25:]
     assert nightly.XSEC_SOURCES == ("live", "backfill")
     # Every shared column must actually exist in both schemas, or the invariant below
     # would pass by checking nothing.
@@ -292,16 +315,38 @@ def test_the_narrow_ledger_is_a_provable_subset_of_the_wide_one():
         # round-trip test above still exercises the formatting path on every run.
         pytest.skip("no night appears in both signals.csv and a shard yet")
 
+    # Six shared columns arrived with schema v2, and rows written before it carry them
+    # empty by design — see XSEC_V2_FIELDS and write_xsec. The invariant is a claim
+    # about columns a row was WRITTEN with, so it is scoped per row rather than
+    # weakened for everyone: `perp_mult_board` is populated on every v2 row and on no
+    # v1 row, which makes it the marker. A v1 row is still fully checked on the
+    # nineteen columns it does hold.
+    v1_shared = [f for f in nightly.XSEC_SHARED_FIELDS
+                 if f not in nightly.XSEC_V2_FIELDS]
+    v2_shared = [f for f in nightly.XSEC_SHARED_FIELDS if f in nightly.XSEC_V2_FIELDS]
     dates = {r["date"] for r in covered}
+    n_v2 = 0
     for r in narrow:
         if r["date"] not in dates:
             continue
         key = (r["date"], r["symbol"])
         assert key in wide, f"{key} is in signals.csv and missing from the cross-section"
-        for field in nightly.XSEC_SHARED_FIELDS:
+        written_at_v2 = wide[key].get("perp_mult_board") not in ("", None)
+        n_v2 += written_at_v2
+        for field in v1_shared + (v2_shared if written_at_v2 else []):
             assert wide[key][field] == r[field], (
                 f"{key} disagrees on {field}: "
                 f"signals.csv {r[field]!r} vs xsec {wide[key][field]!r}")
+        if not written_at_v2:
+            # A v1 row must be empty in those columns, not merely different from
+            # signals.csv. Otherwise this scoping would hide a real disagreement.
+            for field in v2_shared:
+                assert wide[key][field] == "", (
+                    f"{key} predates schema v2 but carries {field}="
+                    f"{wide[key][field]!r}")
+    if n_v2 == 0:
+        print("note: no v2 row shares a night with signals.csv yet — the six columns "
+              "added at v2 join this invariant with the next nightly")
 
 
 def test_the_invariant_holds_over_the_real_recorded_values(ledger):
@@ -371,28 +416,284 @@ def test_the_wide_ledger_is_wider_than_the_narrow_one():
 
 def test_the_legacy_ledger_did_not_move():
     """signals.csv keeps its columns and its rows, and the score keeps its hash."""
-    assert len(nightly.FIELDS) == 71
+    assert len(nightly.FIELDS) == 71  # signals.csv is untouched by every phase since
     assert nightly.FIELDS[:9] == ["date", "symbol", "name", "price", "market_cap",
                                   "turnover_pct", "erosion_ratio", "conviction", "signal"]
     with (ROOT / "ledger" / "signals.csv").open(newline="", encoding="utf-8") as f:
         assert next(csv.reader(f)) == nightly.FIELDS
     # This change is persistence only. If it moved the hash, something scoring-shaped
     # was edited by accident.
-    assert nightly.SPEC_HASH == "1a4ea6e4d77e"
+    # 1a4ea6e4d77e -> 8e750228e15a (AUDIT-PHASE1.5): the capture was widened to the OVERLAY SELECTION layer — which recorded multiplier a ledger consumer may apply — and unlike the two boundaries before it this one is a re-valuation, not instrumentation: the published board changes. See tests/test_perp_overlay.py.
+    # 8e750228e15a -> ab16684ad5c1 (AUDIT-PHASE1.6): the funding TRANSPORT changed. The board reads ledger/perp.json — the whole scored cross-section for the current snapshot — instead of the fifty rows signals.json persists, so 184 rows gain the multiplier score() already applied. Published scores move, so this is a re-valuation like 1.5 before it and nothing canonicalises onto it.
+    # ab16684ad5c1 -> 91bbc2a7e466 (AUDIT-PHASE2A): every factor threshold was collected into one captured SCORING object and asserted against the behaviour of the functions that already applied them. No scoring arithmetic was edited and no published score moved, so unlike 1.5 and 1.6 this one IS an instrumentation equivalence and the track record does not segment.
+    assert nightly.SPEC_HASH == "91bbc2a7e466"
+
+
+def _page_code() -> str:
+    """index.html with its JS comments removed.
+
+    Checked against the CODE, not the prose: AUDIT-PHASE2A's scoring config cites the
+    research ledger by path when explaining where its numbers came from, and a guard
+    that forbade naming the evidence would be trading the record for a substring match.
+    What must stay true is that nothing FETCHES it.
+    """
+    import re as _re
+    body = "\n".join(m.group(1) for m in
+                     _re.finditer(r"<script>(.*?)</script>", 
+                                  (ROOT / "index.html").read_text(encoding="utf-8"), _re.S))
+    body = _re.sub(r"/\*.*?\*/", "", body, flags=_re.S)
+    return "\n".join(l for l in body.splitlines() if not l.lstrip().startswith("//"))
 
 
 def test_nothing_in_the_page_reads_the_research_ledger():
-    """The browser fetches signals.json whole on every load. This must not join it."""
-    page = (ROOT / "index.html").read_text(encoding="utf-8")
-    assert "ledger/xsec" not in page
-    assert "xsec" not in (ROOT / "methodology.html").read_text(encoding="utf-8")
+    """The browser must not FETCH the shards. It may name them, and now must.
+
+    The original rule was "xsec appears nowhere in the page or the Method". That was
+    right while naming the store served no reader. AUDIT-CLOSURE changed the
+    requirement: there are two IC samples, the page shows both, and a page that could
+    not say which ledger a number came from would be committing the exact error the
+    closure exists to prevent.
+
+    So the invariant is narrowed to what actually costs something. The shards are a
+    growing CSV directory and the browser fetches `signals.json` whole on every load;
+    joining them client-side is what must never happen. Reading the small derived
+    report the nightly writes from them — `ledger/walkforward.json`, ~13 KB, one
+    document — is a different act and is allowed.
+    """
+    code = _page_code()
+    assert len(code) > 10000, "the comment strip removed the program"
+    # No fetch of the shards, by any spelling.
+    # Only tokens that would mean the page had reached INTO the shards. The page
+    # legitimately names other ledger CSVs (index.csv, sectors.csv), so a blanket
+    # ".csv" ban would fail on files this rule was never about.
+    for forbidden in ('fetch("ledger/xsec', "fetch('ledger/xsec", "ledger/xsec/20",
+                      "XSEC_DIR", "xsec/SCHEMA.json"):
+        assert forbidden not in code, forbidden
+    assert not re.search(r"""fetch\(\s*[`'"][^`'"]*xsec""", code),         "the page must not fetch the research shards"
+    # The derived report IS allowed, and is how the forward sample reaches the page.
+    assert 'fetch("ledger/walkforward.json"' in code
+    # The Method may describe the store; it must do so accurately when it does.
+    method = (ROOT / "methodology.html").read_text(encoding="utf-8")
+    if "xsec" in method:
+        assert "cross-section" in method,             "if the Method names the research ledger it must say what it is"
 
 
 def test_the_writer_is_not_part_of_the_specification():
     """Recording more rows is not a re-valuation of any of them."""
     captured = nightly.spec()["functions"]
     for name in ("write_xsec", "xsec_rows", "_xsec_rank", "observed_rs_windows",
-                 "write_xsec_schema", "xsec_shard_path"):
+                 "write_xsec_schema", "xsec_shard_path",
+                 # v2. factor_chain re-derives scoring arithmetic and must therefore
+                 # never be reachable FROM a scoring function — that is what would turn
+                 # a recording helper into a second specification.
+                 "factor_chain", "factor_chain_reconciles", "board_perp_map",
+                 "perp_path"):
         assert name not in captured
         for body in captured.values():
             assert name not in body, f"{name} reached a scoring function"
+
+
+# ------------------------------------------------- the chain (AUDIT-PHASE1 1B)
+
+def _market(sym, mc, vol, fdv=None, **pct):
+    t = {"symbol": sym, "market_cap": mc, "total_volume": vol,
+         "fully_diluted_valuation": fdv, "price_change_percentage_24h": 0.0}
+    for tf in (7, 14, 30, 200):
+        t[f"price_change_percentage_{tf}d_in_currency"] = pct.get(f"p{tf}", 0.0)
+    return t
+
+
+def test_the_chain_multiplies_back_out_to_the_published_score():
+    """conviction_raw x round x clamp must BE the published integer, not approximate it.
+
+    This is the property the whole v2 schema rests on. If the recorded multipliers do
+    not reproduce the recorded score, the ledger holds two different models and every
+    bound calibrated from it is calibrated against the wrong one.
+    """
+    btc = _market("BTC", 1e12, 1e10, p7=1.0, p14=2.0, p30=3.0, p200=4.0)
+    cases = [
+        _market("BIG", 5e11, 2.5e10, fdv=5e11, p7=20, p14=30, p30=40, p200=50),
+        _market("MID", 3e9, 6e7, fdv=1e10, p7=-5, p14=-10, p30=2, p200=100),
+        _market("THIN", 1.2e8, 1e5, fdv=None, p7=-30, p14=-40, p30=-20, p200=-60),
+        _market("CHURN", 8e8, 9e8, fdv=2.4e9, p7=200, p14=150, p30=90, p200=800),
+        _market("NOVOL", 4e8, 0, fdv=4e8),
+    ]
+    for t in cases:
+        _, conv, _, comp = nightly.score(t, {}, btc)
+        chain = nightly.factor_chain(t, {}, btc)
+        assert nightly.factor_chain_reconciles(chain, conv, comp) == [], t["symbol"]
+        product = (100.0 * chain["depth"] * chain["confirm"] * chain["liquidity"]
+                   * chain["supply"] * chain["funding"])
+        assert abs(product - chain["conviction_raw"]) < 1e-9
+        assert max(0, min(100, int(round(chain["conviction_raw"])))) == conv
+
+
+def test_a_chain_that_does_not_reconcile_is_reported_rather_than_written():
+    """The reconciliation has to be able to FAIL, or asserting it proves nothing."""
+    btc = _market("BTC", 1e12, 1e10)
+    t = _market("MID", 3e9, 6e7, fdv=1e10, p30=25)
+    _, conv, _, comp = nightly.score(t, {}, btc)
+    chain = nightly.factor_chain(t, {}, btc)
+    assert nightly.factor_chain_reconciles(chain, conv, comp) == []
+    # A score one point away from the chain is exactly the silent divergence the column
+    # exists to catch.
+    why = nightly.factor_chain_reconciles(chain, conv + 1, comp)
+    assert why and "conviction" in why[0]
+    why = nightly.factor_chain_reconciles(chain, conv, {**comp, "depth": 99.9})
+    assert why and "depth" in why[0]
+
+
+def test_dominance_needs_both_share_and_magnitude():
+    """A chain of five 1.0s is the LEAST dominated there is; share alone calls it 1.00."""
+    btc = _market("BTC", 1e12, 1e10)
+    # depth 1.0, turnover in the blue-chip bypass, no FDV haircut, no funding feed, and
+    # relative strength tuned so confirm lands on its midpoint 0.55 — one factor moving,
+    # four inert.
+    t = _market("FLAT", 1e10, 4.5e9, fdv=None)
+    chain = nightly.factor_chain(t, {}, btc)
+    assert chain["dom_factor"] == "CONFIRM"
+    assert chain["dom_share"] > 0.99          # share says "one factor does everything"
+    assert chain["dom_logabs"] < 0.7          # magnitude says how much that is
+    # And a genuinely lopsided chain has a large magnitude AND a large share.
+    t2 = _market("THIN", 1.2e8, 1e3, fdv=None, p7=-40, p14=-40, p30=-40, p200=-40)
+    c2 = nightly.factor_chain(t2, {}, btc)
+    assert c2["dom_logabs"] > chain["dom_logabs"]
+
+
+def test_the_board_funding_map_reproduces_the_pages_rule():
+    """Last write in FILE ORDER wins, with no date filter — bug included, on purpose.
+
+    This function exists to record the divergence between what the nightly models and
+    what the browser applies. If it silently corrected the page's rule there would be
+    no divergence to record.
+    """
+    rows = [
+        {"date": "2026-08-03", "symbol": "HBAR", "perp_mult": "17.4"},
+        {"date": "2026-09-01", "symbol": "ZEC", "perp_mult": "1.15"},
+        {"date": "2026-09-17", "symbol": "ZEC", "perp_mult": "1.071"},
+        {"date": "2026-09-17", "symbol": "ETH", "perp_mult": ""},
+        {"date": "2026-09-17", "symbol": "SOL", "perp_mult": "None"},
+        {"date": "2026-09-17", "symbol": "ada", "perp_mult": "0.94"},
+    ]
+    m = nightly.board_perp_map(rows)
+    # A 45-night-old value survives, because nothing in the page's rule expires one.
+    assert m["HBAR"] == {"value": 17.4, "date": "2026-08-03"}
+    # Later row in file order wins.
+    assert m["ZEC"] == {"value": 1.071, "date": "2026-09-17"}
+    # Empty and the literal string "None" are both skipped, as parseFloat/guard do.
+    assert "ETH" not in m and "SOL" not in m
+    # Symbols are upper-cased, as the page does.
+    assert m["ADA"]["value"] == 0.94
+
+
+def test_the_board_map_is_not_silently_clipped_to_the_modifier_envelope():
+    """17.4 is outside [0.85, 1.15] and is recorded as 17.4.
+
+    Clipping it here would hide the defect in the one column built to expose it. The
+    envelope belongs to funding.regime_modifier; what the page applies is a separate
+    fact and is recorded as observed.
+    """
+    m = nightly.board_perp_map([{"date": "2026-08-03", "symbol": "HBAR",
+                                 "perp_mult": "17.4"}])
+    assert m["HBAR"]["value"] > nightly.funding.MOD_MAX_BOOST
+
+
+def test_perp_path_names_the_branch_the_modifier_took():
+    assert nightly.perp_path(None, None, None) == "no-feed"
+    assert nightly.perp_path(5.0, None, None) == "inert-band"
+    assert nightly.perp_path(90.0, 12.0, None) == "hot-confirmed"
+    assert nightly.perp_path(90.0, None, None) == "hot-unconfirmed"
+    assert nightly.perp_path(-30.0, None, None) == "cold-no-rsi"
+    assert nightly.perp_path(-30.0, None, 20.0) == "cold-downtrend"
+    assert nightly.perp_path(-30.0, None, 70.0) == "cold-squeeze"
+    # Every branch the modifier can take has a name, and every name maps back to a
+    # multiplier that is either 1.0 or is not.
+    for apr, chg, rsi, inert in [(None, None, None, True), (5.0, None, None, True),
+                                 (90.0, 12.0, None, False), (90.0, None, None, False),
+                                 (-30.0, None, None, True), (-30.0, None, 20.0, True),
+                                 (-30.0, None, 70.0, False)]:
+        mult, _ = nightly.funding.regime_modifier(apr, chg, rsi)
+        assert (mult == 1.0) is inert, (apr, chg, rsi, mult)
+
+
+def test_v2_columns_are_empty_on_rows_recorded_before_they_existed():
+    """A column gained after a row was written is blank on that row, never filled in.
+
+    The three nights recorded under v1 are reconstructible and are deliberately not
+    reconstructed: they carry src="live", which this ledger defines as observed on the
+    night it is dated.
+    """
+    d = ROOT / "ledger" / "xsec"
+    if not d.exists():
+        pytest.skip("no shard written yet")
+    # Keyed on the row rather than on a date: re-running a night through the v2 writer
+    # legitimately repopulates it, and a date cutoff would turn that into a failure.
+    # `perp_mult_board` is the marker — the one v2 column written unconditionally.
+    for path in sorted(d.glob("*.csv")):
+        with path.open(newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                if r["perp_mult_board"] not in ("", None):
+                    continue           # a v2 row; the test below checks these
+                for col in nightly.XSEC_V2_FIELDS:
+                    assert r[col] == "", (
+                        f"{r['date']} {r['symbol']} carries {col}={r[col]!r} but has no "
+                        f"perp_mult_board — a half-written row under neither schema")
+
+
+def test_every_v2_column_has_a_writer():
+    """A typo in a v2 column name writes an empty column forever and fails nothing.
+
+    Two halves, checked separately because they are filled by different code. Six of
+    the nineteen are existing signals.csv columns already present on the row the loop
+    builds — those must exist in FIELDS, or the key the writer projects will never
+    match. The other thirteen are added by the row loop itself and are named here, so
+    renaming one without renaming the other fails here rather than silently.
+    """
+    from_signals = ("funding_venue", "funding_venues_n", "funding_apr_spread",
+                    "funding_interval_h", "funding_regime", "oi_usd")
+    from_loop = ("total_volume", "depth", "confirm", "liquidity",
+                 "conviction_raw", "clamped", "dom_factor", "dom_share", "dom_logabs",
+                 "perp_mult_board", "perp_mult_board_date", "perp_board_state",
+                 "price_chg_24h", "perp_path",
+                 # v4
+                 "depth_raw", "depth_state", "liq_raw", "liq_state", "supply_state",
+                 "dom_signed", "dom_warn")
+    assert set(from_signals) | set(from_loop) == set(nightly.XSEC_V2_FIELDS)
+    for f in from_signals:
+        assert f in nightly.FIELDS, f
+    src = (ROOT / "nightly.py").read_text(encoding="utf-8")
+    for f in from_loop:
+        assert f'"{f}"' in src, f
+
+
+def test_v2_columns_are_populated_once_the_v2_writer_has_run():
+    """The mirror of the emptiness test above: a column that is ALWAYS empty is a bug.
+
+    Skips until the first v2 night lands. `perp_mult_board` is the marker because it is
+    the one v2 column the writer fills unconditionally — the rest are blanked together
+    when a row's chain fails to reconcile against score(), which is a recorded outcome
+    and not a missing writer.
+    """
+    d = ROOT / "ledger" / "xsec"
+    if not d.exists():
+        pytest.skip("no shard written yet")
+    v2 = []
+    for path in sorted(d.glob("*.csv")):
+        with path.open(newline="", encoding="utf-8") as f:
+            v2 += [r for r in csv.DictReader(f) if r.get("perp_mult_board") not in ("", None)]
+    if not v2:
+        pytest.skip("no v2 row recorded yet — the first lands with the next nightly")
+    for col in nightly.XSEC_V2_FIELDS:
+        assert any(r[col] not in ("", None) for r in v2), \
+            f"{col} is empty on every v2 row — nothing writes it"
+    for r in v2:
+        # The identity the whole schema rests on, asserted on the file rather than on
+        # the function that produced it.
+        if r["conviction_raw"] == "":
+            continue
+        raw = float(r["conviction_raw"])
+        assert max(0, min(100, int(round(raw)))) == int(r["conviction"]), r
+        product = (100.0 * float(r["depth"]) * float(r["confirm"])
+                   * float(r["liquidity"]) * float(r["emission_mult"])
+                   * float(r["perp_mult"]))
+        assert abs(product - raw) < 5e-4, r

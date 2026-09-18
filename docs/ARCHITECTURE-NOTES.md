@@ -4,6 +4,10 @@ Written 2026-09-14 as Phase 0 of the audit. Factual map of file → responsibili
 so the Phase 1 findings can be reviewed against something. Nothing here is a
 proposal; everything is what the code does today at `6492e5d`.
 
+*Extended 2026-09-18 at closure.* The Phase 0 snapshot is left as written; §5 and §7 gain
+the artifacts and the distinction the audit added after it, marked with their dates. A map
+that omits a file is a map that says the file does not exist.
+
 ## 1. The shape of the thing
 
 One scheduled Python job writes a directory of flat files; one self-contained HTML
@@ -105,13 +109,27 @@ the same guarded block, and `convictionFactors()` at 3429 rendering the decompos
 `nightly.spec()` (`nightly.py:250`) does not enumerate constants — it **parses the
 source**, strips docstrings, and unparses each scoring function to canonical text.
 Captured: `score`, `_lavl_regime`, `lavl_perp_mult`, `_tier_for`, `emission_drag`,
-`emission_mult`, six `nightly` constants, eight `funding` functions and fifteen
-`funding` constants. `spec_hash()` is a 12-char SHA-256 of that blob, assigned at the
+`emission_mult`, `_rsi_by_symbol`, the three funding-transport functions
+(`iso_day_diff`, `perp_entry`, `perp_feed`), ten `nightly` constants, nine `funding`
+functions and eighteen `funding` constants — nineteen functions and twenty-nine
+constants in all, which `tests/test_perp_overlay.py` counts rather than trusting this
+sentence.
+
+The captured set **shrinks** as well as grows. `ledger_latest_date`, `overlay_as_of` and
+`perp_overlay` left it at Phase 1.6 with the `signals.json` path they served, and
+`board_perp_map` was never in it. All four are retained, uncaptured, so the regression
+tests can run each generation of the rule against the one before it. Capturing dead code
+means an edit to dead code re-segments the track record — the mirror image of the hole
+§1.8 closed, and it costs just as much. `spec_hash()` is a 12-char SHA-256 of that blob, assigned at the
 *bottom* of the module (`nightly.py:4536`) — deliberately, because assigning it at the
 top once hashed five not-yet-defined constants as null.
 
-**Current hash: `1a4ea6e4d77e`** (was `6f98778fa627` until 2026-09-15; see
-AUDIT-2026-09 §1.8). Recorded boundaries in `ledger/signals.csv`:
+**Current hash: `91bbc2a7e466`** — three boundaries landed on 2026-09-17,
+`1a4ea6e4d77e` → `8e750228e15a` (AUDIT-PHASE1.5, overlay selection) →
+`ab16684ad5c1` (AUDIT-PHASE1.6, the transport) → `91bbc2a7e466` (AUDIT-PHASE2A, the
+declared ruler — an instrumentation equivalence, so `ab16684ad5c1` canonicalises onto
+it and the track record does **not** segment). Recorded boundaries in
+`ledger/signals.csv`:
 
 | First night | Hash | Note |
 |---|---|---|
@@ -120,7 +138,10 @@ AUDIT-2026-09 §1.8). Recorded boundaries in `ledger/signals.csv`:
 | 2026-08-16 | `e65f7dc59d55` | |
 | 2026-08-19 | `2da60f7efd7b` | Module F lands |
 | 2026-08-20 | `6f98778fa627` | superseded 2026-09-15 |
-| *(next run)* | `1a4ea6e4d77e` | current; `2da60f7efd7b` and `6f98778fa627` canonicalise onto it |
+| 2026-09-15 | `1a4ea6e4d77e` | superseded 2026-09-17; `2da60f7efd7b` and `6f98778fa627` canonicalise onto it |
+| 2026-09-17 | `8e750228e15a` | AUDIT-PHASE1.5: overlay selection captured. **A re-valuation**, so nothing canonicalises onto it |
+| 2026-09-17 | `ab16684ad5c1` | AUDIT-PHASE1.6: the transport moved to `ledger/perp.json`. Also a re-valuation |
+| *(next run)* | `91bbc2a7e466` | current — AUDIT-PHASE2A: the declared ruler. **Instrumentation**, proved by `spec_hash_without`, so `ab16684ad5c1` canonicalises onto it |
 
 Since 2026-09-15 it also captures the layer that decides *which* funding reading reaches
 the score — `funding.consolidate`, `funding.VENUE_PRIORITY`, `INTERVAL_BASIS_REAL`,
@@ -129,14 +150,37 @@ source. `perp_context` and `funding_context` are deliberately **not** captured: 
 build recorded columns and reach no score. One hole remains and is named in the source:
 the `consolidated` → `perps_map` projection inside `main()`. See AUDIT-2026-09 §1.8.
 
-`canonical_spec_hash()` resolves **transitively**, because two instrumentation
-corrections now sit on the same body of scoring code.
+Since 2026-09-17 it also captures the layer above that: *which multiplier a consumer is
+allowed to apply at all*. `perp_entry` (the envelope rule) and `perp_feed` (the artifact
+transport) are mirrored verbatim in `index.html`'s ported block and both sides are
+executed by `tests/test_parity.py`. That gate is the other half of the fix — the rule
+1.5 replaced lived in `loadLedger()`, outside the markers the gate extracts, and the
+gate reported PASS for the whole six weeks the board was serving HBAR a
+forty-five-night-old 17.4.
 
-`SPEC_EQUIVALENT` holds two entries, both instrumentation rather than model changes:
+**`ledger/perp.json`** (AUDIT-PHASE1.6) is the transport: one row per scored symbol for
+the current snapshot, ~13 KB, written by the nightly from the same row loop that feeds
+`score()`. Deliberately not `ledger/funding.json`, which is the rich artifact — eight
+venues nested per asset, the carry screen, 70 KB, fifty rows. The browser applies
+`perp_feed` to it and has **no fallback**: a missing or stale artifact withholds the
+overlay whole and the board says so. The artifact asserts *availability*; the consumer
+decides *validity*, every time.
+
+`canonical_spec_hash()` resolves **transitively**, because two instrumentation
+corrections sit on the same body of scoring code.
+
+`SPEC_EQUIVALENT` holds three entries, all instrumentation rather than model changes:
 `2da60f7efd7b` → `6f98778fa627` (five constants hashed as null) and `6f98778fa627` →
 `1a4ea6e4d77e` (the widened capture). `spec_hash_as_recorded_before()` and
 `spec_hash_without()` make both claims re-derivable from today's source rather than
-asserted.
+asserted. The third, `ab16684ad5c1` → `91bbc2a7e466`, collected every factor
+threshold into the captured `SCORING` object without editing a line of scoring
+arithmetic; removing `SCORING` from today's specification reproduces the superseded
+digest exactly. **`1a4ea6e4d77e` and `8e750228e15a` are deliberately absent.** The chain's fixed point is
+`1a4ea6e4d77e` and it stops there: AUDIT-PHASE1.5 changed which input arrives and moved
+eleven published scores, so folding it in would claim the board said the same thing
+either side of it. `tests/test_persistence.py` asserts the chain ends where it ends and
+that today's hash is its own segment. 
 
 **The 2026-08-05 boundary the brief refers to is not a hash boundary.** It predates the
 hash entirely and is detected from the data by `_spec_breaks()` (`nightly.py:2276`):
@@ -154,12 +198,40 @@ and it is what the Selection Edge panel starts counting legs from. Confirmed by 
 at 4137. Today's rows are replaced rather than appended, so a re-run does not duplicate a night.
 
 > Note for the audit: four comments in `nightly.py` (lines 1486, 1689, 1693, 1779)
-> describe this as "the top 50 **by market cap**". It is the top 50 by **conviction**.
-> See AUDIT-2026-09 §1.0 — this is the finding with the widest blast radius.
+> describe this as "the top 50 **by market cap**". That description is wrong and has been
+> **corrected**: it is the top 50 by **conviction**. See AUDIT-2026-09 §1.0 — the finding
+> with the widest blast radius, because a universe selected on conviction is selected on
+> the variable any edge measured over it is about.
 
 **`ledger/sectors.csv`** — one row per surviving category per night, 416 KB. The
 category endpoint has no history at all, so multi-day sector flow is *accumulated* here
 rather than fetched.
+
+**`ledger/xsec/` — added 2026-09-15, after this note was written.** Month-sharded CSV of
+the **whole scored cross-section**, 234–235 rows a night, schema-locked by
+`ledger/xsec/SCHEMA.json` (v4, 52 columns). Append-only per night, rewritten in place on a
+re-run. Read by `xsec_by_date()` and by nothing else.
+
+**`ledger/walkforward.json` — added 2026-09-17.** The forward outcome study computed from
+`ledger/xsec/` by `walkforward_report()`: IC cells per signal × horizon, hit-rate cohorts
+counted in **symbol-days**, and a `sample_state` banner derived from those cells rather
+than typed.
+
+**`ledger/perp.json` — added 2026-09-17.** The current funding cross-section, 235 rows,
+so the browser and the nightly engine score from the same information set. Before it, the
+page rebuilt its overlay from the full history with no date filter — see AUDIT-PHASE1 §1.5.
+
+> **There are two information-coefficient samples in this repository, and they are not the
+> same measurement.** The **legacy selection history** is `ledger/signals.csv`: 48 nights
+> deep, fifty rows a night, and those fifty are the top fifty *by conviction*, so the
+> coefficient is computed inside the top conviction quintile rather than across the board.
+> `ic_by_date()` reads it; the published IC matrix and the publication gate are measured on
+> it, because it is the only sample deep enough to say anything. The **forward
+> cross-sectional sample** is `ledger/xsec/`: the whole published population, begun
+> 2026-09-15, read by `xsec_by_date()` and powering `ledger/walkforward.json` only. On
+> every shared night the first is a strict subset of the second. The two must never be
+> averaged or compared. See `docs/CLOSURE-2026-09-18.md` §1 and
+> `tests/test_ic_provenance.py`, which enforces this rather than asserting it.
 
 Other ledger artifacts: `index.{csv,json}` (the paper book), `monitor.json` (pipeline
 health), `market_breadth.json`, `market_intel.json` (sectors / correlation / trending /
@@ -184,6 +256,12 @@ gate.io supplied the headline for 43 of 50 rows. `ledger/venue_health.csv` recor
 **Dune.** Module B only. Absent key ⇒ the columns are null, which is where they are.
 
 ## 7. Selection Edge / IC
+
+**Which sample.** All of the below is measured on the **legacy selection history** —
+`ledger/signals.csv`, the persisted top fifty by conviction — and never on `ledger/xsec/`.
+The population is the sample's own truncation, not the board: an IC over it is an IC
+inside the top conviction quintile. The reader is `ic_by_date()`, which since 2026-09-18
+refuses any row carrying the cross-section's `src` marker.
 
 `_compute_edge()` (`nightly.py:1871`) → `_edge_legs()` (1306):
 

@@ -10,11 +10,13 @@ fetched; otherwise Module B columns stay null (never fabricated).
 """
 from __future__ import annotations
 
+import collections
 import csv
 import json
 import math
 import random
 import os
+import re
 import sys
 import urllib.parse
 import urllib.request
@@ -210,6 +212,203 @@ rwa = _load_sibling("rwa.py", "cm_rwa")
 
 
 # ---------------------------------------------------------------------------
+# the declared ruler  (AUDIT-PHASE2A)
+# ---------------------------------------------------------------------------
+# Every threshold that governs a factor, in one object, named. Nothing here is new and
+# nothing here is a NEW bound: Phase 2A's evidence concluded that DEPTH and SUPPLY are
+# already bounded by construction and that LIQUIDITY's problem is the shape of its curve
+# rather than the absence of a clip. The purpose is to make the existing ruler explicit
+# and auditable, not to change it.
+#
+# CAPTURED, and the reason is worth stating. These values are not documentation: they are
+# a CLAIM about what the scoring functions do, asserted against behaviour by
+# tests/test_scoring_config.py. Capturing them means the specification digest notices an
+# edit to either side of that claim. It also means a change here re-segments the track
+# record, which is correct — a ruler that can be edited without anyone noticing is the
+# defect AUDIT-2026-09 1.8 was about, from the other direction.
+#
+# The scoring functions are deliberately NOT refactored to read from this object. Their
+# source text is what spec() hashes, so rewriting literals as lookups would move the
+# digest on a change that alters no number and would leave the equivalence unprovable by
+# spec_hash_without(). A declaration checked against behaviour is worth more than an
+# alias that cannot be.
+#
+# Mirrored verbatim in index.html's ported block; tests/test_parity.py executes both.
+SCORING = {
+    # clamp((log10(mcap) - ZERO) / SPAN, MIN, MAX). MIN is unreachable above $1M of
+    # market cap; MAX binds for every asset above $10B — 4.3% of the universe.
+    "DEPTH": {"MIN": 0, "MAX": 1, "LOG_MCAP_ZERO": 6, "LOG_MCAP_SPAN": 4},
+    # BASE + SPAN * (tanh(rs_blend / TANH_SCALE) + 1) / 2. The comment beside this curve
+    # claimed a ceiling of 0.91 for most of this repository's life; the arithmetic gives
+    # BASE + SPAN = 1.00 and 37 rows of the 2026-09-17 board sat above 0.91. Out of
+    # Phase 2A scope — recorded because the ruler should say what it is.
+    "CONFIRM": {"BASE": 0.10, "SPAN": 0.90, "TANH_SCALE": 25},
+    # liquidity_fit(turnover) / FIT_MAX, floored at FLOOR, except that an asset whose
+    # DEPTH reaches BYPASS_DEPTH is set to 1.0 outright.
+    #
+    # Measured over ledger/xsec/ (703 rows, three nights): 44.1% sit at exactly FLOOR,
+    # 8.3% take the bypass, and NOT ONE of 645 non-bypass rows reached 1.0 through
+    # turnover — the best was 0.9939. The curve peaks at 45% turnover against a universe
+    # median of 3.3%, so 97.5% of rows sit on its left-hand rising limb, and the floor
+    # and bypass together produce 52.4% of everything this factor emits.
+    #
+    # A misspecified curve, not a miscalibrated one. Phase 2A deliberately does not clip
+    # around it — see docs/PHASE2A-CALIBRATION-2026-09-17.md 3.3. The redesign is
+    # deferred until ledger/xsec/ holds 40 genuinely forward cross-sectional legs, which
+    # is an evidence count and not a date.
+    "LIQUIDITY": {"FLOOR": 0.40, "BYPASS_DEPTH": 0.90, "FIT_MAX": 30,
+                  "KNOT_RAMP": 0.30, "KNOT_PEAK": 0.45, "KNOT_FALL": 0.60,
+                  "KNOT_WASH": 1.20},
+    # 1 - (1 - FLOOR) * tanh(...). Bounded [FLOOR, CEIL] by construction. This factor's
+    # entire possible influence is log(1/0.90) = 0.105 nats, below the dominance
+    # magnitude threshold — a SUPPLY-dominated chain is by construction a chain with no
+    # dominant factor, which is why Phase 2A proposes no bound for it.
+    "SUPPLY": {"FLOOR": 0.90, "CEIL": 1.0, "FREE_RATIO": 1.10, "ANCHOR_RATIO": 3.0,
+               "ANCHOR_SEVERITY": 0.75},
+    # The envelope funding.regime_modifier can produce, and the age a snapshot may reach.
+    # Landed at AUDIT-PHASE1.5; restated because it is part of the same ruler.
+    "FUNDING": {"LO": 0.85, "HI": 1.15, "NEUTRAL": 1.0, "MAX_AGE_DAYS": 1},
+    # The published score, after round.
+    "CLAMP": {"MIN": 0, "MAX": 100},
+    # Diagnostic only. Nothing here reaches conviction — see chain_dominance().
+    #
+    # SHARE_WARN is EMPIRICALLY ANCHORED: 0.70 is the pooled 90th percentile of the
+    # concentration distribution over ledger/xsec/ (0.709), stable night to night
+    # (0.694 / 0.705 / 0.711). It encodes "the decile of chains most concentrated in one
+    # factor".
+    #
+    # MAGNITUDE_WARN is a POLICY threshold and is not derived from any percentile.
+    # 0.22 is log(1.25): the dominant factor alone moves the score by at least a quarter.
+    # Stated as a multiplier because a percentile of magnitude would drift with the
+    # regime while the meaning of "a quarter" does not. Calling it a calibration would be
+    # claiming the data chose it, and the data did not.
+    "DOMINANCE": {"SHARE_WARN": 0.70, "MAGNITUDE_WARN": 0.22},
+}
+# The order dominance ties break in. Fixed, and iterated rather than sorted, because
+# max-by-magnitude over an unordered map picks a different winner in JS and in Python the
+# moment two factors are exactly equal — which happens whenever two sit at the same
+# envelope edge.
+DOM_FACTORS = ("DEPTH", "CONFIRM", "LIQUIDITY", "SUPPLY", "FUNDING")
+
+
+def depth_state(mc) -> dict:
+    """What DEPTH would have been before its clamp, what it is after, and which bound."""
+    mc = _num(mc)
+    if not mc or mc <= 0:
+        return {"raw": None, "applied": 0.0, "state": "no-mcap"}
+    raw = ((math.log10(mc) - SCORING["DEPTH"]["LOG_MCAP_ZERO"])
+           / SCORING["DEPTH"]["LOG_MCAP_SPAN"])
+    applied = max(SCORING["DEPTH"]["MIN"], min(SCORING["DEPTH"]["MAX"], raw))
+    state = ("cap" if raw > SCORING["DEPTH"]["MAX"] + 1e-12
+             else "floor" if raw < SCORING["DEPTH"]["MIN"] - 1e-12 else "curve")
+    return {"raw": raw, "applied": applied, "state": state}
+
+
+def liquidity_state(vol, mc, depth) -> dict:
+    """The curve value, the applied value, and which mechanism decided.
+
+    ``vol`` is the payload field UNMODIFIED — None when the feed published nothing, 0
+    when it published a zero. Scoring collapses both to 0 and Phase 2A does not change
+    that: ``applied`` is identical either way. Only ``state`` tells them apart, which is
+    the point — fifteen rows a night are tokenised money-market instruments with no
+    secondary market at all, and today they score exactly as a token trading at 2.9%
+    turnover does. Whether that is right is the curve redesign's question; making it
+    visible is this phase's.
+    """
+    known = vol is not None and vol != ""
+    v = _num(vol) if known else 0.0
+    if v is None:
+        known, v = False, 0.0
+    mcn = _num(mc) or 0.0
+    turn = (v / mcn) if mcn > 0 else 0.0
+    raw = _liquidity_fit(turn) / SCORING["LIQUIDITY"]["FIT_MAX"]
+    bypass = depth >= SCORING["LIQUIDITY"]["BYPASS_DEPTH"]
+    applied = 1.0 if bypass else max(SCORING["LIQUIDITY"]["FLOOR"], raw)
+    state = ("bypass" if bypass
+             else "no-volume" if not known
+             else "zero-volume" if v == 0
+             else "floor" if applied > raw + 1e-12 else "curve")
+    return {"raw": raw, "applied": applied, "state": state, "turn": turn,
+            "bypass": bypass}
+
+
+def _liquidity_fit(turn: float) -> float:
+    """Module A's turnover curve, on its 0-30 display scale.
+
+    A transcription, not the original: score() computes this inline and its text is
+    hashed, so it cannot be factored out without moving the digest. This copy is
+    asserted equal to score()'s behaviour at every declared knot by
+    tests/test_scoring_config.py, and reaches no published score.
+    """
+    if turn <= 0:
+        return 0.0
+    if turn <= 0.30:
+        return 10 + (turn / 0.30) * 20
+    if turn <= 0.60:
+        return 30 - abs(turn - 0.45) / 0.15 * 6
+    if turn <= 1.20:
+        return 20 - (turn - 0.60) / 0.60 * 12
+    return max(2, 8 - (turn - 1.20) * 4)
+
+
+def supply_state(fdv, mc) -> dict:
+    """``raw`` and ``applied`` are the same number here, and that is not an oversight.
+
+    The emission envelope is inside the curve rather than around it, so there is no
+    unbounded value to report. ``drag`` is the pre-envelope severity, which is the
+    quantity a redesign would want.
+    """
+    drag = emission_drag(fdv, mc)
+    applied = emission_mult(fdv, mc)
+    state = "unpublished" if drag is None else "inert" if drag == 0 else "applied"
+    return {"raw": applied, "applied": applied, "drag": drag, "state": state}
+
+
+def chain_dominance(m: dict) -> dict:
+    """Which single factor is moving the score, by how much, and whether to say so.
+
+    contribution = log(multiplier), magnitude = |contribution|,
+    share = magnitude / sum of magnitudes.
+
+    Both legs are required and they answer different questions. Share alone saturates: a
+    chain with four factors at exactly 1.0 gives its fifth 100% of almost nothing, which
+    is the most nearly NEUTRAL chain there is rather than the most dominated. ZEC on
+    2026-09-17 is exactly that — share 1.000 on a magnitude of 0.069 — and it is the
+    control case this must not flag.
+
+    One structural consequence worth knowing before reading a warning: every factor
+    except FUNDING is bounded above at 1.0, and FUNDING's largest possible magnitude
+    (0.163) is below MAGNITUDE_WARN. A dominance warning can therefore never mean "one
+    factor inflated this score". It always means a single haircut is most of the chain.
+
+    Diagnostic only. Nothing here reaches conviction.
+    """
+    contrib, mag = {}, {}
+    total = 0.0
+    for k in DOM_FACTORS:
+        v = m.get(k)
+        c = math.log(v) if isinstance(v, (int, float)) and v > 0 else None
+        contrib[k] = c
+        if c is not None:
+            mag[k] = abs(c)
+            total += mag[k]
+    top = None
+    for k in DOM_FACTORS:                 # first in declared order wins a tie
+        if k not in mag:
+            continue
+        if top is None or mag[k] > mag[top]:
+            top = k
+    if top is None or total <= 1e-12:
+        return {"factor": None, "share": 0.0, "magnitude": 0.0, "signed": 0.0,
+                "total": 0.0, "contrib": contrib, "warn": False}
+    share = mag[top] / total
+    return {"factor": top, "share": share, "magnitude": mag[top],
+            "signed": contrib[top], "total": total, "contrib": contrib,
+            "warn": share > SCORING["DOMINANCE"]["SHARE_WARN"]
+                    and mag[top] > SCORING["DOMINANCE"]["MAGNITUDE_WARN"]}
+
+
+# ---------------------------------------------------------------------------
 # specification identity
 # ---------------------------------------------------------------------------
 # Every function whose text can change a published score. Named here rather than
@@ -226,10 +425,36 @@ SPEC_FUNCTIONS = ("score", "_lavl_regime", "lavl_perp_mult", "_tier_for",
                   # that tonight's live price is appended before computing. Change the
                   # period to 14 here and every squeeze boost on the board moves, with
                   # funding.rsi untouched and, until now, the hash unmoved with it.
-                  "_rsi_by_symbol")
+                  "_rsi_by_symbol",
+                  # AUDIT-PHASE1.5. WHICH multiplier reaches a published score, as
+                  # opposed to what a reading is worth. Captured for the reason 1.8
+                  # gives about VENUE_PRIORITY: a specification that captures the
+                  # arithmetic but not which input arrives is a description of one half
+                  # of a function. These three are mirrored verbatim in index.html's
+                  # ported block, and the parity gate executes both sides.
+                  # AUDIT-PHASE1.6 replaced the transport. `perp_entry` is the
+                  # envelope rule and `perp_feed` reads ledger/perp.json; those two plus
+                  # iso_day_diff are what decides a published multiplier now.
+                  # ledger_latest_date, overlay_as_of and perp_overlay LEFT this tuple
+                  # with the signals.json path they served — they reach no score any
+                  # more, and capturing dead code means an edit to dead code
+                  # re-segments the track record.
+                  "iso_day_diff", "perp_entry", "perp_feed")
 SPEC_CONSTANTS = ("TIER_CUTS", "STABLES",
                   "EMISSION_FREE_RATIO", "EMISSION_ANCHOR_RATIO",
-                  "EMISSION_ANCHOR_SEVERITY", "EMISSION_MAX_PENALTY")
+                  "EMISSION_ANCHOR_SEVERITY", "EMISSION_MAX_PENALTY",
+                  # AUDIT-PHASE1.5. The envelope a ledger value must fall inside to be
+                  # consumed, and how old the snapshot it came from may be. Widening
+                  # either re-admits the class of value this boundary was drawn to
+                  # refuse, so both move the hash.
+                  "PERP_NEUTRAL", "PERP_ENVELOPE_LO", "PERP_ENVELOPE_HI",
+                  "PERP_MAX_AGE_DAYS",
+                  # AUDIT-PHASE2A. The declared ruler. Captured because it is a CLAIM
+                  # about what the scoring functions do, asserted against their behaviour
+                  # by tests/test_scoring_config.py — so the digest notices an edit to
+                  # either side of that claim. It adds no bound and changes no number;
+                  # the boundary it moves is proved score-identical below.
+                  "SCORING")
 
 # The same, for funding.py. lavl_perp_mult is a two-line delegation, so without this the
 # specification would capture the *call* and none of the arithmetic behind it: the
@@ -463,6 +688,41 @@ SPEC_EQUIVALENT = {
                    "captured funding.rsi but not _rsi_by_symbol, which decides the "
                    "period and source. Widening the capture changed the digest and no "
                    "scoring arithmetic — scoring-equivalent."),
+    },
+    # The third entry, and the third correction to the RULER rather than to the model.
+    #
+    # AUDIT-PHASE2A collected every threshold that governs a factor into SCORING and
+    # captured it. Not one number moved: the scoring functions are deliberately NOT
+    # refactored to read from the object, precisely so their hashed source text is
+    # untouched and this equivalence stays provable. Removing SCORING from today's
+    # specification reproduces ab16684ad5c1 exactly, and tests/test_persistence.py
+    # re-derives it from source on every run while SPEC_HASH equals `verified_against`.
+    #
+    # What was audited before adding this entry. The commit that introduced it changes:
+    # SCORING and DOM_FACTORS (new, captured), four new uncaptured helpers
+    # (depth_state, liquidity_state, _liquidity_fit, supply_state, chain_dominance),
+    # the xsec writer's column list, the board's markup, the tests and the docs. None of
+    # those is a captured function, and the one captured constant added is new rather
+    # than changed. Verified rather than asserted: every previously-captured function's
+    # canonical source and every previously-captured constant's value are identical
+    # either side of the commit, and score() returns identical results for all 703 rows
+    # of the recorded cross-section — asserted by
+    # tests/test_scoring_config.py::test_the_reorganisation_changed_no_published_score.
+    #
+    # This is why the track record does NOT segment here. A reorganisation that provably
+    # alters no number must not cost a performance segment; that rule is not being
+    # softened, it is being applied.
+    "ab16684ad5c1": {
+        "canonical": "91bbc2a7e466",
+        "reason": "instrumentation",
+        "verified_against": "91bbc2a7e466",
+        # Exactly what the capture added. Removing it — not nulling it; it did not exist
+        # in the old blob at all — reproduces the superseded digest.
+        "added_constants": ("SCORING",),
+        "detail": ("Every factor threshold was collected into one captured SCORING "
+                   "object and asserted against the behaviour of the functions that "
+                   "already applied them. No scoring arithmetic was edited and no "
+                   "published score moved — scoring-equivalent."),
     },
 }
 
@@ -1044,6 +1304,219 @@ def lavl_perp_mult(ticker: str, perps_map: dict) -> float:
                                             info.get("rsi7"))
     return mult
 
+# ---------------------------------------------------------------------------
+# funding overlay selection  (AUDIT-PHASE1.5 — captured; this decides a score)
+# ---------------------------------------------------------------------------
+# WHICH multiplier a consumer of the ledger may apply, as opposed to what a given
+# funding reading is worth. lavl_perp_mult answers the second question and always has;
+# nothing answered the first, and for six weeks the terminal answered it wrongly.
+#
+# `index.html` built its overlay from every row of signals.json with no date filter,
+# last write in file order winning. The ledger persists fifty names a night out of ~235
+# scored, so a name outside that cut kept whatever multiplier it last carried. On
+# 2026-09-17: 91 symbols on values from 42 distinct earlier nights, and HBAR on a
+# forty-five-night-old 17.4 — a number regime_modifier cannot return, from four rows in
+# the seeded portion of the ledger whose tail columns are misaligned. It multiplied
+# HBAR's chain to a pre-clamp 242.9 and published the clamped 100 at the head of the
+# board, against 14 and 130th place on its own factors.
+#
+# These three functions are the replacement and they are CAPTURED, for the reason
+# AUDIT-2026-09 1.8 gives about VENUE_PRIORITY: a specification that captures the
+# arithmetic but not which input arrives is a description of one half of a function.
+# They are mirrored verbatim in the ported block of index.html and the parity gate
+# executes both sides — which is the second half of the fix, because the old rule was
+# invisible to that gate for exactly as long as it sat outside the markers.
+#
+# Two independent defences. Either one alone stops the HBAR row, and
+# tests/test_perp_overlay.py proves each does so with the other disabled.
+PERP_NEUTRAL = 1.0
+# The envelope funding.regime_modifier can actually produce. Written as literals rather
+# than imported from that module because the JS side has to execute standalone under
+# node; tests/test_perp_overlay.py asserts the two agree, so a drift fails there rather
+# than silently widening what the board will accept.
+PERP_ENVELOPE_LO = 0.85
+PERP_ENVELOPE_HI = 1.15
+# How stale the snapshot itself may be. The nightly runs daily, so the newest recorded
+# date is today or yesterday in normal operation. Past that the overlay is withheld
+# ENTIRELY rather than applied at reduced confidence: a funding rate is a point-in-time
+# reading of a market whose half-life is hours, and the defect above is what "a slightly
+# old reading is better than none" looks like once it has run for six weeks.
+PERP_MAX_AGE_DAYS = 1
+# Strict, and deliberately not float(). parseFloat("1.07 garbage") is 1.07 on the JS
+# side; float() raises here. One regex, applied on both sides, is the only version of
+# this the parity gate can hold to account.
+PERP_NUMERIC = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$")
+# Shape only. `9999-99-99` passes this and fails date.fromisoformat / Date.parse on the
+# other side, so both end up at iso_day_diff -> None and the overlay is withheld. Shape
+# here, meaning there, and the two agree on every input either way.
+PERP_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def ledger_latest_date(rows) -> str | None:
+    """The newest ISO date present in `rows`, or None."""
+    best = None
+    for r in rows or []:
+        d = (r or {}).get("date")
+        if isinstance(d, str) and PERP_ISO_DATE.match(d) and (best is None or d > best):
+            best = d
+    return best
+
+
+def iso_day_diff(frm, to) -> int | None:
+    """Whole days between two ISO dates, or None if either is unreadable.
+
+    Both sides at UTC midnight, so the answer never depends on the reader's time zone.
+    """
+    try:
+        a = date.fromisoformat(str(frm))
+        b = date.fromisoformat(str(to))
+    except (TypeError, ValueError):
+        return None
+    return (b - a).days
+
+
+def overlay_as_of(rows, today) -> str | None:
+    """The snapshot the overlay may be taken from, or None for 'none is current enough'.
+
+    `today` is passed rather than read from the clock so the rule is a pure function and
+    the parity gate can execute it deterministically on both sides.
+    """
+    latest = ledger_latest_date(rows)
+    if latest is None:
+        return None
+    age = iso_day_diff(latest, today)
+    # age < 0 is a ledger dated ahead of the caller — clock skew, or a hand-edited file.
+    # Refused for the same reason as an out-of-envelope value: it cannot be what it says.
+    if age is None or age < 0 or age > PERP_MAX_AGE_DAYS:
+        return None
+    return latest
+
+
+def perp_entry(raw) -> dict:
+    """One cell, one verdict: ``{"mult", "state", "value"}``.
+
+    Extracted so the envelope rule has exactly one definition. The TRANSPORT changed in
+    Phase 1.6 and the rule for what a value is allowed to BE did not, and two copies of
+    it would be two things that can drift apart.
+
+    Strict, and deliberately not float(). parseFloat("1.07 garbage") is 1.07 on the JS
+    side; float() raises here. One regex, applied on both sides.
+    """
+    if raw is None or raw in ("", "None"):
+        return {"mult": PERP_NEUTRAL, "state": "absent", "value": None}
+    txt = str(raw).strip()
+    v = float(txt) if PERP_NUMERIC.match(txt) else None
+    if v is None or v != v or v in (float("inf"), float("-inf")) \
+            or v < PERP_ENVELOPE_LO - 1e-9 or v > PERP_ENVELOPE_HI + 1e-9:
+        ok = v is not None and v == v and v not in (float("inf"), float("-inf"))
+        return {"mult": PERP_NEUTRAL, "state": "rejected", "value": v if ok else None}
+    return {"mult": v, "state": "current", "value": v}
+
+
+def perp_feed(doc, today) -> dict:
+    """The funding multipliers a consumer may apply, from ``ledger/perp.json``.
+
+    AUDIT-PHASE1.6. Phase 1.5 stopped the board applying a STALE multiplier, by reading
+    only rows carrying the snapshot's own date out of signals.json — and signals.json
+    persists fifty names a night out of ~235 scored. The board came out correct and
+    under-informed: 184 of 234 rows at a neutral 1.000 while score() had a live
+    cross-venue reading for 153 of them. Two consumers, one model, different information
+    sets, and the gap invisible unless you diffed them.
+
+    ``ledger/perp.json`` is the transport that closes it: the whole scored cross-section
+    for the current snapshot, and nothing else. No history, no per-venue nesting, no
+    research columns — funding.json is the rich artifact and stays that way, because a
+    transport that can grow is a transport that will.
+
+    Two properties make this a transport rather than a second model:
+
+    * The artifact carries AVAILABILITY and this function derives VALIDITY. ``s:"absent"``
+      is the writer saying no funding reading existed for a symbol, which only the writer
+      can know. Whether a value is *acceptable* is decided here, every time, by
+      :func:`perp_entry` — an artifact can never talk a consumer into applying a number
+      outside the envelope.
+    * There is NO FALLBACK to the signals.json path. A missing or stale artifact
+      withholds the overlay entirely. A fallback would reintroduce the divergence this
+      phase removes, silently, on exactly the nights something is already wrong.
+    """
+    mults: dict = {}
+    states: dict = {}
+    rejected: list = []
+    raw_as_of = (doc or {}).get("as_of")
+    as_of = raw_as_of if isinstance(raw_as_of, str) and PERP_ISO_DATE.match(raw_as_of) else None
+    age = None if as_of is None else iso_day_diff(as_of, today)
+    if age is None or age < 0 or age > PERP_MAX_AGE_DAYS:
+        return {"mults": mults, "states": states, "as_of": None, "rejected": rejected,
+                "n": 0, "withheld": "no-artifact" if as_of is None else "stale",
+                "stale_as_of": as_of}
+    for key, row in ((doc or {}).get("rows") or {}).items():
+        sym = str(key or "").upper()
+        if not sym:
+            continue
+        row = row or {}
+        e = perp_entry(row.get("m"))
+        if e["state"] == "rejected":
+            mults[sym] = PERP_NEUTRAL
+            states[sym] = "rejected"
+            rejected.append({"symbol": sym, "value": e["value"], "date": as_of})
+            continue
+        mults[sym] = e["mult"]
+        # The writer may downgrade a neutral to "absent" — it is the only party that
+        # knows whether a reading existed. It may not upgrade anything: a row the
+        # envelope refused was handled above and never reaches here.
+        states[sym] = "absent" if (e["state"] == "current" and row.get("s") == "absent") \
+            else e["state"]
+    return {"mults": mults, "states": states, "as_of": as_of, "rejected": rejected,
+            "n": len(mults), "withheld": None, "stale_as_of": None}
+
+
+def perp_overlay(rows, as_of) -> dict:
+    """RETIRED 2026-09-17 by :func:`perp_feed`. The Phase 1.5 rule, over signals.json.
+
+    Retained, and uncaptured, so ``tests/test_perp_overlay.py`` can run the generation
+    perp_feed replaced against the generation before it. It reaches no published score,
+    which is why it and overlay_as_of / ledger_latest_date left SPEC_FUNCTIONS: capturing
+    dead code means an edit to dead code re-segments the track record.
+
+    The funding multipliers eligible on `as_of`, and the state behind each.
+
+    Returns ``{"mults": {sym: float}, "states": {sym: str}, "as_of": str|None,
+    "rejected": [...], "n": int}``. Three states, and they are three different facts
+    that a bare 1.000 cannot tell apart — the same argument funding.py makes about its
+    own reason strings:
+
+      current   a reading from this snapshot, inside the envelope
+      absent    the snapshot records the symbol with no reading
+      rejected  a value outside [0.85, 1.15], refused rather than consumed
+
+    A symbol with no row at all on `as_of` appears in none of them, and the caller's
+    own ``|| 1`` / ``.get(sym, 1.0)`` supplies the same neutral by a different route.
+
+    The rows holding refused values are NOT corrected. They are the record of what
+    happened, and a ledger edited to remove the evidence of a defect is worth less than
+    one that carries it.
+    """
+    mults: dict = {}
+    states: dict = {}
+    rejected: list = []
+    if not as_of:
+        return {"mults": mults, "states": states, "as_of": None,
+                "rejected": rejected, "n": 0}
+    for r in rows or []:
+        if not r or r.get("date") != as_of:
+            continue
+        sym = str(r.get("symbol") or "").upper()
+        if not sym:
+            continue
+        e = perp_entry(r.get("perp_mult"))
+        mults[sym] = e["mult"]
+        states[sym] = e["state"]
+        if e["state"] == "rejected":
+            rejected.append({"symbol": sym, "value": e["value"], "date": as_of})
+    return {"mults": mults, "states": states, "as_of": as_of,
+            "rejected": rejected, "n": len(mults)}
+
+
 # The legacy annualisation constant, for the Bybit feed only: that venue quotes per
 # 8-hour interval, so three settlements a day. It is NOT a general constant — Hyperliquid
 # settles hourly and some Binance symbols every four hours, and applying this to either
@@ -1470,6 +1943,419 @@ def _edge_legs(by_date: dict, boundary: str | None) -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# the IC matrix  (AUDIT-PHASE3 — observational; nothing here reaches a score)
+# ---------------------------------------------------------------------------
+# The board reported a 1-day information coefficient of -0.0562 with a 95% interval
+# entirely below zero, and went on ranking by it. Phase 3 closes that loop, and closes
+# it the conservative way: the ranking is NOT inverted, no horizon is selected on the
+# sample that reports it, and no score, tier, weight or basket weight moves. What
+# changes is that the board says what it is.
+#
+# The estimator, the interval convention and the minimum-sample rule are the ones
+# already in use — _spearman, mean +/- 1.96 SE over legs, EDGE_MIN_NAMES per leg and
+# EDGE_MIN_LEGS before anything is called measurable. Inventing a second significance
+# threshold beside the first would mean the board could be honest under one and not the
+# other.
+# AUDIT-CLOSURE. There are TWO IC samples in this repository and they are not the same
+# measurement. Naming them once, here, is what stops every downstream surface having to
+# re-describe them — and re-describing them is how they get conflated.
+#
+#   LEGACY   ledger/signals.csv, read by ic_by_date(). 48 nights back to 2026-08-01, but
+#            fifty rows a night and those fifty are the TOP FIFTY BY CONVICTION — the
+#            very variable whose predictive power is being measured. It is deep in time
+#            and truncated in population, and it is the only sample with enough legs to
+#            say anything, which is why the publication gate reads it.
+#
+#   FORWARD  ledger/xsec/, read by xsec_by_date(). The WHOLE scored cross-section,
+#            234-235 rows a night, but it began on 2026-09-15 and is three nights old.
+#            It is wide and shallow, and it has measured nothing yet.
+#
+# On the nights both cover, LEGACY's symbols are a strict subset of FORWARD's. Their leg
+# counts cannot coincide: three nights admit at most two one-day legs, so a 43-leg figure
+# is arithmetically impossible from FORWARD and can only be LEGACY.
+IC_SAMPLES = {
+    "legacy": {
+        "id": "legacy",
+        "source": "ledger/signals.csv",
+        "label": "LEGACY SELECTION HISTORY",
+        "universe": "signals.csv — the top fifty by conviction, each night",
+        "population": "conviction-truncated (top ~50 of ~235 scored)",
+        "caveat": ("Selected on conviction, which is the variable being measured. The "
+                   "information coefficient is therefore computed WITHIN the top "
+                   "conviction quintile, not across the board."),
+        "powers": "the published IC matrix and the publication gate",
+    },
+    "forward": {
+        "id": "forward",
+        "source": "ledger/xsec/",
+        "label": "FORWARD CROSS-SECTIONAL SAMPLE",
+        "universe": "ledger/xsec/ — the whole scored cross-section",
+        "population": "complete (every de-duplicated non-stable asset scored that night)",
+        "caveat": ("Began accumulating 2026-09-15. Wide and shallow: it measures the "
+                   "population the board actually publishes, and it has not yet "
+                   "measured anything."),
+        "powers": "the walk-forward report; nothing published reads it",
+    },
+}
+# The banner a surface must carry while the forward sample cannot measure its own cells.
+FORWARD_INSUFFICIENT_BANNER = "FORWARD SAMPLE — INSUFFICIENT"
+
+IC_HORIZONS = (1, 7, 30)
+# The signal in each column, and the recorded field it is read from. Every one is the
+# value STORED AT THE SNAPSHOT, never recomputed from today's payload: a factor
+# evaluated against a return it could not have preceded is not a measurement.
+IC_SIGNALS = (
+    ("composite", "conviction"),
+    ("DEPTH", "c_depth"),
+    ("CONFIRM", "c_momentum"),
+    ("LIQUIDITY", "c_liquidity"),
+    ("SUPPLY", "emission_mult"),
+    ("FUNDING", "perp_mult"),
+)
+# The horizon the board publishes on, and therefore the one the gate reads.
+IC_ACTIVE_HORIZON = 1
+
+
+def ic_by_date(rows: list[dict] | None = None) -> dict:
+    """The ledger as {date: {symbol: row}}, carrying the FACTOR columns as well as price.
+
+    _perf_by_date() projects each row down to price and conviction, which is all the
+    performance curve needs and is not enough to correlate a factor. Same de-duplication
+    rule — latest run per (date, symbol) wins, because 2026-08-02 carries nine runs and a
+    naive read computes returns between a day and itself.
+
+    The factor columns are copied AS RECORDED. They are the values the score was computed
+    from on that night, which is the only version of them that can legitimately be set
+    against a later return; recomputing a factor from today's payload and dating it to a
+    past snapshot is the look-ahead this whole phase exists to avoid.
+    """
+    if rows is None:
+        if not LEDGER_CSV.exists():
+            return {}
+        with LEDGER_CSV.open(newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+    # The two ledgers share column names — XSEC_SHARED_FIELDS is the list of them — so a
+    # caller who handed xsec rows to this reader would get a fully formed matrix labelled
+    # LEGACY. The `src` column exists on xsec rows and on no signals.csv row, which makes
+    # the provenance checkable rather than assumed.
+    foreign = [r for r in (rows or []) if r.get("src") in XSEC_SOURCES]
+    if foreign:
+        raise ValueError(
+            f"ic_by_date was handed {len(foreign)} row(s) carrying src="
+            f"{sorted({r.get('src') for r in foreign})} — those are cross-sectional "
+            f"research rows. Use xsec_by_date() and the 'forward' sample for them; this "
+            f"reader is the legacy selection history.")
+    keep = ("price", "conviction") + tuple(f for _, f in IC_SIGNALS)
+    by_date: dict = {}
+    for r in rows:
+        d, sym = r.get("date"), (r.get("symbol") or "").upper()
+        if not d or not sym:
+            continue
+        price = _mon_float(r, "price")
+        if not price or price <= 0:
+            continue
+        by_date.setdefault(d, {})[sym] = {k: r.get(k) for k in keep}
+    return by_date
+
+
+def _ic_legs(by_date: dict, field: str, horizon: int,
+             boundary: str | None = None) -> list[dict]:
+    """Forward legs for one signal at one horizon. Strictly causal, exact offset.
+
+    The snapshot at ``a`` is paired with the price recorded exactly ``horizon`` calendar
+    days later, and with nothing else. No nearest-date fallback: a 30-day horizon that
+    quietly settles for 26 days when the ledger has a gap is a different statistic
+    wearing the same label, and the direction it errs in is unknowable. A date the
+    ledger does not hold simply yields no leg.
+
+    A symbol must appear at BOTH ends. One that left the universe has no return, and
+    imputing zero for it would be the most expensive kind of fabrication here —
+    delistings are not flat.
+    """
+    out = []
+    dates = sorted(by_date)
+    have = set(dates)
+    for a in dates:
+        if boundary and a < boundary:
+            continue
+        try:
+            b = (date.fromisoformat(a) + timedelta(days=horizon)).isoformat()
+        except ValueError:
+            continue
+        if b not in have:
+            continue
+        prev, curr = by_date[a], by_date[b]
+        xs, ys = [], []
+        for sym, row in prev.items():
+            nxt = curr.get(sym)
+            v = _mon_float(row, field)
+            p0 = _mon_float(row, "price")
+            p1 = _mon_float(nxt, "price") if nxt else None
+            if v is None or not p0 or not p1:
+                continue
+            xs.append(v)
+            ys.append(p1 / p0 - 1.0)
+        if len(xs) < EDGE_MIN_NAMES:
+            continue
+        rho = _spearman(xs, ys)
+        out.append({"from": a, "to": b, "ic": rho, "names": len(xs),
+                    # A signal that is constant across the cross-section has no rank to
+                    # correlate. Recorded as a leg with a null IC rather than dropped,
+                    # so "this factor did not vary" is distinguishable from "this night
+                    # had no data".
+                    "degenerate": rho is None})
+    return out
+
+
+# How far a horizon's legs overlap, and therefore how much the interval understates.
+# A 1-day leg starting each night shares no day with the next, so the legs are close to
+# independent and the standard error means what it says. A 7-day leg shares six days with
+# the next and a 30-day leg twenty-nine: those legs are heavily autocorrelated, the
+# effective sample is roughly legs/horizon rather than legs, and the 95% interval is
+# correspondingly too narrow. Recorded per horizon rather than corrected, because a
+# Newey-West style correction is a modelling choice and this phase is not making one —
+# what it does is refuse to let a tight-looking interval be read as a precise one.
+IC_OVERLAP_NOTE = {
+    1: "legs are disjoint; the interval means what it says",
+    7: "legs overlap by six days — effective sample is nearer legs/7, so the interval "
+       "is narrower than the evidence supports",
+    30: "legs overlap by twenty-nine days — effective sample is nearer legs/30, so the "
+        "interval is much narrower than the evidence supports",
+}
+
+
+def _ic_cell(legs: list[dict]) -> dict:
+    """One cell of the matrix, under the repository's existing inferential contract.
+
+    States, and they are not interchangeable:
+
+      INSUFFICIENT  fewer than EDGE_MIN_LEGS usable legs. Reported as insufficient and
+                    never as zero, neutral or "no effect" — an interval that has not been
+                    earned is not an interval that spans zero.
+      SPANS_ZERO    enough legs, and the 95% interval includes zero. Neither evidence the
+                    signal works nor evidence it does not.
+      NEGATIVE      enough legs, and the interval lies entirely below zero.
+      POSITIVE      enough legs, and the interval lies entirely above zero.
+      DEGENERATE    the signal did not vary across the cross-section on any usable leg,
+                    so there is no ranking to correlate.
+    """
+    usable = [l for l in legs if l["ic"] is not None]
+    ics = [l["ic"] for l in usable]
+    base = {"legs": len(usable), "legs_seen": len(legs), "min_legs": EDGE_MIN_LEGS,
+            "names_mean": (round(sum(l["names"] for l in usable) / len(usable), 1)
+                           if usable else None),
+            "ic": None, "ci": None, "se": None, "t_stat": None,
+            "legs_positive": sum(1 for i in ics if i > 0) if ics else 0,
+            "sufficient": False}
+    if legs and not usable:
+        return {**base, "state": "DEGENERATE",
+                "detail": "the signal did not vary across the cross-section on any leg"}
+    if len(ics) < 2:
+        return {**base, "state": "INSUFFICIENT",
+                "detail": f"{len(ics)} usable leg(s); {EDGE_MIN_LEGS} needed"}
+    mean = sum(ics) / len(ics)
+    var = sum((i - mean) ** 2 for i in ics) / (len(ics) - 1)
+    se = (var / len(ics)) ** 0.5
+    lo, hi = mean - 1.96 * se, mean + 1.96 * se
+    enough = len(ics) >= EDGE_MIN_LEGS
+    state = ("INSUFFICIENT" if not enough
+             else "NEGATIVE" if hi < 0
+             else "POSITIVE" if lo > 0
+             else "SPANS_ZERO")
+    detail = {
+        "INSUFFICIENT": f"{len(ics)} of {EDGE_MIN_LEGS} legs — not yet measurable",
+        "NEGATIVE": "the interval lies entirely below zero",
+        "POSITIVE": "the interval lies entirely above zero",
+        "SPANS_ZERO": "the interval includes zero — neither evidence for nor against",
+    }[state]
+    return {**base, "ic": round(mean, 4), "se": round(se, 4),
+            "ci": [round(lo, 4), round(hi, 4)],
+            "t_stat": round(mean / se, 3) if se else None,
+            "sufficient": enough, "state": state, "detail": detail}
+
+
+def ic_matrix(by_date: dict, boundary: str | None = None,
+              sample: str = "legacy") -> dict:
+    """Every signal against every horizon, with its inference state.
+
+    Observational throughout. The publication gate reads ONE cell of this — composite at
+    IC_ACTIVE_HORIZON — and reads it to decide what the board is CALLED, never to
+    reorder it.
+    """
+    if sample not in IC_SAMPLES:
+        # A free-text universe label could go stale the moment its source changed and
+        # nothing would notice. An id that must exist cannot.
+        raise ValueError(f"ic_matrix sample must be one of {sorted(IC_SAMPLES)}, "
+                         f"got {sample!r}")
+    # AUDIT-CLOSURE, second pass: the id above stops a caller naming the WRONG sample.
+    # It does not stop one naming NO sample, and `sample` has a default. So
+    # `ic_matrix(xsec_by_date())` returned three nights of the full cross-section under
+    # "LEGACY SELECTION HISTORY", and none of the three guards caught it: the gate only
+    # rejects sample != "legacy" and this matrix SAID legacy, the validator's leg ceiling
+    # is nights-h which the real counts satisfy, and the cross-file check compares two
+    # ids that differ. The counts were self-consistent; it was the label that was false,
+    # and the board would have moved from DIAGNOSTIC_ONLY to NOT_ESTABLISHED on two legs.
+    # Same `src` discriminator and same reasoning as the guard in ic_by_date(): signals
+    # .csv rows carry no src, ledger/xsec/ rows always do.
+    if sample == "legacy":
+        foreign = sum(1 for day in (by_date or {}).values()
+                      for r in (day or {}).values()
+                      if isinstance(r, dict) and r.get("src") in XSEC_SOURCES)
+        if foreign:
+            raise ValueError(
+                f"ic_matrix was given sample='legacy' over {foreign} row(s) carrying "
+                f"src= from ledger/xsec/ — that is the forward cross-section, a "
+                f"different population measured on a different universe. Pass "
+                f"sample='forward', or use ic_by_date() for the legacy selection "
+                f"history.")
+    meta = IC_SAMPLES[sample]
+    cells = {}
+    for name, field in IC_SIGNALS:
+        cells[name] = {}
+        for h in IC_HORIZONS:
+            cell = _ic_cell(_ic_legs(by_date, field, h, boundary))
+            # Stamped per cell, not only at the root: both files key their cells by the
+            # same six signals and three horizons, so a consumer could join them by
+            # shape without ever reading a root label.
+            cell["sample"] = meta["id"]
+            cell["overlap"] = IC_OVERLAP_NOTE.get(h, "")
+            # The effective sample once overlap is accounted for, stated so a reader
+            # cannot mistake forty overlapping legs for forty observations.
+            cell["effective_legs"] = round(cell["legs"] / h, 1) if cell["legs"] else 0
+            cells[name][str(h)] = cell
+    return {
+        "horizons": list(IC_HORIZONS),
+        "signals": [n for n, _ in IC_SIGNALS],
+        "active_horizon": IC_ACTIVE_HORIZON,
+        "boundary": boundary,
+        "sample": meta["id"],
+        "sample_label": meta["label"],
+        "universe": meta["universe"],
+        "population": meta["population"],
+        "sample_caveat": meta["caveat"],
+        # The shape of the sample this was actually computed over. Recorded because a
+        # LABEL can be wrong and a COUNT cannot: three nights admit at most two one-day
+        # legs, so nights+leg counts let any reader falsify the label from the file
+        # alone. Without them the walk-forward report was self-describing and the
+        # published matrix was not.
+        "nights": len(by_date),
+        "from": min(by_date) if by_date else None,
+        "to": max(by_date) if by_date else None,
+        "rows_per_night_median": (sorted(len(v) for v in by_date.values())[len(by_date)//2]
+                                  if by_date else 0),
+        "min_legs": EDGE_MIN_LEGS,
+        "min_names": EDGE_MIN_NAMES,
+        "estimator": "Spearman rank correlation, ties averaged; mean over legs with a "
+                     "95% interval at +/- 1.96 standard errors — the same contract the "
+                     "Selection Edge panel has always used",
+        "overlap": dict(IC_OVERLAP_NOTE),
+        # The pointer the other way. walkforward.json already declares itself not
+        # comparable to this matrix; a reader arriving at THIS file first had no such
+        # warning, and this is the file the board renders from.
+        "companion_sample": {
+            "file": "ledger/walkforward.json",
+            "sample": IC_SAMPLES["forward"]["id"],
+            "label": IC_SAMPLES["forward"]["label"],
+            "comparable": False,
+            "why": ("A different population over a different window. The two are not "
+                    "alternative estimates of one quantity and must never be averaged, "
+                    "compared, or presented as though one confirms the other."),
+        },
+        "boundary_rule": (
+            "Legs before the detected specification break are excluded. The legacy "
+            "sample spans that break (2026-08-05) and is cut at it; the forward sample "
+            "begins after every recorded break, so no cut applies and its boundary is "
+            "null. The two therefore differ in boundary by circumstance, not by rule."),
+        "causality": "A snapshot at t is paired with the price recorded at exactly "
+                     "t + horizon days. No nearest-date fallback, and a symbol must "
+                     "appear at both ends — a name that left the universe has no return "
+                     "and is not imputed one.",
+        "cells": cells,
+    }
+
+
+def publication_gate(matrix: dict) -> dict:
+    """What the board may call itself, from the active horizon's composite IC.
+
+    Three states, and the middle one is the one that usually gets lost:
+
+      PUBLISHED        the active horizon's IC is measurable and positive.
+      DIAGNOSTIC_ONLY  it is measurable and NEGATIVE. The ranking is not inverted — an
+                       interval below zero is a finding about forty-odd nights of
+                       one-day returns, and reversing a published order on the strength
+                       of it would be acting on the same thin evidence in the other
+                       direction. The board is marked, and nothing about it moves.
+      NOT_ESTABLISHED  insufficient history, a degenerate signal, or an interval that
+                       spans zero. Explicitly NOT a claim that the signal is validated,
+                       and explicitly not a claim that it is broken.
+
+    The gate changes what the board is CALLED. It never changes a score, a tier, an
+    ordering, a weight or a basket.
+    """
+    # The gate decides what the published board is CALLED, so it may only read the
+    # sample the board is published from. It used to accept any dict that had the right
+    # shape — and both samples produce identically shaped cells, so a forward matrix
+    # would have gated the board on two legs without anything noticing.
+    sample = matrix.get("sample")
+    if sample != "legacy":
+        raise ValueError(
+            f"publication_gate may only read the legacy sample (the published board's "
+            f"own history); got sample={sample!r}. The forward cross-section measures a "
+            f"different population and has its own report.")
+    h = str(matrix.get("active_horizon", IC_ACTIVE_HORIZON))
+    cell = ((matrix.get("cells") or {}).get("composite") or {}).get(h) or {}
+    state = cell.get("state", "INSUFFICIENT")
+    ci = cell.get("ci")
+    stats = (f"{cell.get('legs', 0)} legs, IC {cell['ic']:+.3f}, "
+             f"95% CI [{ci[0]:+.3f}, {ci[1]:+.3f}]"
+             if cell.get("ic") is not None and ci
+             else f"{cell.get('legs', 0)} of {EDGE_MIN_LEGS} legs")
+    meta = IC_SAMPLES[sample]
+    # `measured_on` keeps the wording honest as well as sourced: the coefficient is
+    # computed INSIDE the top conviction quintile, so it is not a statement about the
+    # whole published board even though it decides what that board is called.
+    prov = {"universe": meta["universe"], "population": meta["population"],
+            "measured_on": ("the persisted top fifty by conviction, not the whole "
+                            "published board — the sample is selected on the variable "
+                            "being measured, so this is a coefficient within the top "
+                            "conviction quintile")}
+    if state == "NEGATIVE":
+        return {**prov, "gate": "DIAGNOSTIC_ONLY", "sample": sample,
+            "sample_label": IC_SAMPLES[sample]["label"], "horizon": int(h), "ic_state": state,
+                "ic": cell.get("ic"), "ci": ci, "legs": cell.get("legs"), "stats": stats,
+                "headline": f"DIAGNOSTIC ONLY · {h}D IC {cell['ic']:+.3f} · "
+                            f"95% CI [{ci[0]:+.3f}, {ci[1]:+.3f}]",
+                "reason": f"the {h}-day information coefficient is measurable and "
+                          f"entirely below zero",
+                "detail": f"The board is ordered by a score whose {h}-day rank "
+                          f"correlation with the next return is measurably negative "
+                          f"across {meta['universe']} ({stats}). It is published as a diagnostic. The ranking is "
+                          f"NOT inverted: an interval below zero is a finding about "
+                          f"these legs, not a licence to print the order backwards."}
+    if state == "POSITIVE":
+        return {**prov, "gate": "PUBLISHED", "sample": sample,
+            "sample_label": IC_SAMPLES[sample]["label"], "horizon": int(h), "ic_state": state,
+                "ic": cell.get("ic"), "ci": ci, "legs": cell.get("legs"), "stats": stats,
+                "headline": f"PUBLISHED · {h}D IC {cell['ic']:+.3f}",
+                "reason": f"the {h}-day information coefficient is measurable and positive",
+                "detail": f"The {h}-day rank correlation between conviction and the next "
+                          f"return is measurable and above zero across "
+                          f"{meta['universe']} ({stats})."}
+    why = ("no history yet" if state == "INSUFFICIENT" and not cell.get("legs")
+           else "not enough legs yet" if state == "INSUFFICIENT"
+           else "the signal did not vary" if state == "DEGENERATE"
+           else "the interval includes zero")
+    return {**prov, "gate": "NOT_ESTABLISHED", "sample": sample,
+            "sample_label": IC_SAMPLES[sample]["label"], "horizon": int(h), "ic_state": state,
+            "ic": cell.get("ic"), "ci": ci, "legs": cell.get("legs"), "stats": stats,
+            "headline": f"NOT ESTABLISHED · {h}D IC {stats}",
+            "reason": f"the {h}-day information coefficient is not established — {why}",
+            "detail": f"Nothing here says the ranking works and nothing says it does "
+                      f"not: {why} ({stats}). Absence of a measured effect is not "
+                      f"evidence of absence, and is not published as either."}
+
+
 _ATTRIB_BASIS = (
     "Arithmetic, not evidence. Contribution = active weight x (return - equal-weight "
     "return) per leg, linked across legs by the Carino method so the parts sum to the "
@@ -1616,7 +2502,8 @@ def _active_contributions(usable_legs: list, limit: int = 8) -> dict:
 # weighted paper portfolio that _perf_weights() has published since the ledger began:
 #
 #   * the ten highest-conviction names on the prior night, over the universe the
-#     nightly persisted (the top 50 by market cap of the 250 fetched — rows[:50]);
+#     nightly persisted (the top 50 BY CONVICTION of the 250 fetched — rows[:50],
+#     taken after a conviction sort; see AUDIT-2026-09 1.0);
 #   * weight_i = conviction_i / sum(conviction) over those ten;
 #   * NO conjunctive qualification gate. _perf_by_date() reads price and conviction
 #     only; no gate flag is persisted and none was ever applied here. On 2026-08-05,
@@ -1819,7 +2706,11 @@ def _canonical_index(edge: dict | None = None) -> dict:
     # The size of the equal-weight control's opportunity set, measured: the median count
     # of names present on both nights of a leg. This is what "universe" means on every
     # Index surface, and it is NOT the browser's live board (234 names): the nightly
-    # persists rows[:50] by market cap, so the control is those ~50.
+    # persists rows[:50] AFTER A CONVICTION SORT, so the control is those ~50.
+    # (Corrected 2026-09-18. This comment said "by market cap"; AUDIT-2026-09 1.0
+    # established from the data that the cut is a conviction sort and corrected four
+    # sibling comments, and this fifth copy was missed. It is not cosmetic: a control
+    # universe selected on conviction is selected on the variable the edge is about.)
     shared_n = sorted(len(l["shared"]) for l in usable)
     universe_n = shared_n[len(shared_n) // 2] if shared_n else None
     # ...and the size of the persisted universe itself: rows on the prior night. Fifty
@@ -1887,10 +2778,17 @@ def _canonical_index(edge: dict | None = None) -> dict:
         "definition": {
             "book": "Top-10 by conviction, score-proportional weights",
             "top_n": PERF_TOP_N,
-            "universe": ("the nightly persisted universe: the top %s names by market cap of the "
-                         "250 fetched, written to signals.csv each night, of which a median %s "
-                         "are priced on both nights of a leg and form the equal-weight control. "
-                         "NOT the live board, which scores ~234."
+            # BY CONVICTION, not by market cap. This string was rendered on the study
+            # route and said "by market cap"; AUDIT-2026-09 1.0 established from the data
+            # that the persisted cut is a conviction sort, and four comments in this file
+            # said otherwise. The comments were corrected then and this string was
+            # missed, so the one copy a reader actually saw kept the error.
+            "universe": ("the nightly persisted universe: the top %s names BY CONVICTION "
+                         "of the 250 fetched, written to signals.csv each night, of which "
+                         "a median %s are priced on both nights of a leg and form the "
+                         "equal-weight control. NOT the live board, which scores ~234 — "
+                         "and selected on conviction, which is the variable any edge "
+                         "measured over it is about."
                          % (universe_persisted_n or "~50", universe_n or "~43")),
             "universe_persisted_n": universe_persisted_n,
             "universe_n": universe_n,
@@ -1992,13 +2890,32 @@ def _canonical_index(edge: dict | None = None) -> dict:
         },
         "holdings": holdings,
         "concentration": conc,
+        # The most widely-read copy of this number. It shipped with no source, no night
+        # count and no population — a consumer reading index.json alone could not have
+        # told which of the two IC samples it came from. It is the LEGACY one.
         "edge": {"mean_ic": e.get("mean_ic"), "ci": e.get("ci"), "t_stat": e.get("t_stat"),
                  "legs": e.get("legs"), "min_legs": e.get("min_legs"),
-                 "measurable": e.get("measurable"), "verdict": e.get("verdict")},
+                 "measurable": e.get("measurable"), "verdict": e.get("verdict"),
+                 "sample": IC_SAMPLES["legacy"]["id"],
+                 "sample_label": IC_SAMPLES["legacy"]["label"],
+                 "universe": IC_SAMPLES["legacy"]["universe"],
+                 "population": IC_SAMPLES["legacy"]["population"]},
     }
     _CANON_CACHE["key"] = key
     _CANON_CACHE["v"] = v
     return v
+
+
+def _ic_block() -> dict:
+    """The matrix and the gate, computed once and written into market_breadth.json.
+
+    The boundary is the one the performance curve already uses — a detected specification
+    break, not a hash boundary — so the matrix and the incumbent Selection Edge panel are
+    measured over the same legs and cannot disagree about which nights count.
+    """
+    perf = _compute_performance()
+    matrix = ic_matrix(ic_by_date(), perf.get("spec_boundary"))
+    return {"ic_matrix": matrix, "publication_gate": publication_gate(matrix)}
 
 
 def _compute_edge() -> dict:
@@ -2021,6 +2938,15 @@ def _compute_edge() -> dict:
     spreads = [l["spread_bp"] for l in legs]
     base = {"legs": len(legs), "min_legs": EDGE_MIN_LEGS, "boundary": boundary,
             "spec_hash": SPEC_HASH, "series": legs, "attribution": attribution,
+            # AUDIT-CLOSURE. This block predates the two-sample distinction and never
+            # said which history it was measured on. It is the LEGACY sample — and a
+            # consumer reading only this file could not previously have known that, nor
+            # that the population is selected on the very variable being measured.
+            "sample": IC_SAMPLES["legacy"]["id"],
+            "sample_label": IC_SAMPLES["legacy"]["label"],
+            "universe": IC_SAMPLES["legacy"]["universe"],
+            "population": IC_SAMPLES["legacy"]["population"],
+            "sample_caveat": IC_SAMPLES["legacy"]["caveat"],
             # The realised gap the attribution reconciles to. Carried here so the panel
             # can state the underperformance and the null result side by side, which is
             # the pairing that stops either being misread on its own.
@@ -2028,8 +2954,8 @@ def _compute_edge() -> dict:
             "equal_weight_total": perf.get("equal_weight_total"),
             "benchmark_total": perf.get("benchmark_total"),
             "basis": ("Information coefficient = rank correlation between tonight's "
-                      "conviction and tomorrow's return, across the assets scored on "
-                      "both nights. It answers whether the ordering is informative, "
+                      "conviction and tomorrow's return, across the persisted top-fifty "
+                      "rows present on both nights — not across the whole scored board. It answers whether the ordering is informative, "
                       "which is a different question from whether the basket beat the "
                       "benchmark — a concentrated book with no edge underperforms an "
                       "equal-weight control as a matter of course.")}
@@ -3402,6 +4328,10 @@ def _compute_market_breadth() -> dict:
         # Whether the ordering is informative at all — the question that decides
         # whether any of the rest is worth acting on.
         "edge": _compute_edge(),
+        # AUDIT-PHASE3. Every signal against every horizon, and the one cell the board
+        # reads to decide what it may call itself. Observational: publication_gate()
+        # changes a LABEL and never a score, a tier, an ordering, a weight or a basket.
+        **_ic_block(),
         # Which names hold conviction across nights versus spike for one.
         "persistence": _persistence(series, sorted(set(all_dates))),
         # Model health, for the ribbon: is tonight a trend or a twitch.
@@ -3603,7 +4533,22 @@ MARKET_INTEL_JSON = LEDGER_DIR / "market_intel.json"
 # honest number over a stated population, not that it is a better one.
 XSEC_DIR = LEDGER_DIR / "xsec"
 XSEC_SCHEMA_JSON = XSEC_DIR / "SCHEMA.json"
-XSEC_SCHEMA_VERSION = 1
+# v2 — AUDIT-PHASE1 1B. v1 recorded the published score and the three DISPLAY-SCALED
+# components (c_depth = depth x 20, c_momentum = cm x 20, c_liquidity = a_frac x 30),
+# each rounded to one decimal. That is enough to rank a factor and not enough to audit
+# one: the chain cannot be multiplied back out to the published number, the PRE-CLAMP
+# product is nowhere on disk, and the inputs the funding modifier actually reads were
+# recorded for the top fifty rows of signals.csv only. v2 adds the exact multipliers,
+# the pre-clamp product, the clamp flag, the dominance readout, the funding inputs
+# across the whole cross-section, and — separately from all of those — what the
+# BROWSER would have applied, which is not always what the nightly did.
+#
+# Columns added at v2 are EMPTY on rows dated before the writer emitted them. They are
+# reconstructible for 2026-09-15..17 and are deliberately left blank anyway: those rows
+# carry src="live", which this file defines as observed on the night it is dated, and a
+# reconstruction in a live row would make the distinction unenforceable on the first
+# occasion it mattered.
+XSEC_SCHEMA_VERSION = 4
 
 # `live` is observed on the night it is dated. `backfill` is reconstructed from
 # point-in-time inputs and was never observed live. They are recorded in the same shape
@@ -3630,7 +4575,98 @@ XSEC_FIELDS = [
     "c_depth", "c_momentum", "c_liquidity", "emission_mult", "perp_mult",
     "fdv_usd", "funding_apr", "rsi7", "beta_btc",
     "spec_hash", "src",
+    # --- v2: the chain, exactly -------------------------------------------------
+    # The three multipliers score() actually multiplied, unrounded, beside the volume
+    # the turnover came from. c_depth/c_momentum/c_liquidity above stay exactly as they
+    # were — they are a shared column with signals.csv and an invariant is asserted on
+    # them — but they are display scales rounded to 0.1, which on a x20 scale is 0.005
+    # of a multiplier, and a bound calibrated off a percentile of that is calibrated off
+    # the rounding as much as the data.
+    "total_volume", "depth", "confirm", "liquidity",
+    # The product BEFORE round-and-clamp, and whether the clamp bound. On 2026-09-17 the
+    # published board carried a name whose factors multiplied out to 242.9 and whose
+    # published score was 100: a 142.9-point overshoot that no column on disk recorded
+    # and no panel outside the inspector showed. Recording the raw product is what makes
+    # "how often does the clamp bind, and by how much" a query rather than a re-run.
+    "conviction_raw", "clamped",
+    # Which single factor is moving the score, how much of the chain's total log it
+    # holds, and how large that log is in absolute terms. Both are needed: a row whose
+    # other four factors are exactly 1.0 gives its fifth a 100% share of almost nothing,
+    # so share alone flags the most neutral rows on the board.
+    "dom_factor", "dom_share", "dom_logabs",
+    # --- v4 (AUDIT-PHASE2A): raw beside applied, and the bound that decided ---------
+    # The columns above record what was APPLIED. These record what the factor would have
+    # been before its bound and which mechanism produced the difference — the series a
+    # curve redesign needs and would otherwise have to reconstruct from inputs.
+    #
+    # `liq_state` carries the distinction Phase 2A was asked to make observable without
+    # acting on it: `no-volume` (the feed published nothing) and `zero-volume` (it
+    # published a zero) score identically today and are different facts. Fifteen rows a
+    # night are tokenised money-market instruments with no secondary market, scoring
+    # exactly as a token at 2.9% turnover does.
+    #
+    #   depth_state    curve | cap | floor | no-mcap
+    #   liq_state      curve | floor | bypass | zero-volume | no-volume
+    #   supply_state   applied | inert | unpublished
+    #
+    # `dom_signed` is the dominant factor's log WITH ITS SIGN, so a cohort study can ask
+    # whether haircut-dominated rows behave differently from boost-dominated ones — a
+    # question that is currently answered structurally (no chain can be boost-dominated
+    # under the present envelopes) and should be re-asked if an envelope ever moves.
+    # `dom_warn` is the two-part flag. Diagnostic: nothing reads it back into a score.
+    "depth_raw", "depth_state", "liq_raw", "liq_state", "supply_state",
+    "dom_signed", "dom_warn",
+    # --- v2: what the browser applies, beside what the nightly modelled -----------
+    # `perp_mult` above is the multiplier score() applied, from tonight's live venue
+    # feed. These three are what a ledger consumer — the terminal — is entitled to
+    # apply, via the captured perp_overlay(): the value, the snapshot it came from, and
+    # which of the three states produced it (current / absent / rejected).
+    #
+    # Until 2026-09-17 these recorded a different and much worse rule, and the column
+    # exists because of it: the page read every row of signals.json with no date filter,
+    # so a symbol outside the persisted fifty kept its last recorded multiplier
+    # indefinitely. AUDIT-PHASE1.5 replaced that rule; these columns now record the
+    # replacement, and they stayed because the two numbers can still differ — the
+    # nightly sees a live feed for the whole universe while the ledger persists fifty
+    # rows, so a name outside the cut is neutral to the page and not to score().
+    # Observational in the strict sense: nothing reads them.
+    "perp_mult_board", "perp_mult_board_date", "perp_board_state",
+    # --- v2: the funding inputs, across the whole cross-section -------------------
+    # Every one of these already exists as a signals.csv column, for the top fifty rows
+    # only. The funding modifier is the factor with the least cross-sectional dispersion
+    # (226 of 235 rows sat at exactly 1.000 on 2026-09-17) and the most venue-dependent
+    # input, so the question Phase 2 has to answer — whether a liquidity floor is
+    # warranted, and where the reading stops being informative — needs open interest,
+    # venue count and cross-venue spread over the population, not over the top fifth.
+    #
+    # price_chg_24h is here because it is a confirming LEG of the modifier and was
+    # recorded nowhere: a 0.94 with no 24h move beside it cannot be re-derived.
+    # perp_path is the branch regime_modifier took, as an enum rather than its prose —
+    # the sentence is fully determined by (funding_apr, price_chg_24h, rsi7), all three
+    # of which are on the row, so storing it would be storing a derived column.
+    "price_chg_24h", "perp_path",
+    "funding_venue", "funding_venues_n", "funding_apr_spread",
+    "funding_interval_h", "funding_regime", "oi_usd",
 ]
+
+# The columns schema v2 added, named so the sidecar can say which they are and so the
+# migration below can tell an old shard's missing cells from a genuinely absent reading.
+# Everything appended after v1, in XSEC_FIELDS order. The name is historical: it was the
+# v2 set when it was written and has grown with each schema since. What it MEANS, and
+# what the sidecar and the subset invariant both rely on, is "the columns a v1 row does
+# not carry" — so it must stay in field order, and test_the_schema_is_locked asserts it
+# is exactly the tail.
+XSEC_V2_FIELDS = (
+    "total_volume", "depth", "confirm", "liquidity",
+    "conviction_raw", "clamped", "dom_factor", "dom_share", "dom_logabs",
+    # v4
+    "depth_raw", "depth_state", "liq_raw", "liq_state", "supply_state",
+    "dom_signed", "dom_warn",
+    "perp_mult_board", "perp_mult_board_date", "perp_board_state",
+    "price_chg_24h", "perp_path",
+    "funding_venue", "funding_venues_n", "funding_apr_spread",
+    "funding_interval_h", "funding_regime", "oi_usd",
+)
 
 # Columns this ledger shares with signals.csv, which must be EQUAL on every row the two
 # files have in common. Asserted by tests/test_xsec.py rather than trusted: two writers
@@ -3640,7 +4676,14 @@ XSEC_SHARED_FIELDS = ("conviction", "price", "market_cap", "turnover_pct",
                       "rs7", "rs14", "rs30", "rs200", "rs_blend",
                       "c_depth", "c_momentum", "c_liquidity",
                       "emission_mult", "perp_mult",
-                      "fdv_usd", "funding_apr", "rsi7", "beta_btc", "spec_hash")
+                      "fdv_usd", "funding_apr", "rsi7", "beta_btc", "spec_hash",
+                      # v2. Six of the new columns are already signals.csv columns
+                      # taken from the same source dict, so they join the invariant
+                      # rather than sitting outside it — a widened ledger that could
+                      # disagree with the narrow one on a column both hold is the
+                      # defect this file exists to make impossible.
+                      "funding_venue", "funding_venues_n", "funding_apr_spread",
+                      "funding_interval_h", "funding_regime", "oi_usd")
 
 # The windows blended into rs_blend by score(). Named here rather than repeated, because
 # this list and score()'s must not drift.
@@ -3663,6 +4706,667 @@ def observed_rs_windows(t: dict, btc: dict | None) -> int:
     return sum(1 for tf in RS_WINDOWS
                if t.get(f"price_change_percentage_{tf}d_in_currency") is not None
                and (btc or {}).get(f"price_change_percentage_{tf}d_in_currency") is not None)
+
+
+# ---------------------------------------------------------------------------
+# the chain, recorded rather than inferred  (AUDIT-PHASE1 1B — observational)
+# ---------------------------------------------------------------------------
+# NOT captured in SPEC_FUNCTIONS, and the omission is the point: this function must
+# never be able to move a published score. It re-derives the five multipliers score()
+# multiplied, and the writer below RECONCILES every row against score()'s own output
+# before writing — four equalities, and a row that fails any of them is written with the
+# v2 columns blank and a line on stderr, never with a number that does not multiply out.
+#
+# A second derivation of scoring arithmetic is exactly the thing this repository warns
+# about, so it is worth saying why it is the right shape here rather than reading the
+# components back out of `comp`. `comp` publishes depth x 20, cm x 20 and a_frac x 30,
+# each rounded to one decimal. Dividing those back gives a multiplier good to about
+# 0.005 — larger than the gap between several adjacent published scores, and far larger
+# than the precision a percentile bound needs. The alternative is to widen `comp`, which
+# means editing score(), which is a captured function: recording a number differently
+# would re-segment the track record. An uncaptured re-derivation that is asserted equal
+# on every row, every night, is the only version of this that costs no hash and can
+# still be trusted — and unlike a silent duplicate, it fails loudly the first night the
+# two disagree.
+FACTOR_NAMES = ("DEPTH", "CONFIRM", "LIQUIDITY", "SUPPLY", "FUNDING")
+
+
+def factor_chain(t: dict, perps_map: dict | None, btc: dict | None) -> dict:
+    """The five multipliers, the pre-clamp product, and which factor dominates it.
+
+    Mirrors score() line for line. Returns the multipliers UNROUNDED, the product
+    ``100 x depth x confirm x liquidity x supply x funding`` before ``round`` and before
+    the clamp to [0, 100], and the dominance readout.
+
+    Dominance is reported as two numbers because one is not enough. ``dom_share`` is the
+    largest factor's share of the chain's total absolute log; ``dom_logabs`` is that
+    log's magnitude. On 2026-09-17 ZEC carried four factors at exactly 1.000 and a fifth
+    at 1.071, giving its funding factor a dom_share of 1.00 — a perfect score on a
+    dominance flag, for the most nearly neutral chain on the board. Share says how
+    concentrated the chain is; magnitude says whether there is anything in it to
+    concentrate. A flag built on either alone fires on the wrong rows.
+    """
+    mc = t.get("market_cap") or 0
+    vol = t.get("total_volume") or 0
+    turnover = (vol / mc) if mc else 0.0
+
+    def _pct(tf: int) -> float:
+        return float(t.get(f"price_change_percentage_{tf}d_in_currency") or 0.0)
+
+    def _btc(tf: int) -> float:
+        return float((btc or {}).get(f"price_change_percentage_{tf}d_in_currency") or 0.0)
+
+    rs_blend = (0.30 * (_pct(7) - _btc(7)) + 0.25 * (_pct(14) - _btc(14))
+                + 0.25 * (_pct(30) - _btc(30)) + 0.20 * (_pct(200) - _btc(200)))
+
+    depth = max(0.0, min(1.0, (math.log10(mc) - 6) / 4.0)) if mc else 0.0
+    confirm = 0.10 + 0.90 * ((math.tanh(rs_blend / 25.0) + 1.0) / 2.0)
+    if depth >= 0.90:
+        liquidity = 1.0
+    else:
+        if turnover <= 0:
+            liquidity = 0.0
+        elif turnover <= 0.30:
+            liquidity = (10 + (turnover / 0.30) * 20) / 30.0
+        elif turnover <= 0.60:
+            liquidity = (30 - abs(turnover - 0.45) / 0.15 * 6) / 30.0
+        elif turnover <= 1.20:
+            liquidity = (20 - (turnover - 0.60) / 0.60 * 12) / 30.0
+        else:
+            liquidity = max(2.0, 8 - (turnover - 1.20) * 4) / 30.0
+        liquidity = max(0.4, liquidity)
+    supply = emission_mult(t.get("fully_diluted_valuation"), mc)
+    funding_mult = (lavl_perp_mult((t.get("symbol") or "").upper(), perps_map)
+                    if perps_map is not None else 1.0)
+
+    raw = 100.0 * depth * confirm * liquidity * supply * funding_mult
+    published = max(0, min(100, int(round(raw))))
+    clamped = "high" if round(raw) > 100 else "low" if round(raw) < 0 else ""
+
+    mults = dict(zip(FACTOR_NAMES, (depth, confirm, liquidity, supply, funding_mult)))
+    logs = {k: abs(math.log(v)) for k, v in mults.items() if v > 0}
+    total = sum(logs.values())
+    if logs and total > 0:
+        top = max(logs, key=logs.get)
+        dom_factor, dom_logabs, dom_share = top, logs[top], logs[top] / total
+    else:
+        # Either a zero multiplier (the chain is zero and nothing dominates it) or five
+        # factors at exactly 1.0 (no factor moved anything). Neither is a dominance
+        # reading and neither is written as one.
+        dom_factor, dom_logabs, dom_share = "", 0.0, 0.0
+
+    return {
+        "depth": depth, "confirm": confirm, "liquidity": liquidity,
+        "supply": supply, "funding": funding_mult,
+        "turnover": turnover, "rs_blend": rs_blend,
+        "conviction_raw": raw, "conviction": published, "clamped": clamped,
+        "dom_factor": dom_factor, "dom_share": dom_share, "dom_logabs": dom_logabs,
+    }
+
+
+def factor_chain_reconciles(chain: dict, conviction, comp: dict) -> list[str]:
+    """Every way ``chain`` can disagree with what score() published, named.
+
+    Empty list means the re-derivation reproduced score() exactly: the same three
+    display components to the decimal they are published at, and a product that rounds
+    and clamps to the same integer. Anything else is returned as a list of one-line
+    disagreements for the caller to print and to blank the row on.
+    """
+    bad = []
+    for key, scale, comp_key in (("depth", 20.0, "depth"),
+                                 ("confirm", 20.0, "momentum"),
+                                 ("liquidity", 30.0, "liquidity")):
+        mine, theirs = round(chain[key] * scale, 1), comp.get(comp_key)
+        if theirs is None or abs(mine - float(theirs)) > 1e-9:
+            bad.append(f"{key}: chain {mine} vs comp {theirs}")
+    if _num(comp.get("emission_mult")) is not None and \
+            abs(chain["supply"] - float(comp["emission_mult"])) > 1e-9:
+        bad.append(f"supply: chain {chain['supply']} vs comp {comp['emission_mult']}")
+    if _num(comp.get("perp_mult")) is not None and \
+            abs(chain["funding"] - float(comp["perp_mult"])) > 5e-4:
+        bad.append(f"funding: chain {chain['funding']} vs comp {comp['perp_mult']}")
+    if conviction is not None and chain["conviction"] != int(conviction):
+        bad.append(f"conviction: chain {chain['conviction']} vs published {conviction}")
+    return bad
+
+
+# ---------------------------------------------------------------------------
+# the funding transport  (AUDIT-PHASE1.6 — writer, deliberately not captured)
+# ---------------------------------------------------------------------------
+PERP_JSON = LEDGER_DIR / "perp.json"
+PERP_ARTIFACT_VERSION = 1
+# Short keys. Two hundred and thirty-five rows fetched on every page load, and
+# `funding_apr_spread` costs eighteen bytes a row more than `sp` for no reader's
+# benefit — the schema block inside the artifact names every one of them, so the file
+# still explains itself to anything that opens it.
+PERP_ROW_KEYS = {
+    "m": "perp_mult — the multiplier score() applied, or 1.0 by absence",
+    "s": "current (a funding reading existed) | absent (none did)",
+    "apr": "funding_apr — annualised carry, percent, from the selected venue",
+    "v": "funding_venue — which venue supplied the headline rate",
+    "n": "funding_venues_n — how many venues listed the market",
+    "sp": "funding_apr_spread — dispersion across real-interval venues, percentage points",
+    "ih": "funding_interval_h — settlement clock, hours; the rate is meaningless without it",
+    "rg": "funding_regime",
+    "rsi": "rsi7 — the 7d RSI that gates the squeeze boost, null below eight closes",
+}
+
+
+def perp_artifact(rows: list[dict], day: str, generated_at: str | None = None,
+                  source: str = "nightly") -> dict:
+    """The slim current-snapshot funding artifact the terminal scores from.
+
+    One row per scored symbol — the WHOLE cross-section, which is the point: the ledger
+    persists fifty and the board scores every one of them, and before this file existed
+    the difference was 184 rows silently neutral on the page and not in the model.
+
+    Deliberately NOT ledger/funding.json. That artifact is the rich one: eight venues
+    nested per asset, the carry screen, the thresholds, seventy kilobytes of it, and
+    fifty rows. This one is the transport, and it stays slim because a transport that
+    can grow is a transport that will. The two never merge and neither is derived from
+    the other; both are projections of the same row loop.
+
+    Also deliberately NOT a state this page is asked to trust. `s` tells a consumer
+    whether a reading EXISTED, which only this writer knows. Whether a value is
+    acceptable is decided by perp_entry at the point of use, every time.
+
+    `source` is recorded because this artifact can be produced two ways: by the nightly
+    from its own row loop, or transported out of an already-recorded cross-section. The
+    second is not a backfill — it carries the snapshot's own date and its own observed
+    values — but it is a different provenance and says so.
+    """
+    def num(v):
+        n = _num(v)
+        return n
+
+    out = {}
+    with_reading = 0
+    for r in rows:
+        sym = (r.get("symbol") or "").upper()
+        if not sym:
+            continue
+        apr = num(r.get("funding_apr"))
+        has = apr is not None
+        with_reading += has
+        row = {"m": num(r.get("perp_mult")), "s": "current" if has else "absent"}
+        for key, field in (("apr", "funding_apr"), ("v", "funding_venue"),
+                           ("n", "funding_venues_n"), ("sp", "funding_apr_spread"),
+                           ("ih", "funding_interval_h"), ("rg", "funding_regime"),
+                           ("rsi", "rsi7")):
+            val = r.get(field)
+            if val in (None, "", "None"):
+                continue
+            if key in ("v", "rg"):
+                row[key] = val                      # venue and regime are labels
+            elif key == "n":
+                v = num(val)                        # a venue COUNT, so an integer
+                row[key] = None if v is None else int(v)
+            else:
+                row[key] = num(val)
+        out[sym] = row
+    return {
+        "schema_version": PERP_ARTIFACT_VERSION,
+        "as_of": day,
+        # The artifact's age, which is the only age available. The consolidation layer
+        # publishes no per-quote timestamp — Binance's premiumIndex carries a
+        # nextFundingTime and no venue carries a "as of", and a single next-settlement
+        # stamp cannot yield the age of the reading before it. `ih` is the nearest
+        # honest proxy for how often a rate refreshes, and is on every row that has one.
+        "generated_at": generated_at or datetime.now(timezone.utc).isoformat(),
+        "spec_hash": SPEC_HASH,
+        "source": source,
+        "universe": len(out),
+        "with_reading": with_reading,
+        # Recorded so a consumer that somehow skipped the envelope check can still be
+        # audited against the rule that was in force. It is NOT read back by perp_feed:
+        # the envelope lives in the consumer, or an artifact could widen it.
+        "envelope": [PERP_ENVELOPE_LO, PERP_ENVELOPE_HI],
+        "max_age_days": PERP_MAX_AGE_DAYS,
+        "row_keys": dict(PERP_ROW_KEYS),
+        "note": ("Current-snapshot funding transport for the terminal. One row per "
+                 "scored symbol. `s` is availability, asserted by the writer; validity "
+                 "is decided by the consumer's own envelope check at the point of use. "
+                 "Not a history — a snapshot older than max_age_days is refused whole."),
+        "rows": out,
+    }
+
+
+def write_perp_artifact(rows: list[dict], day: str, generated_at: str | None = None,
+                        source: str = "nightly") -> tuple[Path, int]:
+    """Write ledger/perp.json. Returns ``(path, rows_written)``."""
+    doc = perp_artifact(rows, day, generated_at, source)
+    LEDGER_DIR.mkdir(parents=True, exist_ok=True)
+    PERP_JSON.write_text(json.dumps(doc, separators=(",", ":"), sort_keys=False) + "\n",
+                         encoding="utf-8")
+    return PERP_JSON, len(doc["rows"])
+
+
+def board_perp_map(rows: list[dict] | None = None) -> dict:
+    """RETIRED 2026-09-17. The overlay rule index.html applied until AUDIT-PHASE1.5.
+
+    Kept, and kept exact, for one reason: ``tests/test_perp_overlay.py`` asserts that
+    this returns HBAR's 17.4 and that :func:`perp_overlay` does not. A regression test
+    for a defect that cannot reproduce the defect proves nothing, and deleting this
+    would have left the fix asserted rather than demonstrated. It reaches no score, is
+    not in SPEC_FUNCTIONS, and nothing but that test calls it.
+
+    A transcription of the old ``loadLedger()``, and deliberately a literal one::
+
+        PERP = {};
+        (j.rows||[]).forEach(r=>{ const pm=r.perp_mult;
+          if(pm!=null && pm!=="None" && pm!==""){ const v=parseFloat(pm);
+            if(!isNaN(v)) PERP[(r.symbol||"").toUpperCase()]=v; } });
+
+    No date filter, no envelope check, last row in FILE ORDER wins. signals.csv is
+    append-by-date, so in practice that is the most recent night a symbol appeared in
+    the top fifty — which for a symbol that has since dropped out is however long ago
+    that was. On 2026-09-17 the map held 170 symbols of which 50 were from that night;
+    HBAR's entry was 45 nights old and carried 17.4, a value that cannot be produced by
+    ``funding.regime_modifier`` at all (its envelope is [0.85, 1.15]) and that put HBAR
+    at the head of the published board on a pre-clamp product of 242.9.
+
+    Returns ``{symbol: {"value": float, "date": str|None}}``.
+    """
+    if rows is None:
+        rows = _read_signals_rows()
+    out: dict = {}
+    for r in rows or []:
+        pm = r.get("perp_mult")
+        if pm is None or pm in ("", "None"):
+            continue
+        try:
+            v = float(pm)
+        except (TypeError, ValueError):
+            continue
+        if v != v:            # NaN, which parseFloat would also reject
+            continue
+        sym = (r.get("symbol") or "").upper()
+        if not sym:
+            continue
+        out[sym] = {"value": v, "date": r.get("date")}
+    return out
+
+
+def perp_path(funding_apr, price_chg_24h, rsi7) -> str:
+    """Which branch of ``funding.regime_modifier`` produced tonight's multiplier.
+
+    The enum, not the prose. regime_modifier returns a sentence, and that sentence is
+    fully determined by the three inputs beside it on the row, so recording it would be
+    recording a derived column at about a hundred bytes a row. The branch is what a
+    query wants: "how many rows had their squeeze boost withheld for want of an RSI" is
+    a `WHERE perp_path = 'cold-no-rsi'`, and the sentence would have to be parsed.
+    """
+    regime = funding.classify_regime(funding_apr)
+    if regime is None:
+        return "no-feed"
+    sev = funding.funding_severity(float(funding_apr))
+    if sev == 0.0:
+        return "inert-band"
+    if sev < 0:
+        return "hot-unconfirmed" if _num(price_chg_24h) is None else "hot-confirmed"
+    r = _num(rsi7)
+    if r is None:
+        return "cold-no-rsi"
+    return "cold-downtrend" if r <= funding.MOD_SQUEEZE_RSI else "cold-squeeze"
+
+
+# ---------------------------------------------------------------------------
+# the walk-forward harness  (AUDIT-PHASE4 — observational)
+# ---------------------------------------------------------------------------
+# Formalisation, not another redesign. ledger/xsec/ already holds what a walk-forward
+# study needs; what it lacked was a documented outcome layer and a report that runs
+# TODAY, reports its own insufficiency honestly, and becomes informative on its own as
+# nights accumulate rather than on someone remembering to re-run it.
+#
+# Nothing here recalibrates anything. The Phase 2A deferrals stand: no factor bound and
+# no dominance threshold is fitted from this sample, which is three nights long.
+WALKFWD_JSON = LEDGER_DIR / "walkforward.json"
+WALKFWD_VERSION = 1
+# The horizons the outcome layer links. Same set as the IC matrix, because a walk-forward
+# report that measured different windows from the published matrix would be a second
+# answer to the same question.
+WALKFWD_HORIZONS = IC_HORIZONS
+# Below this a cohort statistic is not computed. A hit rate over four names is a
+# statement about four names.
+WALKFWD_MIN_COHORT = 20
+
+
+def _wilson(k: int, n: int, z: float = 1.96) -> list | None:
+    """Wilson interval for a proportion. None below one observation.
+
+    Wilson rather than the normal approximation because hit rates here sit near 0.5 on
+    small samples, where the normal interval runs past 0 and 1 and reports coverage it
+    does not have.
+    """
+    if n <= 0:
+        return None
+    p = k / n
+    d = 1 + z * z / n
+    c = (p + z * z / (2 * n)) / d
+    h = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5) / d
+    return [round(max(0.0, c - h), 4), round(min(1.0, c + h), 4)]
+
+
+# Why a snapshot has no outcome. Four reasons, and they are four different facts — a
+# report that collapsed them into "no data" would hide the one that matters (a symbol
+# that left the universe is not a symbol whose horizon has not elapsed).
+OUTCOME_STATES = ("realised", "horizon-incomplete", "left-universe", "unpriced")
+
+
+def link_outcomes(by_date: dict, horizons=WALKFWD_HORIZONS) -> list[dict]:
+    """Join every snapshot to the prices recorded strictly later, and to nothing else.
+
+    Deterministic and causal by construction:
+
+    * the target date is ``snapshot + horizon`` days EXACTLY. There is no nearest-date
+      fallback, because a fallback can only err in one direction — toward whichever
+      neighbouring date happens to exist — and the direction is unknowable after the
+      fact.
+    * a horizon whose target date is beyond the last recorded night is
+      ``horizon-incomplete``, never a shorter return relabelled.
+    * a symbol absent from the target night is ``left-universe``, never a zero. A
+      delisting is not a flat day, and imputing one would be the most expensive
+      fabrication available here.
+    * ``unpriced`` is a row that exists at both ends with no usable price.
+
+    Returns one record per (snapshot, symbol), with one entry per horizon. Pure: it reads
+    the dict it is given and touches no file.
+    """
+    dates = sorted(by_date)
+    have = set(dates)
+    last = dates[-1] if dates else None
+    out = []
+    for d in dates:
+        for sym, row in by_date[d].items():
+            p0 = _num(row.get("price"))
+            rec = {"date": d, "symbol": sym, "outcomes": {}}
+            for h in horizons:
+                try:
+                    tgt = (date.fromisoformat(d) + timedelta(days=h)).isoformat()
+                except ValueError:
+                    continue
+                if last is None or tgt > last:
+                    rec["outcomes"][str(h)] = {"state": "horizon-incomplete",
+                                               "to": tgt, "ret": None}
+                    continue
+                if tgt not in have:
+                    # The target night was never recorded. Not an incomplete horizon —
+                    # the horizon has elapsed, the observation is simply missing.
+                    rec["outcomes"][str(h)] = {"state": "unpriced", "to": tgt,
+                                               "ret": None}
+                    continue
+                nxt = by_date[tgt].get(sym)
+                if nxt is None:
+                    rec["outcomes"][str(h)] = {"state": "left-universe", "to": tgt,
+                                               "ret": None}
+                    continue
+                p1 = _num(nxt.get("price"))
+                if not p0 or not p1 or p0 <= 0 or p1 <= 0:
+                    rec["outcomes"][str(h)] = {"state": "unpriced", "to": tgt,
+                                               "ret": None}
+                    continue
+                rec["outcomes"][str(h)] = {"state": "realised", "to": tgt,
+                                           "ret": p1 / p0 - 1.0}
+            out.append(rec)
+    return out
+
+
+def _cohort(pairs: list) -> dict:
+    """Hit rate and mean return for one cohort, with an interval and a count.
+
+    ``pairs`` is a list of returns. Insufficiency is reported, never smoothed: below
+    WALKFWD_MIN_COHORT the statistics are None and the state says why.
+    """
+    n = len(pairs)
+    if n < WALKFWD_MIN_COHORT:
+        return {"n": n, "unit": "symbol-days", "hit_rate": None, "hit_ci": None,
+                "mean_ret_pct": None, "state": "INSUFFICIENT",
+                "detail": f"{n} of {WALKFWD_MIN_COHORT} symbol-days"}
+    k = sum(1 for r in pairs if r > 0)
+    # `n` counts SYMBOL-DAYS, not legs. A cohort can read MEASURED on 409 symbol-days
+    # drawn from two legs while every IC cell in the same file reads INSUFFICIENT, and
+    # those are consistent rather than contradictory: a proportion needs observations, a
+    # rank correlation needs independent nights. The unit is carried so nobody has to
+    # infer that from the numbers.
+    return {"n": n, "unit": "symbol-days", "hit_rate": round(k / n, 4),
+            "hit_ci": _wilson(k, n),
+            "mean_ret_pct": round(sum(pairs) / n * 100, 4), "state": "MEASURED",
+            "detail": f"{k} of {n} positive symbol-days"}
+
+
+# The mirror of ic_matrix()'s guard is deliberately NOT here, and the asymmetry is the
+# point rather than an oversight. `src` discriminates in one direction only: xsec rows
+# always carry it and signals.csv rows never do, so "legacy label over src-bearing rows"
+# is checkable while "forward label over rows without src" is indistinguishable from the
+# synthetic fixtures this function is driven with in tests. Guarding it by absence would
+# reject the legitimate case to catch a hypothetical one. The exposure is also smaller:
+# nothing published reads this with legacy data — write_walkforward() is the only caller
+# and passes xsec_by_date() — and no gate reads its output at all.
+def walkforward_report(by_date: dict, regimes: dict | None = None,
+                       sample: str = "forward") -> dict:
+    """IC, hit rate and cohort diagnostics by factor, horizon, tier, regime and flag.
+
+    Runs today. On three nights of history almost every cell reads INSUFFICIENT, and
+    that is the correct output — the harness is built so it becomes informative as nights
+    accumulate rather than waiting for someone to decide it is ready.
+
+    ``regimes`` maps a date to the RISK-ON / RISK-OFF flag recorded for that night.
+    Absent, the regime split reports as unavailable rather than as one bucket.
+    """
+    if sample not in IC_SAMPLES:
+        raise ValueError(f"walkforward_report sample must be one of "
+                         f"{sorted(IC_SAMPLES)}, got {sample!r}")
+    meta = IC_SAMPLES[sample]
+    dates = sorted(by_date)
+    links = link_outcomes(by_date)
+    ret = {(r["date"], r["symbol"]): r["outcomes"] for r in links}
+
+    def realised(h):
+        return [(d, s, o[str(h)]["ret"]) for (d, s), o in ret.items()
+                if str(h) in o and o[str(h)]["state"] == "realised"]
+
+    # --- coverage: what the linker could and could not join ---------------------
+    coverage = {}
+    for h in WALKFWD_HORIZONS:
+        c = collections.Counter(o[str(h)]["state"] for o in ret.values() if str(h) in o)
+        coverage[str(h)] = {**{k: c.get(k, 0) for k in OUTCOME_STATES},
+                            "total": sum(c.values())}
+
+    # --- IC by signal x horizon, on this universe -------------------------------
+    ic = {}
+    for name, field in IC_SIGNALS:
+        ic[name] = {}
+        for h in WALKFWD_HORIZONS:
+            cell = _ic_cell(_ic_legs(by_date, field, h, None))
+            cell["sample"] = meta["id"]          # see ic_matrix — same reasoning
+            ic[name][str(h)] = cell
+
+    # --- hit rate by factor: the cohort a factor's own bound produced ------------
+    def bucket(pred, h):
+        vals = []
+        for d, s, r in realised(h):
+            row = by_date[d].get(s) or {}
+            if pred(row):
+                vals.append(r)
+        return _cohort(vals)
+
+    def tier_of(row):
+        c = _num(row.get("conviction"))
+        if c is None:
+            return None
+        return ("T1" if c >= 80 else "T2" if c >= 70 else "T3" if c >= 55
+                else "T4" if c >= 40 else "T5")
+
+    tiers = {t: {str(h): bucket(lambda r, t=t: tier_of(r) == t, h)
+                 for h in WALKFWD_HORIZONS} for t in ("T1", "T2", "T3", "T4", "T5")}
+
+    regime_rows = {}
+    if regimes:
+        for reg in sorted({v for v in regimes.values() if v}):
+            regime_rows[reg] = {str(h): bucket(
+                lambda r, reg=reg, d=None: False, h) for h in WALKFWD_HORIZONS}
+        # rebuilt with the date in hand — the predicate above cannot see it
+        for reg in regime_rows:
+            for h in WALKFWD_HORIZONS:
+                vals = [r for d, s, r in realised(h) if regimes.get(d) == reg]
+                regime_rows[reg][str(h)] = _cohort(vals)
+
+    def flag_split(pred, label, column):
+        """A cohort split, and whether the column it splits on has been recorded at all.
+
+        These two are not the same fact and a report that showed them the same way would
+        be lying by omission: a flag with no members because nothing qualified, and a
+        flag with no members because the writer that fills its column has not run yet,
+        look identical in a count. The v4 columns landed at AUDIT-PHASE2A and are empty
+        on every night recorded before it, by design.
+        """
+        recorded = any(str((row or {}).get(column) or "").strip()
+                       for day in by_date.values() for row in day.values())
+        out = {}
+        for h in WALKFWD_HORIZONS:
+            if not recorded:
+                out[str(h)] = {"flagged": None, "unflagged": None}
+                continue
+            yes = [r for d, s, r in realised(h) if pred(by_date[d].get(s) or {})]
+            no = [r for d, s, r in realised(h) if not pred(by_date[d].get(s) or {})]
+            out[str(h)] = {"flagged": _cohort(yes), "unflagged": _cohort(no)}
+        return {"label": label, "column": column, "recorded": recorded,
+                "detail": (f"`{column}` is recorded" if recorded else
+                           f"`{column}` has not been written on any recorded night — "
+                           f"this cohort begins when the v4 writer next runs, and is "
+                           f"reported as absent rather than as empty"),
+                "by_horizon": out}
+
+    truthy = lambda v: str(v).strip().lower() in ("true", "1", "yes")
+    cohorts = {
+        "dominance_warning": flag_split(
+            lambda r: truthy(r.get("dom_warn")),
+            "rows where one factor holds most of the chain", "dom_warn"),
+        "liquidity_floor": flag_split(
+            lambda r: r.get("liq_state") == "floor",
+            "rows whose LIQUIDITY came from the floor", "liq_state"),
+        "liquidity_bypass": flag_split(
+            lambda r: r.get("liq_state") == "bypass",
+            "rows whose LIQUIDITY came from the depth bypass", "liq_state"),
+        "no_volume": flag_split(
+            lambda r: r.get("liq_state") in ("no-volume", "zero-volume"),
+            "rows with no traded volume, or none reported", "liq_state"),
+        "depth_cap": flag_split(
+            lambda r: r.get("depth_state") == "cap",
+            "rows whose DEPTH is at its cap", "depth_state"),
+        "clamped": flag_split(
+            lambda r: str(r.get("clamped") or "") in ("high", "low"),
+            "rows whose published score was clamped", "clamped"),
+    }
+
+    n_meas = sum(1 for sig in ic.values() for c in sig.values()
+                 if c["state"] in ("NEGATIVE", "POSITIVE"))
+    # DERIVED, never typed. The banner is a function of whether any cell in THIS report
+    # has cleared the same bar the published matrix has to clear. It lifts on its own the
+    # night the sample earns it, and nothing has to remember to remove it.
+    total_cells = len(IC_SIGNALS) * len(WALKFWD_HORIZONS)
+    sample_state = FORWARD_INSUFFICIENT_BANNER if n_meas == 0 else (
+        f"{meta['label']} — {n_meas} of {total_cells} cells measurable")
+    return {
+        "version": WALKFWD_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "spec_hash": SPEC_HASH,
+        "sample": meta["id"],
+        "sample_label": meta["label"],
+        "universe": meta["universe"],
+        "population": meta["population"],
+        "sample_caveat": meta["caveat"],
+        "nights": len(dates),
+        "from": dates[0] if dates else None,
+        "to": dates[-1] if dates else None,
+        "horizons": list(WALKFWD_HORIZONS),
+        "min_legs": EDGE_MIN_LEGS,
+        "min_cohort": WALKFWD_MIN_COHORT,
+        "measurable_cells": n_meas,
+        "total_cells": total_cells,
+        "cells_counted": ("measurable_cells counts the IC grid only — signal x horizon. "
+                          "The hit-rate and cohort blocks are counted in SYMBOL-DAYS and "
+                          "can read MEASURED while every IC cell reads INSUFFICIENT."),
+        "sample_state": sample_state,
+        "src": "live",
+        "src_contract": ("observed on the night it is dated; backfill rows are never "
+                         "pooled with them, and xsec_by_date() takes one source at a "
+                         "time so the two cannot be mixed by a reader either"),
+        "comparable_to_published_matrix": False,
+        "not_comparable_because": (
+            "The published IC matrix is measured on the LEGACY sample — "
+            "ledger/signals.csv, the top fifty by conviction, 48 nights. This report is "
+            "measured on the FORWARD sample — ledger/xsec/, the whole scored "
+            "cross-section, which began on 2026-09-15. Different populations over "
+            "different windows: the numbers are not alternative estimates of one "
+            "quantity and must never be averaged, compared or presented as though one "
+            "confirms or contradicts the other. Three nights admit at most two one-day "
+            "legs, so this report cannot reproduce a 43-leg figure at any horizon."),
+        "coverage": coverage,
+        "ic": ic,
+        "hit_rate_by_tier": tiers,
+        "by_regime": regime_rows or None,
+        "cohorts": cohorts,
+        "basis": ("Walk-forward over the recorded cross-section. Every snapshot is "
+                  "joined to prices recorded at exactly snapshot + horizon days and to "
+                  "nothing else; a horizon that has not elapsed, a symbol that left the "
+                  "universe and a night that was never recorded are three different "
+                  "states and are reported as three. Nothing here is calibrated from: "
+                  "the factor bounds and the dominance thresholds are fixed by "
+                  "AUDIT-PHASE2A and are not re-fitted on this sample."),
+        "sufficiency": ("This report runs on whatever history exists and says so. With "
+                        f"{len(dates)} night(s) recorded, {n_meas} of "
+                        f"{len(IC_SIGNALS) * len(WALKFWD_HORIZONS)} IC cells are "
+                        "measurable; the rest read INSUFFICIENT, which is a statement "
+                        "about the sample and not about the signal."),
+    }
+
+
+def recorded_regimes() -> dict:
+    """{date: "RISK-ON" | "RISK-OFF"} from ledger/index.csv.
+
+    Read from the recorded column rather than recomputed, for the same reason the factor
+    values are: a regime recomputed today and dated to a past night is a label the board
+    never actually carried. "N/A" nights are omitted, so the regime split reports them as
+    absent rather than folding them into one of the two real buckets.
+    """
+    out = {}
+    try:
+        for r in read_index_rows():
+            reg = (r.get("macro_regime") or "").strip()
+            if r.get("date") and reg in ("RISK-ON", "RISK-OFF"):
+                out[r["date"]] = reg
+    except Exception:  # noqa: BLE001 — a missing or unreadable index is no regimes
+        return {}
+    return out
+
+
+def write_walkforward(doc: dict) -> Path:
+    """Deterministic bytes for a given report, except for generated_at."""
+    LEDGER_DIR.mkdir(parents=True, exist_ok=True)
+    WALKFWD_JSON.write_text(json.dumps(doc, indent=1, sort_keys=False) + "\n",
+                            encoding="utf-8")
+    return WALKFWD_JSON
+
+
+def xsec_by_date(shard_dir: Path | None = None, src: str = "live") -> dict:
+    """The cross-sectional research ledger as {date: {symbol: row}}.
+
+    The wide equivalent of ic_by_date(). Reads only rows matching ``src`` so a future
+    backfill cannot be pooled with observed nights by accident — the distinction the
+    ``src`` column exists for is enforced at the reader rather than trusted downstream.
+    """
+    d = shard_dir or XSEC_DIR
+    if not d.exists():
+        return {}
+    by: dict = {}
+    for path in sorted(d.glob("*.csv")):
+        with path.open(newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                if r.get("src") != src or not r.get("date") or not r.get("symbol"):
+                    continue
+                by.setdefault(r["date"], {})[r["symbol"].upper()] = r
+    return by
 
 
 def _xsec_rank(rows: list[dict], field: str) -> dict:
@@ -3744,6 +5448,72 @@ def write_xsec_schema() -> Path:
                  "top-fifty-by-conviction series unchanged; the two are never pooled. "
                  "Rows marked backfill were reconstructed from point-in-time inputs and "
                  "were not observed on the date they carry."),
+        "chain": {
+            "identity": ("conviction_raw = 100 x depth x confirm x liquidity x "
+                         "emission_mult x perp_mult, before round and before the clamp "
+                         "to [0, 100]. `conviction` is that product rounded and "
+                         "clamped; `clamped` is 'high', 'low' or empty."),
+            "reconciled": ("Every row's chain is asserted equal to score()'s own output "
+                           "before it is written — the three display components to the "
+                           "decimal they publish at, and the clamped integer. A row "
+                           "that fails is written with the v2 columns EMPTY."),
+            "dominance": ("dom_share is the largest factor's share of the chain's total "
+                          "absolute log; dom_logabs is that log's magnitude. Both are "
+                          "recorded because share alone saturates at 1.0 on a chain "
+                          "whose other four factors are exactly 1.0, which is the most "
+                          "neutral chain there is rather than the most dominated."),
+            "perp_mult_vs_board": ("perp_mult is the multiplier score() applied, from "
+                                   "tonight's live venue feed across the whole "
+                                   "universe. perp_mult_board is what a ledger "
+                                   "consumer may apply under perp_overlay(): only a "
+                                   "value carrying the snapshot's own date and falling "
+                                   "inside [0.85, 1.15]. perp_board_state is which of "
+                                   "current / absent / rejected / no-row produced it. "
+                                   "They differ for any symbol outside the persisted "
+                                   "fifty, which the page reads as neutral."),
+            "overlay_history": ("Before 2026-09-17 these columns recorded a different "
+                                "rule: every row of signals.json, no date filter, last "
+                                "write in file order winning. That rule served a "
+                                "forty-five-night-old 17.4 to HBAR and put it at the "
+                                "head of the published board on a pre-clamp 242.9. It "
+                                "was replaced under specification boundary "
+                                "1a4ea6e4d77e -> 8e750228e15a. No row was ever written "
+                                "under the old rule."),
+        },
+        # AUDIT-PHASE4. What this store IS, stated in the store, so a reader picking the
+        # directory up does not have to infer its contract from a commit message.
+        "contract": {
+            "role": ("The durable append-only research ledger. One row per (date, "
+                     "symbol, src) covering the WHOLE scored cross-section — not a "
+                     "truncation — carrying every input, every raw multiplier, every "
+                     "applied multiplier, the state that produced each, the pre-clamp "
+                     "product, the published score and the specification hash that "
+                     "governed it."),
+            "append_only": ("A shard is never rewritten except to replace the rows of "
+                            "its own (date, src), which is what a same-night re-run "
+                            "does. Prior dates are untouched by every writer here, and "
+                            "a closed month is never opened again."),
+            "reproducibility": ("Every row carries what is needed to recompute its own "
+                                "score: market_cap, total_volume, fdv_usd, the four "
+                                "relative-strength windows and how many were observed, "
+                                "the five multipliers, perp_mult and spec_hash. "
+                                "conviction_raw x round x clamp equals conviction, and "
+                                "the writer asserts it before writing."),
+            "provenance": ("`src` separates live from backfill and the reader enforces "
+                           "it: xsec_by_date() takes one source and never pools them. "
+                           "`spec_hash` says which specification produced the row. "
+                           "Columns added at a later schema version are EMPTY on "
+                           "earlier rows and are never reconstructed into them."),
+            "outcomes": ("Returns are NOT stored. They are derived by link_outcomes() "
+                         "at read time from prices recorded on later nights, which "
+                         "makes look-ahead structurally impossible: there is no field "
+                         "a future value could be written into."),
+        },
+        "added_at_v2": [f for f in XSEC_FIELDS if f in XSEC_V2_FIELDS],
+        "v2_note": ("Columns added at schema v2 are EMPTY on rows dated before the "
+                    "writer emitted them. Several are reconstructible for those dates "
+                    "and are deliberately left blank: those rows carry src='live', "
+                    "which this file defines as observed on the night it is dated."),
     }
     XSEC_SCHEMA_JSON.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
     return XSEC_SCHEMA_JSON
@@ -3767,8 +5537,13 @@ def write_xsec(rows: list[dict], day: str, src: str = "live") -> tuple[Path, int
         with path.open(newline="", encoding="utf-8") as f:
             kept = [r for r in csv.DictReader(f)
                     if not (r.get("date") == day and r.get("src") == src)]
-    everything = kept + [{k: ("" if r.get(k) is None else r.get(k)) for k in XSEC_FIELDS}
-                         for r in fresh]
+    # Rows written under an earlier schema are widened here, not dropped and not filled
+    # in. A column this file gained after a row was recorded is EMPTY on that row: the
+    # reading was not taken, and the only honest cell for a reading that was not taken
+    # is a blank one. Projecting `kept` explicitly rather than leaning on DictWriter's
+    # restval makes that a decision in the source instead of a default in the stdlib.
+    everything = [{k: ("" if r.get(k) is None else r.get(k)) for k in XSEC_FIELDS}
+                  for r in kept + fresh]
     # Deterministic bytes for a given set of rows, so a re-run that changes nothing
     # produces a file that changes nothing and git records no commit for it.
     everything.sort(key=lambda r: (r.get("date") or "", r.get("src") or "",
@@ -4399,6 +6174,7 @@ def main() -> int:
     basket = build_basket(markets, today, btc)
     rows = []
     seen = set()
+    chain_misses: list = []
     for t in markets:
         sym = (t.get("symbol") or "").upper()
         if not sym or sym in seen or sym in STABLES:
@@ -4406,6 +6182,26 @@ def main() -> int:
         seen.add(sym)
         era, conv, sig, comp = score(t, perps_map, btc)
         pm = lavl_perp_mult(sym, perps_map)
+        # AUDIT-PHASE1 1B. The same chain, unrounded, reconciled against what score()
+        # just published before any of it is written. `chain_bad` is non-empty only if
+        # the re-derivation and score() disagree, in which case every v2 column on this
+        # row is written empty and the disagreement is printed: a blank cell is a gap in
+        # the record, a wrong one is a fabrication.
+        chain = factor_chain(t, perps_map, btc)
+        chain_bad = factor_chain_reconciles(chain, conv, comp)
+        if chain_bad:
+            chain_misses.append((sym, chain_bad))
+        # AUDIT-PHASE2A. Raw beside applied, and the bound that decided. `total_volume`
+        # is passed UNMODIFIED so liquidity_state can tell a published zero from a
+        # missing field; score() collapses both to zero and this pass does not change
+        # that, so `applied` is identical either way.
+        st_depth = depth_state(t.get("market_cap"))
+        st_liq = liquidity_state(t.get("total_volume"), t.get("market_cap"),
+                                 st_depth["applied"])
+        st_sup = supply_state(t.get("fully_diluted_valuation"), t.get("market_cap"))
+        st_dom = chain_dominance({"DEPTH": chain["depth"], "CONFIRM": chain["confirm"],
+                                  "LIQUIDITY": chain["liquidity"],
+                                  "SUPPLY": chain["supply"], "FUNDING": chain["funding"]})
         # The same modifier score() applied, with the sentence explaining why. The
         # multiplier is recorded as perp_mult; the reason goes to funding.json, because
         # a 0.85 on screen cannot distinguish "penalised for crowding" from "the feed
@@ -4488,8 +6284,106 @@ def main() -> int:
             # Module J. Filled after the loop, once the board has been ranked — the
             # divergence is between two RANKINGS and neither exists per row.
             "trending_rank": None, "tmd_divergence": None, "tmd_label": None,
+            # AUDIT-PHASE1 1B — the cross-sectional ledger's v2 columns. None of these
+            # is in FIELDS, so signals.csv is untouched: `fresh` below projects onto
+            # FIELDS and drops every key added here. They reach ledger/xsec/ only.
+            #
+            # Written empty when the re-derivation did not reconcile with score(). Six
+            # decimals on the multipliers because a percentile bound is calibrated off
+            # them and the whole reason this column exists is that one decimal on a
+            # display scale was not enough.
+            **({k: None for k in ("total_volume", "depth", "confirm", "liquidity",
+                                  "conviction_raw", "clamped", "dom_factor",
+                                  "dom_share", "dom_logabs", "perp_path",
+                                  "depth_raw", "depth_state", "liq_raw", "liq_state",
+                                  "supply_state", "dom_signed", "dom_warn")}
+               if chain_bad else {
+                "total_volume": t.get("total_volume"),
+                "depth": round(chain["depth"], 6),
+                "confirm": round(chain["confirm"], 6),
+                "liquidity": round(chain["liquidity"], 6),
+                "conviction_raw": round(chain["conviction_raw"], 4),
+                "clamped": chain["clamped"],
+                "dom_factor": chain["dom_factor"],
+                "dom_share": round(chain["dom_share"], 4),
+                "dom_logabs": round(chain["dom_logabs"], 4),
+                "depth_raw": (None if st_depth["raw"] is None
+                              else round(st_depth["raw"], 6)),
+                "depth_state": st_depth["state"],
+                "liq_raw": round(st_liq["raw"], 6),
+                "liq_state": st_liq["state"],
+                "supply_state": st_sup["state"],
+                "dom_signed": round(st_dom["signed"], 4),
+                "dom_warn": st_dom["warn"],
+                "perp_path": perp_path(fc.get("funding_apr"),
+                                       t.get("price_change_percentage_24h"),
+                                       rsi_map.get(sym)),
+               }),
+            # The confirming leg of the funding modifier. Recorded nowhere before this:
+            # a multiplier of 0.94 with no 24h move beside it cannot be re-derived, and
+            # "was the crowding confirmed" is the question Phase 2 asks of it.
+            "price_chg_24h": t.get("price_change_percentage_24h"),
+            # Stamped after the sort, once the file the browser will fetch is known.
+            "perp_mult_board": None, "perp_mult_board_date": None,
+            "perp_board_state": None,
         })
     rows.sort(key=lambda r: r["conviction"], reverse=True)
+
+    # AUDIT-PHASE1.6 — what the PAGE will apply, stamped on every row.
+    #
+    # Through the captured perp_feed() over the artifact this run is about to write,
+    # which is the same rule index.html runs and is gated against it by
+    # tests/test_parity.py. Built here rather than after write_perp_artifact() so the
+    # column is a property of the DOCUMENT and not of the disk: if these two ever
+    # disagree, the file is what shipped and the column is what we thought shipped.
+    #
+    # Under Phase 1.5 this column measured a real gap — the page read fifty rows and
+    # score() read a hundred and fifty. Under 1.6 it should be identically equal to
+    # `perp_mult` on every row, and the divergence count below is how that is asserted
+    # nightly rather than argued once. The column stays because a transport that is
+    # correct today is not a transport that cannot regress.
+    _ov = perp_feed(perp_artifact(rows, today), today)
+    for r in rows:
+        sym = r["symbol"]
+        if sym in _ov["mults"]:
+            r["perp_mult_board"] = _ov["mults"][sym]
+            r["perp_mult_board_date"] = _ov["as_of"]
+            r["perp_board_state"] = _ov["states"][sym]
+        else:
+            # Not in the artifact at all, which after 1.6 should be impossible — the
+            # artifact is written from these same rows. Recorded as the 1.0 the page's
+            # own `|| 1` will apply rather than blank, because a blank would read as
+            # "not measured" when the multiplication is certain.
+            r["perp_mult_board"] = PERP_NEUTRAL
+            r["perp_mult_board_date"] = _ov["as_of"] or ""
+            r["perp_board_state"] = "no-row"
+    _states = {}
+    for r in rows:
+        _states[r["perp_board_state"]] = _states.get(r["perp_board_state"], 0) + 1
+    _diverge = [r["symbol"] for r in rows
+                if _num(r.get("perp_mult")) is not None
+                and abs(float(r["perp_mult"]) - float(r["perp_mult_board"])) > 5e-4]
+    print(f"[overlay] snapshot {_ov['as_of'] or 'NONE — withheld'}: "
+          f"{dict(sorted(_states.items()))}; {len(_diverge)} row(s) differ from the "
+          f"multiplier score() applied", file=__import__("sys").stderr)
+    if _diverge:
+        print(f"[overlay] COVERAGE GAP — the page and score() would disagree on "
+              f"{len(_diverge)} row(s): " + ", ".join(sorted(_diverge)[:20]),
+              file=__import__("sys").stderr)
+    if _ov["rejected"]:
+        print(f"[overlay] REFUSED {len(_ov['rejected'])} value(s) outside "
+              f"[{PERP_ENVELOPE_LO}, {PERP_ENVELOPE_HI}] on the current snapshot — this "
+              f"is a fault in tonight's writer, not a historical artifact: "
+              + ", ".join(f"{x['symbol']}={x['value']}" for x in _ov["rejected"]),
+              file=__import__("sys").stderr)
+    if chain_misses:
+        print(f"[xsec] {len(chain_misses)} row(s) did not reconcile against score(); "
+              f"their v2 columns are written empty:", file=__import__("sys").stderr)
+        for sym, why in chain_misses[:10]:
+            print(f"        {sym}: {'; '.join(why)}", file=__import__("sys").stderr)
+    else:
+        print(f"[xsec] factor chain reconciles against score() on all {len(rows)} rows",
+              file=__import__("sys").stderr)
 
     # Module J, now that conviction exists for every row. The intel artifact is built
     # from the same call so the per-row columns and the panel can never disagree about
@@ -4589,6 +6483,43 @@ def main() -> int:
           f"({xsec_path.stat().st_size / 1024:.1f} KB shard, "
           f"{len(XSEC_FIELDS)} columns, schema v{XSEC_SCHEMA_VERSION})",
           file=__import__("sys").stderr)
+
+    # AUDIT-PHASE4 — the walk-forward report. Written from the cross-sectional ledger
+    # AFTER tonight's rows have landed in it, so the report describes the shard on disk.
+    # It runs on whatever history exists and states its own insufficiency; on three
+    # nights almost every cell reads INSUFFICIENT, which is the correct output.
+    wf = walkforward_report(xsec_by_date(), recorded_regimes())
+    wf_path = write_walkforward(wf)
+    print(f"[walkfwd] {wf['nights']} night(s) {wf['from']}..{wf['to']} -> "
+          f"{wf_path.name}; {wf['measurable_cells']} of "
+          f"{len(IC_SIGNALS) * len(WALKFWD_HORIZONS)} IC cell(s) measurable, "
+          f"{wf['coverage'][str(WALKFWD_HORIZONS[0])]['realised']} realised 1d outcome(s)",
+          file=__import__("sys").stderr)
+
+    # AUDIT-PHASE1.6 — the funding transport. Written from `rows`, which is the WHOLE
+    # scored cross-section, not `fresh`, which is the persisted fifty. That distinction
+    # is the entire phase: the terminal used to read the fifty and score the rest at a
+    # neutral 1.000 while this loop had a live reading for a hundred and fifty of them.
+    perp_path_, perp_n = write_perp_artifact(rows, today)
+    _pf = perp_feed(json.loads(perp_path_.read_text(encoding="utf-8")), today)
+    _mismatch = [r["symbol"] for r in rows
+                 if abs(_pf["mults"].get(r["symbol"], PERP_NEUTRAL)
+                        - float(r["perp_mult"])) > 5e-4]
+    print(f"[perp] {perp_n} row(s) -> {perp_path_.name} "
+          f"({perp_path_.stat().st_size / 1024:.1f} KB, schema v{PERP_ARTIFACT_VERSION}); "
+          f"the terminal will apply the same multiplier as score() on "
+          f"{perp_n - len(_mismatch)}/{perp_n} rows", file=__import__("sys").stderr)
+    if _mismatch:
+        # The whole point of the artifact is that this list is empty. A non-empty one
+        # means the transport dropped or altered a value between score() and the page,
+        # which is the defect the phase removed, returning.
+        print(f"[perp] TRANSPORT MISMATCH on {len(_mismatch)} row(s): "
+              + ", ".join(sorted(_mismatch)[:20]), file=__import__("sys").stderr)
+    if _pf["rejected"]:
+        print(f"[perp] the transport carries {len(_pf['rejected'])} value(s) the "
+              f"consumer will refuse: "
+              + ", ".join(f"{x['symbol']}={x['value']}" for x in _pf["rejected"]),
+              file=__import__("sys").stderr)
 
     # Module 3 artifact. Written whatever the venues did — a file that only appears on
     # good nights makes "no funding tonight" indistinguishable from "the step did not

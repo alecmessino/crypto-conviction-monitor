@@ -521,7 +521,22 @@ def check_xsec(ledger: Path) -> list[str]:
                 missing.append((r.get("date"), r.get("symbol")))
                 continue
             compared += 1
+            # Six shared columns arrived with schema v2 and are empty on rows written
+            # before it — see nightly.XSEC_V2_FIELDS. The invariant is a claim about
+            # columns a row was WRITTEN with, so it is scoped per row rather than
+            # relaxed for everyone: `perp_mult_board` is populated on every v2 row and
+            # on no v1 row. A v1 row is still checked on every column it does hold, and
+            # a v1 row carrying a v2 value is itself a failure — otherwise this scoping
+            # could hide a real disagreement.
+            written_at_v2 = wide.get("perp_mult_board") not in ("", None)
             for field in nightly.XSEC_SHARED_FIELDS:
+                v2_only = field in nightly.XSEC_V2_FIELDS
+                if v2_only and not written_at_v2:
+                    if wide.get(field) not in ("", None):
+                        mismatched.append(
+                            f"{r.get('date')}/{r.get('symbol')}.{field}: predates "
+                            f"schema v2 but carries {wide.get(field)!r}")
+                    continue
                 if wide.get(field) != r.get(field):
                     mismatched.append(
                         f"{r.get('date')}/{r.get('symbol')}.{field}: "
@@ -537,6 +552,188 @@ def check_xsec(ledger: Path) -> list[str]:
                 f"and the live cross-section, e.g. {mismatched[:2]}")
         if compared and not (missing or mismatched):
             pass                  # reported as context by main(), not as a problem
+    return problems
+
+
+def check_perp_transport(ledger: Path) -> list[str]:
+    """ledger/perp.json — the funding transport the terminal scores from.
+
+    AUDIT-PHASE1.6. This file is the ONLY funding input the board has; there is no
+    fallback by design. So a deploy that ships a stale, truncated or out-of-envelope
+    artifact does not degrade the board gracefully — it withholds the overlay entirely,
+    or worse, applies something it should not. The gate is here rather than only in the
+    tests because this is the check that runs against what is about to be published.
+    """
+    problems: list[str] = []
+    path = ledger / "perp.json"
+    if not path.exists():
+        # Not a failure on its own: a ledger predating the transport is a ledger the
+        # page will simply find no artifact for, and it says so on screen.
+        return problems
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        return [f"perp.json: unreadable ({e}) — the board would score every row neutral"]
+
+    day = doc.get("as_of")
+    # Read against its OWN date first, which only catches a malformed or missing as_of —
+    # a file is never stale relative to itself. Freshness is checked below, against the
+    # ledger, which is the only thing that knows what "current" means.
+    fed = nightly.perp_feed(doc, day)
+    if fed["withheld"]:
+        problems.append(f"perp.json: unusable even on its own date ({fed['withheld']}) "
+                        f"— as_of is {day!r}")
+        return problems
+
+    # Staleness. The artifact is the board's only funding input and there is no
+    # fallback, so an artifact the nightly failed to regenerate is a board quietly
+    # scoring against an older market — which is the class of defect Phase 1.5 removed,
+    # arriving through the new path. Compared against signals.csv rather than against
+    # the clock, because the clock cannot tell a late run from a missed one.
+    sig = ledger / "signals.csv"
+    if sig.exists():
+        with sig.open(newline="", encoding="utf-8") as f:
+            recorded = sorted({r.get("date") for r in csv.DictReader(f) if r.get("date")})
+        newest = recorded[-1] if recorded else None
+        if newest and day != newest:
+            lag = nightly.iso_day_diff(day, newest)
+            problems.append(
+                f"perp.json: dated {day} while the ledger records through {newest}"
+                + (f" ({lag} night(s) behind)" if lag is not None else "")
+                + " — the transport was not regenerated, and the board has no fallback")
+    if fed["rejected"]:
+        problems.append(
+            f"perp.json: {len(fed['rejected'])} value(s) outside "
+            f"[{nightly.PERP_ENVELOPE_LO}, {nightly.PERP_ENVELOPE_HI}] — the consumer "
+            f"refuses them, so these rows would score neutral: "
+            + ", ".join(f"{x['symbol']}={x['value']}" for x in fed["rejected"][:5]))
+
+    # The coverage invariant: the transport must carry the whole scored cross-section
+    # for its snapshot, with the multiplier score() actually applied. A transport that
+    # is also fifty rows is the defect this phase removed, wearing a new path.
+    shard = ledger / "xsec" / f"{(day or '')[:7]}.csv"
+    if shard.exists():
+        with shard.open(newline="", encoding="utf-8") as f:
+            scored = {r["symbol"].upper(): r for r in csv.DictReader(f)
+                      if r.get("date") == day and r.get("src") == "live"}
+        if scored:
+            missing = sorted(set(scored) - set(fed["mults"]))
+            if missing:
+                problems.append(f"perp.json: {len(missing)} scored symbol(s) absent from "
+                                f"the transport, e.g. {missing[:5]} — the board would "
+                                f"score them neutral while the nightly did not")
+            off = [sym for sym, r in scored.items()
+                   if sym in fed["mults"] and r.get("perp_mult") not in ("", "None", None)
+                   and abs(float(r["perp_mult"]) - fed["mults"][sym]) > 5e-4]
+            if off:
+                problems.append(f"perp.json: {len(off)} row(s) where the board would "
+                                f"apply a different multiplier from score(), e.g. "
+                                f"{off[:5]}")
+    return problems
+
+
+def check_walkforward(ledger: Path) -> list[str]:
+    """ledger/walkforward.json — the report must describe the ledger beside it.
+
+    AUDIT-PHASE4. The failure this guards against is a stale report: a harness that ran
+    once, produced encouraging numbers and was never re-run reads exactly like a current
+    one. So the counts are reconciled against the shard on disk rather than trusted.
+    """
+    problems: list[str] = []
+    path = ledger / "walkforward.json"
+    if not path.exists():
+        return problems
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        return [f"walkforward.json: unreadable ({e})"]
+    by = nightly.xsec_by_date(ledger / "xsec")
+    rows = sum(len(v) for v in by.values())
+    if doc.get("nights") != len(by):
+        problems.append(f"walkforward.json: reports {doc.get('nights')} night(s) while "
+                        f"the cross-section holds {len(by)} — the report is stale")
+    if by and doc.get("to") != max(by):
+        problems.append(f"walkforward.json: reports through {doc.get('to')} while the "
+                        f"cross-section runs to {max(by)}")
+    for h, cov in (doc.get("coverage") or {}).items():
+        got = sum(cov.get(k, 0) for k in nightly.OUTCOME_STATES)
+        if got != cov.get("total") or cov.get("total") != rows:
+            problems.append(f"walkforward.json: horizon {h} accounts for {got} of "
+                            f"{cov.get('total')} outcomes against {rows} recorded rows "
+                            f"— every snapshot must land in exactly one state")
+    return problems
+
+
+def check_ic_provenance(ledger: Path) -> list[str]:
+    """Every published IC must name its sample, and the counts must corroborate the name.
+
+    AUDIT-CLOSURE. The validator gated performance and tier_diff out of market_breadth.json
+    and never looked at the IC blocks at all, so a matrix computed over the wrong ledger
+    — or a label left behind when its source changed — would have published cleanly.
+
+    A label alone is not checkable. A label beside a night count is: three nights admit
+    at most two one-day legs, so any block claiming more legs than its own recorded
+    nights allow is a block whose numbers did not come from the sample it names.
+    """
+    problems: list[str] = []
+    mb = ledger / "market_breadth.json"
+    if not mb.exists():
+        return problems
+    try:
+        doc = json.loads(mb.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        return [f"market_breadth.json: unreadable ({e})"]
+
+    for key in ("edge", "ic_matrix"):
+        block = doc.get(key)
+        if not block:
+            continue
+        for field in ("sample", "sample_label", "universe", "population"):
+            if not block.get(field):
+                problems.append(f"market_breadth.json: `{key}` carries an information "
+                                f"coefficient and does not name its {field}")
+        if block.get("sample") and block["sample"] not in nightly.IC_SAMPLES:
+            problems.append(f"market_breadth.json: `{key}` names sample "
+                            f"{block['sample']!r}, which is not one of "
+                            f"{sorted(nightly.IC_SAMPLES)}")
+
+    gate = doc.get("publication_gate")
+    if gate and gate.get("sample") != "legacy":
+        problems.append(f"market_breadth.json: the publication gate reports sample "
+                        f"{gate.get('sample')!r} — the board may only be gated on the "
+                        f"legacy selection history it is published from")
+
+    m = doc.get("ic_matrix") or {}
+    nights = m.get("nights")
+    if nights:
+        for sig, byh in (m.get("cells") or {}).items():
+            for h, cell in byh.items():
+                ceiling = max(0, nights - int(h))
+                if (cell.get("legs") or 0) > ceiling:
+                    problems.append(
+                        f"market_breadth.json: ic_matrix {sig}@{h}d claims "
+                        f"{cell['legs']} legs from {nights} recorded night(s); at most "
+                        f"{ceiling} are possible — these figures did not come from the "
+                        f"sample this matrix names")
+
+    wf = ledger / "walkforward.json"
+    if wf.exists() and m:
+        try:
+            w = json.loads(wf.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return problems
+        if w.get("sample") == m.get("sample"):
+            problems.append(
+                f"walkforward.json and market_breadth.json both report sample "
+                f"{w.get('sample')!r} — the two studies measure different populations "
+                f"and one of them is mislabelled")
+        if w.get("comparable_to_published_matrix") is not False:
+            problems.append("walkforward.json must declare itself not comparable to the "
+                            "published matrix; the two are different samples")
+        if w.get("measurable_cells") == 0 and \
+                w.get("sample_state") != nightly.FORWARD_INSUFFICIENT_BANNER:
+            problems.append(f"walkforward.json measures nothing but does not carry the "
+                            f"{nightly.FORWARD_INSUFFICIENT_BANNER!r} banner")
     return problems
 
 
@@ -789,6 +986,9 @@ def main() -> int:
     problems += check_monitor(ledger)
     problems += check_context_ledgers(ledger)
     problems += check_xsec(ledger)
+    problems += check_perp_transport(ledger)
+    problems += check_walkforward(ledger)
+    problems += check_ic_provenance(ledger)
     problems += check_rwa(ledger)
 
     # Context, printed whether or not the gate passes — a validator that only speaks up

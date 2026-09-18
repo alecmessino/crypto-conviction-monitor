@@ -95,6 +95,117 @@ console.log(JSON.stringify(out));
         os.unlink(path)
 
 
+def _strip_comments(js: str) -> str:
+    """The executable part of the port, with comments removed.
+
+    Block comments first, then whole-line `//` comments. Deliberately not a general JS
+    tokenizer: it never touches the middle of a line, so the two regex literals in the
+    overlay block survive intact, and anything it cannot classify it leaves alone.
+    """
+    out = re.sub(r"/\*.*?\*/", "", js, flags=re.S)
+    return "\n".join(l for l in out.splitlines() if not l.lstrip().startswith("//"))
+
+
+def run_js_states(cases: list) -> list:
+    """Execute the real frontend's RAW-vs-APPLIED and DOMINANCE helpers.
+
+    AUDIT-PHASE2A. Each case is {"mc", "vol", "fdv"}; the driver derives depth first
+    because liquidityState needs it, exactly as the caller does.
+    """
+    node = shutil.which("node")
+    assert node, "node is required to execute the frontend port"
+    driver = extract_port() + """
+const CASES = %s;
+const out = CASES.map(c => {
+  const d = depthState(c.mc);
+  const l = liquidityState(c.vol === undefined ? null : c.vol, c.mc, d.applied);
+  const s = supplyState(c.fdv === undefined ? null : c.fdv, c.mc);
+  const dom = chainDominance({DEPTH: d.applied, CONFIRM: c.cm, LIQUIDITY: l.applied,
+                              SUPPLY: s.applied, FUNDING: c.perp});
+  return {depth: d, liq: l, sup: s,
+          dom: {factor: dom.factor, share: dom.share, magnitude: dom.magnitude,
+                signed: dom.signed, total: dom.total, warn: dom.warn}};
+});
+console.log(JSON.stringify(out));
+""" % json.dumps(cases)
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(driver)
+        path = fh.name
+    try:
+        res = subprocess.run([node, path], capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            raise AssertionError(f"node failed running the state port: {res.stderr.strip()}")
+        return json.loads(res.stdout.strip().splitlines()[-1])
+    finally:
+        os.unlink(path)
+
+
+def run_js_feed(cases: list) -> list:
+    """Execute the real frontend's ARTIFACT TRANSPORT over `cases`.
+
+    AUDIT-PHASE1.6. Each case is {"doc": <ledger/perp.json shape>, "today": "YYYY-MM-DD"}.
+    """
+    node = shutil.which("node")
+    assert node, "node is required to execute the frontend port"
+    driver = extract_port() + """
+const CASES = %s;
+const out = CASES.map(c => {
+  const o = perpFeed(c.doc, c.today);
+  return {asOf: o.asOf, mults: o.mults, states: o.states, rejected: o.rejected,
+          n: o.n, withheld: o.withheld, staleAsOf: o.staleAsOf};
+});
+console.log(JSON.stringify(out));
+""" % json.dumps(cases)
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(driver)
+        path = fh.name
+    try:
+        res = subprocess.run([node, path], capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            raise AssertionError(f"node failed running the feed port: {res.stderr.strip()}")
+        return json.loads(res.stdout.strip().splitlines()[-1])
+    finally:
+        os.unlink(path)
+
+
+def run_js_overlay(cases: list) -> list:
+    """Execute the real frontend's OVERLAY SELECTION over `cases`.
+
+    A second driver rather than a second case shape on the first one, because this half
+    of the port answers a different question — which multiplier is eligible, not what a
+    reading is worth — and merging them would mean neither could be run alone.
+
+    That this needs a driver at all is the point of AUDIT-PHASE1.5. The rule it executes
+    used to live in `loadLedger()`, outside the markers, where this gate could not reach
+    it; the board applied a forty-five-night-old 17.4 to HBAR for six weeks and every
+    parity run in that window reported PASS.
+
+    Each case is {"rows": [...], "today": "YYYY-MM-DD"}.
+    """
+    node = shutil.which("node")
+    assert node, "node is required to execute the frontend port"
+    driver = extract_port() + """
+const CASES = %s;
+const out = CASES.map(c => {
+  const asOf = overlayAsOf(c.rows, c.today);
+  const o = perpOverlay(c.rows, asOf);
+  return {asOf: o.asOf, mults: o.mults, states: o.states,
+          rejected: o.rejected, n: o.n};
+});
+console.log(JSON.stringify(out));
+""" % json.dumps(cases)
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(driver)
+        path = fh.name
+    try:
+        res = subprocess.run([node, path], capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            raise AssertionError(f"node failed running the overlay port: {res.stderr.strip()}")
+        return json.loads(res.stdout.strip().splitlines()[-1])
+    finally:
+        os.unlink(path)
+
+
 # ---- shared fixture: BTC reference + fixed assets (deterministic inputs) ----
 BTC = {
     "symbol": "BTC", "market_cap": 1.3e12, "total_volume": 3e10,
@@ -223,6 +334,266 @@ def check_emission_drag_parity():
         "not neutral")
 
 
+# The cases this gate runs the overlay over. Every branch of the rule, plus the row
+# that caused the boundary — because a parity gate that agrees on the easy inputs and
+# was never handed the hard one is the gate that was green through this defect.
+OVERLAY_CASES = [
+    # the defect itself: a 45-night-old out-of-envelope value, six weeks later
+    {"rows": [{"date": "2026-08-03", "symbol": "HBAR", "perp_mult": "17.4"},
+              {"date": "2026-09-17", "symbol": "ZEC", "perp_mult": "1.071"}],
+     "today": "2026-09-17"},
+    # the same value, dated to the snapshot — the envelope has to catch it alone
+    {"rows": [{"date": "2026-09-17", "symbol": "HBAR", "perp_mult": "17.4"},
+              {"date": "2026-09-17", "symbol": "ZEC", "perp_mult": "1.071"}],
+     "today": "2026-09-17"},
+    # envelope edges, both sides, admitted and refused
+    {"rows": [{"date": "2026-09-17", "symbol": "LO", "perp_mult": "0.85"},
+              {"date": "2026-09-17", "symbol": "HI", "perp_mult": "1.15"},
+              {"date": "2026-09-17", "symbol": "UNDER", "perp_mult": "0.8499"},
+              {"date": "2026-09-17", "symbol": "OVER", "perp_mult": "1.1501"}],
+     "today": "2026-09-17"},
+    # parse divergence: parseFloat coerces the first, float() raises. Both must refuse.
+    {"rows": [{"date": "2026-09-17", "symbol": "A", "perp_mult": "1.07 garbage"},
+              {"date": "2026-09-17", "symbol": "B", "perp_mult": "nan"},
+              {"date": "2026-09-17", "symbol": "C", "perp_mult": "inf"},
+              {"date": "2026-09-17", "symbol": "D", "perp_mult": "None"},
+              {"date": "2026-09-17", "symbol": "E", "perp_mult": ""}],
+     "today": "2026-09-17"},
+    # snapshot freshness: same day, one day late, two days late, dated ahead
+    {"rows": [{"date": "2026-09-17", "symbol": "ZEC", "perp_mult": "1.071"}],
+     "today": "2026-09-18"},
+    {"rows": [{"date": "2026-09-17", "symbol": "ZEC", "perp_mult": "1.071"}],
+     "today": "2026-09-19"},
+    {"rows": [{"date": "2026-09-20", "symbol": "ZEC", "perp_mult": "1.071"}],
+     "today": "2026-09-17"},
+    # nothing to read
+    {"rows": [], "today": "2026-09-17"},
+    {"rows": [{"symbol": "X", "perp_mult": "1.1"},
+              {"date": "not-a-date", "symbol": "Y", "perp_mult": "1.1"}],
+     "today": "2026-09-17"},
+    # lower-case symbols, as the page upper-cases them
+    {"rows": [{"date": "2026-09-17", "symbol": "ada", "perp_mult": "0.94"}],
+     "today": "2026-09-17"},
+]
+
+
+def check_overlay_selection_parity():
+    """Which multiplier is eligible must be the SAME answer on both sides of the port.
+
+    Not "the same shape" — the same map, the same states, the same refusals, the same
+    snapshot date, over every branch of the rule.
+    """
+    fe_all = run_js_overlay(OVERLAY_CASES)
+    for case, fe in zip(OVERLAY_CASES, fe_all):
+        rows, today = case["rows"], case["today"]
+        as_of = nightly.overlay_as_of(rows, today)
+        be = nightly.perp_overlay(rows, as_of)
+        assert fe["asOf"] == (be["as_of"] or None), \
+            f"{today}: asOf fe={fe['asOf']} be={be['as_of']}"
+        assert fe["mults"] == be["mults"], \
+            f"{today}: mults fe={fe['mults']} be={be['mults']}"
+        assert fe["states"] == be["states"], \
+            f"{today}: states fe={fe['states']} be={be['states']}"
+        assert fe["n"] == be["n"], f"{today}: n fe={fe['n']} be={be['n']}"
+        fe_rej = sorted((r["symbol"], r["value"]) for r in fe["rejected"])
+        be_rej = sorted((r["symbol"], r["value"]) for r in be["rejected"])
+        assert fe_rej == be_rej, f"{today}: rejected fe={fe_rej} be={be_rej}"
+
+
+def check_the_overlay_boundary_holds_over_the_real_ledger():
+    """The same agreement, over every night this repository has actually recorded.
+
+    The synthetic cases above name the branches; this one is the file that produced the
+    defect, replayed night by night through both implementations.
+    """
+    path = os.path.join(_ROOT, "ledger", "signals.json")
+    if not os.path.exists(path):
+        return
+    rows = json.load(open(path, encoding="utf-8"))["rows"]
+    dates = sorted({r["date"] for r in rows if r.get("date")})
+    # Each night replayed as if it were that night, plus the day after.
+    cases = [{"rows": rows, "today": d} for d in dates[-6:]]
+    cases += [{"rows": rows, "today": "2026-09-18"}, {"rows": rows, "today": "2026-10-01"}]
+    fe_all = run_js_overlay(cases)
+    for case, fe in zip(cases, fe_all):
+        be = nightly.perp_overlay(case["rows"],
+                                  nightly.overlay_as_of(case["rows"], case["today"]))
+        assert fe["mults"] == be["mults"], case["today"]
+        assert fe["states"] == be["states"], case["today"]
+        # And the property the boundary exists for, asserted on both sides at once.
+        for sym, v in fe["mults"].items():
+            assert 0.85 - 1e-9 <= v <= 1.15 + 1e-9, f"{case['today']}/{sym} = {v}"
+
+
+# Every branch of the transport, plus the shapes a malformed or hostile artifact can
+# take. An artifact is a file on disk that a deploy can get wrong; the consumer's job is
+# to be unsurprised by any of this.
+FEED_CASES = [
+    # the ordinary case: a reading, a genuine neutral-by-absence, and a refusal
+    {"doc": {"as_of": "2026-09-17", "rows": {
+        "ZEC": {"m": 1.071, "s": "current"},
+        "BTC": {"m": 1.0, "s": "absent"},
+        "ETH": {"m": 1.0, "s": "current"},
+        "BAD": {"m": 9.9, "s": "current"}}}, "today": "2026-09-17"},
+    # the artifact may downgrade a neutral to absent; it may NOT rescue a refusal
+    {"doc": {"as_of": "2026-09-17", "rows": {
+        "A": {"m": 17.4, "s": "absent"},
+        "B": {"m": 17.4, "s": "current"},
+        "C": {"m": 0.85, "s": "current"},
+        "D": {"m": 1.15, "s": "absent"}}}, "today": "2026-09-17"},
+    # malformed cells of every shape a JSON writer can produce
+    {"doc": {"as_of": "2026-09-17", "rows": {
+        "A": {"m": None, "s": "current"},
+        "B": {"m": "", "s": "current"},
+        "C": {"m": "None", "s": "current"},
+        "D": {"m": "1.07 garbage", "s": "current"},
+        "E": {"s": "current"},
+        "F": {},
+        "G": {"m": "1.05"}}}, "today": "2026-09-17"},
+    # freshness: same day, a day late, two days late, dated ahead
+    {"doc": {"as_of": "2026-09-17", "rows": {"ZEC": {"m": 1.071, "s": "current"}}},
+     "today": "2026-09-18"},
+    {"doc": {"as_of": "2026-09-17", "rows": {"ZEC": {"m": 1.071, "s": "current"}}},
+     "today": "2026-09-19"},
+    {"doc": {"as_of": "2026-09-20", "rows": {"ZEC": {"m": 1.071, "s": "current"}}},
+     "today": "2026-09-17"},
+    # no artifact, and artifacts with nothing usable in them
+    {"doc": None, "today": "2026-09-17"},
+    {"doc": {}, "today": "2026-09-17"},
+    {"doc": {"as_of": "not-a-date", "rows": {"ZEC": {"m": 1.071}}}, "today": "2026-09-17"},
+    {"doc": {"as_of": "2026-09-17"}, "today": "2026-09-17"},
+    {"doc": {"as_of": "2026-09-17", "rows": {}}, "today": "2026-09-17"},
+    # lower-case keys, as the page upper-cases them
+    {"doc": {"as_of": "2026-09-17", "rows": {"ada": {"m": 0.94, "s": "current"}}},
+     "today": "2026-09-17"},
+]
+
+
+def check_feed_transport_parity():
+    """The artifact must resolve to the SAME multipliers and states on both sides."""
+    fe_all = run_js_feed(FEED_CASES)
+    for case, fe in zip(FEED_CASES, fe_all):
+        be = nightly.perp_feed(case["doc"], case["today"])
+        label = f"{case['today']}/{(case['doc'] or {}).get('as_of')}"
+        assert fe["asOf"] == (be["as_of"] or None), f"{label}: asOf"
+        assert fe["mults"] == be["mults"], f"{label}: {fe['mults']} vs {be['mults']}"
+        assert fe["states"] == be["states"], f"{label}: {fe['states']} vs {be['states']}"
+        assert fe["n"] == be["n"], f"{label}: n"
+        assert (fe["withheld"] or None) == be["withheld"], f"{label}: withheld"
+        assert (fe["staleAsOf"] or None) == (be["stale_as_of"] or None), f"{label}: staleAsOf"
+        fe_rej = sorted((r["symbol"], r["value"]) for r in fe["rejected"])
+        be_rej = sorted((r["symbol"], r["value"]) for r in be["rejected"])
+        assert fe_rej == be_rej, f"{label}: rejected {fe_rej} vs {be_rej}"
+
+
+def check_the_transport_covers_what_the_nightly_scored():
+    """The point of Phase 1.6, asserted against the artifact actually on disk.
+
+    Symbol for symbol, the multiplier the browser will apply must equal the one
+    `score()` recorded for that symbol on that snapshot. Not "mostly", not "for the
+    persisted fifty" — that was the defect.
+    """
+    path = os.path.join(_ROOT, "ledger", "perp.json")
+    if not os.path.exists(path):
+        return
+    doc = json.load(open(path, encoding="utf-8"))
+    day = doc["as_of"]
+    fe = run_js_feed([{"doc": doc, "today": day}])[0]
+    be = nightly.perp_feed(doc, day)
+    assert fe["mults"] == be["mults"], "the two implementations disagree on the real file"
+
+    shard = os.path.join(_ROOT, "ledger", "xsec", day[:7] + ".csv")
+    if not os.path.exists(shard):
+        return
+    import csv as _csv
+    with open(shard, newline="", encoding="utf-8") as fh:
+        scored = {r["symbol"].upper(): r for r in _csv.DictReader(fh)
+                  if r["date"] == day and r.get("src") == "live"}
+    if not scored:
+        return
+    missing = sorted(set(scored) - set(fe["mults"]))
+    assert not missing, f"scored but not in the transport: {missing[:20]}"
+    extra = sorted(set(fe["mults"]) - set(scored))
+    assert not extra, f"in the transport but not scored: {extra[:20]}"
+    off = [s for s, r in scored.items()
+           if r["perp_mult"] not in ("", "None")
+           and abs(float(r["perp_mult"]) - fe["mults"][s]) > 5e-4]
+    assert not off, f"the browser would apply a different multiplier on: {off[:20]}"
+
+
+# Every branch of every state helper, plus the dominance control case. Market caps are
+# chosen to straddle the bypass knot and the depth cap, not to sit on them.
+STATE_CASES = [
+    {"mc": 1e12, "vol": 4.5e11, "fdv": None, "cm": 0.55, "perp": 1.0},     # depth cap
+    {"mc": 3.25e9, "vol": 5.8e7, "fdv": 3.7e9, "cm": 0.398, "perp": 1.0},  # HBAR-shaped
+    {"mc": 1.2e8, "vol": 0.0, "fdv": None, "cm": 0.30, "perp": 1.0},       # zero volume
+    {"mc": 1.2e8, "vol": None, "fdv": 1.2e8, "cm": 0.30, "perp": 1.0},     # no volume
+    {"mc": 1e10, "vol": 1e4, "fdv": 1e10, "cm": 0.7, "perp": 1.0},         # bypass, thin
+    {"mc": 8e8, "vol": 3.6e8, "fdv": 2.4e9, "cm": 0.9, "perp": 0.94},      # curve peak-ish
+    {"mc": 8e8, "vol": 1.2e9, "fdv": 8e8, "cm": 0.5, "perp": 1.15},        # wash band
+    {"mc": 0, "vol": 1e6, "fdv": None, "cm": 0.5, "perp": 1.0},            # no mcap
+    {"mc": 2.3e10, "vol": 2.7e9, "fdv": 2.3e10, "cm": 1.0, "perp": 1.071}, # ZEC control
+    {"mc": 1e9, "vol": 1e9, "fdv": 1e9, "cm": 1.0, "perp": 1.0},           # all neutral
+]
+
+
+def check_state_and_dominance_parity():
+    """Raw, applied, state and the dominance readout must match on both sides."""
+    fe_all = run_js_states(STATE_CASES)
+    for c, fe in zip(STATE_CASES, fe_all):
+        d = nightly.depth_state(c["mc"])
+        l = nightly.liquidity_state(c["vol"], c["mc"], d["applied"])
+        s = nightly.supply_state(c["fdv"], c["mc"])
+        dom = nightly.chain_dominance({"DEPTH": d["applied"], "CONFIRM": c["cm"],
+                                       "LIQUIDITY": l["applied"], "SUPPLY": s["applied"],
+                                       "FUNDING": c["perp"]})
+        tag = f"mc={c['mc']} vol={c['vol']}"
+        assert fe["depth"]["state"] == d["state"], f"{tag}: depth state"
+        assert _close(fe["depth"]["raw"], d["raw"]), f"{tag}: depth raw"
+        assert _close(fe["depth"]["applied"], d["applied"]), f"{tag}: depth applied"
+        assert fe["liq"]["state"] == l["state"], f"{tag}: liq state {fe['liq']['state']}"
+        assert _close(fe["liq"]["raw"], l["raw"]), f"{tag}: liq raw"
+        assert _close(fe["liq"]["applied"], l["applied"]), f"{tag}: liq applied"
+        assert fe["liq"]["bypass"] == l["bypass"], f"{tag}: bypass"
+        assert fe["sup"]["state"] == s["state"], f"{tag}: supply state"
+        assert _close(fe["sup"]["applied"], s["applied"]), f"{tag}: supply applied"
+        assert _close(fe["sup"]["drag"], s["drag"]), f"{tag}: supply drag"
+        assert (fe["dom"]["factor"] or None) == dom["factor"], f"{tag}: dom factor"
+        assert _close(fe["dom"]["share"], dom["share"]), f"{tag}: dom share"
+        assert _close(fe["dom"]["magnitude"], dom["magnitude"]), f"{tag}: dom magnitude"
+        assert _close(fe["dom"]["signed"], dom["signed"]), f"{tag}: dom signed"
+        assert fe["dom"]["warn"] == dom["warn"], f"{tag}: dom warn"
+
+
+def check_the_declared_ruler_matches_across_the_port():
+    """SCORING is declared twice and must be the same object on both sides."""
+    fe = json.loads(run_js_raw("console.log(JSON.stringify(SCORING));"))
+    assert fe == nightly.SCORING, "the JS and Python rulers disagree"
+    order = json.loads(run_js_raw("console.log(JSON.stringify(DOM_FACTORS));"))
+    assert tuple(order) == nightly.DOM_FACTORS
+
+
+def run_js_raw(tail: str) -> str:
+    node = shutil.which("node")
+    assert node, "node is required to execute the frontend port"
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False) as fh:
+        fh.write(extract_port() + "\n" + tail)
+        path = fh.name
+    try:
+        res = subprocess.run([node, path], capture_output=True, text=True, timeout=60)
+        if res.returncode != 0:
+            raise AssertionError(f"node failed: {res.stderr.strip()}")
+        return res.stdout.strip().splitlines()[-1]
+    finally:
+        os.unlink(path)
+
+
+def _close(a, b, tol=1e-9):
+    if a is None or b is None:
+        return a is None and b is None
+    return abs(float(a) - float(b)) <= tol
+
+
 def check_the_gate_reads_the_real_terminal():
     """A guard on the guard.
 
@@ -231,12 +602,35 @@ def check_the_gate_reads_the_real_terminal():
     whole rewrite exists to remove, so it is asserted rather than assumed.
     """
     port = extract_port()
+    code = _strip_comments(port)
     for fn in ("function conviction", "function liquidityFit", "function depthScore",
                "function signal", "function rsBlendOf",
-               "function emissionDrag", "function emissionMult"):
+               "function emissionDrag", "function emissionMult",
+               # AUDIT-PHASE1.5. These decide WHICH multiplier reaches conviction, and
+               # they lived outside these markers while the board was wrong about it.
+               # If they drift back out, every assertion above still passes and the
+               # board can quietly go stale again.
+               "function ledgerLatestDate", "function isoDayDiff",
+               "function overlayAsOf", "function perpOverlay",
+               # AUDIT-PHASE1.6. perpEntry is the single envelope rule and perpFeed is
+               # the artifact transport; these are what decides a published multiplier
+               # now, and they must be executable by this gate.
+               "function perpEntry", "function perpFeed",
+               # AUDIT-PHASE2A. The declared ruler and the raw-vs-applied helpers. They
+               # reach no score, but they EXPLAIN one, and an explanation that has
+               # drifted from the thing it explains is worse than none.
+               "const SCORING", "const DOM_FACTORS", "function depthState",
+               "function liquidityState", "function supplyState",
+               "function chainDominance"):
         assert fn in port, f"{fn} is no longer inside the MODEL PORT markers"
-    assert "document." not in port and "PERP[" not in port, \
+    # Checked against the CODE, not the prose. The overlay comment quotes the retired
+    # `PERP[...] = v` line verbatim — which is the clearest possible statement of what
+    # this boundary replaced, and a guard that forbade documenting the defect would be
+    # trading the record for a substring match.
+    assert "document." not in code and "PERP[" not in code, \
         "the port block touches page state and can no longer be executed standalone"
+    # The guard's own premise: a strip that removed everything would pass vacuously.
+    assert "function perpOverlay" in code and len(code) > 1000
 
 
 # ---- frozen regression: the v2 multiplicative scoring engine must not drift ----
@@ -263,15 +657,28 @@ def check_frozen_conviction_regression():
 
 
 # ---- dual-mode entrypoint ----
+# Named once. The count used to be written as a literal 5 in two places beside this
+# list, so adding a check reported "5 of 5 passed" while running seven.
+_CHECKS = [
+    ("frontend/backend parity", check_frontend_backend_parity),
+    ("parity under perp overlay", check_parity_under_perp_overlay),
+    ("emission drag parity", check_emission_drag_parity),
+    ("overlay selection parity", check_overlay_selection_parity),
+    ("overlay boundary over the real ledger",
+     check_the_overlay_boundary_holds_over_the_real_ledger),
+    ("feed transport parity", check_feed_transport_parity),
+    ("declared ruler parity", check_the_declared_ruler_matches_across_the_port),
+    ("raw/applied + dominance parity", check_state_and_dominance_parity),
+    ("transport covers what the nightly scored",
+     check_the_transport_covers_what_the_nightly_scored),
+    ("frozen conviction regression", check_frozen_conviction_regression),
+    ("gate reads the real terminal", check_the_gate_reads_the_real_terminal),
+]
+
+
 def _run_all():
     failures = []
-    for name, fn in [
-        ("frontend/backend parity", check_frontend_backend_parity),
-        ("parity under perp overlay", check_parity_under_perp_overlay),
-        ("emission drag parity", check_emission_drag_parity),
-        ("frozen conviction regression", check_frozen_conviction_regression),
-        ("gate reads the real terminal", check_the_gate_reads_the_real_terminal),
-    ]:
+    for name, fn in _CHECKS:
         try:
             fn()
             print(f"  PASS  {name}")
@@ -308,10 +715,10 @@ if __name__ == "__main__":
         # Not a skip. The gate cannot verify the frontend without node, and reporting
         # success it did not establish is the failure mode this file exists to remove.
         print("  ERROR node is not available — the frontend port cannot be executed")
-        _write_result(["node unavailable"], 5)
+        _write_result(["node unavailable"], len(_CHECKS))
         sys.exit(1)
     failures = _run_all()
-    _write_result(failures, 5)
+    _write_result(failures, len(_CHECKS))
     if failures:
         print(f"\nFAILED: {len(failures)} check(s): {failures}")
         sys.exit(1)
@@ -335,6 +742,30 @@ else:
     @needs_node
     def test_parity_under_perp_overlay():
         check_parity_under_perp_overlay()
+
+    @needs_node
+    def test_overlay_selection_parity():
+        check_overlay_selection_parity()
+
+    @needs_node
+    def test_the_overlay_boundary_holds_over_the_real_ledger():
+        check_the_overlay_boundary_holds_over_the_real_ledger()
+
+    @needs_node
+    def test_feed_transport_parity():
+        check_feed_transport_parity()
+
+    @needs_node
+    def test_the_declared_ruler_matches_across_the_port():
+        check_the_declared_ruler_matches_across_the_port()
+
+    @needs_node
+    def test_state_and_dominance_parity():
+        check_state_and_dominance_parity()
+
+    @needs_node
+    def test_the_transport_covers_what_the_nightly_scored():
+        check_the_transport_covers_what_the_nightly_scored()
 
     def test_frozen_conviction_regression():
         check_frozen_conviction_regression()
