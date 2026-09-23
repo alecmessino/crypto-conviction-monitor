@@ -237,11 +237,18 @@ def test_the_forward_report_never_carries_a_legacy_leg_count():
     path = ROOT / "ledger" / "walkforward.json"
     if not path.exists():
         pytest.skip("no forward report written yet")
+    from datetime import date
     w = json.loads(path.read_text(encoding="utf-8"))
     nights = w["nights"]
+    # Calendar days the sample spans. `nights - h` is the ceiling only while the nights
+    # are contiguous: once a nightly fails (2026-09-21 and -22 did) seven nights span
+    # nine days and 09-16 -> 09-23 is a genuine seven-day leg. Every leg pairs two
+    # distinct recorded nights exactly h days apart, so it is bounded by both.
+    span = ((date.fromisoformat(w["to"]) - date.fromisoformat(w["from"])).days + 1
+            if w.get("from") and w.get("to") else nights)
     for sig, byh in w["ic"].items():
         for h, cell in byh.items():
-            ceiling = max(0, nights - int(h))
+            ceiling = max(0, min(nights - 1, span - int(h)))
             assert cell["legs"] <= ceiling, (
                 f"{sig}@{h}d claims {cell['legs']} legs from {nights} night(s); at most "
                 f"{ceiling} are possible — this figure did not come from this sample")

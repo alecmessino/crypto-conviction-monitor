@@ -966,7 +966,27 @@ def _num(v):
         return None
 
 
-def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5,
+def first_by_symbol(markets: list[dict]) -> list[dict]:
+    """One market per upper-cased ticker, the first (highest market cap) winning.
+
+    Two coins in the top 250 can share a ticker. The row loop already kept the first,
+    but the symbol-keyed maps built beside it — tonight's prices for the RSI, the 24h
+    change, the ROI backfill, live turnover — were dict comprehensions, so the LAST one
+    won: the lower-cap coin's price was appended to the other coin's recorded closes.
+    Deduplicating once, at the source, makes every map agree with the row that is
+    scored.
+    """
+    seen, out = set(), []
+    for t in markets:
+        sym = (t.get("symbol") or "").upper()
+        if sym and sym in seen:
+            continue
+        seen.add(sym)
+        out.append(t)
+    return out
+
+
+def fetch_markets(total: int = 250, per_page: int = 250, delay: float = 3.5,
                   session: dict | None = None) -> list[dict]:
     """Fetch the full universe in chunked pages with exponential backoff on 429.
 
@@ -981,6 +1001,16 @@ def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5,
     universe and nothing in the artifact says so. Omitting the session keeps the old
     keyless behaviour exactly, so this is additive and a missing secret degrades rather
     than breaks.
+
+    One page of 250 rather than two of 125. The pages are ranked by market cap and were
+    fetched 3.5 s apart (up to a minute apart under 429 backoff), so a coin crossing rank
+    125 between the two requests was served on both or on neither — dropped from the
+    night silently, or duplicated and collapsed by the row loop. One request has no
+    boundary to cross, and it is what the browser has always asked for.
+
+    Every transport failure degrades the page rather than the run. Only HTTPError was
+    caught before, so a socket timeout, a reset connection or a non-JSON 200 raised
+    straight out of main(), which has no handler, and lost the whole night.
     """
     import time
     out: list[dict] = []
@@ -1008,6 +1038,13 @@ def fetch_markets(total: int = 250, per_page: int = 125, delay: float = 3.5,
                     print(f"[warn] page {page} HTTP {getattr(e, 'code', '?')}; skipping",
                           file=__import__("sys").stderr)
                     break
+            except (urllib.error.URLError, OSError, ValueError) as e:
+                # Timeouts, resets, DNS, and a 200 whose body is not JSON (a CDN error
+                # page). Transient more often than not, so retried on the same backoff.
+                print(f"[warn] page {page} attempt {attempt+1}: {type(e).__name__}: {e}; "
+                      f"retrying in {backoff:.0f}s", file=__import__("sys").stderr)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60)
         else:
             print(f"[warn] page {page} gave up after retries", file=__import__("sys").stderr)
         time.sleep(delay)
@@ -1914,11 +1951,20 @@ def _edge_legs(by_date: dict, boundary: str | None) -> list[dict]:
 
     Legs before a specification change are excluded rather than blended: an IC averaged
     across two different scoring functions is a number about a model that never existed.
+
+    A leg is exactly one calendar day, the same exact-offset rule ``_ic_legs`` applies.
+    Pairing *consecutive recorded* nights instead made a ledger gap into a leg: the
+    nightlies of 2026-09-21 and -22 failed, and 09-20 -> 09-23 entered this "1-day" IC
+    as a three-day return. The IC matrix, which already required the exact offset,
+    dropped that leg, so the two published estimates of the same cell disagreed
+    (-0.0653 over 47 legs against -0.0595 over 46).
     """
     out = []
     dates = sorted(by_date)
     for a, b in zip(dates, dates[1:]):
         if boundary and a < boundary:
+            continue
+        if iso_day_diff(a, b) != 1:
             continue
         prev, curr = by_date[a], by_date[b]
         pairs = []
@@ -5963,7 +6009,10 @@ def _refresh_index_canonical(canon: dict) -> None:
 
 def main() -> int:
     global CG_SESSION
-    today = date.today().isoformat()
+    # UTC, like every other date this job writes (rwa.snapshot stamps UTC). date.today()
+    # is the machine's local date: identical on the runner, but a local run west of UTC
+    # after 00:00 UTC stamped yesterday and replaced the last committed night's rows.
+    today = datetime.now(timezone.utc).date().isoformat()
 
     # The credential first, because fetch_markets is the very next network call and it
     # is the one that has actually been losing pages to HTTP 429. The plan is probed
@@ -5985,7 +6034,8 @@ def main() -> int:
              if dune_report.get("columns") else ""),
           file=__import__("sys").stderr)
 
-    markets = fetch_markets(session=CG_SESSION)
+    markets = first_by_symbol(fetch_markets(session=CG_SESSION))
+    print(f"[cg] {len(markets)} market(s) fetched", file=__import__("sys").stderr)
     scored_syms = {(t.get("symbol") or "").upper() for t in markets
                    if (t.get("symbol") or "").upper() and (t.get("symbol") or "").upper() not in STABLES}
     # One funding fetch, across four venues. There used to be two: fetch_perps_map hit
@@ -6218,7 +6268,7 @@ def main() -> int:
         rows.append({
             "date": today, "symbol": sym, "name": t.get("name", ""),
             "price": t.get("current_price") or 0, "market_cap": t.get("market_cap") or 0,
-            "turnover_pct": round((t.get("total_volume", 0) / t.get("market_cap", 1)) * 100, 2) if t.get("market_cap") else 0,
+            "turnover_pct": round(((t.get("total_volume") or 0) / t["market_cap"]) * 100, 2) if t.get("market_cap") else 0,
             "erosion_ratio": round(era, 3), "conviction": conv, "signal": sig,
             "rs7": comp["rs7"], "rs14": comp["rs14"], "rs30": comp["rs30"],
             "rs200": comp["rs200"], "rs_blend": comp["rs_blend"],
@@ -6429,7 +6479,7 @@ def main() -> int:
         cur = live.get(r["symbol"])
         if not cur or not r["price"] or r["price"] in ("0", "0.0"):
             continue
-        age = (date.today() - date.fromisoformat(r["date"])).days
+        age = (date.fromisoformat(today) - date.fromisoformat(r["date"])).days
         roi = (cur - float(r["price"])) / float(r["price"])
         if r.get("roi_30d") in (None, "", "None") and age >= 30:
             r["roi_30d"] = round(roi * 100, 2); updated += 1

@@ -80,6 +80,13 @@ same scoring function that a test asserts are in parity.
 | `rwa_release.yml` | separate cadence | RWA snapshot and its own model gate. |
 | `check-dune.yml` | manual | Verifies the configured Dune query id. |
 
+*Extended 2026-09-23.* `nightly.yml` and `rwa_release.yml` share the `ledger-writer`
+concurrency group. The nightly gates each model separately (`validate_ledger.py --scope
+rwa|crypto`), commits each on its own verdict, rebases and retries a rejected push, and
+fails the run after committing if anything under `ledger/` was written but not staged.
+`tests.yml` also runs daily at 15:40 UTC, because the nightly's own commits trigger no
+workflow and a dozen tests read the committed ledger. See `docs/AUDIT-2026-09-23.md`.
+
 Secrets, all optional, all read from env, none in code: `COINGECKO_API_KEY`,
 `DUNE_API_KEY` + `DUNE_UNLOCK_QUERY_ID`, `CRYPTOMETER_API_KEY`.
 
@@ -266,6 +273,9 @@ refuses any row carrying the cross-section's `src` marker.
 `_compute_edge()` (`nightly.py:1871`) → `_edge_legs()` (1306):
 
 - one leg per consecutive night pair, starting at the detected boundary;
+  *since 2026-09-23* only pairs exactly one calendar day apart, the rule `_ic_legs`
+  already applied — a ledger gap (the failed nightlies of 09-21 and 09-22) is not a
+  one-day leg. See `docs/AUDIT-2026-09-23.md` §2;
 - per leg, Spearman ρ between night-t conviction and night-t→t+1 simple return, over
   names priced on both nights; legs with < 10 names are dropped (`EDGE_MIN_NAMES`);
 - quintile spread with `k = max(3, n // 5)`;

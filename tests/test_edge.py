@@ -75,6 +75,31 @@ def test_legs_before_a_specification_boundary_are_excluded():
     assert len(nightly._edge_legs(days, "2026-03-02")) == 1
 
 
+def test_a_ledger_gap_is_not_a_one_day_leg():
+    """The edge is a one-day IC. Two failed nightlies (2026-09-21, -22) left 09-20 and
+    09-23 adjacent in the ledger, and pairing adjacent nights made a three-day return
+    into a "one-day" leg — so the Selection Edge panel and the IC matrix, which already
+    required the exact offset, published different numbers for the same cell."""
+    syms = [f"S{i:02d}" for i in range(20)]
+    days = {d: board(d, syms) for d in ("2026-03-01", "2026-03-02", "2026-03-05",
+                                         "2026-03-06")}
+    legs = nightly._edge_legs(days, None)
+    assert [(l["from"], l["to"]) for l in legs] == [("2026-03-01", "2026-03-02"),
+                                                     ("2026-03-05", "2026-03-06")]
+
+
+def test_the_edge_and_the_matrix_count_the_same_legs_over_the_real_ledger():
+    """The two estimators of the composite one-day cell, recomputed from the ledger on
+    disk rather than read from an artifact the next nightly will overwrite."""
+    by_date, _ = nightly._perf_by_date()
+    if len(by_date) < 3:
+        pytest.skip("no ledger history")
+    boundary = nightly._compute_performance().get("spec_boundary")
+    edge = nightly._edge_legs(by_date, boundary)
+    mtx = nightly._ic_legs(by_date, "conviction", 1, boundary)
+    assert [(l["from"], l["to"]) for l in edge] == [(l["from"], l["to"]) for l in mtx]
+
+
 # ---------------------------------------------------------------------------
 # the measurement contract
 # ---------------------------------------------------------------------------

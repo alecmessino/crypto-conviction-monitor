@@ -684,6 +684,13 @@ def test_v2_columns_are_populated_once_the_v2_writer_has_run():
     if not v2:
         pytest.skip("no v2 row recorded yet — the first lands with the next nightly")
     for col in nightly.XSEC_V2_FIELDS:
+        if col == "clamped":
+            # Conditional by definition: empty unless the chain left [0, 100], which a
+            # correctly fed board may never do (no row has since the stale overlay was
+            # removed). Asserted row by row below instead, which is the stronger test —
+            # "always empty" is right when nothing clamped and wrong only when something
+            # did.
+            continue
         assert any(r[col] not in ("", None) for r in v2), \
             f"{col} is empty on every v2 row — nothing writes it"
     for r in v2:
@@ -692,8 +699,22 @@ def test_v2_columns_are_populated_once_the_v2_writer_has_run():
         if r["conviction_raw"] == "":
             continue
         raw = float(r["conviction_raw"])
+        expect = "high" if round(raw) > 100 else "low" if round(raw) < 0 else ""
+        assert r["clamped"] == expect, r
         assert max(0, min(100, int(round(raw)))) == int(r["conviction"]), r
-        product = (100.0 * float(r["depth"]) * float(r["confirm"])
-                   * float(r["liquidity"]) * float(r["emission_mult"])
-                   * float(r["perp_mult"]))
-        assert abs(product - raw) < 5e-4, r
+        # (column, decimals it is recorded at)
+        factors = [(float(r[c]), dp) for c, dp in (("depth", 6), ("confirm", 6),
+                                                   ("liquidity", 6), ("emission_mult", 4),
+                                                   ("perp_mult", 3))]
+        product = 100.0
+        for f, _ in factors:
+            product *= f
+        # Reconstructs only to the precision the factors are RECORDED at. depth, confirm
+        # and liquidity carry six decimals, but emission_mult and perp_mult are the
+        # published signals.csv columns at four and three — and score() multiplied the
+        # unrounded values. A flat 5e-4 held only while every perp_mult was 1.000; the
+        # first night the overlay moved a row (XMR x0.922, 2026-09-18) it missed by
+        # 0.036 with nothing wrong. The bound is each factor's half-unit of rounding,
+        # relative to the factor, summed and scaled by the score.
+        rel = sum(0.5 * 10 ** -dp / f for f, dp in factors if f > 0)
+        assert abs(product - raw) <= raw * rel + 5e-5, r
