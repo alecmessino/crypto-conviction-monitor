@@ -4,6 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Conviction Monitor — Terminal</title>
+<meta name="description" content="A published crypto conviction board: every score decomposed into its factors, every artifact dated, and the evidence for and against the ranking reported beside it.">
+<meta name="theme-color" content="#0B0F19">
+<meta property="og:title" content="Conviction Monitor — Terminal">
+<meta property="og:description" content="A published crypto conviction board with a nightly signal ledger, factor decomposition and an honest selection-edge measurement.">
+<meta property="og:type" content="website">
 <!-- Inline, so there is no binary asset to keep in sync and no second request. Every
      visitor's browser asks for /favicon.ico and production answered 404 on all of them;
      a declared icon stops the request being made at all. -->
@@ -909,6 +914,11 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
 </style>
 </head>
 <body>
+<noscript><div style="padding:16px;color:#E0B372;font:14px/1.5 system-ui,sans-serif">
+This terminal is rendered by JavaScript and shows nothing without it. The raw nightly
+ledger is readable directly: <a style="color:#3B82F6" href="ledger/signals.csv">ledger/signals.csv</a>,
+and the model is described on the <a style="color:#3B82F6" href="methodology.html">Method page</a>.
+</div></noscript>
 <div class="wrap">
   <!-- WORKSPACE NAV — the only chrome above the status strip.
 
@@ -1947,7 +1957,7 @@ let FTH = {overheated_apr:40, elevated_apr:12, neutral_floor_apr:0, squeeze_apr:
            squeeze_saturation_apr:-40};
 async function loadLedger(){
   try{
-    const r=await fetch("ledger/signals.json",{cache:"no-store"});
+    const r=await fetch("ledger/signals.json",{cache:"no-cache"});
     if(!r.ok) return;
     const j=await r.json();
     // Every recorded night, keyed by date, so the rewind scrubber has something to
@@ -1984,7 +1994,7 @@ async function loadLedger(){
     const _today = new Date().toISOString().slice(0, 10);
     let _doc = null;
     try{
-      const rp = await fetch("ledger/perp.json", {cache: "no-store"});
+      const rp = await fetch("ledger/perp.json", {cache: "no-cache"});
       if(rp.ok) _doc = await rp.json();
     }catch(e){ /* absent — the overlay is withheld below, and the board says so */ }
     PERP_DOC = _doc;
@@ -2017,32 +2027,35 @@ async function loadLedger(){
     else { dune.className="neu"; dune.textContent="OFF"; }
   }catch(e){ /* ledger absent — Module B stays OFF */ }
   try{
-    const ri=await fetch("ledger/index.json",{cache:"no-store"});
+    const ri=await fetch("ledger/index.json",{cache:"no-cache"});
     if(ri.ok) INDEX = await ri.json();
   }catch(e){ /* index absent — track record pending */ }
   try{
-    const rb=await fetch("ledger/market_breadth.json",{cache:"no-store"});
+    const rb=await fetch("ledger/market_breadth.json",{cache:"no-cache"});
     if(rb.ok){ BREADTH = await rb.json(); CHOP = BREADTH.chop || {}; }
   }catch(e){ /* breadth absent — change feed pending */ }
   // AUDIT-CLOSURE. The FORWARD sample's own study. Fetched so the page can show that a
   // second, wider, shallower IC study exists and has measured nothing yet — a reader
   // shown only the populated LEGACY matrix would reasonably assume it is the only one.
   try{
-    const rw=await fetch("ledger/walkforward.json",{cache:"no-store"});
+    const rw=await fetch("ledger/walkforward.json",{cache:"no-cache"});
     if(rw.ok) WALKFWD = await rw.json();
   }catch(e){ /* absent — the panel says so rather than implying there is nothing to say */ }
   try{
-    const rm=await fetch("ledger/monitor.json",{cache:"no-store"});
+    const rm=await fetch("ledger/monitor.json",{cache:"no-cache"});
     if(rm.ok) MONITOR = await rm.json();
   }catch(e){ /* monitor absent — the panel says so rather than rendering defaults */ }
   try{
-    const rp=await fetch("ledger/parity.json",{cache:"no-store"});
+    const rp=await fetch("ledger/parity.json",{cache:"no-cache"});
     if(rp.ok) PARITY = await rp.json();
   }catch(e){ /* parity artifact absent — the bar reports unknown, never PASS */ }
   try{
-    const rf=await fetch("ledger/funding.json",{cache:"no-store"});
+    const rf=await fetch("ledger/funding.json",{cache:"no-cache"});
     if(rf.ok){
       FUNDING = await rf.json();
+      // Rebuilt, not merged: a symbol that left tonight's artifact must not keep last
+      // night's regime tint through the 120s refresh.
+      FUND = {};
       (FUNDING.assets||[]).forEach(a=>{ if(a.symbol) FUND[a.symbol.toUpperCase()]=a; });
       // Bands and modifier constants come from the engine that computed them. A second
       // copy of "+40" and "0.85" in JavaScript is a second set of thresholds, and the
@@ -2051,7 +2064,7 @@ async function loadLedger(){
     }
   }catch(e){ /* funding artifact absent — Module E says so rather than rendering zeros */ }
   try{
-    const rx=await fetch("ledger/market_intel.json",{cache:"no-store"});
+    const rx=await fetch("ledger/market_intel.json",{cache:"no-cache"});
     if(rx.ok){
       INTEL = await rx.json();
       INTEL_TH = INTEL.thresholds || {};
@@ -3022,7 +3035,7 @@ function rowConv(t,i,gated){
     <td><span class="spark" data-spark></span></td>
     <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
     <td>${derivedFlag(t)}</td>
-    <td><span class="copy" data-copy="${t.sym}">⧉</span></td>`;
+    <td><span class="copy" data-copy="${esc0(t.sym)}">⧉</span></td>`;
   tr.onclick=(e)=>{ if(e.target.dataset.copy){copyTrade(STATE.find(x=>x.sym===e.target.dataset.copy));return;} select(t.sym); };
   return tr;
 }
@@ -3339,7 +3352,7 @@ function perpBlock(t){
   const has = p && (p.fundingAnn!=null||p.oi!=null||p.ls!=null);
   if(!has && !(c&&c.chop!=null))
     return `<div class="note" style="margin-top:12px">No perpetual market recorded for
-      ${t.sym}, and no regime reading yet. With no funding to classify there is no
+      ${esc0(t.sym)}, and no regime reading yet. With no funding to classify there is no
       modifier to apply, so this asset's conviction is genuinely unadjusted — a neutral
       ×1.0, not a missing reading.</div>`;
   const usd=v=>v==null?'<span class="muted">—</span>':fmtUsd(v);
@@ -3439,7 +3452,7 @@ function renderTables(){
     const fit=Math.max(6,raw); // trailing residual floor — never hard-flats to 0
     // QUIET rather than THIN — see derivedFlag(): THIN is an RWA band.
     const st=t.turn>=30&&t.turn<=60?["SWEET","g"]:t.turn>90?["WASH","r"]:t.turn<15?["QUIET","a"]:["OK","n"];
-    la.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${execLink(t.sym)}<span class="tier ${t.tier}">${t.tier}</span></td>
+    la.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${esc0(t.sym)}"><td class="tick">${execLink(t.sym)}<span class="tier ${t.tier}">${t.tier}</span></td>
       <td class="num">${fmtUsd(t.mc)}</td><td class="num">${fmtUsd(t.vol)}</td>
       <td class="num ${t.turn>=30&&t.turn<=60?'pos':t.turn>90?'neg':'neu'}">${t.turn.toFixed(1)}%</td>
       <td class="num ${fit>=70?'pos':fit>=40?'neu':'neg'}">${Math.round(fit)}</td>
@@ -3451,7 +3464,7 @@ function renderTables(){
   (hide?gated:STATE).slice(0,hide?gated.length:10).forEach(t=>{
     const mo=momentum(t.chg); const read=t.chg==null?"—":t.chg<-15?"CRASH":t.chg<0?"SOFT":t.chg<=8?"HEALTHY":t.chg<=20?"STRONG":"OVEREXT";
     const rc=t.chg==null?"neu":t.chg<-15?"neg":t.chg<0?"a":t.chg<=20?"pos":"a";
-    mc.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${execLink(t.sym)}</td>
+    mc.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${esc0(t.sym)}"><td class="tick">${execLink(t.sym)}</td>
       <td class="num">${fmtPrice(t.price)}</td><td class="num ${cls(t.chg)}">${sgn(t.chg)}</td>
       <td class="num ${mo>=70?'pos':mo>=40?'neu':'neg'}">${Math.round(mo)}</td>
       <td class="badge ${rc}">${read}</td></tr>`);
@@ -3462,7 +3475,7 @@ function renderTables(){
   const ld=$("#tbl-lavl tbody"); ld.innerHTML="";
   vc.forEach(t=>{
     const L=computeLAVL(t);
-    ld.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${t.sym}"><td class="tick">${execLink(t.sym)}</td>
+    ld.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${esc0(t.sym)}"><td class="tick">${execLink(t.sym)}</td>
       <td class="num ${L.velo>=1?'pos':L.velo<=-1?'neg':'neu'}">${L.velo>0?'+':''}${L.velo.toFixed(2)}</td>
       <td class="num ${L.diverge>=1?'pos':L.diverge<=-1?'neg':'neu'}">${L.diverge.toFixed(2)}</td>
       <td class="num muted">${L.riskMult.toFixed(2)}</td>
@@ -4961,7 +4974,7 @@ function renderSizing(){
         r.reasons.length?" · haircut: "+r.reasons.join(", "):""} · ADV ${usd(r.adv)} · cap ${usd(r.cap)}${
         r.exitDays!=null?` · ~${r.exitDays.toFixed(1)}d to exit`:""} · entry cost ${
         r.drag.total!=null?r.drag.total.toFixed(0)+"bp":"unknown"} (${r.drag.basis})">
-      <b style="min-width:56px">${r.sym}</b>
+      <b style="min-width:56px">${esc0(r.sym)}</b>
       <span class="num" style="min-width:52px;text-align:right">${r.sized>0?usd(r.sized):"—"}</span>
       <span class="muted" style="font-size:9px;color:${tone};flex:1;text-align:right">${r.binding}</span>
     </div>`
@@ -5115,8 +5128,8 @@ function renderPersistence(){
       const col=convColor(c);
       return `<span class="hm-c${col?"":" gap"}" ${col?`style="background:${col}"`:""}
         title="${p.dates[i]} · ${c==null?"not on the board":c}"></span>`;}).join("");
-    return `<div class="hm-row" title="${r.symbol}: backed on ${r.nights_above} of ${r.nights} recorded nights · longest run ${r.best_streak} · mean ${r.mean} · sd ${r.sd} · peak ${r.peak}">
-      <span class="hm-sym">${r.symbol}${r.spike?` <span class="badge a" style="font-size:8px;padding:0 3px">1-OFF</span>`:""}</span>
+    return `<div class="hm-row" title="${esc0(r.symbol)}: backed on ${r.nights_above} of ${r.nights} recorded nights · longest run ${r.best_streak} · mean ${r.mean} · sd ${r.sd} · peak ${r.peak}">
+      <span class="hm-sym">${esc0(r.symbol)}${r.spike?` <span class="badge a" style="font-size:8px;padding:0 3px">1-OFF</span>`:""}</span>
       <span class="hm-cells">${cells}</span>
       <span class="num muted" style="font-size:9px;text-align:right">${r.nights_above}/${r.nights} · ${r.best_streak}</span>
     </div>`;}).join("");
@@ -7435,7 +7448,7 @@ function renderTMD(){
           t?` data-tsym="${esc0(sym)}"`:""}${t?' tabindex="0" role="button"':""}>
         <span class="tr-rank">${i+1}</span>
         <span class="tick">${esc0(sym)} <span class="muted">${esc0((it.name||"").slice(0,18))}</span></span>
-        <span class="num muted">${rank?("#"+rank):"—"}</span>
+        <span class="num muted">${(+rank>0)?("#"+(+rank)):"—"}</span>
         <span class="num ${t?signalClass(t.conv):"muted"}">${t?t.conv:"—"}</span>
         <span>${t?`<span class="badge ${sig[1]}" title="${esc0(tierTitle(sig))}">${tierLabel(sig)}</span>`
                  :'<span class="muted">unscored</span>'}</span>
@@ -7505,7 +7518,7 @@ function renderFallen(){
     return;
   }
   el.innerHTML=rows.map(r=>`<div class="cf-row" title="Peak ${r.peak} on ${r.peak_date}, ${r.days_since_peak} night(s) ago, over ${r.bars} recorded bars. Held a top-25 rank on ${(r.quality_share*100).toFixed(0)}% of them.">
-      <span><b class="tick">${r.symbol}</b>
+      <span><b class="tick">${esc0(r.symbol)}</b>
         <span class="lab ${r.divergence?'quiet':'aligned'}">${esc0(r.trigger)}</span></span>
       <span><b class="neg num">${r.drawdown_pct}%</b>
         <span class="muted">RSI ${r.rsi7!=null?Number(r.rsi7).toFixed(0):"—"} · ${r.bars} bars</span></span>
@@ -7767,6 +7780,7 @@ function renderRewind(){
   sl.min=0; sl.max=REWIND_DATES.length;   // one past the end == live
   if(REWIND_DATE==null) sl.value=REWIND_DATES.length;
   sl.oninput=()=>{
+    AUTO_REWOUND=false;   // the visitor's choice now, not the fallback's
     const i=Number(sl.value);
     setRewind(i>=REWIND_DATES.length ? null : REWIND_DATES[i]);
   };
@@ -7775,6 +7789,20 @@ function renderRewind(){
   if(REWIND_DATE==null) setRewind(null);
 }
 
+/* One ledger panel's bug must not take the others — or the live board — with it.
+   The renderers below used to run as one chain inside the promise the live fetch awaits,
+   so a single shape drift in one artifact (a string where a number was expected) threw
+   out of the chain: every later panel was skipped, the board was never built, and the
+   error was reported as "Live fetch failed … CoinGecko free tier rate-limits", blaming
+   the one component that had not failed. Each renderer now fails alone and says so. */
+function safeRender(fn){
+  try{ fn(); }
+  catch(e){ console.error(`[render] ${String(fn).replace(/^\(\)=>/,"").slice(0,40)} failed:`, e); }
+}
+// True while the board shows the last recorded night because the live fetch failed
+// and nobody asked for a rewind; the next successful fetch returns it to LIVE.
+let AUTO_REWOUND = false;
+
 async function load(){
   const st=$("#status");
   // The ledger is a static file in this repo and owes nothing to CoinGecko, so it loads
@@ -7782,11 +7810,18 @@ async function load(){
   // visitor lost the monitor, the paper return and the basket — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
-  const ledger = loadLedger().then(()=>{ renderIndex(); if(document.querySelector(".wrap")?.dataset.route==="index") renderIndexStudy(); renderBreadth(); renderMonitor(); renderEdge(); renderPersistence(); renderHealth(); renderDiag(); renderSizing(); renderFunding(); renderCarry(); renderBoardLeverage();
+  const ledger = loadLedger().catch(e=>console.error("[ledger] load failed:", e)).then(()=>{
+    safeRender(()=>renderIndex());
+    safeRender(()=>{ if(document.querySelector(".wrap")?.dataset.route==="index") renderIndexStudy(); });
+    safeRender(()=>renderBreadth()); safeRender(()=>renderMonitor()); safeRender(()=>renderEdge());
+    safeRender(()=>renderPersistence()); safeRender(()=>renderHealth()); safeRender(()=>renderDiag());
+    safeRender(()=>renderSizing()); safeRender(()=>renderFunding()); safeRender(()=>renderCarry());
+    safeRender(()=>renderBoardLeverage());
     // Modules F-J. All read committed artifacts rather than the live fetch, so they are
     // rendered here with the rest of the ledger-derived panels and stay up on a night
     // CoinGecko rate-limits the browser.
-    renderMacro(); renderSectors(); renderTMD(); renderFallen(); renderCorr(); renderRewind(); });
+    safeRender(()=>renderMacro()); safeRender(()=>renderSectors()); safeRender(()=>renderTMD());
+    safeRender(()=>renderFallen()); safeRender(()=>renderCorr()); safeRender(()=>renderRewind()); });
 
   /* THE ENRICHMENT CALLS. Started here and awaited by NOTHING.
 
@@ -7803,7 +7838,9 @@ async function load(){
   loadGlobal(); loadCategories(); loadTrending();
   try{
     const t0=performance.now();
-    const r=await fetch(API,{headers:{Accept:"application/json"}});
+    // Bounded: a connection that never answers used to hold this load() open forever.
+    const r=await fetch(API,{headers:{Accept:"application/json"},
+      signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(20000):undefined});
     LATENCY = performance.now()-t0;
     if(!r.ok) throw new Error("HTTP "+r.status);
     const raw=await r.json();
@@ -7820,6 +7857,13 @@ async function load(){
     await ledger;
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
+    // Live again after a failure put the recorded board up: go back to LIVE, unless
+    // the visitor has since scrubbed to a night of their own choosing.
+    if(AUTO_REWOUND){
+      AUTO_REWOUND=false;
+      const sl=$("#rw-slider"); if(sl) sl.value=REWIND_DATES.length;
+      setRewind(null);
+    }
     renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); factorQuad(); renderSizing(); renderMacro();
     // The regime reading compares BTC's day against the whole market's, so it is
     // re-rendered once the board exists — before this, /global has the market half of
@@ -7875,7 +7919,25 @@ async function load(){
     st.textContent=liveFeedState().label; st.className="neg";
     st.title="Live fetch failed: "+e.message;
     $("#sys-rl").textContent="throttled";
-    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="10" class="err">Live fetch failed: ${e.message}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
+    // A rewound board is a state the visitor chose (or one put up below): a failed
+    // refresh must not replace it with an error row while the slider still names a
+    // recorded night. The chip and the feed banner above already say the fetch failed.
+    if(REWIND_DATE!=null) return;
+    // The live request can fail before the ledger has landed; the fallback below reads
+    // it. `ledger` never rejects, so this cannot turn one failure into two.
+    await ledger;
+    if(REWIND_DATE!=null) return;
+    // Nothing live to show, but the ledger holds the last recorded board. Show that,
+    // through the same rewind path a visitor would use — which labels it as a recorded
+    // night everywhere a rewound board is labelled — rather than an empty table.
+    const lastNight = REWIND_DATES.length ? REWIND_DATES[REWIND_DATES.length-1] : null;
+    if(!STATE.length && lastNight && rewindRows(lastNight).length){
+      AUTO_REWOUND=true;
+      const sl=$("#rw-slider"); if(sl) sl.value=REWIND_DATES.length-1;
+      setRewind(lastNight);
+      return;
+    }
+    $("#tbl-conv tbody").innerHTML=`<tr><td colspan="10" class="err">Live fetch failed: ${esc0(e.message)}. CoinGecko free tier rate-limits ~10-30 req/min per IP. The page retries every 120s. If blocked, wait a minute and refresh.</td></tr>`;
   }
 }
 // Timeframe switches. These used to be layout-only — they moved the highlight and
@@ -8140,7 +8202,7 @@ const rwEsc=t=>String(t==null?"":t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt
 
 async function loadRwa(){
   try{
-    const r=await fetch("ledger/rwa.json",{cache:"no-store"});
+    const r=await fetch("ledger/rwa.json",{cache:"no-cache"});
     if(r.ok) RWA = await r.json();
   }catch(e){ /* artifact absent — every panel renders its pending state, never zeros */ }
 }
@@ -8576,12 +8638,33 @@ document.addEventListener("keydown",e=>{
 // Before the first load, so the static markup's explanations are upgraded even if the
 // price fetch never returns. The observer then picks up everything the board renders.
 initTips();
-load(); setInterval(load,120000);
+/* Refresh cadence. The ledger changes once a night and the live board every two
+   minutes, so a background tab gains nothing from polling — it only spends the
+   visitor's CoinGecko budget and bandwidth. Ticks are skipped while the tab is hidden,
+   and a tab coming back after a skipped tick refreshes at once. The ledger requests
+   are "no-cache" rather than "no-store": always revalidated, so never stale, but an
+   unchanged artifact comes back as a 304 instead of 8 MB again. */
+const REFRESH_MS = 120000;
+let LAST_LOAD = 0, LAST_RWA = 0;
+// And a fetch that hangs must not have another stacked on top of it every tick.
+let LOAD_IN_FLIGHT = false;
+function tick(){
+  if(document.hidden || LOAD_IN_FLIGHT) return;
+  LAST_LOAD=Date.now(); LOAD_IN_FLIGHT=true;
+  load().finally(()=>{ LOAD_IN_FLIGHT=false; });
+}
+load(); LAST_LOAD=Date.now(); setInterval(tick, REFRESH_MS);
 /* The RWA artifact is fetched alongside the rest of the ledger and re-fetched on the
    same 120s timer. It is a committed static file like the others and owes nothing to a
    live CoinGecko call, so a rate-limited visitor keeps the whole workspace. */
 loadRwa().then(renderRwa);
-setInterval(()=>loadRwa().then(renderRwa),120000);
+function tickRwa(){ if(document.hidden) return; LAST_RWA=Date.now(); loadRwa().then(renderRwa); }
+LAST_RWA=Date.now(); setInterval(tickRwa, REFRESH_MS);
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden) return;
+  if(Date.now()-LAST_LOAD>=REFRESH_MS) tick();
+  if(Date.now()-LAST_RWA>=REFRESH_MS) tickRwa();
+});
 /* Deep-link last, after every renderer is defined: a reader who bookmarked #rwa must
    land there, and switchWorkspace calls into renderRwa on reveal. */
 switchWorkspace((location.hash||"").slice(1)||"crypto",false);
