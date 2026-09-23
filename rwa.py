@@ -731,6 +731,15 @@ def fetch_markets(session: dict, getter=None, sleep=None,
     sleep = sleep or _time.sleep
     delay = fetch_delay(session)
     rows, pages_read, truncated = [], 0, False
+    # Ids already taken from an earlier page. The pages are ranked by market cap and
+    # fetched seconds apart, so a name that moves up a rank between two requests is
+    # served on both of them. Unfiltered, that repeat reached every per-underlying file
+    # twice: on 2026-09-21 ('quanta-services') and 2026-09-22 ('fiserv') the duplicate
+    # (date, underlying_id) keys failed the ledger gate and the whole night, crypto
+    # ledger included, was never committed. First occurrence wins; the repeat is counted
+    # in the detail, because the same shift that repeats one name can push another past
+    # the page boundary unseen.
+    seen, repeated = set(), 0
     for page in range(1, max_pages + 1):
         params = {"vs_currency": "usd", "per_page": per_page, "page": page,
                   "sparkline": "true"}
@@ -749,7 +758,14 @@ def fetch_markets(session: dict, getter=None, sleep=None,
             return rep
         page_rows = rep["data"] if isinstance(rep["data"], list) else []
         pages_read += 1
-        rows.extend(r for r in page_rows if isinstance(r, dict) and r.get("id"))
+        for r in page_rows:
+            if not (isinstance(r, dict) and r.get("id")):
+                continue
+            if r["id"] in seen:
+                repeated += 1
+                continue
+            seen.add(r["id"])
+            rows.append(r)
         if len(page_rows) < per_page:
             break
         if page == max_pages:
@@ -763,6 +779,9 @@ def fetch_markets(session: dict, getter=None, sleep=None,
     if not rows:
         return cg._report("empty", "/rwas/markets returned no rows", [], 200)
     detail = f"{len(rows)} underlying(s) over {pages_read} page(s)"
+    if repeated:
+        detail += (f"; {repeated} id(s) served on two pages and kept once — the ranking "
+                   f"shifted while paging, so as many may have been skipped")
     if truncated:
         detail += (f" — page {max_pages} came back full at the {max_pages}-page limit, "
                    f"so this is a prefix of the universe and not all of it")

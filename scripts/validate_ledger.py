@@ -969,6 +969,12 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ledger", default=str(ROOT / "ledger"))
     ap.add_argument("--min-assets", type=int, default=MIN_ASSETS)
+    # The two models commit together but must not fail together. On 2026-09-21 and -22 a
+    # duplicate key in rwa_flow.csv failed this gate and the crypto ledger — which was
+    # fine — was lost with the runner; the reverse loses RWA rows no key can re-fetch.
+    # The nightly runs the scopes as separate steps and commits each on its own verdict.
+    ap.add_argument("--scope", choices=("all", "crypto", "rwa"), default="all",
+                    help="which model's artifacts to gate (default: all)")
     args = ap.parse_args()
     ledger = Path(args.ledger)
 
@@ -977,19 +983,22 @@ def main() -> int:
         return 2
 
     problems: list[str] = []
-    problems += check_headers(ledger)
-    problems += check_no_duplicates(ledger)
-    problems += check_mirror(ledger)
-    problems += check_board(ledger, args.min_assets)
-    problems += check_returns(ledger)
-    problems += check_basket(ledger)
-    problems += check_monitor(ledger)
-    problems += check_context_ledgers(ledger)
-    problems += check_xsec(ledger)
-    problems += check_perp_transport(ledger)
-    problems += check_walkforward(ledger)
-    problems += check_ic_provenance(ledger)
-    problems += check_rwa(ledger)
+    if args.scope in ("all", "crypto"):
+        problems += check_headers(ledger)
+        problems += check_no_duplicates(ledger)
+        problems += check_mirror(ledger)
+        problems += check_board(ledger, args.min_assets)
+        problems += check_returns(ledger)
+        problems += check_basket(ledger)
+        problems += check_monitor(ledger)
+        problems += check_context_ledgers(ledger)
+        problems += check_xsec(ledger)
+        problems += check_perp_transport(ledger)
+        problems += check_walkforward(ledger)
+        problems += check_ic_provenance(ledger)
+    if args.scope in ("all", "rwa"):
+        problems += check_rwa(ledger)
+    print(f"scope:       {args.scope}")
 
     # Context, printed whether or not the gate passes — a validator that only speaks up
     # on failure teaches nobody what healthy looks like.

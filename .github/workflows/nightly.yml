@@ -9,6 +9,14 @@ on:
 permissions:
   contents: write
 
+# One ledger writer at a time. The RWA release workflow shares this group, and a manual
+# dispatch landing while the schedule is mid-run would otherwise race it to the same
+# files: whichever pushed second was rejected, and a rejected push is a night lost with
+# the runner. Queued, never cancelled — cancelling a writer is the same loss.
+concurrency:
+  group: ledger-writer
+  cancel-in-progress: false
+
 jobs:
   ledger:
     runs-on: ubuntu-latest
@@ -53,6 +61,9 @@ jobs:
         # writes the ledger. The script exits non-zero only when a FREE endpoint fails,
         # which is the case actually worth reading.
         continue-on-error: true
+        # continue-on-error does not cover the JOB timeout: a smoke step that stalls
+        # past it cancels the job before the Commit step, and the night is lost.
+        timeout-minutes: 4
         env:
           CRYPTOMETER_API_KEY: ${{ secrets.CRYPTOMETER_API_KEY }}
         run: python cryptometer.py
@@ -73,6 +84,9 @@ jobs:
         # never fail the job that writes the ledger. The script exits non-zero only when
         # a FREE endpoint fails.
         continue-on-error: true
+        # continue-on-error does not cover the JOB timeout: a smoke step that stalls
+        # past it cancels the job before the Commit step, and the night is lost.
+        timeout-minutes: 4
         env:
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: python coingecko.py
@@ -96,6 +110,9 @@ jobs:
         # when a FREE endpoint fails. The two paid endpoints are expected to answer 401
         # and their refusal is reported rather than treated as a failure.
         continue-on-error: true
+        # continue-on-error does not cover the JOB timeout: a smoke step that stalls
+        # past it cancels the job before the Commit step, and the night is lost.
+        timeout-minutes: 4
         env:
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: python rwa.py
@@ -106,6 +123,17 @@ jobs:
         # in the session and the session ends — so the job records them itself. Runs
         # after the snapshot and before the gates; appends one row per venue per night.
         run: python scripts/observe.py
+
+      - name: RWA ledger gate
+        # The RWA model's own verdict, taken first so every later step can read it.
+        # continue-on-error because it must not be able to stop the crypto commit: on
+        # 2026-09-21 and -22 a duplicate key in rwa_flow.csv failed the single combined
+        # gate and both nights of the crypto ledger were lost with the runner. A refusal
+        # here instead keeps tonight's RWA rows out of the commit (see Commit ledger) and
+        # turns the run red at the end, after the crypto ledger is safe.
+        id: rwa_gate
+        continue-on-error: true
+        run: python scripts/validate_ledger.py --scope rwa
 
       - name: Parity gate (frontend <-> backend must agree)
         # A divergence between launch_skew.html math and nightly.score() would
@@ -120,8 +148,8 @@ jobs:
         # four write-path bugs shipped a chart of fabricated alpha: nothing threw, the
         # workflow reported success, and the only thing wrong was the numbers. Runs
         # standalone like the parity gate — a missing package must not be able to skip
-        # it.
-        run: python scripts/validate_ledger.py
+        # it. Crypto scope: the RWA artifacts were gated in their own step above.
+        run: python scripts/validate_ledger.py --scope crypto
 
       - name: ATR eligibility gate
         # Sits with the other pre-commit gates, over the ledger this run just wrote.
@@ -141,9 +169,20 @@ jobs:
         run: python tests/test_atr_eligibility.py
 
       - name: Commit ledger
+        id: commit
+        env:
+          RWA_GATE: ${{ steps.rwa_gate.outcome }}
         run: |
           git config user.name "conviction-bot"
           git config user.email "bot@noreply.github.com"
+          # The RWA gate refused tonight's RWA rows. Put the committed RWA files back as
+          # they were, so the stage lines below find nothing to add for that model and
+          # the crypto ledger commits alone. The run is failed at the end of the job.
+          if [ "$RWA_GATE" != "success" ]; then
+            echo "::error::RWA ledger gate refused tonight's rows ($RWA_GATE) — committing the crypto ledger without them"
+            git ls-files -z -- 'ledger/rwa*' | xargs -0 -r git checkout HEAD --
+            git ls-files -z --others -- 'ledger/rwa*' | xargs -0 -r rm -f --
+          fi
           # nightly.py writes the signals ledger, the conviction-weighted index
           # (index.csv/index.json), the basket state (basket.json), and the
           # market breadth / conviction time-series (market_breadth.json).
@@ -175,6 +214,17 @@ jobs:
           # every multi-day reading to "accumulating" the next night.
           git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json ledger/funding.json ledger/venue_health.csv
           git add ledger/market_intel.json ledger/sectors.csv ledger/macro.csv ledger/dex.csv
+          #
+          # perp.json is the funding transport the terminal scores from, and it has NO
+          # fallback in the browser: a stale one withholds the funding overlay from the
+          # whole board. walkforward.json is the forward study the Method page and the
+          # deferred register both point at as "refreshed every night". Both were
+          # written and validated on the runner from the night they landed (2026-09-17
+          # and 2026-09-18) and then discarded with it, because nobody named them here —
+          # so the published board ran six nights on a stale transport while every gate
+          # passed. The guard at the end of this step is what stops the next one.
+          git add ledger/perp.json
+          git add ledger/walkforward.json || true
           #
           # rwa_flow.csv is the one file in this directory that cannot be rebuilt.
           # /rwas/{id}/market_chart answers HTTP 401 below CoinGecko's Basic plan, so the
@@ -231,5 +281,66 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "nightly ledger snapshot $(date -u +%Y-%m-%d)"
-            git push
+            # A push rejected because main moved during the run (a merge landing in the
+            # five minutes this job takes) used to lose the whole night. Rebase the one
+            # ledger commit onto the new tip and try again; ledger files are written only
+            # by this job, so the rebase does not conflict in practice.
+            for attempt in 1 2 3 4; do
+              if git push; then break; fi
+              if [ "$attempt" = 4 ]; then echo "::error::push failed after 4 attempts"; exit 1; fi
+              sleep $((attempt * 5))
+              git pull --rebase origin "${GITHUB_REF_NAME}"
+            done
           fi
+          # The allowlist above is explicit on purpose, which means a new ledger artifact
+          # is invisible to it until someone names it — and perp.json / walkforward.json
+          # sat unnamed for six nights. Anything the run wrote under ledger/ that is still
+          # modified or untracked here was about to die with the runner. The night above
+          # is already committed; this turns the run red so the omission is found the
+          # morning it happens rather than by reading a stale board.
+          leftover="$(git status --porcelain -- ledger/)"
+          if [ -n "$leftover" ]; then
+            echo "::error::ledger file(s) written tonight but not staged by this step:"
+            echo "$leftover"
+            exit 1
+          fi
+
+      - name: Commit the RWA ledger alone
+        # The reverse of the RWA gate above: a crypto gate refused tonight, so the Commit
+        # step never ran — but the RWA rows passed their own gate, and rwa_flow.csv is the
+        # one series here that no key bought later can re-fetch. Commit them by
+        # themselves, under the same guard rwa_release.yml uses: nothing outside
+        # ledger/rwa* may be staged.
+        if: failure() && steps.commit.outcome == 'skipped' && steps.rwa_gate.outcome == 'success'
+        run: |
+          git config user.name "conviction-bot"
+          git config user.email "bot@noreply.github.com"
+          git add ledger/rwa_flow.csv ledger/rwa_issuers.csv ledger/rwa_wrappers.csv ledger/rwa.json
+          git add ledger/rwa_observed.csv || true
+          git add ledger/rwa_runs.csv || true
+          git add ledger/rwa_quarantine.csv || true
+          if git diff --cached --name-only | grep -v '^ledger/rwa' | grep -q .; then
+            echo "refusing to commit: a non-RWA file is staged"
+            git diff --cached --name-only
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "No RWA changes to commit"
+            exit 0
+          fi
+          git commit -m "rwa ledger snapshot $(date -u +%Y-%m-%d) (crypto gates refused)"
+          for attempt in 1 2 3 4; do
+            if git push; then break; fi
+            if [ "$attempt" = 4 ]; then echo "::error::push failed after 4 attempts"; exit 1; fi
+            sleep $((attempt * 5))
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+          done
+
+      - name: Fail the run when the RWA gate refused
+        # Last, so the crypto ledger has already committed. The RWA gate step is
+        # continue-on-error; without this the run would be green on a night its rows
+        # were withheld.
+        if: always() && steps.rwa_gate.outcome == 'failure'
+        run: |
+          echo "::error::the RWA ledger gate refused tonight's RWA rows; see the 'RWA ledger gate' step"
+          exit 1

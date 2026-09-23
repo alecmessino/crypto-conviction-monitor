@@ -279,6 +279,25 @@ def test_the_cli_exits_zero_on_a_healthy_ledger(ledger, monkeypatch, capsys):
     assert "PASS" in capsys.readouterr().out
 
 
+def test_the_scopes_separate_the_two_models(ledger, monkeypatch, capsys):
+    """A defect in one model's artifacts fails that model's scope and not the other's.
+    On 2026-09-21 and -22 a duplicate key in rwa_flow.csv failed the combined gate and
+    two nights of a healthy crypto ledger were lost with the runner."""
+    _rwa_artifact(ledger)
+    _rwa_manifest(ledger, [{"date": "2026-09-01", "run_ts": "2026-09-01T21:29:18+00:00",
+                            "run_status": "COMPLETE", "promoted": 1}])
+    with (ledger / "rwa_flow.csv").open("w", newline="") as f:
+        f.write("date,underlying_id\r\n2026-09-01,fiserv\r\n2026-09-01,fiserv\r\n")
+    verdict = {}
+    for scope in ("crypto", "rwa", "all"):
+        monkeypatch.setattr("sys.argv", ["v", "--ledger", str(ledger), "--scope", scope])
+        verdict[scope] = v.main()
+        out = capsys.readouterr().out
+        if scope != "crypto":
+            assert "duplicate (date, underlying_id)" in out, out
+    assert verdict == {"crypto": 0, "rwa": 1, "all": 1}
+
+
 # ---------------------------------------------------------------------------
 # the monitor artifact must itself be healthy
 # ---------------------------------------------------------------------------

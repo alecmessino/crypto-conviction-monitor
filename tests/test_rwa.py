@@ -1728,6 +1728,42 @@ def test_the_release_workflow_can_only_ever_commit_rwa_ledger_files():
     assert tests_wf.count("contents: write") == 1
 
 
+def test_a_name_served_on_two_pages_is_recorded_once():
+    """The pages are ranked by market cap and fetched seconds apart, so a name that moves
+    up a rank between two requests is served on both. On 2026-09-21 and -22 that repeat
+    reached rwa_flow.csv, rwa_observed.csv and rwa_wrappers.csv as duplicate keys, the
+    ledger gate refused them, and the whole night — crypto ledger included — was lost."""
+    per = 3
+    page1 = [{"id": "a"}, {"id": "b"}, {"id": "c"}]
+    page2 = [{"id": "c"}, {"id": "d"}]           # 'c' slipped a rank between requests
+    calls = []
+
+    def paged(session, path, params=None, **kw):
+        calls.append(params["page"])
+        data = page1 if params["page"] == 1 else page2
+        return {"status": "live", "detail": "stub", "data": data, "http_status": 200}
+
+    rep = rwa.fetch_markets({"plan": "keyless"}, getter=paged, sleep=lambda *_: None,
+                            per_page=per, max_pages=5)
+    ids = [r["id"] for r in rep["data"]]
+    assert ids == ["a", "b", "c", "d"], ids
+    assert calls == [1, 2]
+    assert rep["status"] == "live"
+    # Reported, not absorbed: the same shift can push a different name off both pages.
+    assert "1 id(s) served on two pages" in rep["detail"]
+
+
+def test_a_clean_page_set_reports_no_repeat():
+    def paged(session, path, params=None, **kw):
+        data = [{"id": "a"}, {"id": "b"}] if params["page"] == 1 else []
+        return {"status": "live", "detail": "stub", "data": data, "http_status": 200}
+
+    rep = rwa.fetch_markets({"plan": "keyless"}, getter=paged, sleep=lambda *_: None,
+                            per_page=2, max_pages=5)
+    assert [r["id"] for r in rep["data"]] == ["a", "b"]
+    assert "served on two pages" not in rep["detail"]
+
+
 # LAST in the file, deliberately. _standalone() reads the module namespace as it stands
 # when it fires, so an entrypoint placed above a later test block runs without it and
 # reports a pass over a smaller suite than exists. That is not hypothetical — it is what

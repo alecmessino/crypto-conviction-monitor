@@ -30,6 +30,11 @@ permissions:
 jobs:
   rwa:
     runs-on: ubuntu-latest
+    # Shares the nightly's group: the two write the same ledger/rwa* files, and a
+    # dispatch overlapping the schedule would otherwise race it to the push.
+    concurrency:
+      group: ledger-writer
+      cancel-in-progress: false
     # The keyed snapshot is roughly forty-five CoinGecko calls at 2.5s spacing. Twenty
     # minutes is the nightly's budget for the whole ledger; this needs a fraction of it,
     # and the same ceiling keeps a stalled fetch from running unbounded.

@@ -14,7 +14,8 @@ from pathlib import Path
 import pytest
 
 HERE = Path(__file__).resolve().parent
-NIGHTLY = HERE.parent / "nightly.py"
+ROOT = HERE.parent
+NIGHTLY = ROOT / "nightly.py"
 
 spec = importlib.util.spec_from_file_location("nightly_test_mod", NIGHTLY)
 assert spec is not None, f"could not load spec for {NIGHTLY}"
@@ -123,3 +124,72 @@ def test_macro_regime_passive_na_without_history(monkeypatch, tmp_path):
     monkeypatch.setattr(nightly, "LEDGER_DIR", tmp_path)
     monkeypatch.setattr(nightly, "INDEX_CSV", tmp_path / "index.csv")
     assert nightly._macro_regime_from_ledger() == "N/A"
+
+
+# ---------------------------------------------------------------------------
+# the commit step stages everything the run writes
+# ---------------------------------------------------------------------------
+def _staged_by(workflow_text):
+    import re
+    return {p.rstrip("/") for line in re.findall(r"^\s*git add (.+)$", workflow_text, re.M)
+            for p in line.replace("|| true", "").replace("2>/dev/null", "").split()
+            if p.startswith("ledger/")}
+
+
+def test_every_ledger_artifact_is_staged_by_the_nightly_commit():
+    """The Commit step stages an explicit allowlist, so a new artifact is invisible to it
+    until someone names it. ledger/perp.json (2026-09-17) and ledger/walkforward.json
+    (2026-09-18) were written and validated on the runner every night and discarded with
+    it: the published board ran on a six-night-old funding transport, which the browser
+    refuses whole, while every gate passed. Every entry under ledger/ must be named."""
+    wf = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+    staged = _staged_by(wf)
+    on_disk = {f"ledger/{p.name}" for p in (ROOT / "ledger").iterdir()
+               if not p.name.startswith(".")}
+    missing = sorted(p for p in on_disk if p not in staged)
+    assert not missing, f"written under ledger/ but never committed by the nightly: {missing}"
+
+
+def test_the_nightly_fails_loudly_on_an_unstaged_ledger_write():
+    """The allowlist test above covers files that exist in the checkout. A brand-new
+    artifact does not exist here until its first night, so the workflow also checks the
+    runner's own tree after the push and turns the run red if anything under ledger/ is
+    still modified or untracked."""
+    wf = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+    guard = "git status --porcelain -- ledger/"
+    assert guard in wf
+    assert wf.index("git commit") < wf.index(guard)
+
+
+def test_ledger_writers_are_serialised_and_a_moved_main_does_not_lose_the_night():
+    nightly_wf = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+    release_wf = (ROOT / ".github" / "workflows" / "rwa_release.yml").read_text(encoding="utf-8")
+    for text in (nightly_wf, release_wf):
+        assert "group: ledger-writer" in text
+        assert "cancel-in-progress: false" in text
+    assert "git pull --rebase" in nightly_wf
+    assert nightly_wf.index("git push") < nightly_wf.index("git pull --rebase")
+
+
+def test_an_rwa_refusal_cannot_stop_the_crypto_commit_or_vice_versa():
+    """Two models, one commit, and until now one gate: an RWA-only defect lost two
+    nights of a healthy crypto ledger (2026-09-21, -22)."""
+    yaml = pytest.importorskip("yaml")  # installed by tests.yml
+    wf_text = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+    steps = yaml.safe_load(wf_text)["jobs"]["ledger"]["steps"]
+    by_name = {s.get("name"): s for s in steps}
+    order = [s.get("name") for s in steps]
+    rwa_gate = by_name["RWA ledger gate"]
+    assert rwa_gate["id"] == "rwa_gate" and rwa_gate.get("continue-on-error") is True
+    assert "--scope rwa" in rwa_gate["run"]
+    assert "--scope crypto" in by_name["Ledger integrity gate"]["run"]
+    # Taken before any blocking gate, so its verdict exists whichever of them fails.
+    assert order.index("RWA ledger gate") < order.index("Parity gate (frontend <-> backend must agree)")
+    commit = by_name["Commit ledger"]
+    assert commit["id"] == "commit" and "steps.rwa_gate.outcome" in commit["env"]["RWA_GATE"]
+    assert commit["run"].index('if [ "$RWA_GATE" != "success" ]') < commit["run"].index("git add")
+    alone = by_name["Commit the RWA ledger alone"]
+    assert "failure()" in alone["if"] and "steps.commit.outcome == 'skipped'" in alone["if"]
+    assert "grep -v '^ledger/rwa'" in alone["run"]
+    last = steps[-1]
+    assert "steps.rwa_gate.outcome == 'failure'" in last["if"] and "exit 1" in last["run"]
