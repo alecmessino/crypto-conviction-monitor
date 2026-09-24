@@ -553,3 +553,16 @@ def test_a_night_the_shards_do_not_cover_is_not_a_subset_failure(ledger):
     """Absence of a night is not disagreement about it."""
     _xsec(ledger, day="2030-06-02")
     assert not any("subset" in p or "disagree" in p for p in v.check_xsec(ledger))
+
+
+def test_the_run_manifest_header_is_checked(tmp_path):
+    assert v.check_runs(tmp_path) == []                     # absent: nothing to check
+    (tmp_path / "runs.csv").write_text("date,outcome\r\n2026-09-24,completed\r\n")
+    assert "header" in v.check_runs(tmp_path)[0]
+    (tmp_path / "runs.csv").unlink()
+    v.nightly.append_run_row({"date": "2026-09-24", "recorded_ts": "2026-09-24T12:00:00+00:00"},
+                             tmp_path / "runs.csv")
+    assert v.check_runs(tmp_path) == []
+    v.nightly.append_run_row({"date": "2026-09-25", "recorded_ts": "2026-09-24T12:00:00+00:00"},
+                             tmp_path / "runs.csv")
+    assert "dated after" in v.check_runs(tmp_path)[0]

@@ -555,6 +555,29 @@ def check_xsec(ledger: Path) -> list[str]:
     return problems
 
 
+def check_runs(ledger: Path) -> list[str]:
+    """ledger/runs.csv — the run manifest. Provenance, so the checks are about its shape.
+
+    Append-only: every prior row is kept, so the header must still describe them all,
+    and no row may claim a date after the night it was recorded on.
+    """
+    path = ledger / "runs.csv"
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        header = tuple(reader.fieldnames or ())
+        rows = list(reader)
+    if header != tuple(nightly.RUN_FIELDS):
+        return [f"runs.csv: header {list(header)} does not match nightly.RUN_FIELDS — "
+                f"appended rows would be read under the wrong column names"]
+    bad = [r.get("date") for r in rows
+           if r.get("date") and r.get("recorded_ts")
+           and r["date"] > r["recorded_ts"][:10]]
+    return ([f"runs.csv: {len(bad)} row(s) dated after they were recorded, first {bad[0]}"]
+            if bad else [])
+
+
 def check_perp_transport(ledger: Path) -> list[str]:
     """ledger/perp.json — the funding transport the terminal scores from.
 
@@ -994,6 +1017,7 @@ def main() -> int:
         problems += check_context_ledgers(ledger)
         problems += check_xsec(ledger)
         problems += check_perp_transport(ledger)
+        problems += check_runs(ledger)
         problems += check_walkforward(ledger)
         problems += check_ic_provenance(ledger)
     if args.scope in ("all", "rwa"):

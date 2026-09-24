@@ -1277,7 +1277,7 @@ def _conjunctive_gate(t: dict, conv: int) -> bool:
 
 
 def fetch_long_short(perps_map: dict, symbols: set[str] | None = None,
-                     limit: int = 60) -> int:
+                     limit: int = 60, deadline=None) -> int:
     """Binance's global long/short account ratio, merged into `perps_map` in place.
 
     Keyless and public, but one request per symbol, so it is bounded to the symbols
@@ -1292,6 +1292,8 @@ def fetch_long_short(perps_map: dict, symbols: set[str] | None = None,
         return 0
     got = 0
     for base in sorted(symbols)[:limit]:
+        if deadline is not None and deadline():
+            break         # the run budget: the rest keep a null ratio, never a neutral
         try:
             data = _get_json(
                 "https://fapi.binance.com/futures/data/globalLongShortAccountRatio"
@@ -6017,12 +6019,159 @@ def _refresh_index_canonical(canon: dict) -> None:
     INDEX_JSON.write_text(json.dumps(doc, indent=2))
 
 
+# ---------------------------------------------------------------------------
+# the run budget and the run manifest
+# ---------------------------------------------------------------------------
+# The job has twenty minutes and a runner killed at the limit commits nothing — not the
+# optional feeds, not the ledger. Every network call this job makes after the scored
+# universe is fetched is optional by design (each already degrades to a declared absence
+# on failure), so the budget is spent on them last-first: past the deadline an optional
+# stage is skipped, or stopped mid-loop, and says so. The mandatory work — the markets
+# fetch, scoring, every ledger write and every gate after this process — is never
+# budgeted: a run that is late must still publish, it just publishes fewer extras.
+#
+# 660 s against the 20-minute job: setup (~1 min), this process, the gates (~1.5 min)
+# and the commit leave margin even at the budget's edge. A typical night takes ~4 min.
+NIGHTLY_BUDGET_S = 660.0
+
+
+class _BudgetSkip(Exception):
+    """An optional stage declined at entry because the run budget is spent."""
+
+
+class RunBudget:
+    """Wall-clock budget for the optional stages of one nightly run."""
+
+    def __init__(self, seconds: float, clock=None):
+        import time as _time
+        self.seconds = float(seconds)
+        self._clock = clock or _time.monotonic
+        self._t0 = self._clock()
+        self.skipped: list[str] = []
+
+    def elapsed(self) -> float:
+        return self._clock() - self._t0
+
+    def remaining(self) -> float:
+        return self.seconds - self.elapsed()
+
+    def expired(self) -> bool:
+        return self.remaining() <= 0
+
+    def allow(self, stage: str, reserve_s: float) -> bool:
+        """Whether an optional stage may START with `reserve_s` seconds of headroom."""
+        if self.remaining() >= reserve_s:
+            return True
+        self.skipped.append(f"{stage}@{max(0.0, self.remaining()):.0f}s")
+        print(f"[budget] SKIPPED {stage}: {max(0.0, self.remaining()):.0f}s left of "
+              f"{self.seconds:.0f}s, {reserve_s:.0f}s reserved — the stage degrades to its "
+              f"declared absence", file=sys.stderr)
+        return False
+
+    def stopper(self, stage: str):
+        """A deadline callable for per-item loops. Records the stop once."""
+        def _stop() -> bool:
+            if not self.expired():
+                return False
+            tag = f"{stage}@stopped"
+            if tag not in self.skipped:
+                self.skipped.append(tag)
+                print(f"[budget] STOPPED {stage} mid-loop: run budget exhausted",
+                      file=sys.stderr)
+            return True
+        return _stop
+
+    def getter(self, inner, stage: str):
+        """Wrap a coingecko-style getter so it fails closed once the budget is spent:
+        an `unavailable` report, which every caller already handles as a declared
+        absence, instead of another request."""
+        stop = self.stopper(stage)
+
+        def _g(session, path, params=None, **kw):
+            if stop():
+                return coingecko._report(
+                    "unavailable", f"not requested: nightly run budget exhausted ({path})")
+            return inner(session, path, params, **kw)
+        return _g
+
+
+# ledger/runs.csv — one row per nightly RUN, appended, never replaced. Provenance only:
+# nothing reads it to score, rank, measure or gate. It exists because the date on a row
+# says which night it belongs to and nothing else — not when the universe was actually
+# observed, not whether the run published, not which gates refused it. A night that
+# failed is a row here with its failure; a night that never ran has no row, and that
+# absence is the record (2026-09-21 and -22 predate this file and are not back-filled).
+RUNS_CSV = LEDGER_DIR / "runs.csv"
+RUN_FIELDS = (
+    "date", "run_ts", "snapshot_ts", "recorded_ts",
+    "event", "run_id", "run_attempt", "sha",
+    "outcome", "elapsed_s", "budget_s", "budget_skipped",
+    "cg_plan", "markets_fetched", "markets_unique", "scored", "persisted",
+    "xsec_rows", "perp_rows",
+    "nightly_step", "rwa_gate", "parity_gate", "crypto_gate", "atr_gate",
+    "crypto_publish", "rwa_publish", "rwa_status",
+    "signals_latest", "xsec_latest", "perp_as_of", "walkforward_to", "rwa_date",
+    "spec_hash",
+)
+
+
+def append_run_row(row: dict, path: Path | None = None) -> Path:
+    """Append one run. Never rewrites a prior row — a failed run is evidence."""
+    path = path or RUNS_CSV
+    new = not path.exists() or path.stat().st_size == 0
+    with path.open("a", newline="", encoding="utf-8") as fh:
+        w = csv.DictWriter(fh, fieldnames=RUN_FIELDS, lineterminator="\r\n")
+        if new:
+            w.writeheader()
+        w.writerow({k: ("" if row.get(k) is None else row.get(k)) for k in RUN_FIELDS})
+    return path
+
+
+# Written by main() whatever happens, read by scripts/record_run.py after the gates. Not
+# under ledger/: it is the hand-off between two steps of one run, not a ledger artifact.
+def run_info_path() -> Path:
+    import tempfile
+    base = os.environ.get("NIGHTLY_RUN_INFO") or os.path.join(
+        os.environ.get("RUNNER_TEMP") or tempfile.gettempdir(), "nightly_run.json")
+    return Path(base)
+
+
+def write_run_info(run: dict, path: Path | None = None) -> Path:
+    path = path or run_info_path()
+    path.write_text(json.dumps(run, indent=1, default=str) + "\n", encoding="utf-8")
+    return path
+
+
 def main() -> int:
+    """The nightly, with its run recorded whether it completes, fails or crashes."""
+    budget = RunBudget(float(os.environ.get("NIGHTLY_BUDGET_S") or NIGHTLY_BUDGET_S))
+    run = {"run_ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+           "spec_hash": SPEC_HASH, "budget_s": budget.seconds, "stage": "start"}
+    try:
+        rc = _main(run, budget)
+        run["outcome"] = "completed" if rc == 0 else f"exit {rc}"
+        return rc
+    except BaseException as e:
+        run["outcome"] = f"crashed at {run.get('stage')}: {type(e).__name__}: {str(e)[:200]}"
+        raise
+    finally:
+        run["elapsed_s"] = round(budget.elapsed(), 1)
+        run["budget_skipped"] = ";".join(budget.skipped)
+        try:
+            print(f"[run] {run.get('outcome')} in {run['elapsed_s']}s"
+                  + (f"; budget skipped {run['budget_skipped']}" if budget.skipped else "")
+                  + f" -> {write_run_info(run)}", file=sys.stderr)
+        except OSError as e:      # the record must never be what fails the run
+            print(f"[run] could not write run info: {e}", file=sys.stderr)
+
+
+def _main(run: dict, budget: RunBudget) -> int:
     global CG_SESSION
     # UTC, like every other date this job writes (rwa.snapshot stamps UTC). date.today()
     # is the machine's local date: identical on the runner, but a local run west of UTC
     # after 00:00 UTC stamped yesterday and replaced the last committed night's rows.
     today = datetime.now(timezone.utc).date().isoformat()
+    run["date"] = today
 
     # The credential first, because fetch_markets is the very next network call and it
     # is the one that has actually been losing pages to HTTP 429. The plan is probed
@@ -6030,6 +6179,7 @@ def main() -> int:
     # secret that is set but refused reads as "refused" in the log rather than as an
     # unexplained rate limit three weeks later.
     CG_SESSION = coingecko.open_session()
+    run["cg_plan"], run["cg_status"] = CG_SESSION.get("plan"), CG_SESSION.get("status")
     print(f"[cg] session: {CG_SESSION['plan']} / {CG_SESSION['status']} — "
           f"{CG_SESSION['detail']}", file=__import__("sys").stderr)
 
@@ -6044,7 +6194,14 @@ def main() -> int:
              if dune_report.get("columns") else ""),
           file=__import__("sys").stderr)
 
-    markets = first_by_symbol(fetch_markets(session=CG_SESSION))
+    run["stage"] = "markets"
+    raw_markets = fetch_markets(session=CG_SESSION)
+    # The actual moment the scored universe was observed. The schedule says 06:17 UTC
+    # and GitHub has started this job anywhere from 07:00 to 18:46 UTC, so the date alone
+    # does not say how far apart two "consecutive" nights were.
+    run["snapshot_ts"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    markets = first_by_symbol(raw_markets)
+    run["markets_fetched"], run["markets_unique"] = len(raw_markets), len(markets)
     print(f"[cg] {len(markets)} market(s) fetched", file=__import__("sys").stderr)
     scored_syms = {(t.get("symbol") or "").upper() for t in markets
                    if (t.get("symbol") or "").upper() and (t.get("symbol") or "").upper() not in STABLES}
@@ -6112,7 +6269,11 @@ def main() -> int:
     print(f"[cryptometer] querying the top {len(board_syms)} by market cap: "
           + ", ".join(board_syms[:8]) + ("..." if len(board_syms) > 8 else ""),
           file=__import__("sys").stderr)
-    liq_report = cryptometer.fetch_liquidations(cm_key, board_syms)
+    run["stage"] = "optional feeds"
+    liq_report = (cryptometer.fetch_liquidations(cm_key, board_syms,
+                                                 deadline=budget.stopper("cryptometer"))
+                  if budget.allow("cryptometer liquidations", 60)
+                  else cryptometer._report("skipped", {}, "nightly run budget exhausted"))
     print(f"[cryptometer] liquidations {liq_report['status']}: {liq_report['detail']}",
           file=__import__("sys").stderr)
     liq_map = liq_report["data"] or {}
@@ -6122,7 +6283,8 @@ def main() -> int:
     # HTTP 451, and firing sixty requests to collect sixty identical refusals is a
     # minute of runner time spent proving something already known.
     if "binance" in live_venues:
-        n_ls = fetch_long_short(perps_map, scored_syms)
+        n_ls = (fetch_long_short(perps_map, scored_syms, deadline=budget.stopper("long/short"))
+                if budget.allow("binance long/short", 60) else 0)
         print(f"[funding] long/short ratio for {n_ls}/{len(scored_syms)} symbols.",
               file=__import__("sys").stderr)
     else:
@@ -6130,7 +6292,10 @@ def main() -> int:
         # 451 here, which is why the column has been null on every row since the runner
         # moved. Cryptometer is not geo-blocked, so this restores a reading rather than
         # inventing one — same quantity, different host.
-        ls_report = cryptometer.fetch_positioning(cm_key, board_syms)
+        ls_report = (cryptometer.fetch_positioning(cm_key, board_syms,
+                                                   deadline=budget.stopper("positioning"))
+                     if budget.allow("cryptometer positioning", 60)
+                     else cryptometer._report("skipped", {}, "nightly run budget exhausted"))
         for sym, rec in (ls_report["data"] or {}).items():
             perps_map.setdefault(sym, {})["long_short_ratio"] = rec["ratio"]
         print(f"[cryptometer] long/short {ls_report['status']}: {ls_report['detail']}"
@@ -6176,7 +6341,9 @@ def main() -> int:
     # after the derivatives feed because it is the lower-priority of the two: if the
     # rate limit is going to bite tonight, it should bite the context panels rather than
     # the funding modifier that actually moves scores.
-    intel_feeds = coingecko.fetch_all(CG_SESSION)
+    intel_feeds = coingecko.fetch_all(
+        CG_SESSION, getter=budget.getter(coingecko.get, "context feeds"),
+        with_dex=budget.allow("dex depth", 90))
     for name, rep in intel_feeds["feeds"].items():
         code = f" [HTTP {rep['http_status']}]" if rep.get("http_status") else ""
         print(f"[cg] {name}: {rep['status']} — {rep['detail']}{code}",
@@ -6473,6 +6640,8 @@ def main() -> int:
     # does not rewrite history.
     kept = [r for r in _read_signals_rows() if r.get("date") != today]
     fresh = [{k: r.get(k) for k in FIELDS} for r in rows[:50]]
+    run["stage"] = "ledger writes"
+    run["scored"], run["persisted"] = len(rows), len(fresh)
     with LEDGER_CSV.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=FIELDS)
         w.writeheader()
@@ -6539,6 +6708,7 @@ def main() -> int:
     # rather than silent. `rows` here is the full scored universe — the same list
     # rows[:50] was taken from a few lines above, not a re-derivation of it.
     xsec_path, xsec_n = write_xsec(rows, today, src="live")
+    run["xsec_rows"] = xsec_n
     print(f"[xsec] {xsec_n} row(s) for {today} -> {xsec_path.name} "
           f"({xsec_path.stat().st_size / 1024:.1f} KB shard, "
           f"{len(XSEC_FIELDS)} columns, schema v{XSEC_SCHEMA_VERSION})",
@@ -6550,6 +6720,7 @@ def main() -> int:
     # nights almost every cell reads INSUFFICIENT, which is the correct output.
     wf = walkforward_report(xsec_by_date(), recorded_regimes())
     wf_path = write_walkforward(wf)
+    run["walkforward_to"] = wf.get("to")
     print(f"[walkfwd] {wf['nights']} night(s) {wf['from']}..{wf['to']} -> "
           f"{wf_path.name}; {wf['measurable_cells']} of "
           f"{len(IC_SIGNALS) * len(WALKFWD_HORIZONS)} IC cell(s) measurable, "
@@ -6561,6 +6732,7 @@ def main() -> int:
     # is the entire phase: the terminal used to read the fifty and score the rest at a
     # neutral 1.000 while this loop had a live reading for a hundred and fifty of them.
     perp_path_, perp_n = write_perp_artifact(rows, today)
+    run["perp_rows"], run["perp_as_of"] = perp_n, today
     _pf = perp_feed(json.loads(perp_path_.read_text(encoding="utf-8")), today)
     _mismatch = [r["symbol"] for r in rows
                  if abs(_pf["mults"].get(r["symbol"], PERP_NEUTRAL)
@@ -6806,7 +6978,15 @@ def main() -> int:
     # able to stop a ledger that has been committing since August. A traceback here is
     # printed and the run still returns 0.
     try:
-        rwa_art = rwa.snapshot()
+        # Last of the optional stages, so it is the one the budget costs first. Skipped
+        # at entry leaves every rwa* file exactly as committed; stopped mid-fetch, the
+        # getter fails closed and snapshot() records a degraded run under its own
+        # promotion invariant, exactly as it would a rate limit.
+        run["stage"] = "rwa"
+        if not budget.allow("rwa snapshot", 240):
+            raise _BudgetSkip("rwa")
+        rwa_art = rwa.snapshot(getter=budget.getter(coingecko.get, "rwa"))
+        run["rwa_status"] = (rwa_art.get("run") or {}).get("status") or rwa_art.get("status")
         # .get(), not [] — snapshot()'s designed degradation path returns early when the
         # underlying universe is unavailable, and that payload carries no "graph" or
         # "board_gate". Indexing them turned the module's most careful behaviour into a
@@ -6850,7 +7030,12 @@ def main() -> int:
                                                              rwa.IMPULSE_REDEMPTION)]
         print(f"[rwa] issuance: {len(moved)} underlying(s) minted or redeemed against "
               f"{len(board)} on the board")
+    except _BudgetSkip:
+        run["rwa_status"] = "skipped: run budget"
+        print("[rwa] SKIPPED — the run budget is spent; every rwa* file is left as "
+              "committed and tonight's issuance row is not recorded")
     except Exception as e:  # noqa: BLE001
+        run["rwa_status"] = f"crashed: {type(e).__name__}"
         print(f"[rwa] FAILED — {type(e).__name__}: {e}")
         print("[rwa] the crypto ledger above is unaffected; tonight's issuance row is lost")
 

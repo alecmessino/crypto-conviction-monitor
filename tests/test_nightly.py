@@ -188,8 +188,20 @@ def test_an_rwa_refusal_cannot_stop_the_crypto_commit_or_vice_versa():
     commit = by_name["Commit ledger"]
     assert commit["id"] == "commit" and "steps.rwa_gate.outcome" in commit["env"]["RWA_GATE"]
     assert commit["run"].index('if [ "$RWA_GATE" != "success" ]') < commit["run"].index("git add")
-    alone = by_name["Commit the RWA ledger alone"]
+    alone = by_name["Commit what passed its own gate"]
     assert "failure()" in alone["if"] and "steps.commit.outcome == 'skipped'" in alone["if"]
-    assert "grep -v '^ledger/rwa'" in alone["run"]
+    assert 'if [ "$RWA_GATE" = "success" ]' in alone["run"]
+    assert "grep -v '^ledger/rwa' | grep -v '^ledger/runs\\.csv$'" in alone["run"]
+    # The run is recorded whatever the gates decided, before either commit step, and
+    # can never block one.
+    rec = by_name["Record the run"]
+    assert rec["if"] == "always()" and rec.get("continue-on-error") is True
+    assert order.index("ATR eligibility gate") < order.index("Record the run") < order.index("Commit ledger")
+    for sid in ("nightly", "rwa_gate", "parity", "integrity", "atr"):
+        assert f"steps.{sid}.outcome" in rec["run"], sid
+    # Smoke steps run after both commits: a stall there can no longer cost the night.
+    for smoke in ("Cryptometer smoke test", "CoinGecko smoke test", "RWA smoke test"):
+        assert order.index(smoke) > order.index("Commit what passed its own gate"), smoke
+        assert by_name[smoke]["if"] == "always()" and by_name[smoke]["continue-on-error"]
     last = steps[-1]
     assert "steps.rwa_gate.outcome == 'failure'" in last["if"] and "exit 1" in last["run"]
