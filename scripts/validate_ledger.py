@@ -782,14 +782,22 @@ def check_rwa(ledger: Path) -> list[str]:
     # its claims go unexamined.
     problems += _check_rwa_artifact(ledger)
 
-    flow = ledger / "rwa_flow.csv"
-    if not flow.exists():
+    # The three growing ledgers are month shards under ledger/rwa/<kind>/ (and, only
+    # before the migration, a legacy monolith). The shard layout is checked on its own;
+    # every check below then runs over the UNION a reader sees, read through the same
+    # rwa.read_ledger() the nightly reads with, so the gate and the model can never
+    # disagree about which rows exist.
+    rwa = nightly.rwa
+    problems += _check_rwa_shards(ledger)
+    legacy_flow = ledger / "rwa_flow.csv"
+    if not legacy_flow.exists() and not rwa.rwa_shard_files(ledger, "flow"):
         return problems
-
-    rows = list(csv.DictReader(flow.open(newline="", encoding="utf-8")))
+    if legacy_flow.exists() and not list(csv.DictReader(legacy_flow.open(newline="", encoding="utf-8"))):
+        return problems + ["rwa_flow.csv: exists and holds no rows — the writer ran and "
+                           "recorded nothing, which is not the same as not having run"]
+    rows = rwa.read_ledger(ledger, "flow")
     if not rows:
-        return ["rwa_flow.csv: exists and holds no rows — the writer ran and recorded "
-                "nothing, which is not the same as not having run"]
+        return problems
 
     seen = Counter((r.get("date"), r.get("underlying_id")) for r in rows)
     dupes = [k for k, n in seen.items() if n > 1]
@@ -870,33 +878,138 @@ def check_rwa(ledger: Path) -> list[str]:
         problems.append("rwa_flow.csv exists with no rwa_runs.csv manifest beside it — "
                         "there is no record of what any run actually saw")
 
-    obs_path = ledger / "rwa_observed.csv"
-    if obs_path.exists():
-        obs = list(csv.DictReader(obs_path.open(newline="", encoding="utf-8")))
+    obs = rwa.read_ledger(ledger, "observed")
+    if obs:
+        # Against each FILE's own header: a projected row carries only the current
+        # fields, so a derived column smuggled into one shard would be invisible here.
         derived = {"residual_pct", "conviction", "label", "impulse", "supply_index"}
-        leaked = derived & set(obs[0].keys() if obs else ())
-        if leaked:
-            problems.append(
-                f"rwa_observed.csv carries derived column(s) {sorted(leaked)} — this file "
-                f"is the raw observation and mixing derivations into it destroys the one "
-                f"thing it is for")
+        for path in [ledger / "rwa_observed.csv"] + rwa.rwa_shard_files(ledger, "observed"):
+            if not path.exists():
+                continue
+            with path.open(newline="", encoding="utf-8") as fh:
+                header = next(csv.reader(fh), [])
+            leaked = derived & set(header)
+            if leaked:
+                problems.append(
+                    f"rwa observed ({path.relative_to(ledger)}) carries derived column(s) "
+                    f"{sorted(leaked)} — this file is the raw observation and mixing "
+                    f"derivations into it destroys the one thing it is for")
         undated = [r for r in obs if not (r.get("source_last_updated") or "").strip()]
         if undated and len(undated) > len(obs) * 0.5:
             problems.append(
                 f"rwa_observed.csv: {len(undated)}/{len(obs)} row(s) carry no vendor "
                 f"timestamp — our run time is not the observation time")
 
-    for name, key in (("rwa_issuers.csv", "issuer_id"), ("rwa_wrappers.csv", "token_id"),
-                      ("rwa_observed.csv", "underlying_id")):
-        path = ledger / name
-        if not path.exists():
-            continue
-        rs = list(csv.DictReader(path.open(newline="", encoding="utf-8")))
+    # Duplicates over the union. A key cannot straddle two shards (the shard is a
+    # function of the date, which is in the key), so this is also the check that catches
+    # a legacy monolith overlapping the shards it was migrated into.
+    issuers = ledger / "rwa_issuers.csv"
+    unions = [("rwa_issuers.csv", "issuer_id",
+               list(csv.DictReader(issuers.open(newline="", encoding="utf-8")))
+               if issuers.exists() else []),
+              ("rwa_wrappers.csv", "token_id", rwa.read_ledger(ledger, "wrappers")),
+              ("rwa_observed.csv", "underlying_id", obs)]
+    for name, key, rs in unions:
         d = [k for k, n in Counter((r.get("date"), r.get(key)) for r in rs).items() if n > 1]
         if d:
             problems.append(f"{name}: {len(d)} duplicate (date, {key}) key(s), first {d[0]}")
 
     return problems
+
+
+def _check_rwa_shards(ledger: Path) -> list[str]:
+    """The month-shard layout of the three growing RWA ledgers (docs/DESIGN-RWA-SHARDING.md).
+
+    Same shape as check_xsec: a sidecar that describes its shards, a directory holding
+    only shards and the sidecar, a header per shard, no empty shard, and — the one a
+    reader depends on — no row dated outside its own month. Optional: a ledger that has
+    no ledger/rwa/<kind> directory has nothing to check here.
+    """
+    rwa = nightly.rwa
+    problems: list[str] = []
+    for kind, (fields, key, legacy) in rwa.RWA_SHARDED.items():
+        d = rwa.rwa_shard_dir(ledger, kind)
+        if not d.is_dir():
+            continue
+        tag = f"rwa/{kind}"
+        # Anything else in the directory would be committed by the directory pathspec —
+        # a stray 2026-09.csv.tmp from an interrupted atomic write, above all.
+        stray = sorted(p.name for p in d.iterdir()
+                       if p.name != "SCHEMA.json" and not rwa.RWA_SHARD_RE.match(p.name))
+        if stray:
+            problems.append(f"{tag}: holds {stray[:3]} — only YYYY-MM.csv shards and "
+                            f"SCHEMA.json belong here, and the workflow stages the whole "
+                            f"directory")
+        shards = rwa.rwa_shard_files(ledger, kind)
+        if not shards:
+            problems.append(f"{tag}: the directory exists and holds no shard")
+            continue
+        added: set = set()
+        side = d / "SCHEMA.json"
+        if not side.exists():
+            problems.append(f"{tag}: SCHEMA.json is missing — shards with no statement "
+                            f"of which revision wrote them")
+        else:
+            try:
+                doc = json.loads(side.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                problems.append(f"{tag}: SCHEMA.json does not parse ({exc})")
+                doc = {}
+            if doc and doc.get("schema_version") != rwa.RWA_SHARD_SCHEMA_VERSION:
+                problems.append(f"{tag}: SCHEMA.json says version "
+                                f"{doc.get('schema_version')!r} against a writer at "
+                                f"{rwa.RWA_SHARD_SCHEMA_VERSION}")
+            if doc and doc.get("fields") != list(fields):
+                problems.append(f"{tag}: SCHEMA.json field list disagrees with the writer's")
+            if doc and doc.get("row_key") != ["date", key]:
+                problems.append(f"{tag}: SCHEMA.json row_key is {doc.get('row_key')!r}, "
+                                f"not ['date', {key!r}]")
+            for cols in (doc.get("added_at") or {}).values():
+                added |= set(cols or [])
+        for path in shards:
+            with path.open(newline="", encoding="utf-8") as fh:
+                header = next(csv.reader(fh), [])
+            # A closed shard keeps its header forever. It may predate columns the
+            # sidecar records as added later — never anything else.
+            older_ok = (header == list(fields)[:len(header)]
+                        and set(list(fields)[len(header):]) <= added)
+            if header != list(fields) and not older_ok:
+                problems.append(f"{tag}/{path.name}: header does not match the writer's "
+                                f"schema ({len(header)} columns vs {len(fields)})")
+                continue
+            with path.open(newline="", encoding="utf-8") as fh:
+                dates = [r.get("date") or "" for r in csv.DictReader(fh)]
+            if not dates:
+                problems.append(f"{tag}/{path.name}: no rows under a valid header — the "
+                                f"writer never writes an empty row set")
+                continue
+            outside = sorted({x for x in dates if x[:7] != path.stem})
+            if outside:
+                problems.append(f"{tag}/{path.name}: holds {len(outside)} date(s) outside "
+                                f"its own month, e.g. {outside[:3]} — a reader taking the "
+                                f"filename as the range would silently miss them")
+    return problems
+
+
+def rwa_notices(ledger: Path) -> list[str]:
+    """Printed, never failed. A legacy monolith beside its shards is the transitional
+    state the reader is built for; failing the gate on it would roll back tonight's rows,
+    and a flow night cannot be re-fetched. The CI suite, not this gate, requires the
+    monolith to be gone. A shard past 25 MB is the early signal that monthly granularity
+    is running out."""
+    rwa = nightly.rwa
+    out = []
+    for kind, (_, _, legacy) in rwa.RWA_SHARDED.items():
+        if (ledger / legacy).exists():
+            out.append(f"{legacy} (legacy monolith) is present"
+                       + (" beside month shards" if rwa.rwa_shard_files(ledger, kind) else "")
+                       + " — run scripts/shard_rwa_ledgers.py --apply")
+        for p in rwa.rwa_shard_files(ledger, kind):
+            if p.stat().st_size > rwa.RWA_SHARD_WARN_BYTES:
+                out.append(f"rwa/{kind}/{p.name} is {p.stat().st_size:,} bytes, over "
+                           f"{rwa.RWA_SHARD_WARN_BYTES:,} — monthly shards are running out "
+                           f"(docs/DESIGN-RWA-SHARDING.md §1.3)")
+    return out
 
 
 def _check_rwa_artifact(ledger: Path) -> list[str]:
@@ -1025,6 +1138,7 @@ def main() -> int:
         problems += check_ic_provenance(ledger)
     if args.scope in ("all", "rwa"):
         problems += check_rwa(ledger)
+        warnings += rwa_notices(ledger)
     print(f"scope:       {args.scope}")
 
     # Informational only, and it must never decide a verdict. It reads every artifact
@@ -1095,6 +1209,13 @@ def main() -> int:
                       f"priced, {g.get('unresolved_n', 0)} unresolved, spec {j.get('spec_hash')}")
             except Exception:
                 pass
+        rwa_mod = nightly.rwa
+        if any(rwa_mod.rwa_shard_files(ledger, k) for k in rwa_mod.RWA_SHARDED):
+            parts = []
+            for k in rwa_mod.RWA_SHARDED:
+                files = rwa_mod.rwa_shard_files(ledger, k)
+                parts.append(f"{k} {len(files)} shard(s) {len(rwa_mod.read_ledger(ledger, k)):,} rows")
+            print("rwa shards:  " + "; ".join(parts))
         breadth = ledger / "market_breadth.json"
         if breadth.exists():
             try:

@@ -73,7 +73,8 @@ jobs:
           git config user.name "conviction-bot"
           git config user.email "bot@noreply.github.com"
           # The same file set the nightly commits for this model, and no other.
-          # rwa_observed.csv is the raw observation, rwa_runs.csv the manifest of every
+          # ledger/rwa/ holds the month shards of the flow, wrapper and raw-observation
+          # ledgers (docs/DESIGN-RWA-SHARDING.md), rwa_runs.csv the manifest of every
           # run, rwa_quarantine.csv the runs refused promotion.
           #
           # ONE optional file per `git add ... || true`. git add is all-or-nothing over
@@ -81,8 +82,7 @@ jobs:
           # three staged NOTHING and || true hid it, and the first release commit
           # (3394528) carried the board without its raw observation or its manifest
           # row. Measured, not hypothetical.
-          git add ledger/rwa_flow.csv ledger/rwa_issuers.csv ledger/rwa_wrappers.csv ledger/rwa.json
-          git add ledger/rwa_observed.csv || true
+          git add ledger/rwa ledger/rwa_issuers.csv ledger/rwa.json
           git add ledger/rwa_runs.csv || true
           git add ledger/rwa_quarantine.csv || true
           # The refused run's board (rwa.py writes it instead of rwa.json when a run is

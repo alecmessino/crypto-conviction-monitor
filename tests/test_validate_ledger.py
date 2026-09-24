@@ -299,6 +299,127 @@ def test_the_scopes_separate_the_two_models(ledger, monkeypatch, capsys):
 
 
 # ---------------------------------------------------------------------------
+# the RWA month shards (docs/DESIGN-RWA-SHARDING.md §4.6)
+# ---------------------------------------------------------------------------
+def _flow_shard(ledger, month, rows, header=None):
+    rwa = v.nightly.rwa
+    fields = header or rwa.RWA_FLOW_FIELDS
+    d = ledger / "rwa" / "flow"
+    d.mkdir(parents=True, exist_ok=True)
+    with (d / f"{month}.csv").open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=fields, lineterminator="\r\n", extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+    rwa.write_rwa_shard_schema(ledger, "flow")
+
+
+def _frow(day, uid="fiserv"):
+    return {"date": day, "underlying_id": uid, "spec_hash": "x", "residual_pct": "1.0"}
+
+
+def _manifest_for(ledger, *days):
+    _rwa_manifest(ledger, [{"date": d, "run_ts": f"{d}T21:29:18+00:00",
+                            "run_status": "complete", "promoted": 1} for d in days])
+
+
+def test_the_scopes_separate_the_two_models_with_shards(ledger, monkeypatch, capsys):
+    """The same separation, with the duplicate inside a month shard."""
+    _rwa_artifact(ledger)
+    _manifest_for(ledger, "2026-09-01")
+    _flow_shard(ledger, "2026-09", [_frow("2026-09-01"), _frow("2026-09-01")])
+    verdict = {}
+    for scope in ("crypto", "rwa", "all"):
+        monkeypatch.setattr("sys.argv", ["v", "--ledger", str(ledger), "--scope", scope])
+        verdict[scope] = v.main()
+        out = capsys.readouterr().out
+        if scope != "crypto":
+            assert "duplicate (date, underlying_id)" in out, out
+    assert verdict == {"crypto": 0, "rwa": 1, "all": 1}
+
+
+def test_healthy_shards_pass_the_rwa_scope(ledger, monkeypatch, capsys):
+    _rwa_artifact(ledger, run_ts="2026-10-01T21:29:18+00:00")
+    _manifest_for(ledger, "2026-09-30", "2026-10-01")
+    _flow_shard(ledger, "2026-09", [_frow("2026-09-30")])
+    _flow_shard(ledger, "2026-10", [_frow("2026-10-01")])
+    assert v._check_rwa_shards(ledger) == []
+    monkeypatch.setattr("sys.argv", ["v", "--ledger", str(ledger), "--scope", "rwa"])
+    assert v.main() == 0
+    assert "rwa shards:  flow 2 shard(s) 2 rows" in capsys.readouterr().out
+
+
+def test_a_stray_date_in_a_shard_fails_the_rwa_scope(tmp_path):
+    _flow_shard(tmp_path, "2026-09", [_frow("2026-09-30"), _frow("2026-10-01", "acme")])
+    problems = v._check_rwa_shards(tmp_path)
+    assert any("outside its own month" in p for p in problems), problems
+
+
+def test_an_empty_shard_fails(tmp_path):
+    _flow_shard(tmp_path, "2026-09", [])
+    assert any("no rows under a valid header" in p for p in v._check_rwa_shards(tmp_path))
+
+
+def test_a_tmp_file_in_a_shard_dir_fails(tmp_path):
+    """The workflow stages the whole directory, so an interrupted atomic write's temp
+    file would be committed as though it were a ledger."""
+    _flow_shard(tmp_path, "2026-09", [_frow("2026-09-30")])
+    (tmp_path / "rwa" / "flow" / "2026-09.csv.tmp").write_text("partial")
+    assert any("2026-09.csv.tmp" in p for p in v._check_rwa_shards(tmp_path))
+
+
+def test_a_shard_with_a_foreign_header_or_stale_sidecar_fails(tmp_path):
+    _flow_shard(tmp_path, "2026-09", [_frow("2026-09-30")], header=["date", "underlying_id"])
+    assert any("header does not match" in p for p in v._check_rwa_shards(tmp_path))
+    side = tmp_path / "rwa" / "flow" / "SCHEMA.json"
+    doc = json.loads(side.read_text())
+    doc["schema_version"] = 0
+    side.write_text(json.dumps(doc))
+    assert any("SCHEMA.json says version" in p for p in v._check_rwa_shards(tmp_path))
+    side.unlink()
+    assert any("SCHEMA.json is missing" in p for p in v._check_rwa_shards(tmp_path))
+
+
+def test_legacy_beside_disjoint_shards_is_reported_not_failed(ledger, monkeypatch, capsys):
+    """The transitional state the reader is built for. Failing the gate on it would roll
+    back tonight's rows, and a flow night cannot be re-fetched."""
+    _rwa_artifact(ledger)
+    _manifest_for(ledger, "2026-09-01", "2026-09-02")
+    rwa = v.nightly.rwa
+    rwa.append_daily_rows(ledger / "rwa_flow.csv", rwa.RWA_FLOW_FIELDS, "2026-09-01",
+                          [_frow("2026-09-01")])
+    _flow_shard(ledger, "2026-09", [_frow("2026-09-02")])
+    monkeypatch.setattr("sys.argv", ["v", "--ledger", str(ledger), "--scope", "rwa"])
+    assert v.main() == 0
+    out = capsys.readouterr().out
+    assert "WARN  rwa_flow.csv (legacy monolith) is present beside month shards" in out, out
+
+
+def test_legacy_overlapping_its_shards_fails(ledger, monkeypatch, capsys):
+    _rwa_artifact(ledger)
+    _manifest_for(ledger, "2026-09-01")
+    rwa = v.nightly.rwa
+    rwa.append_daily_rows(ledger / "rwa_flow.csv", rwa.RWA_FLOW_FIELDS, "2026-09-01",
+                          [_frow("2026-09-01")])
+    _flow_shard(ledger, "2026-09", [_frow("2026-09-01")])
+    monkeypatch.setattr("sys.argv", ["v", "--ledger", str(ledger), "--scope", "rwa"])
+    assert v.main() == 1
+    assert "duplicate (date, underlying_id)" in capsys.readouterr().out
+
+
+def test_an_oversized_shard_is_a_warning_not_a_failure(tmp_path, monkeypatch):
+    _flow_shard(tmp_path, "2026-09", [_frow("2026-09-30")])
+    monkeypatch.setattr(v.nightly.rwa, "RWA_SHARD_WARN_BYTES", 10)
+    notes = v.rwa_notices(tmp_path)
+    assert any("monthly shards are running out" in n for n in notes), notes
+    assert v._check_rwa_shards(tmp_path) == []
+
+
+def test_the_real_ledger_shards_pass():
+    assert v._check_rwa_shards(ROOT / "ledger") == []
+    assert v.rwa_notices(ROOT / "ledger") == []
+
+
+# ---------------------------------------------------------------------------
 # the monitor artifact must itself be healthy
 # ---------------------------------------------------------------------------
 def test_a_missing_monitor_fails(ledger):

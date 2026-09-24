@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "observed",
+  "fields": [
+    "date",
+    "run_ts",
+    "underlying_id",
+    "symbol",
+    "asset_type",
+    "price",
+    "market_cap",
+    "total_volume",
+    "source_last_updated"
+  ],
+  "row_key": [
+    "date",
+    "underlying_id"
+  ],
+  "shard": "one file per calendar month, ledger/rwa/observed/YYYY-MM.csv",
+  "line_terminator": "\r\n",
+  "header": "every shard starts with the field header",
+  "row_order": "recorded order; within a shard, dates nondecreasing",
+  "append_only": "a shard is rewritten only to replace its own date's rows; a closed month is never opened again",
+  "migrated_from": "ledger/rwa_observed.csv (whole file, 2026-09-24; history byte-identical)",
+  "added_at": {}
+}
