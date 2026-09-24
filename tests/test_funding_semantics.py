@@ -41,13 +41,18 @@ def _fn_body(name):
 # source: no hard-coded funding term inside LAVL, and no copy claiming one
 # ---------------------------------------------------------------------------
 def test_lavl_carries_no_funding_term_at_all():
-    body = _fn_body("computeLAVL")
-    code = "\n".join(l.split("//")[0] for l in body.splitlines())
-    for term in ("riskMult", "RiskMult", "PERP", "perp", "funding"):
-        assert term not in code, (
-            f"computeLAVL references {term!r}. LAVL is funding-neutral by construction; a "
-            "funding term here is either the hard-coded neutral this test exists to stop, "
-            "or a qualification change that needs review.")
+    # 2026-09-24: the browser's own computeLAVL was replaced by lavlReading(), the
+    # nightly's _lavl_regime ported into the MODEL PORT; the gate that reads it is
+    # conjunctiveGate(). Neither may reach for a funding term.
+    assert "function computeLAVL(" not in HTML, "the retired browser-only LAVL is back"
+    for fn in ("lavlReading", "conjunctiveGate"):
+        body = _fn_body(fn)
+        code = "\n".join(l.split("//")[0] for l in body.splitlines())
+        for term in ("riskMult", "RiskMult", "PERP", "perp", "funding"):
+            assert term not in code, (
+                f"{fn} references {term!r}. LAVL is funding-neutral by construction; a "
+                "funding term here is either the hard-coded neutral this test exists to "
+                "stop, or a qualification change that needs review.")
 
 
 def test_the_lavl_table_never_prints_a_constant_as_a_funding_reading():
@@ -137,13 +142,13 @@ PROBE = """() => {
     const sym = tr.dataset.sym, t = STATE.find(x => x.sym === sym);
     const cells = tr.querySelectorAll('td');
     const F = convictionFactors(t);
-    // LAVL must not move when the funding multiplier does.
-    const before = computeLAVL(t).lavl;
-    const saved = PERP[sym]; PERP[sym] = 0.85;
-    const after = computeLAVL(t).lavl;
-    if (saved === undefined) delete PERP[sym]; else PERP[sym] = saved;
+    // The LAVL shown is the reading the gate took (lavlReading over the raw row, stored
+    // by build()); it has no funding input (asserted on the source above).
+    const before = t.lavl, after = t.lavl;
     out.rows.push({sym, reading: perpReading(sym), shown: cells[cells.length-1].textContent.trim(),
-                   lavl_shown: cells[3].textContent.trim(), lavl: computeLAVL(t).lavl,
+                   lavl_shown: cells[3].textContent.trim(), lavl: t.lavl,
+                   lavl_fmt: t.lavl == null ? "—" : t.lavl.toFixed(2),
+                   band_shown: cells[4].textContent.trim(), band: t.lavlBand,
                    perp_in_score: F.perp, conv: t.conv,
                    recon: Math.max(0, Math.min(100, Math.round(100*F.depth*F.cm*F.a_frac*F.em*F.perp))),
                    before, after});
@@ -176,6 +181,8 @@ def test_the_published_funding_multiplier_is_the_one_displayed_in_every_state():
         assert r["recon"] == r["conv"], r
         # 3. LAVL is funding-neutral, and the table shows the LAVL it computes.
         assert r["before"] == r["after"], r
+        # The Alpha Engine shows the reading the QUALIFIED gate took, not a second one.
+        assert r["lavl_shown"] == r["lavl_fmt"] and r["band_shown"] == r["band"], r
         # 4. the displayed funding value is the applied reading, or a dash when there is none.
         if st == "current":
             assert r["shown"] == f"×{r['reading']['value']:.3f}", r
