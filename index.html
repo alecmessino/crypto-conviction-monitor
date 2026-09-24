@@ -1045,12 +1045,12 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
     <!-- THE INDEX STUDY. Rendered only on the #index route (see .wrap[data-route]).
          Every number in it comes from market_breadth.performance.canonical — the
          Top-10 conviction-weighted paper book, chained by the nightly from signals.csv —
-         and nothing in it reads the experimental basket in index.json. -->
+         and nothing in it reads the retired hysteresis basket (index.json's basket_*
+         fields, basket.json, index.csv). -->
     <section class="glass study" id="index-study" hidden aria-labelledby="is-title">
       <div class="study-h"><b id="is-title">CONVICTION-WEIGHTED INDEX</b>
         <span class="muted" id="is-def">Top-10 by conviction · score-proportional · paper</span>
         <span class="pill" id="is-snap" style="margin-left:auto">NIGHTLY SNAPSHOT · 06:17 UTC</span>
-        <span class="pill" id="is-macro" style="display:none"></span>
       </div>
       <div class="study-head" id="is-head"><div class="sh-cell"><span class="lbl">Book</span><b>—</b></div>
         <div class="sh-cell"><span class="lbl">Universe, equal weight</span><b>—</b></div>
@@ -1300,11 +1300,10 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
     <div class="glass" id="idx-card">
       <div class="card-h">CONVICTION-WEIGHTED INDEX <span class="muted" id="idx-rebal">—</span>
         <span class="pill" id="idx-snapshot">NIGHTLY SNAPSHOT · 06:17 UTC</span>
-        <span class="pill" id="idx-macro" style="display:none"></span>
       </div>
       <div class="chart-box"><canvas id="idx" height="120" style="height:120px"></canvas>
-        <div class="muted" id="idx-note">Cumulative basket vs market · live paper track record</div></div>
-      <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No basket yet — nightly ledger pending.</div></div>
+        <div class="muted" id="idx-note">Canonical book vs BTC · paper</div></div>
+      <div class="alloc" id="alloc"><div class="muted" style="padding:8px 12px">No canonical book yet — nightly ledger pending.</div></div>
       <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:4px 12px 10px">The ten highest-conviction names on the prior night over the universe the nightly persisted, score-proportional weights, <b>no qualification gate</b> — that is the book the ledger has chained since it began, and this card and the INDEX route describe that book and no other. Paper return, weights from the earlier night priced at both ends, against BTC, with the same ten equal-weighted and the universe equal-weighted as the two controls that separate weighting from selection. Open INDEX for the study.</div></details>
     </div>
 
@@ -1326,7 +1325,7 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
         </div>
         <div class="glass">
           <div class="card-h">CONVICTION × 7D ALPHA MAP</div>
-          <div class="chart-box"><canvas id="alpha" aria-label="Basket alpha against benchmark, by night" height="210" style="height:210px"></canvas>
+          <div class="chart-box"><canvas id="alpha" aria-label="Conviction against 7-day return" height="210" style="height:210px"></canvas>
             <div class="muted" id="alpha-legend">X: 7D return % · Y: Conviction (0–100) · color: MVRV Z · size: dilution</div></div>
         </div>
         <!-- The four-quadrant factor map. Distinct from the alpha map above it, which plots
@@ -1901,7 +1900,7 @@ const TIER = {
 let STATE = [];
 let LEDGER = [];   // nightly signals.json rows (Module B real data when present)
 let ALL_ROWS = [];  // the same file, unfiltered — what the rewind scrubber reads
-let INDEX = null;  // nightly index.json (conviction-weighted basket track record)
+let INDEX = null;  // nightly index.json — only its `canonical` block is read (canonIndex)
 let PERP = {};     // symbol -> RiskMult_perp, the funding multiplier conviction() applies,
                    // from ledger/perp.json via perpFeed(). NOT an input to LAVL, which is
                    // funding-neutral by construction — see lavlReading().
@@ -2004,8 +2003,8 @@ async function loadLedger(){
     // Build the per-asset funding multiplier map (RiskMult_perp) so the live board scores
     // with the same multipliers the nightly's score() applied to tonight's published rows
     // (single source of truth: ledger/perp.json). It multiplies CONVICTION only. It does
-    // not enter LAVL, and the nightly's hysteresis basket (build_basket) ranks without it —
-    // see docs/AUDIT-2026-09-23.md §6.
+    // not enter LAVL. The hysteresis basket that ranked without it (build_basket) was
+    // retired from the product on 2026-09-24 — docs/DECISION-2026-09-24-model-layer.md §B.
     //
     // AUDIT-PHASE1.6. The overlay comes from `ledger/perp.json`, NOT from the rows
     // above. signals.json persists fifty names a night out of ~235 scored, so reading
@@ -2703,7 +2702,7 @@ function tierTitle(sig, edge){
                       spans zero — explicitly not a claim either way.
      PUBLISHED        measurable and positive.
    The gate changes what the board is CALLED. Scores, tiers, ordering, weights and the
-   basket are untouched, and the ranking is NOT inverted. */
+   index book are untouched, and the ranking is NOT inverted. */
 function pubGate(){ return (BREADTH && BREADTH.publication_gate) || null; }
 function gateChip(){
   const g = pubGate();
@@ -3944,9 +3943,11 @@ function renderMonitor(){
    Top-10 conviction-weighted paper book the nightly chains from signals.csv; index.json
    carries the same object under `canonical`. Everything the Index card, the INDEX
    route and the headline read comes through here, and NOTHING reads index.json's
-   basket_* / latest_holdings / rows: those describe build_basket()'s hysteresis basket,
-   a different model that accreted to thirty names and benchmarks itself to total
-   market cap. It is labelled experimental in the file and it does not reach this page.
+   basket_* / latest_holdings / rows / macro_regime: those describe build_basket()'s
+   hysteresis basket, a different model that accreted to forty-four names and benchmarks
+   itself to total market cap. It was RETIRED from the product on 2026-09-24
+   (docs/DECISION-2026-09-24-model-layer.md §B); its record is kept unedited as history
+   and none of it reaches this page. The canonical book is the only portfolio here.
 
    The word "alpha" does not appear on any of these surfaces. A book-minus-benchmark
    difference is an EXCESS; the beta-adjusted residual is a residual; neither is
@@ -3993,15 +3994,9 @@ function residualVerdict(st){
 }
 
 function renderIndex(){
-  const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal"), macro=$("#idx-macro");
+  const wrap=$("#alloc"), note=$("#idx-note"), reb=$("#idx-rebal");
   const c=canonIndex();
   if(reb) reb.textContent = c ? `${c.legs} nights` : "—";
-  const reg=(INDEX&&INDEX.macro_regime)||null;
-  if(macro){
-    if(reg==="RISK-OFF"){ macro.textContent="MACRO · RISK-OFF"; macro.className="pill off"; macro.style.display=""; }
-    else if(reg==="RISK-ON"){ macro.textContent="MACRO · RISK-ON"; macro.className="pill on"; macro.style.display=""; }
-    else macro.style.display="none";
-  }
   const cv=$("#idx"); if(!cv) return;
   const w=cv.clientWidth||360, h=cv.clientHeight||120; cv.width=w; cv.height=h;
   const x=cv.getContext("2d"); x.clearRect(0,0,w,h);
@@ -4113,7 +4108,7 @@ function renderIndexStudy(){
   const host=$("#index-study"); if(!host) return;
   const c=canonIndex();
   const head=$("#is-head"), qual=$("#is-qual"), cav=$("#is-caveat"), tbl=$("#is-table"),
-        drv=$("#is-drivers"), prov=$("#is-prov-body"), leg=$("#is-legend"), macro=$("#is-macro");
+        drv=$("#is-drivers"), prov=$("#is-prov-body"), leg=$("#is-legend");
   if(!c){
     if(head) head.innerHTML='<div class="sh-cell" style="grid-column:1/-1"><span class="lbl">Canonical index</span><b style="font-size:13px">Awaiting the nightly ledger</b><span class="sub">market_breadth.performance.canonical has not been produced yet.</span></div>';
     if(qual) qual.innerHTML=""; if(cav) cav.textContent="No measured nights yet.";
@@ -4121,8 +4116,6 @@ function renderIndexStudy(){
     return;
   }
   const t=c.totals, d=c.decomposition, st=c.stats, ex=c.exclusions||{};
-  const reg=(INDEX&&INDEX.macro_regime)||null;
-  if(macro){ if(reg==="RISK-ON"||reg==="RISK-OFF"){ macro.textContent="MACRO · "+reg; macro.className="pill "+(reg==="RISK-ON"?"on":"off"); macro.style.display=""; } else macro.style.display="none"; }
   $("#is-def").textContent = `Top-${c.definition.top_n} by conviction · score-proportional · ${c.definition.gated?"gated":"no gate"} · paper`;
 
   // 1. THE FINDING
@@ -4210,7 +4203,7 @@ function renderIndexStudy(){
   prov.innerHTML = `<b>What this is.</b> ${esc0(c.definition.book)}, over ${esc0(c.definition.universe)}. ${esc0(c.definition.gate_note)}
     <br><b>How it is measured.</b> Weights from the ${esc0(c.definition.weights)}. ${esc0(c.definition.unpriced_rule)}. ${esc0(c.definition.survivorship_note)}
     <br><b>What is excluded.</b> ${ex.legs_unusable||0} leg${ex.legs_unusable===1?"":"s"} lost more than ten percent of the book to unpriceable names and ${ex.legs_before_boundary||0} preceded the ${esc0(c.definition.spec_boundary||"—")} specification boundary; both are excluded rather than chained, and both are before this window. ${ex.duplicates_collapsed?ex.duplicates_collapsed+" duplicate (date, symbol) rows collapsed.":""}
-    <br><b>What is not here.</b> No costs in the headline (the exec-adjusted figure deducts ${st.exec_bps_oneway} bp one-way per unit of turnover); nothing annualised; no Sharpe on ${c.legs} nights. Paper throughout. The hysteresis basket in index.json is a separate, experimental model and none of it is on this page.`;
+    <br><b>What is not here.</b> No costs in the headline (the exec-adjusted figure deducts ${st.exec_bps_oneway} bp one-way per unit of turnover); nothing annualised; no Sharpe on ${c.legs} nights. Paper throughout. This is the only portfolio the terminal publishes. The hysteresis basket (build_basket) was retired from the product on 2026-09-24; its record in basket.json, index.csv and index.json's basket_* fields is kept unedited as history, and none of it is on this page.`;
   if(typeof tipUpgrade==="function") tipUpgrade(host);
 }
 
@@ -5290,7 +5283,7 @@ function renderPersistence(){
    told apart from nothing", and only the interval makes that visible.
 
    It also states the realised gap beside the null result, because the two are read
-   wrongly in isolation. The basket losing to equal weight looks like proof the
+   wrongly in isolation. The book losing to equal weight looks like proof the
    selection subtracts value; it is what a concentrated book with no measurable edge
    does by construction, since concentration adds variance and not expected return. */
 /* AUDIT-CLOSURE. This card prints the same 43-leg figures the IC MATRIX card prints,
@@ -7962,7 +7955,9 @@ const FRESH_FIELDS = {
   "rwa.json":            ["date",         d => d.date],
   "walkforward.json":    ["to",           d => d.to],
   "monitor.json":        ["to",           d => d.to],
-  "index.json":          ["latest.date",  d => (d.latest&&d.latest.date) || String(d.generated_at||"").slice(0,10) || null],
+  // The canonical block's last leg — the only part of index.json the terminal reads.
+  // NOT latest.date: that is the retired basket's row (docs/DECISION-2026-09-24 §B).
+  "index.json":          ["canonical.to", d => (d.canonical&&d.canonical.to) || null],
   "market_breadth.json": ["generated_at", d => String(d.generated_at||"").slice(0,10) || null],
 };
 function artifactFreshness(file, doc, ref, specRef){
@@ -8088,7 +8083,7 @@ async function load(){
   const st=$("#status");
   // The ledger is a static file in this repo and owes nothing to CoinGecko, so it loads
   // outside the live-price try. It used to sit inside it, which meant a rate-limited
-  // visitor lost the monitor, the paper return and the basket — the panels that say
+  // visitor lost the monitor, the paper return and the index — the panels that say
   // whether the pipeline is healthy went blank at exactly the moment something was
   // visibly wrong, and the page reported only that prices were throttled.
   const ledger = loadLedger().catch(e=>console.error("[ledger] load failed:", e)).then(()=>{
@@ -8145,7 +8140,7 @@ async function load(){
     // race used to decide whether the overlay applied at all: a cold load had PERP
     // empty and every multiplier 1.0, a warm one had it populated, and the board
     // reordered between the two. The cold ordering was the wrong one, disagreeing with
-    // both the nightly board and the published basket while looking entirely normal.
+    // both the nightly board and the published index while looking entirely normal.
     await ledger;
     STATE=build(raw);
     if(!STATE.length) throw new Error("no tradable tokens returned");
@@ -8325,7 +8320,7 @@ document.addEventListener("click",e=>{
    Three real workspaces, and one ROUTE.
 
    CRYPTO, RWA and PORTFOLIO each own a subtree. INDEX does not: it scrolls to the
-   conviction-weighted index panel, which lives in the crypto rail because the basket it
+   conviction-weighted index panel, which lives in the crypto rail because the book it
    tracks is the crypto board's own — a separate screen for one chart would be a nav entry
    that owns nothing.
 
