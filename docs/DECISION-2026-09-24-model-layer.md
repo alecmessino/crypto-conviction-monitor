@@ -1,9 +1,11 @@
 # Decision memo — audit §6: qualification parity and the basket's funding omission
 
 **Status: DECIDED 2026-09-24.** §A (qualification parity) — approved and implemented by
-the qualification-parity PR. §B — decided: the experimental basket is retired from the
-production product (separate PR); any future research basket uses Architecture A only,
-as a new workstream. RWA sharding follows. The analysis below is kept as written.
+the qualification-parity PR (#41). §B — decided: the experimental basket is retired from
+the production product; implemented by the basket-retirement PR, presentation only (§B.6).
+Stopping its writer is enumerated in §B.7 and awaits approval. Any future research basket
+uses Architecture A only, as a new workstream. RWA sharding follows. The analysis below
+is kept as written.
 Originally: **FOR DECISION. Nothing here is implemented.** Written 2026-09-24 after the
 first scheduled nightly on `e8c94db` (run 61 → commit `207ea9e`) passed. Every figure
 below comes from committed data or from the committed code run over a named payload.
@@ -259,6 +261,98 @@ weights within 1.5%). It is non-trivial on the earlier nights: 5 bounded members
 changes in 45. Whichever you choose, the accretion defect in B.4 needs its own decision
 first. A funding choice applied to a 44-name basket with frozen scores fixes the smaller
 problem.
+
+### B.6 Implemented 2026-09-24 — retirement from the product (writer unchanged)
+
+**Decision:** retire the experimental basket from production. The canonical Index is the
+sole production portfolio. Any future research basket uses Architecture A only, as a new
+workstream. The basket's funding question (B.1–B.3) and its accretion defect (B.4) are
+closed by retirement rather than by repair.
+
+**What the retirement PR changed.** Presentation only. `nightly.py`, the workflow and
+every ledger file are byte-identical.
+- **Terminal.** It reads exactly one thing from `index.json`, the `canonical` block.
+  - The macro-regime pill came off the Index card and the Index Study. It was the
+    basket's overlay D, computed by the basket's writer (`index.json.macro_regime`), and
+    it never touched the canonical book.
+  - `index.json` freshness is dated by `canonical.to`, not by the basket's `latest.date`.
+  - Placeholder copy ("Cumulative basket vs market", "No basket yet") and a screen-reader
+    label that called the conviction × 7D map "Basket alpha against benchmark" now name
+    the canonical book.
+  - The provenance line says the basket is retired and where its record is kept.
+- **Method page.** A RETIRED callout states that the canonical book is the only
+  production portfolio. The basket's specification (overlays A–D) moved, unedited apart
+  from the macro pill's past tense, into one archived block marked "not a production
+  portfolio". §5 Index Statistics and the §8 funding caveat were updated.
+- **Tests (`tests/test_basket_retirement.py`).**
+  - The terminal reads only `INDEX.canonical`.
+  - No fetch of `basket.json` or `index.csv`, and no read of any basket field.
+  - No visible string mentions the basket except to say it was retired.
+  - The Method page's Portfolio Construction section has exactly one construction formula
+    outside the archive, and it is the canonical book's.
+  - `index.csv` through 2026-09-24 is byte-identical to what was published.
+
+**The record, as of retirement** (nightly commit `207ea9e`, run 61):
+
+| File | Retirement state | sha256 |
+|---|---|---|
+| `ledger/basket.json` | 44 holdings | `da3778bf112cfa41919bacbdfcfa02ea100823fd4b531121eabcd70131a27493` |
+| `ledger/index.csv` | header + 45 rows, 2026-08-09 → 2026-09-24 | `be69877946e0751252daf063cee0b9940512e496c060568df7e00a3f62061525` (pinned by test) |
+| `ledger/index.json` | — | `0f62f79fa133d66f966b470c658b7ed0bd65f9ef1e9201b922b4206b30e9d92d` |
+
+Nothing was deleted, moved or rewritten. No basket field was re-labelled as, or folded
+into, the Index.
+
+### B.7 The writer is still running — what stopping it would change
+
+`main()` still calls `build_basket()` every night, which mutates `basket.json` and appends
+to `index.csv` / rewrites `index.json`. Stopping it is a separate, reviewed change,
+because it is not free:
+
+1. **`basket.json` freezes.** This is the goal. `validate_ledger.check_basket` (weights sum
+   to 1, entry mcap present) keeps passing on a static file. No reader on the terminal.
+2. **`index.csv` stops growing.** `check_headers`, `check_no_duplicates` and
+   `check_returns` pass on a static file, and nothing requires a row for tonight. Two
+   readers depend on it:
+   - **`_macro_regime_from_ledger()`.** Its only caller is `_write_index_row`, so the
+     passive RISK-ON/RISK-OFF regime would no longer be computed at all. Its one display
+     (the pill) is removed by the retirement PR, so the terminal loses nothing.
+   - **`recorded_regimes()` → `walkforward_report()` → `walkforward.json.by_regime`.**
+     This is the substantive consequence. Nights after the stop carry no regime label, so
+     the regime split stops accruing legs while the rest of walkforward keeps growing.
+     The terminal does not render `by_regime`.
+     - **Today the split is uninformative.** 43 of 45 recorded labels are RISK-ON and
+       none is RISK-OFF, so it has one bucket.
+     - **The loss is prospective.** A future RISK-OFF would go unrecorded.
+3. **`index.json` goes half-stale.** `_write_index_row` stops, so `generated_at`,
+   `latest`, the `basket_*` fields and `rows` freeze. `_refresh_index_canonical` still
+   rewrites `canonical` in place (the file exists), so the terminal's fallback copy and,
+   since the retirement PR, its freshness chip (dated by `canonical.to`) stay correct.
+   One file then mixes a live canonical block with a frozen basket record. The basket
+   record is labelled non-canonical, so this is legible, though not tidy.
+4. **Two fewer CoinGecko `/global` calls a night.** `fetch_global_market_cap()` has no
+   caller outside the basket.
+5. **SPEC_HASH is unaffected.** `build_basket`, `_write_index_row`,
+   `_macro_regime_from_ledger`, `recorded_regimes` and `main` are not captured.
+6. **Tests.** Most basket tests exercise `build_basket` / `_write_index_row` directly,
+   and they keep passing if the functions stay importable for reproducing history.
+   `tests/test_run_budget.py` drives `nightly.main()` end to end and would need its
+   expectations re-read.
+7. **Workflow.** The `git add` list names `basket.json`, `index.csv` and `index.json`. An
+   unchanged file is a no-op, so no workflow edit is required. Removing them from the
+   list would be a workflow change and would need a genuine nightly to prove.
+
+**Recommended follow-up (B2), for approval.**
+- Stop calling `build_basket()` from `main()`, and keep the function importable.
+- Keep `_refresh_index_canonical`.
+- For (2): record the passive regime from its own source. `ledger/macro.csv.total_mcap`
+  is the same figure as `index.csv.global_market_cap` on all 35 shared dates, to the
+  dollar; `index.csv` has one blank on 08-19 that `macro.csv` fills. Write it to a
+  dedicated column or file, so `recorded_regimes()` keeps reading a recorded label and
+  never a recomputed one.
+- The alternative is to declare `by_regime` closed at 2026-09-24.
+- Then pin `basket.json`'s sha256 above in a test, and observe one genuine scheduled
+  nightly.
 
 ---
 

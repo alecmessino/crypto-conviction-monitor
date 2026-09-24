@@ -131,9 +131,9 @@ that would make its question **answerable**; reaching it is permission to ask, n
 instruction to change anything.
 
 While none is met, the model is frozen. Factor formulas, factor bounds, ranking, tiers,
-weighting, the publication gate, basket construction and the dominance thresholds do not
-change except to satisfy a trigger above or to correct a genuine integrity defect. No
-speculative cleanup.
+weighting, the publication gate, the retired basket's construction (kept only as a
+record since 2026-09-24) and the dominance thresholds do not change except to satisfy a
+trigger above or to correct a genuine integrity defect. No speculative cleanup.
 
 `ledger/walkforward.json` reports the counts every night and becomes more informative on
 its own, so this register can be checked rather than remembered.

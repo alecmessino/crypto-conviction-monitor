@@ -44,7 +44,10 @@ const out = {
   undated:  artifactFreshness("funding.json", {generated_at: "x"}, ref),
   perp:     artifactFreshness("perp.json", {as_of: "2026-09-17"}, ref),
   breadth:  artifactFreshness("market_breadth.json", {generated_at: "2026-09-23T23:36:25Z"}, ref),
-  index:    artifactFreshness("index.json", {latest: {date: "2026-09-22"}, generated_at: "2026-09-23T11:00:00Z"}, ref),
+  // The retired basket's row says the 23rd; the canonical block the card shows ends on
+  // the 22nd. The chip dates the canonical block.
+  index:    artifactFreshness("index.json", {canonical: {to: "2026-09-22"}, latest: {date: "2026-09-23"}, generated_at: "2026-09-23T11:00:00Z"}, ref),
+  indexNoCanon: artifactFreshness("index.json", {latest: {date: "2026-09-23"}, generated_at: "2026-09-23T11:00:00Z"}, ref),
   parityOk: artifactFreshness("parity.json", {spec_hash: "91bbc2a7e466"}, ref, "91bbc2a7e466"),
   parityOld:artifactFreshness("parity.json", {spec_hash: "ab16684ad5c1"}, ref, "91bbc2a7e466"),
   sigNow:   signalsFreshness({rows: [{date: "2026-09-22"}, {date: "2026-09-23"}]}, "2026-09-24"),
@@ -65,11 +68,14 @@ def test_the_freshness_rule():
     st = {k: v["state"] for k, v in o.items()}
     assert st == {"current": "CURRENT", "ahead": "CURRENT", "stale": "STALE",
                   "absent": "ABSENT", "undated": "STALE", "perp": "STALE",
-                  "breadth": "CURRENT", "index": "STALE", "parityOk": "CURRENT",
+                  "breadth": "CURRENT", "index": "STALE", "indexNoCanon": "STALE",
+                  "parityOk": "CURRENT",
                   "parityOld": "STALE", "sigNow": "CURRENT", "sigOld": "STALE",
                   "sigNone": "ABSENT"}, st
     assert o["stale"]["date"] == "2026-09-17" and o["stale"]["field"] == "to"
-    assert o["index"]["field"] == "latest.date"
+    assert o["index"]["field"] == "canonical.to" and o["index"]["date"] == "2026-09-22"
+    # No canonical block is no readable date — never the retired basket's row.
+    assert o["indexNoCanon"]["date"] is None
 
 
 def test_every_artifact_the_terminal_fetches_is_dated():
