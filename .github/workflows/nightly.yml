@@ -146,12 +146,15 @@ jobs:
             git ls-files -z -- 'ledger/rwa*' | xargs -0 -r git checkout HEAD --
             git ls-files -z --others -- 'ledger/rwa*' | xargs -0 -r rm -f --
           fi
-          # nightly.py writes the signals ledger, the conviction-weighted index
-          # (index.csv/index.json), the basket state (basket.json), and the
-          # market breadth / conviction time-series (market_breadth.json).
-          # index.legacy.csv is included so that if the writer ever has to quarantine a
-          # mismatched file again, the evidence is committed rather than lost with the
-          # runner. --ignore-unmatch: it does not exist on a healthy run.
+          # nightly.py writes the signals ledger, index.json's canonical-Index mirror,
+          # and the market breadth / conviction time-series (market_breadth.json).
+          #
+          # ARCHIVAL, deliberately NOT staged: basket.json, index.csv and
+          # index.legacy.csv are the retired hysteresis basket's record, frozen on
+          # 2026-09-24 when its writer was removed (nightly.BASKET_RETIRED_ON). Nothing
+          # may write them. Leaving them out of every git add is what enforces that: a
+          # write would be unstaged after the commit, and the leftover guard at the end
+          # of this step turns the run red on it.
           # parity.json is the real result of the parity gate that ran above, not a
           # badge. The terminal's diagnostic bar renders it, and a hardcoded status
           # there would be exactly the kind of ornamental "PASS" this project has
@@ -175,7 +178,7 @@ jobs:
           # pool volume is a rolling 24h window. A 7d sector rotation therefore cannot be
           # fetched, only accumulated — so losing these files with the runner would reset
           # every multi-day reading to "accumulating" the next night.
-          git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json ledger/funding.json ledger/venue_health.csv
+          git add ledger/signals.csv ledger/signals.json ledger/index.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json ledger/funding.json ledger/venue_health.csv
           git add ledger/market_intel.json ledger/sectors.csv ledger/macro.csv ledger/dex.csv
           #
           # perp.json is the funding transport the terminal scores from, and it has NO
@@ -190,6 +193,11 @@ jobs:
           git add ledger/walkforward.json || true
           # The run manifest. Optional only on the first night, before the file exists.
           git add ledger/runs.csv || true
+          # The passive macro regime, one row a night from macro.csv (it replaced the
+          # retired basket's writer as the source of the walk-forward regime split).
+          # Optional: a night the history cannot label writes no row, and the last step
+          # of this job turns the run red for it.
+          git add ledger/regime.csv || true
           #
           # ledger/rwa/flow/ is the one series in this directory that cannot be rebuilt.
           # /rwas/{id}/market_chart answers HTTP 401 below CoinGecko's Basic plan, so the
@@ -230,7 +238,6 @@ jobs:
           # The refused run's board (rwa.py writes it instead of rwa.json when a run is
           # quarantined). The Method page promises it is kept; nothing staged it.
           git add ledger/rwa.degraded.json || true
-          git add ledger/index.legacy.csv 2>/dev/null || true
           #
           # ledger/xsec/ is the cross-sectional research ledger: one month-shard per
           # calendar month plus its schema sidecar. A DIRECTORY pathspec, because the
@@ -390,6 +397,22 @@ jobs:
         env:
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: python rwa.py
+
+      - name: Fail the run when the macro regime could not be recorded
+        # After the commits, so a night whose macro history cannot support a regime
+        # label still keeps its ledger. nightly.py records the reason in the run info
+        # instead of guessing a label; this makes it a red run rather than a log line.
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          p = os.environ.get("NIGHTLY_RUN_INFO") or os.path.join(os.environ["RUNNER_TEMP"], "nightly_run.json")
+          reg = str(json.load(open(p)).get("macro_regime", "")) if os.path.exists(p) else ""
+          if reg.startswith("missing"):
+              print(f"::error::macro regime not recorded tonight: {reg}")
+              sys.exit(1)
+          print(f"macro regime: {reg or 'not reached'}")
+          PY
 
       - name: Fail the run when the RWA gate refused
         # Last, so the crypto ledger has already committed. The RWA gate step is

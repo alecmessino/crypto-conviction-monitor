@@ -1,4 +1,4 @@
-"""Paper return of the published basket, chained across recorded days.
+"""Paper return of the canonical Index, chained across recorded days.
 
 A return series is the easiest artifact here to make flattering by accident: score with
 tonight's weights against tonight's prices and it prints alpha every day forever, looking

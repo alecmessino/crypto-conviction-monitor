@@ -1256,7 +1256,7 @@ def _lavl_regime(t: dict) -> str:
 
 
 def _conjunctive_gate(t: dict, conv: int) -> bool:
-    """The basket's qualification gate: turnover, dilution and LAVL regime.
+    """The board's qualification gate (QUALIFIED): turnover, dilution and LAVL regime.
 
     The single definition of QUALIFIED. The terminal runs it verbatim as
     ``conjunctiveGate`` in index.html's MODEL PORT, from the raw row, and
@@ -1750,67 +1750,13 @@ def perp_context(ticker: str, perps_map: dict, market_cap, price_chg_pct,
     }
 
 
-# The credential main() resolved, for the two call sites buried inside build_basket and
-# _write_index_row. Threading a session argument down through both would change three
-# public signatures that the test suite and the validator already call positionally, to
-# carry one optional header — so it is a module global that main() sets once and that
-# stays None everywhere else. None means keyless, which is exactly what those functions
-# did before this existed.
+# The credential main() resolved: a module global that main() sets once and that stays
+# None everywhere else; None means keyless.
 CG_SESSION: dict | None = None
 
 
-def fetch_global_market_cap(session: dict | None = None) -> float | None:
-    """Total crypto market cap (USD) from CoinGecko's free /global endpoint.
-
-    Used as the apples-to-apples macro benchmark: benchmark_total_return is
-    current_global / entry_global, computed over the same window as the basket.
-    Returns None on failure so the benchmark falls back to neutral (no fabrication).
-    """
-    try:
-        sess = session if session is not None else CG_SESSION
-        host = (sess or {}).get("host") or CG_BASE
-        data = _get_json(f"{host}/global",
-                         {"User-Agent": "conviction-monitor/1.0",
-                          **((sess or {}).get("headers") or {})})
-        return float(data.get("data", {}).get("total_market_cap", {}).get("usd", 0) or 0) or None
-    except Exception as e:  # noqa: BLE001
-        print(f"[global] fetch failed: {e}", file=__import__("sys").stderr)
-        return None
 
 
-def _risk_stats(daily_returns: list[float]) -> dict | None:
-    """Risk statistics from a series of OVERNIGHT returns.
-
-    Takes the returns explicitly rather than reading index.csv, because that file's
-    return columns are cumulative since the basket's cost basis, not daily. Feeding them
-    to a Sharpe ratio computes the dispersion of a running total, which rises with the
-    length of the series rather than with the volatility of anything. Gated at 30
-    observations, so it had never fired — a landmine rather than a live wrong number.
-
-    Sharpe: rf=0, mean(daily) / std(daily) * sqrt(365).
-    Max drawdown: largest peak-to-trough decline of the compounded curve.
-    """
-    if len(daily_returns) < 30:
-        return None
-    rets = list(daily_returns)
-    mean = sum(rets) / len(rets)
-    var = sum((x - mean) ** 2 for x in rets) / len(rets)
-    std = math.sqrt(var) if var > 0 else 0.0
-    sharpe = (mean / std) * math.sqrt(365) if std > 0 else 0.0
-    cum = 1.0
-    peak = 1.0
-    max_dd = 0.0
-    for r in rets:
-        cum *= (1 + r)
-        peak = max(peak, cum)
-        if peak > 0:
-            max_dd = min(max_dd, (cum - peak) / peak)
-    return {
-        "sharpe": round(sharpe, 3),
-        "max_drawdown_pct": round(max_dd * 100, 2),
-        "n_days": len(rets),
-        "convention": "rf=0; annualized daily x sqrt(365)",
-    }
 
 
 # A tier change caused by a move no larger than this is the label crossing a threshold,
@@ -1910,7 +1856,7 @@ def _compute_tier_diff() -> dict:
 # two segments, a shape the eye reads as a trend and which is nothing of the kind.
 PERF_MIN_DAYS = 5
 
-# Basket size and weighting mirror build_basket(): top 10 by conviction, weighted in
+# Size and weighting as the retired build_basket() used: top 10 by conviction, weighted in
 # proportion to it. The hysteresis buffer is deliberately *not* replicated — this curve
 # answers "what did the score say to hold", and reconstructing the ejection rules from a
 # ledger that never recorded which names were actually held would be a guess dressed as
@@ -1930,9 +1876,9 @@ PERF_BENCHMARK = "BTC"
 # ---------------------------------------------------------------------------
 # Does conviction predict the next day's return? This is the only question that decides
 # whether the score is worth acting on, and it is a different question from "is the
-# basket beating the benchmark".
+# canonical Index beating the benchmark".
 #
-# The distinction matters because the basket IS losing to equal weight — about -283bp
+# The distinction matters because the Index IS losing to equal weight — about -283bp
 # over the six legs since the 2026-08-05 boundary — and the obvious reading of that is
 # "the selection is subtracting value". The measurement does not support that reading.
 # The information coefficient over the same legs is +0.006 with a 95% interval of
@@ -2445,7 +2391,7 @@ def _carino_k(p: float, b: float) -> float:
 
 
 def _active_contributions(usable_legs: list, limit: int = 8) -> dict:
-    """Where the basket-minus-equal-weight gap came from, name by name.
+    """Where the Index-minus-equal-weight gap came from, name by name.
 
     **Carino-linked, and this is the correction that matters.** The previous version
     summed single-period active contributions arithmetically and claimed to reconcile to
@@ -2571,11 +2517,11 @@ def _active_contributions(usable_legs: list, limit: int = 8) -> dict:
 #     book is excluded rather than booked;
 #   * chained from the most recent detected specification boundary.
 #
-# That definition is history and this code does not change it. build_basket() below
-# is a DIFFERENT model — gated with an ungated fallback, hysteresis on ejection,
-# benchmarked to total market cap rather than BTC — and it accreted to thirty names.
-# It is retained as the experimental tradeable-implementation study it is, labelled
-# as such in index.json, and nothing on the Index panel reads it any more.
+# That definition is history and this code does not change it. build_basket() was a
+# DIFFERENT model — gated with an ungated fallback, hysteresis on ejection, benchmarked
+# to total market cap rather than BTC — that accreted to forty-four names. It was
+# retired on 2026-09-24 and its writer removed; its record is archival (see
+# BASKET_RETIRED_ON) and nothing on the Index panel reads it.
 #
 # Everything in this block is derived from the SAME leg objects the performance curve
 # chains, handed over rather than rebuilt, so every number reconciles to book_total by
@@ -2709,10 +2655,10 @@ _CANON_CACHE: dict = {}
 def _canonical_index(edge: dict | None = None) -> dict:
     """The one performance payload every consumer reads. See the block comment above.
 
-    THE CACHE IS KEYED ON THE LEDGER, not merely on having run once. main() calls this
-    twice and the two calls see different ledgers: _write_index_row() runs inside
-    build_basket(), BEFORE tonight's signals row is appended, and the breadth block runs
-    after. A memo on "have I run" served the early answer to the late caller, so the
+    THE CACHE IS KEYED ON THE LEDGER, not merely on having run once. Until 2026-09-24
+    main() called this twice and the two calls saw different ledgers: the retired
+    basket's writer ran BEFORE tonight's signals row was appended, and the breadth block
+    runs after. A memo on "have I run" served the early answer to the late caller, so the
     published Index was a night behind the ledger shipped beside it — 36 legs to 09-10
     against a signals.csv holding 37 to 09-11 — while every internal consistency check
     passed, because the block was internally consistent. It was consistent with
@@ -3013,7 +2959,7 @@ def _compute_edge() -> dict:
             "basis": ("Information coefficient = rank correlation between tonight's "
                       "conviction and tomorrow's return, across the persisted top-fifty "
                       "rows present on both nights — not across the whole scored board. It answers whether the ordering is informative, "
-                      "which is a different question from whether the basket beat the "
+                      "which is a different question from whether the canonical Index beat the "
                       "benchmark — a concentrated book with no edge underperforms an "
                       "equal-weight control as a matter of course.")}
     if len(ics) < 2:
@@ -3089,7 +3035,7 @@ def _perf_by_date() -> tuple[dict, int]:
 
 
 def _perf_weights(day: dict) -> dict:
-    """Conviction-weighted top N, as build_basket() would have published it."""
+    """Conviction-weighted top N: the canonical Index's weights."""
     ranked = sorted(day.items(), key=lambda kv: -kv[1]["conviction"])[:PERF_TOP_N]
     total = sum(v["conviction"] for _, v in ranked) or 1.0
     return {sym: v["conviction"] / total for sym, v in ranked if v["conviction"] > 0}
@@ -3164,7 +3110,7 @@ def _perf_legs(by_date: dict, dates: list) -> tuple:
 
 
 def _compute_performance() -> dict:
-    """Paper return of the published basket, chained across recorded days.
+    """Paper return of the canonical Index, chained across recorded days.
 
     The same three rules as the equity terminal, for the same reasons:
 
@@ -4175,7 +4121,7 @@ def _persistence(series: dict, dates: list) -> dict:
 
 
 # Size of the leading cohort whose retention defines stickiness. Ten is the book the
-# basket actually holds, so churn here is churn a holder would have paid for.
+# canonical Index actually holds, so churn here is churn a holder would have paid for.
 HEALTH_COHORT = 10
 # Below this share retained night over night the model is reordering its own top book
 # faster than a holder could act on it. Not calibrated against a historical norm —
@@ -4401,37 +4347,6 @@ def _compute_market_breadth() -> dict:
     }
 
 
-def _macro_regime_from_ledger() -> str:
-    """Macro Liquidity Gate (D) — PASSIVE / display-only.
-
-    Reads the stored index.csv and compares today's global mcap to the value
-    ~7 days ago. RISK-OFF if global mcap is down > 8% over that window.
-    Returns "RISK-OFF" / "RISK-ON" / "N/A" (no history). This is a logged
-    context signal only — it NEVER changes basket holdings.
-    """
-    try:
-        # Through the schema-checked reader: a mismatched header yields no rows rather
-        # than a column of misread values.
-        rows = read_index_rows()
-        if not rows:
-            return "N/A"
-        caps = [(r["date"], float(r["global_market_cap"])) for r in rows
-                if r.get("global_market_cap") not in (None, "", "None")]
-        if len(caps) < 2:
-            return "N/A"
-        today_cap = caps[-1][1]
-        # find the cap closest to 7 days before the latest date
-        latest = date.fromisoformat(caps[-1][0])
-        target = latest - timedelta(days=7)
-        past = min(caps, key=lambda c: abs(date.fromisoformat(c[0]) - target))
-        past_cap = past[1]
-        if past_cap <= 0:
-            return "N/A"
-        if today_cap / past_cap < 0.92:
-            return "RISK-OFF"
-        return "RISK-ON"
-    except Exception:  # noqa: BLE001
-        return "N/A"
 
 
 BASKET_JSON = LEDGER_DIR / "basket.json"
@@ -4506,40 +4421,6 @@ def read_index_rows(path=None) -> list[dict]:
         return [dict(zip(header, r)) for r in reader if len(r) == len(header)]
 
 
-def _persist_index_row(row: dict, path=None) -> list[dict]:
-    """Write today's row and return the full series.
-
-    Rewrites the whole file every run rather than appending, which fixes three things at
-    once: the header can never drift from the rows, a re-run on the same date replaces
-    that date instead of adding a duplicate, and a file whose header no longer matches
-    the schema is moved aside instead of being appended to. At ledger scale — one row a
-    day — a full rewrite costs nothing.
-    """
-    path = path or INDEX_CSV
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    if path.exists():
-        with path.open(newline="", encoding="utf-8") as f:
-            header = next(csv.reader(f), [])
-        if header != INDEX_FIELDS:
-            legacy = INDEX_LEGACY_CSV
-            path.replace(legacy)
-            print(f"[index] header did not match the schema ({len(header)} columns vs "
-                  f"{len(INDEX_FIELDS)}); moved the old file to {legacy.name} and started "
-                  f"a clean series. Those rows are not recoverable: their values are "
-                  f"positionally misaligned against the header they were written under.")
-
-    rows = [r for r in read_index_rows(path) if r.get("date") != row["date"]]
-    rows.append({k: ("" if row.get(k) is None else row.get(k)) for k in INDEX_FIELDS})
-    rows.sort(key=lambda r: r.get("date") or "")
-
-    tmp = path.with_suffix(".csv.tmp")
-    with tmp.open("w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=INDEX_FIELDS)
-        w.writeheader()
-        w.writerows(rows)
-    tmp.replace(path)
-    return rows
 INDEX_JSON = LEDGER_DIR / "index.json"
 MARKET_BREADTH_JSON = LEDGER_DIR / "market_breadth.json"
 MONITOR_JSON = LEDGER_DIR / "monitor.json"
@@ -5380,20 +5261,27 @@ def walkforward_report(by_date: dict, regimes: dict | None = None,
 
 
 def recorded_regimes() -> dict:
-    """{date: "RISK-ON" | "RISK-OFF"} from ledger/index.csv.
+    """{date: "RISK-ON" | "RISK-OFF"}: the labels as they were recorded, never recomputed.
 
-    Read from the recorded column rather than recomputed, for the same reason the factor
-    values are: a regime recomputed today and dated to a past night is a label the board
-    never actually carried. "N/A" nights are omitted, so the regime split reports them as
-    absent rather than folding them into one of the two real buckets.
+    Read from the recorded columns for the same reason the factor values are: a regime
+    recomputed today and dated to a past night is a label the board never actually
+    carried. Two sources, split at the basket's retirement and never overlapping:
+    ledger/index.csv (the retired basket's writer) through BASKET_RETIRED_ON, archival
+    and unchanged; ledger/regime.csv after it. "N/A" nights, and nights with no label,
+    are omitted, so the regime split reports them as absent rather than folding them
+    into one of the two real buckets.
     """
     out = {}
     try:
         for r in read_index_rows():
             reg = (r.get("macro_regime") or "").strip()
-            if r.get("date") and reg in ("RISK-ON", "RISK-OFF"):
+            if r.get("date") and r["date"] <= BASKET_RETIRED_ON and reg in ("RISK-ON", "RISK-OFF"):
                 out[r["date"]] = reg
-    except Exception:  # noqa: BLE001 — a missing or unreadable index is no regimes
+        for r in _read_csv_rows(REGIME_CSV, REGIME_FIELDS):
+            reg = (r.get("macro_regime") or "").strip()
+            if (r.get("date") or "") > BASKET_RETIRED_ON and reg in ("RISK-ON", "RISK-OFF"):
+                out[r["date"]] = reg
+    except Exception:  # noqa: BLE001 — an unreadable record is no regimes
         return {}
     return out
 
@@ -5630,383 +5518,109 @@ MACRO_FIELDS = ["date", "total_mcap", "total_mcap_ex_btc", "total_volume",
                 "mcap_chg_24h", "stable_mcap", "stable_volume", "stable_velocity",
                 "stable_regime", "funding_heat_apr", "board_mean_conviction"]
 DEX_FIELDS = ["date", "network", "pools", "reserve_usd", "volume_24h", "vlr"]
-REBALANCE_DAYS = 7
-# Rebalance hysteresis (A): don't eject a holding just because it slipped one
-# rank. Keep it unless it drops to rank >= EJECT_RANK or its score falls more
-# than EJECT_GAP below the marginal entrant. Controls turnover drag.
-EJECT_RANK = 13
-EJECT_GAP = 5.0
-# Execution friction (B): one-way cost (bps) applied to turnover at rebalance to
-# build an execution-adjusted COUNTERFACTUAL track record. Does NOT mutate the
-# raw paper return. Calibrated from measured turnover once history accrues.
+# Execution friction: one-way cost (bps) applied to turnover to build the canonical
+# Index's execution-adjusted COUNTERFACTUAL. Does NOT mutate the raw paper return.
 EXEC_BPS_ONEWAY = 25.0
 
 
-def build_basket(markets: list[dict], today: str, btc: dict | None = None) -> dict:
-    """Conviction-weighted Top-10 basket with score-proportional target weights.
+# =============================================================================
+# THE RETIRED BASKET, AND THE MACRO REGIME THAT OUTLIVED IT — 2026-09-24
+# =============================================================================
+# build_basket() — the experimental hysteresis basket — was retired from the product on
+# 2026-09-24 (docs/DECISION-2026-09-24-model-layer.md §B) and its writer removed from
+# the nightly. Its record is ARCHIVAL and is never written again: ledger/basket.json,
+# every row of ledger/index.csv, and every key of ledger/index.json except `canonical`
+# (the canonical Index's mirror, still refreshed). The code that produced them is
+# preserved at commit 18eb514; read_index_rows() remains the reader.
+#
+# The one thing that writer computed that anything still consumed is the passive macro
+# regime — RISK-OFF when total crypto market cap fell more than 8% over seven days —
+# whose recorded labels split the walk-forward study. It is now computed from
+# ledger/macro.csv, which records the same figure (total_mcap equals index.csv's
+# global_market_cap to the dollar on all 35 shared dates), and recorded in
+# ledger/regime.csv. The rule is the old one, lag included: tonight's label reads the
+# nights BEFORE tonight, as the old reader did when it ran ahead of the row it was
+# labelling. What changed is that missing data is now an error rather than a quiet
+# "N/A": a label compares the latest recorded night with the night seven days before
+# it, and when either is not on file there is no label to give.
+BASKET_RETIRED_ON = "2026-09-24"
+# The retired basket's record under ledger/. Nothing writes these, and the nightly
+# workflow deliberately never stages them: its leftover guard turns a write red.
+ARCHIVED_LEDGER_FILES = ("basket.json", "index.csv", "index.legacy.csv")
+REGIME_CSV = LEDGER_DIR / "regime.csv"
+REGIME_FIELDS = ["date", "macro_regime", "latest_date", "latest_total_mcap",
+                 "ref_date", "ref_total_mcap", "ratio", "source"]
+REGIME_LOOKBACK_DAYS = 7
+REGIME_RISK_OFF_RATIO = 0.92
+# How far the latest night may sit before tonight, and the reference night from the
+# date seven days before it. Three covers the largest outage on file (09-20 -> 09-23);
+# beyond it the comparison is not the seven-day window the rule names.
+REGIME_MAX_GAP_DAYS = 3
 
-    Tracks, per day:
-      #2  benchmark via total crypto market cap (entry->now), horizon-matched.
-      #5  live-drifted weights (target * price move) vs target weights.
-      #6  per-asset audit trail (entry/current price, target/live weight, return).
-    Rebalances weekly or when a holding drops out of the gated Top 10.
+
+class MacroDataMissing(RuntimeError):
+    """The macro history cannot support a regime label for the night asked about."""
+
+
+def macro_regime_for(day: str, path: Path | None = None) -> dict:
+    """The passive macro regime for ``day``, from ledger/macro.csv nights before it.
+
+    Raises MacroDataMissing — never returns a guessed label — when the file is absent,
+    holds fewer than two usable nights before ``day``, its latest night is more than
+    REGIME_MAX_GAP_DAYS old, or no night sits within REGIME_MAX_GAP_DAYS of seven days
+    before that. Display-only and passive: it never touches a score, a tier or a book.
     """
-    scored = []
-    for t in markets:
-        sym = (t.get("symbol") or "").upper()
-        if not sym or sym in STABLES:
-            continue
-        era, conv, _, _ = score(t, None, btc)
-        if _conjunctive_gate(t, conv):
-            scored.append((sym, t, conv))
-    scored.sort(key=lambda x: x[2], reverse=True)
-    # The strict conjunctive gate rarely fires on real large-cap data (turnover
-    # for top caps is usually < 0.30). Fall back to Top-N by conviction so the
-    # basket always reflects the strongest non-stable assets when the gate is empty.
-    if not scored:
-        for t in markets:
-            sym = (t.get("symbol") or "").upper()
-            if not sym or sym in STABLES:
-                continue
-            era, conv, _, _ = score(t, None, btc)
-            scored.append((sym, t, conv))
-        scored.sort(key=lambda x: x[2], reverse=True)
-    top = scored[:10]
-    # Rank 11..N (marginal entrants) — used by the hysteresis buffer below.
-    rest = scored[10:]
-    if not top:
-        # Truly empty universe — still record an empty-basket index row so the
-        # workflow's git add never fails on a missing file.
-        _write_index_row(today, [], {}, False)
-        return {"holdings": [], "rebalanced": today, "note": "no assets"}
-
-    # --- Rebalance hysteresis (A) ---
-    # On a non-calendar rebalance, only eject a prior holding if it dropped to
-    # rank >= EJECT_RANK, OR its score fell more than EJECT_GAP below the
-    # marginal entrant (rank 11). This stops #10<->#11 flips from rebalancing
-    # daily and burning alpha in turnover.
-    keep = set()
-    prev_syms = set()
-    prev = {}
-    if BASKET_JSON.exists():
-        try:
-            prev = json.loads(BASKET_JSON.read_text())
-        except (json.JSONDecodeError, OSError):
-            prev = {}
-    prev_syms = {h["symbol"] for h in prev.get("holdings", [])}
-    if prev_syms:
-        rest_conv = {sym: c for sym, _, c in rest}
-        for h in prev.get("holdings", []):
-            sym = h["symbol"]
-            if sym in {s for s, _, _ in top}:
-                keep.add(sym); continue
-            rank = next((i for i, (s, _, _) in enumerate(scored, 1) if s == sym), None)
-            # marginal entrant = best of rank 11+ (or rank 10 if basket < 10)
-            margin_conv = rest[0][2] if rest else (top[-1][2] if top else 0)
-            if rank is not None and rank >= EJECT_RANK:
-                pass  # eject (do not keep)
-            elif (h.get("conviction") or 0) + EJECT_GAP < margin_conv:
-                pass  # structurally outclassed — eject
-            else:
-                keep.add(sym)
-    # Build holdings: keep previous holdings still retained, add new entrants.
-    kept_holdings = [h for h in prev.get("holdings", []) if h["symbol"] in keep]
-    new_top = [x for x in top if x[0] not in prev_syms]
-    holdings = []
-    for h in kept_holdings:
-        sym = h["symbol"]
-        # refresh conviction from current scoring
-        nh = next((x for x in top if x[0] == sym), None)
-        conv = nh[2] if nh else h.get("conviction", 0)
-        holdings.append({
-            "symbol": sym, "conviction": conv, "weight": 0.0,
-            "entry_price": h.get("entry_price") or 0,
-            "current_price": (next((t.get("current_price") for _, t, _ in top if _ and (t.get("symbol") or "").upper() == sym), None)) or h.get("current_price") or 0,
-        })
-    for sym, t, conv in new_top:
-        holdings.append({
-            "symbol": sym, "conviction": conv, "weight": 0.0,
-            "entry_price": t.get("current_price") or 0,
-            "current_price": t.get("current_price") or 0,
-        })
-
-    # Normalise over the holdings that actually exist, not over the top N.
-    #
-    # The denominator used to be the sum of the top ten's convictions while the weights
-    # were applied to kept + new entrants — a superset whenever the hysteresis buffer
-    # retains a name that has slipped out of the top ten. The two sets only coincide
-    # when nothing is being held over, so the weights stopped summing to 1 the moment
-    # the buffer did its job. On 2026-08-08 the denominator was 9 (a single name in
-    # `top`) against eleven holdings, and the weights summed to 76.6 — so every
-    # `wret = sum(weight * return)` in the index was inflated roughly seventy-six-fold,
-    # which is where the published "daily" returns of 87% and 123% came from.
-    total_conv = sum(h["conviction"] for h in holdings) or 1
-    for h in holdings:
-        h["weight"] = round(h["conviction"] / total_conv, 4)
-
-    # Rebalance decision: calendar OR membership changed vs the (hysteresis-
-    # filtered) previous basket. A pure #10<->#11 flip no longer triggers.
-    prev_date = prev.get("rebalanced", today)
-    cur_syms = {h["symbol"] for h in holdings}
-    try:
-        days_since = (date.fromisoformat(today) - date.fromisoformat(prev_date)).days
-    except ValueError:
-        days_since = REBALANCE_DAYS
-    rebalanced = (days_since >= REBALANCE_DAYS) or (cur_syms != prev_syms)
-    if rebalanced:
-        # The benchmark baseline is carried over, not re-snapshotted. Resetting it here
-        # while kept holdings keep their original entry_price measured the two legs over
-        # different horizons: the basket accumulated from its first entry while the
-        # benchmark restarted from zero on every rebalance. Since `rebalanced` was true
-        # on nine of the first ten runs, benchmark_return was 0.0 on every row and the
-        # reported alpha was the basket's raw return under another name. Only a genuinely
-        # new basket — no prior baseline — takes today's reading.
-        gmc = prev.get("entry_global_mcap") or fetch_global_market_cap()
-        basket = {"rebalanced": today, "entry_global_mcap": gmc, "holdings": holdings}
-        BASKET_JSON.write_text(json.dumps(basket, indent=2))
-    else:
-        # keep entry prices + entry_global_mcap from prev basket for unchanged holdings
-        basket = prev
-        for h in basket.get("holdings", []):
-            if h["symbol"] in cur_syms:
-                nh = next(x for x in holdings if x["symbol"] == h["symbol"])
-                h["weight"] = nh["weight"]
-                h["conviction"] = nh["conviction"]
-
-    # Live prices + benchmark
-    live = {(tk.get("symbol") or "").upper(): tk.get("current_price") or 0 for tk in markets}
-    gmc_now = fetch_global_market_cap()
-    entry_gmc = basket.get("entry_global_mcap") or gmc_now
-
-    # --- Ejection Alpha Delta (C) + Execution turnover (B) ---
-    # Computed only on rebalance days (when holdings actually change).
-    ejected_syms, entrants_syms = [], []
-    ejected_avg_return = 0.0
-    if rebalanced:
-        prev_h = {h["symbol"]: h for h in prev.get("holdings", [])}
-        ejected_syms = [s for s in prev_h if s not in cur_syms]
-        entrants_syms = [s for s in cur_syms if s not in prev_h]
-        ej_rets = []
-        for s in ejected_syms:
-            ep = prev_h[s].get("entry_price") or 0
-            cur = live.get(s) or 0
-            if ep and cur:
-                ej_rets.append((cur - ep) / ep)
-        ejected_avg_return = (sum(ej_rets) / len(ej_rets)) if ej_rets else 0.0
-    # Δ_eject = R_entrant(0 at entry) - R_ejected(realized). Full R_entrant
-    # window requires the next rebalance's entry prices; we store the symbol
-    # lists so it can be refined once >=2 rebalances exist. Honest, no fabrication.
-    eject_delta = -ejected_avg_return
-    # One-way turnover (bps) = Σ |new_w - old_w| over changed holdings.
-    # Genesis (no prior basket) is the baseline — no execution cost is charged.
-    turnover_bps = 0.0
-    if rebalanced and prev.get("holdings"):
-        old_w = {h["symbol"]: h.get("weight", 0) for h in prev.get("holdings", [])}
-        for h in holdings:
-            s = h["symbol"]
-            turnover_bps += abs(h.get("weight", 0) - old_w.get(s, 0)) * 1e4
-
-    # Per-asset audit trail + live-drift weights (#5, #6)
-    audit = []
-    vals = []
-    for h in basket.get("holdings", []):
-        cur = live.get(h["symbol"]) or 0
-        ep = h.get("entry_price") or 0
-        tw = h.get("weight", 0)
-        if cur and ep:
-            ret = (cur - ep) / ep
-            v = tw * (cur / ep)          # drifted value
-        else:
-            ret = 0.0
-            v = tw
-        vals.append(v)
-        audit.append({
-            "ticker": h["symbol"], "entry_price": round(ep, 8), "current_price": round(cur, 8),
-            "target_weight": round(tw, 4), "return": round(ret, 4),
-        })
-    vtot = sum(vals) or 1
-    for a, v in zip(audit, vals):
-        a["live_weight"] = round(v / vtot, 4)
-
-    # Basket return = Σ target_weight * asset_return (target-weighted, not drifted)
-    wret = sum(a["target_weight"] * a["return"] for a in audit)
-    # Execution-adjusted counterfactual return (B): raw wret minus one-way cost
-    # on turnover. Never mutates the raw paper return stored alongside it.
-    exec_adjusted_return = wret - (EXEC_BPS_ONEWAY / 1e4) * (turnover_bps / 1e4)
-    # Benchmark: total crypto market cap, entry -> now (horizon-matched) (#2)
-    bench_total = (gmc_now / entry_gmc) if (gmc_now and entry_gmc) else 1.0
-
-    # Append daily row + recompute cumulative from stored rows
-    _write_index_row(today, audit, basket, rebalanced, live,
-                     macro_regime=None, eject_delta=eject_delta,
-                     ejected_syms=ejected_syms, entrants_syms=entrants_syms,
-                     exec_adjusted_return=exec_adjusted_return, turnover_bps=turnover_bps)
-    return basket
+    path = path or MACRO_CSV
+    if not path.exists():
+        raise MacroDataMissing(f"{path.name} is missing")
+    caps = []
+    for r in _read_csv_rows(path, MACRO_FIELDS):
+        d, v = (r.get("date") or ""), _num(r.get("total_mcap"))
+        if d and d < day and v is not None and v > 0:
+            caps.append((d, v))
+    caps.sort(key=lambda c: c[0])
+    if len(caps) < 2:
+        raise MacroDataMissing(f"{path.name} holds {len(caps)} usable night(s) before {day}")
+    latest_d, latest_v = caps[-1]
+    latest = date.fromisoformat(latest_d)
+    if (date.fromisoformat(day) - latest).days > REGIME_MAX_GAP_DAYS:
+        raise MacroDataMissing(f"{path.name}'s latest night before {day} is {latest_d}")
+    target = latest - timedelta(days=REGIME_LOOKBACK_DAYS)
+    ref_d, ref_v = min(caps, key=lambda c: abs(date.fromisoformat(c[0]) - target))
+    if abs((date.fromisoformat(ref_d) - target).days) > REGIME_MAX_GAP_DAYS:
+        raise MacroDataMissing(f"{path.name} has no night near {target.isoformat()} "
+                               f"(closest {ref_d}) to compare {latest_d} with")
+    ratio = latest_v / ref_v
+    return {"date": day,
+            "macro_regime": "RISK-OFF" if ratio < REGIME_RISK_OFF_RATIO else "RISK-ON",
+            "latest_date": latest_d, "latest_total_mcap": latest_v,
+            "ref_date": ref_d, "ref_total_mcap": ref_v, "ratio": round(ratio, 6),
+            "source": "macro.csv total_mcap"}
 
 
-def _normalize_live(audit: list, live_holdings: list) -> list:
-    """Active-basket slice of the audit trail with target weights Σ=1.0.
+def record_macro_regime(today: str) -> dict:
+    """Write tonight's label to ledger/regime.csv (replacing a same-day re-run's).
 
-    ``current_holdings`` (the audit trail) can carry stale rows from ejected
-    symbols whose ``target_weight`` no longer represents the live basket — that
-    made the terminal's allocation column sum to >100% (e.g. 383.3%). This
-    returns only the symbols currently in the live basket, with their
-    target weights re-normalised so Σ target_weight == 1.0, and synthesises a
-    parallel ``live_weight`` (drifted by price) and ``return`` so the terminal
-    needs zero schema changes.
+    Raises MacroDataMissing, having written nothing, when there is no label to give.
     """
-    live_syms = {h.get("symbol") for h in live_holdings}
-    active = [h for h in audit if h.get("ticker") in live_syms]
-    if not active:
-        return []
-    raw_sum = sum(h.get("target_weight", 0) for h in active) or 1.0
-    out = []
-    for h in active:
-        tw = h.get("target_weight", 0) / raw_sum
-        ep = h.get("entry_price") or 0
-        cur = h.get("current_price") or 0
-        ret = ((cur - ep) / ep) if (cur and ep) else 0.0
-        live_w = tw * (cur / ep) if (cur and ep) else tw
-        out.append({"ticker": h.get("ticker"), "entry_price": ep,
-                    "current_price": cur, "target_weight": round(tw, 4),
-                    "live_weight": round(live_w, 4), "return": round(ret, 4)})
-    return out
+    row = macro_regime_for(today)
+    _append_context_rows(REGIME_CSV, REGIME_FIELDS, today, [row])
+    return row
 
 
-def _write_index_row(today: str, audit: list, basket: dict, rebalanced: bool,
-                     live: dict | None = None, macro_regime: str | None = None,
-                     eject_delta: float = 0.0, ejected_syms: list | None = None,
-                     entrants_syms: list | None = None,
-                     exec_adjusted_return: float = 0.0, turnover_bps: float = 0.0) -> None:
-    """Append today's basket/index row and rewrite index.json.
 
-    Always writes ledger/index.csv + ledger/index.json (creating them on first
-    run) so the CI workflow's `git add` never fails on a missing file, even when
-    the basket is empty. `live` maps symbol->current price for non-rebalance-day
-    return computation.
 
-    New columns (this build):
-      macro_regime      (D) RISK-ON / RISK-OFF from 7d global mcap trend (passive)
-      eject_delta       (C) R_entrant(0) - R_ejected(realized) on rebalance days
-      ejected_syms / entrants_syms (C) the rotation that occurred
-      exec_adjusted_return (B) paper return minus one-way execution cost on turnover
-      turnover_bps      (B) one-way turnover at rebalance
-    """
-    gmc_now = fetch_global_market_cap()
-    entry_gmc = basket.get("entry_global_mcap") or gmc_now
-    # Basket return = Σ target_weight * asset_return (target-weighted, not drifted)
-    wret = 0.0
-    for h in basket.get("holdings", []):
-        tw = h.get("weight", 0) or 0
-        ep = h.get("entry_price") or 0
-        if live:
-            cur = live.get(h.get("symbol"), h.get("current_price")) or 0
-        else:
-            cur = h.get("current_price") or 0
-        ret = ((cur - ep) / ep) if (cur and ep) else 0.0
-        wret += tw * ret
-    bench_total = (gmc_now / entry_gmc) if (gmc_now and entry_gmc) else 1.0
 
-    # --- Macro Liquidity Gate (D): PASSIVE / display-only ---
-    # 7-day total mcap trend from the stored ledger. RISK-OFF if down > 8%.
-    # Logged + shown in the panel; never alters holdings (no premature overlay).
-    if macro_regime is None:
-        macro_regime = _macro_regime_from_ledger()
 
-    row = {
-        "date": today,
-        "global_market_cap": round(gmc_now, 0) if gmc_now else None,
-        # Renamed from basket_return / benchmark_return. Both are cumulative since the
-        # basket's cost basis, never overnight, and the old names invited exactly the
-        # mistake the consumer made: compounding ten since-entry figures as if they were
-        # ten daily ones. Overnight return lives in market_breadth.json's `performance`
-        # block, which chains it from the signals ledger.
-        "basket_return_since_entry": round(wret * 100, 3),
-        "benchmark_return_since_entry": round((bench_total - 1) * 100, 3),
-        "alpha_since_entry": round((wret - (bench_total - 1)) * 100, 3),
-        "exec_adjusted_return_since_entry": round(exec_adjusted_return * 100, 3),
-        "turnover_bps": round(turnover_bps, 1),
-        "macro_regime": macro_regime,
-        "eject_delta": round(eject_delta * 100, 3) if rebalanced else "",
-        "ejected_syms": ",".join(ejected_syms) if (rebalanced and ejected_syms) else "",
-        "entrants_syms": ",".join(entrants_syms) if (rebalanced and entrants_syms) else "",
-        "n_holdings": len(audit),
-        "rebalanced": rebalanced,
-    }
-    idx_rows = _persist_index_row(row)
-    # The latest reading, not a product of every reading. These columns are cumulative
-    # since the basket's cost basis, so compounding the series multiplied one number by
-    # its own history — ten rows each already up 80-120% chained into a total return of
-    # 4.53x. A cumulative figure is read, not accumulated.
-    def _last(field):
-        vals = [r.get(field) for r in idx_rows if r.get(field) not in (None, "", "None")]
-        return 1 + float(vals[-1]) / 100.0 if vals else 1.0
-    cum_basket = _last("basket_return_since_entry")
-    cum_exec = _last("exec_adjusted_return_since_entry")
-    gcaps = [float(r["global_market_cap"]) for r in idx_rows if r.get("global_market_cap") not in (None, "", "None")]
-    bench_cum = (gcaps[-1] / gcaps[0]) if len(gcaps) >= 2 and gcaps[0] else 1.0
-    # Macro regime summary (D, passive) + ejection-alpha tally (C)
-    regimes = [r.get("macro_regime") for r in idx_rows if r.get("macro_regime") in ("RISK-ON", "RISK-OFF")]
-    macro_now = regimes[-1] if regimes else "N/A"
-    macro_riskoff_days = sum(1 for x in regimes if x == "RISK-OFF")
-    eject_deltas = [float(r["eject_delta"]) for r in idx_rows
-                    if r.get("eject_delta") not in (None, "", "None")]
-    eject_alpha_cum = round(sum(eject_deltas) / 100.0, 4) if eject_deltas else None
-    # Risk stats (Sharpe / max drawdown) — derived from the ledger once >=30 days
-    # of history exist. Convention: rf=0, daily returns annualized x sqrt(365).
-    # From the overnight series in market_breadth.json, the only daily one we have.
-    perf_legs = _compute_performance()
-    daily = [l for l in (perf_legs.get("series") or [])]
-    dailies = []
-    prev_cum = 0.0
-    for pt in daily:
-        cum = (pt.get("book") or 0.0) / 100.0
-        dailies.append((1 + cum) / (1 + prev_cum) - 1)
-        prev_cum = cum
-    risk = _risk_stats(dailies[1:])
-    INDEX_JSON.write_text(json.dumps({
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        # THE INDEX. Everything the Index panel, the methodology page and any external
-        # reader should quote is under `canonical`. It is the Top-10 conviction-weighted
-        # paper book _perf_weights() has published since the ledger began, chained from
-        # signals.csv, and it reconciles to market_breadth.performance by construction.
-        "canonical": _canonical_index(),
-        # Everything below `basket_note` describes build_basket()'s hysteresis basket:
-        # a DIFFERENT model (gated with an ungated fallback, ejection hysteresis,
-        # benchmarked to total market cap rather than BTC) that accreted to thirty
-        # names. Retained as the experimental tradeable-implementation study it is,
-        # and as the audit trail index.csv mirrors. NOT the Index. Nothing on the
-        # Index panel reads it.
-        "basket_note": ("EXPERIMENTAL / NON-CANONICAL. The fields latest, basket_*, "
-                        "benchmark_*, exec_adjusted_*, risk, current_holdings, "
-                        "latest_holdings and rows describe build_basket()'s hysteresis "
-                        "basket, benchmarked to total crypto market cap. The Index is "
-                        "`canonical`."),
-        "latest": row,
-        "basket_total_return": round(cum_basket, 4),
-        "benchmark_total_return": round(bench_cum, 4),
-        "exec_adjusted_total_return": round(cum_exec, 4),
-        "macro_regime": macro_now,
-        "macro_riskoff_days": macro_riskoff_days,
-        "eject_alpha_cumulative": eject_alpha_cum,
-        # DEPRECATED, never displayed. An annualised Sharpe on thirty-four overnight
-        # returns is not evidence of anything; the field stays only because deleting it
-        # would break a reader that expects the key. canonical.stats carries the
-        # un-annualised figures instead.
-        "sharpe_convention": "DEPRECATED - not displayed. rf=0; daily x sqrt(365); 34 days is not a sample",
-        "risk": risk,
-        "current_holdings": audit,
-        "latest_holdings": _normalize_live(audit, basket.get("holdings", [])),
-        "rows": idx_rows,
-    }, indent=2))
 
 
 def _refresh_index_canonical(canon: dict) -> None:
     """Rewrite index.json's `canonical` key in place, leaving every other key untouched.
 
-    _write_index_row() has to run inside build_basket(), which is before the ledger is
-    appended; this is the only point in the run where the final block exists. Key order
-    is preserved because `canonical` is already present in the document being reread.
+    Every other key is the retired basket's archived record and is never written again;
+    `canonical` is the canonical Index's mirror, kept current so the file's one live
+    block agrees with market_breadth.performance.canonical. Key order is preserved
+    because `canonical` is already present in the document being reread.
     """
     if not canon or not INDEX_JSON.exists():
         return
@@ -6397,7 +6011,19 @@ def _main(run: dict, budget: RunBudget) -> int:
 
     # BTC = market-neutral reference for multi-timeframe relative strength.
     btc = next((m for m in markets if (m.get("symbol") or "").upper() == "BTC"), None)
-    basket = build_basket(markets, today, btc)
+    # The macro regime, recorded before the walk-forward study reads it. It replaces the
+    # retired basket's writer as its source (see BASKET_RETIRED_ON). A night the history
+    # cannot label is recorded as missing — never guessed — and the workflow turns the
+    # run red on it after the ledger has committed.
+    try:
+        reg = record_macro_regime(today)
+        run["macro_regime"] = reg["macro_regime"]
+        print(f"[regime] {reg['macro_regime']} — {reg['latest_date']} vs {reg['ref_date']} "
+              f"total mcap ratio {reg['ratio']:.4f} -> {REGIME_CSV.name}",
+              file=__import__("sys").stderr)
+    except MacroDataMissing as e:
+        run["macro_regime"] = f"missing: {e}"
+        print(f"::error::macro regime not recorded for {today}: {e}")
     rows = []
     seen = set()
     chain_misses: list = []
@@ -6905,16 +6531,16 @@ def _main(run: dict, budget: RunBudget) -> int:
         # crossings. Attached to breadth rather than given its own file: it is the same
         # kind of derived-from-the-ledger diagnostic and the terminal already loads this.
         breadth["tier_diff"] = _compute_tier_diff()
-        # Paper return of the published basket, chained across recorded days. Built from
+        # Paper return of the canonical Index, chained across recorded days. Built from
         # signals.csv rather than index.json — see _compute_performance for why.
         breadth["performance"] = _compute_performance()
         # THE canonical book, in the same payload every consumer already loads. Built
         # from the same legs, after the edge so the IC sits beside the return.
         breadth["performance"]["canonical"] = _canonical_index(breadth.get("edge"))
         MARKET_BREADTH_JSON.write_text(json.dumps(breadth, indent=2))
-        # index.json's copy was written by _write_index_row() inside build_basket(),
-        # before tonight's row existed. Refresh it from the same object so the two files
-        # cannot describe two different books — the whole point of one canonical block.
+        # index.json's `canonical` mirror, refreshed from the same object so the two
+        # files cannot describe two different books. Nothing else in index.json is
+        # written: the rest is the retired basket's archived record.
         _refresh_index_canonical(breadth["performance"]["canonical"])
         # Operational condition of the pipeline, in its own file: it is a monitoring
         # artifact rather than a market view, and pinning it to breadth would couple the
@@ -6933,7 +6559,7 @@ def _main(run: dict, budget: RunBudget) -> int:
 
         pf = breadth["performance"]
         if pf.get("legs"):
-            print(f"[perf] {pf['legs']} leg(s), basket {pf['book_total']:+.2f}%"
+            print(f"[perf] {pf['legs']} leg(s), canonical Index {pf['book_total']:+.2f}%"
                   + (f", {pf['benchmark']} {pf['benchmark_total']:+.2f}%"
                      if pf["benchmark_available"] else ", benchmark missing")
                   + (f", equal-weight {pf['equal_weight_total']:+.2f}%"
@@ -7040,10 +6666,6 @@ def _main(run: dict, budget: RunBudget) -> int:
 
     print(f"Nightly {today}: wrote {len(rows[:25])} signals, backfilled {updated}. "
           f"Ledger total: {len(all_rows)}.")
-    if basket.get("holdings"):
-        hs = ", ".join(f"{h['symbol']} {h['weight']*100:.1f}%" for h in basket["holdings"])
-        print(f"[basket] Top-10 conviction-weighted | rebalanced={basket.get('rebalanced')} | {hs}")
-        print(f"[index] cumulative return tracked in ledger/index.json")
     return 0
 
 
