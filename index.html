@@ -1211,12 +1211,13 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
         <div class="glass">
           <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
           <div class="card-b" style="padding:0">
-            <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity &amp; Leverage micro-regimes. Velo<sub>liq</sub> + Diverge<sub>vol</sub> from live CoinGecko; RiskMult<sub>perp</sub> from Module E.
-            <details class="why" style="margin-left:0"><summary>what RiskMult is doing</summary>
-              <div class="body">It is <b>not</b> neutral, despite the older note here that said so. It reads the cross-venue annualised carry and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do — continuously, with no step at any threshold. Assets inside the inert funding band, and assets with no perpetual market at all, sit at exactly 1.0: a real reading, not a placeholder.</div></details></div></details>
+            <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity micro-regimes. LAVL = 0.6·Velo<sub>liq</sub> + 0.4·Diverge<sub>vol</sub>, both from live CoinGecko, and nothing else: it is <b>funding-neutral by construction</b>. It is the regime proxy the QUALIFIED gate reads, not a score and not a multiplier on one.
+            <details class="why" style="margin-left:0"><summary>what the Funding× column is</summary>
+              <div class="body">The separate funding multiplier, RiskMult<sub>perp</sub> (Module E), that multiplies this row's <b>conviction</b> — shown here beside LAVL, not used in it. It reads the cross-venue annualised carry from tonight's <code>ledger/perp.json</code> and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do, continuously. ×1.000 is a real reading inside the inert band. A dash is not: it means no perpetual reading, a refused value, or an overlay withheld because the artifact is missing or stale — the score is then unadjusted, and the factor breakdown says which.</div></details>
+            <div class="body" style="padding:6px 0 0">The nightly's basket gate computes its regime with its own proxy (<code>_lavl_regime</code>), which is not this formula; the two can disagree on which names qualify. Recorded for review, not reconciled: docs/AUDIT-2026-09-23.md §6.</div></div></details>
             <div class="scroll-pane">
               <table id="tbl-lavl"><thead><tr>
-                <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>RiskMult</th><th>LAVL</th><th>Regime</th>
+                <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>LAVL</th><th>Regime</th><th data-tip="The funding multiplier (RiskMult_perp, Module E) applied to this row's CONVICTION score, from ledger/perp.json. It is not an input to LAVL, which is funding-neutral. A dash is a missing, withheld or refused reading — not a neutral one.">Funding×<sub>conv</sub></th>
               </tr></thead><tbody></tbody></table>
             </div>
           </div>
@@ -1895,7 +1896,9 @@ let STATE = [];
 let LEDGER = [];   // nightly signals.json rows (Module B real data when present)
 let ALL_ROWS = [];  // the same file, unfiltered — what the rewind scrubber reads
 let INDEX = null;  // nightly index.json (conviction-weighted basket track record)
-let PERP = {};     // symbol -> RiskMult_perp (LAVL leverage overlay) from nightly ledger
+let PERP = {};     // symbol -> RiskMult_perp, the funding multiplier conviction() applies,
+                   // from ledger/perp.json via perpFeed(). NOT an input to LAVL, which is
+                   // funding-neutral by construction — see computeLAVL().
 // False until the overlay has actually been loaded. Without it every multiplier
 // defaults to 1.0 and the board reorders — a live table that quietly disagrees with the
 // published one is worse than a table that says it is degraded, so this is rendered.
@@ -1970,8 +1973,11 @@ async function loadLedger(){
       (LEDGER_BY_DATE[d]=LEDGER_BY_DATE[d]||[]).push(r); });
     REWIND_DATES = Object.keys(LEDGER_BY_DATE).sort();
     LEDGER = ALL_ROWS.filter(r=>r.era!=null && r.era!=="None" && r.era!=="");
-    // Build per-asset LAVL RiskMult_perp map so the live Alpha Map uses the SAME
-    // leverage overlay as the nightly conviction-weighted index (single source of truth).
+    // Build the per-asset funding multiplier map (RiskMult_perp) so the live board scores
+    // with the same multipliers the nightly's score() applied to tonight's published rows
+    // (single source of truth: ledger/perp.json). It multiplies CONVICTION only. It does
+    // not enter LAVL, and the nightly's hysteresis basket (build_basket) ranks without it —
+    // see docs/AUDIT-2026-09-23.md §6.
     //
     // AUDIT-PHASE1.6. The overlay comes from `ledger/perp.json`, NOT from the rows
     // above. signals.json persists fifty names a night out of ~235 scored, so reading
@@ -2829,11 +2835,14 @@ function computeLAVL(t){
   const volShock=clamp(turnover/0.05,0,4);
   const poc=clamp(1-spread,0,1);
   let diverge=clamp(volShock*poc*(1+clamp(mcapChg/5,-1,1)),-3,3);
-  // 3. RiskMult_perp (neutral until derivatives feed connected)
-  const riskMult=1.0; // no funding/OI on free tier — never fabricated
-  let lavl=clamp((L_W1*velo+L_W2*diverge)*riskMult,-5,5);
+  // Funding-neutral BY CONSTRUCTION, not "neutral until a feed is connected" — the feed
+  // is connected. LAVL is the regime proxy the qualification gate (gate C) reads, and the
+  // nightly's own regime proxy (_lavl_regime) is funding-neutral in the captured model
+  // too. The funding multiplier, RiskMult_perp, multiplies CONVICTION in conviction();
+  // it is shown beside LAVL in the table from PERP, never folded into this number.
+  let lavl=clamp(L_W1*velo+L_W2*diverge,-5,5);
   const band=lavl>2.5?"ALPHA RUSH":lavl>=0.5?"STABLE":lavl<-1.0?"LIQ TRAP":"COMPRESS";
-  return {velo:Math.round(velo*100)/100,diverge:Math.round(diverge*100)/100,riskMult,lavl:Math.round(lavl*100)/100,band};
+  return {velo:Math.round(velo*100)/100,diverge:Math.round(diverge*100)/100,lavl:Math.round(lavl*100)/100,band};
 }
 function lavlBandClass(b){return b==="ALPHA RUSH"?"g":b==="STABLE"?"n":b==="LIQ TRAP"?"r":"a";}
 
@@ -3478,9 +3487,9 @@ function renderTables(){
     ld.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${esc0(t.sym)}"><td class="tick">${execLink(t.sym)}</td>
       <td class="num ${L.velo>=1?'pos':L.velo<=-1?'neg':'neu'}">${L.velo>0?'+':''}${L.velo.toFixed(2)}</td>
       <td class="num ${L.diverge>=1?'pos':L.diverge<=-1?'neg':'neu'}">${L.diverge.toFixed(2)}</td>
-      <td class="num muted">${L.riskMult.toFixed(2)}</td>
       <td class="num ${L.lavl>2.5?'pos':L.lavl<-1?'neg':L.lavl>=0.5?'neu':'a'}">${L.lavl>0?'+':''}${L.lavl.toFixed(2)}</td>
-      <td><span class="badge ${lavlBandClass(L.band)}">${L.band}</span></td></tr>`);
+      <td><span class="badge ${lavlBandClass(L.band)}">${L.band}</span></td>
+      ${fundingMultCell(t.sym)}</tr>`);
   });
   Array.from(ld.children).forEach((r,i)=>{ if(vc[i]) r.onclick=()=>select(vc[i].sym); });
   // Skew Health readout (real ratio)
@@ -4177,6 +4186,35 @@ function convictionFactors(t){
           rounded: Math.round(raw),
           clamped: Math.max(0, Math.min(100, Math.round(raw)))};
 }
+/* The funding multiplier conviction() applied to one symbol, and the state behind it.
+   ONE definition, read by the factor breakdown and by the LAVL table's Funding× column,
+   so two surfaces cannot describe the same multiplier two ways. `applied` is exactly what
+   the call site in build() passes to conviction(): PERP[sym] || 1. `value` is non-null
+   only for a CURRENT reading — a neutral that exists because nothing was read, or because
+   what was read was refused or is too old, is never presented as a ×1.000 reading. */
+const PERP_STATE_TEXT = {
+  "no-row": "not in this snapshot's scored cross-section",
+  "absent": "no perpetual market or no venue reading",
+  "rejected": "recorded value refused — outside the funding model's envelope",
+  "withheld-stale": "overlay withheld — ledger/perp.json is older than the freshness limit",
+  "withheld-absent": "overlay withheld — ledger/perp.json did not load",
+};
+function perpReading(sym){
+  if(!PERP_LOADED)
+    return {state: PERP_WITHHELD==="stale" ? "withheld-stale" : "withheld-absent",
+            value: null, applied: 1};
+  const state = PERP_STATE[sym] || (PERP[sym]==null ? "no-row" : "current");
+  return {state, value: state==="current" ? PERP[sym] : null, applied: PERP[sym] || 1};
+}
+function fundingMultCell(sym){
+  const r = perpReading(sym);
+  if(r.value==null)
+    return `<td class="num muted" data-tip="${esc0("No funding reading applied: " + PERP_STATE_TEXT[r.state]
+      + ". The conviction score is unadjusted (×1.0 by absence, not by reading).")}">—</td>`;
+  const cls = r.value<1 ? "neg" : r.value>1 ? "pos" : "muted";
+  return `<td class="num ${cls}" data-tip="${esc0("Funding multiplier applied to conviction, from ledger/perp.json"
+      + (PERP_AS_OF ? " snapshot " + PERP_AS_OF : "") + ". Not an input to LAVL.")}">×${r.value.toFixed(3)}</td>`;
+}
 function factorBreakdown(sym){
   const t=STATE.find(s=>s.sym===sym)||STATE[0];
   $("#fb-sym").textContent=t?("· "+t.sym):"";
@@ -4188,7 +4226,7 @@ function factorBreakdown(sym){
   // and before AUDIT-PHASE1.5 a non-neutral value could not be distinguished from a
   // stale one at all — which is how a forty-five-night-old 17.4 read as a funding
   // signal on this very panel.
-  const perpState = PERP_STATE[t.sym] || (PERP[t.sym]==null ? "no-row" : "current");
+  const perpState = perpReading(t.sym).state;
   const asOf = PERP_AS_OF ? " · snapshot " + PERP_AS_OF : "";
   const perpNote = !PERP_LOADED
     ? (PERP_WITHHELD==="stale"

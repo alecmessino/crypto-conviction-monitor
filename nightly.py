@@ -1220,10 +1220,13 @@ def score(t: dict, perps_map: dict | None = None,
 
 
 def _lavl_regime(t: dict) -> str:
-    """Lightweight LAVL regime (mirrors lavl.py) for the conjunctive gate.
+    """Lightweight LAVL regime for the conjunctive gate.
 
     Uses only free-payload fields: 24h change, 24h range, vol/mc, range-tightness.
-    Perp multiplier is neutral (1.0) until a derivatives feed is wired.
+    Funding-neutral by construction: no funding multiplier enters this regime. The funding
+    multiplier (RiskMult_perp, ``lavl_perp_mult``) multiplies the conviction score only —
+    the shared "LAVL" prefix is historical. NOT the same formula as the terminal's
+    ``computeLAVL``; see docs/AUDIT-2026-09-23.md §6, recorded for review.
     """
     price = t.get("current_price") or 0
     chg = t.get("price_change_percentage_24h") or 0.0
@@ -1244,7 +1247,7 @@ def _lavl_regime(t: dict) -> str:
     range_tight = 1 - (high - low) / high if high else 0
     diverge = (vol / mc) * max(0.0, range_tight)
     diverge = min(2.3, diverge)
-    lavl = 0.6 * velo + 0.4 * diverge  # risk_mult neutral (1.0)
+    lavl = 0.6 * velo + 0.4 * diverge  # funding-neutral by construction
     if lavl > 2.5:
         return "ALPHA RUSH"
     if lavl >= 0.5:
@@ -1253,7 +1256,14 @@ def _lavl_regime(t: dict) -> str:
 
 
 def _conjunctive_gate(t: dict, conv: int) -> bool:
-    """Replicates the front-end gated flag so the basket uses the same universe."""
+    """The basket's qualification gate: turnover, dilution and LAVL regime.
+
+    Written to replicate the terminal's `gated` flag, and it does not: gate B omits the
+    terminal's proxy-ERA condition and gate C reads ``_lavl_regime``, a different formula
+    from the terminal's ``computeLAVL``. Measured and recorded for review rather than
+    reconciled here — reconciling either side changes qualification. See
+    docs/AUDIT-2026-09-23.md §6.
+    """
     mc = t.get("market_cap") or 0
     vol = t.get("total_volume") or 0
     turnover = (vol / mc) if mc else 0.0
