@@ -181,6 +181,14 @@ def test_an_rwa_refusal_cannot_stop_the_crypto_commit_or_vice_versa():
     order = [s.get("name") for s in steps]
     rwa_gate = by_name["RWA ledger gate"]
     assert rwa_gate["id"] == "rwa_gate" and rwa_gate.get("continue-on-error") is True
+    # Gated on their own evidence even when nightly.py failed after writing them.
+    assert rwa_gate.get("if") == "always()"
+    # A diagnostic can never cost the night.
+    assert by_name["Record the observations under watch"].get("continue-on-error") is True
+    # A fallback commit with refused crypto files still unstaged must be able to rebase.
+    assert wf_text.count("git pull --rebase --autostash") == 2 and "git pull --rebase origin" not in wf_text
+    rel = (ROOT / ".github" / "workflows" / "rwa_release.yml").read_text(encoding="utf-8")
+    assert "python scripts/validate_ledger.py --scope rwa" in rel
     assert "--scope rwa" in rwa_gate["run"]
     assert "--scope crypto" in by_name["Ledger integrity gate"]["run"]
     # Taken before any blocking gate, so its verdict exists whichever of them fails.

@@ -972,7 +972,12 @@ def test_every_live_call_goes_through_one_fetch_helper():
     remote = [m.group(1) for m in
               re.finditer(r"(?<![.\w])fetch\s*\(\s*([^,)]+)", SCRIPT)
               if "ledger/" not in m.group(1)]
-    assert sorted(remote) == ["API", "url"], (
+    # The one other bare fetch is the ledger helper, and it may only take a ledger/ path.
+    ledger_helper = SCRIPT[SCRIPT.index("function timedfetch("):]
+    ledger_helper = ledger_helper[:ledger_helper.index("\n}")]
+    assert "/^ledger\\/" in ledger_helper and "Promise.reject" in ledger_helper, (
+        "the ledger fetch helper does not refuse non-ledger URLs")
+    assert sorted(remote) == ["API", "ledgerPath", "url"], (
         f"a CoinGecko URL is fetched outside cgJson: {remote}")
     assert "CG_URL." in SCRIPT and SCRIPT.count("CG_BASE +") >= 8, (
         "endpoints are assembled at the call site rather than in CG_URL")

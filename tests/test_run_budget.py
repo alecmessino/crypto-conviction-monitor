@@ -202,9 +202,16 @@ def test_the_row_says_what_each_commit_step_will_do(tmp_path):
     assert ok["perp_as_of"] == "2026-09-24" and ok["event"] == "local"
     rwa_refused = record_run.build_row({}, {**STEPS_OK, "rwa_gate": "failure"}, tmp_path, env={})
     assert (rwa_refused["crypto_publish"], rwa_refused["rwa_publish"]) == ("commit", "withheld")
+    assert rwa_refused["perp_as_of"] == "2026-09-24"
     crypto_refused = record_run.build_row({}, {**STEPS_OK, "crypto_gate": "failure"},
                                           tmp_path, env={})
     assert (crypto_refused["crypto_publish"], crypto_refused["rwa_publish"]) == ("withheld", "commit")
+    # A date of a file that will not be committed is never recorded as published.
+    assert crypto_refused["perp_as_of"] == "withheld:2026-09-24"
+    # nightly.py failing after writing the RWA rows does not withhold them by itself.
+    crashed = record_run.build_row({}, {"nightly_step": "failure", "rwa_gate": "success"},
+                                   tmp_path, env={})
+    assert crashed["rwa_publish"] == "commit" and crashed["crypto_publish"] == "withheld"
 
 
 def test_a_run_that_never_reported_is_recorded_as_such(tmp_path):

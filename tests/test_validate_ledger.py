@@ -566,3 +566,22 @@ def test_the_run_manifest_header_is_checked(tmp_path):
     v.nightly.append_run_row({"date": "2026-09-25", "recorded_ts": "2026-09-24T12:00:00+00:00"},
                              tmp_path / "runs.csv")
     assert "dated after" in v.check_runs(tmp_path)[0]
+
+
+def test_a_bad_run_manifest_warns_and_never_fails_the_gate(ledger, monkeypatch, capsys):
+    (ledger / "runs.csv").write_text("date,outcome\r\n2026-09-24,completed\r\n")
+    monkeypatch.setattr("sys.argv", ["v", "--ledger", str(ledger), "--scope", "crypto"])
+    assert v.main() == 0
+    assert "WARN  runs.csv: header" in capsys.readouterr().out
+
+
+def test_a_corrupt_crypto_file_cannot_fail_the_rwa_scope(tmp_path, monkeypatch, capsys):
+    """The context print reads every artifact whatever the scope. A crypto-side parse
+    error there used to crash --scope rwa and withhold the RWA rows."""
+    _rwa_artifact(tmp_path)
+    _rwa_manifest(tmp_path, [{"date": "2026-09-01", "run_ts": "2026-09-01T21:29:18+00:00",
+                              "run_status": "COMPLETE", "promoted": 1}])
+    (tmp_path / "signals.csv").write_bytes(b"date,symbol\r\n\xff\xfe,\x80\r\n")
+    monkeypatch.setattr("sys.argv", ["v", "--ledger", str(tmp_path), "--scope", "rwa"])
+    assert v.main() == 0
+    assert "context:     not printed" in capsys.readouterr().out

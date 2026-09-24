@@ -242,9 +242,21 @@ def test_drawer_context_is_the_newest_night_and_its_modifier_is_the_applied_one(
               // A funding.json modifier the score did not apply must be named as such.
               const sym = STATE[0].sym;
               const cell = scoreModifierCell(sym, {score_modifier: perpReading(sym).applied === 1 ? 0.9 : 1.0});
-              return {asOf: PERPS_AS_OF, latest, stray, cell};
+              // A rewound row states the multiplier ITS recorded score applied.
+              const past = scoreModifierCell(sym, {score_modifier: 1.0},
+                                             {_rewound: true, _perpMult: 0.93, _date: "2026-09-20"});
+              const pastWords = scoreFundingSentence(sym, {_rewound: true, _perpMult: 0.93, _date: "2026-09-20"});
+              // A current transport with no rows is not "did not load".
+              const saved = [PERP_LOADED, PERP_DOC, PERP_WITHHELD];
+              PERP_LOADED = false; PERP_DOC = {as_of: latest, rows: {}}; PERP_WITHHELD = null;
+              const empty = perpReading(sym).state;
+              [PERP_LOADED, PERP_DOC, PERP_WITHHELD] = saved;
+              return {asOf: PERPS_AS_OF, latest, stray, cell, past, pastWords, empty};
             }""")
         finally:
             browser.close()
     assert o["asOf"] == o["latest"] and o["stray"] == [], o
     assert "not applied here" in o["cell"], o["cell"]
+    assert "×0.930" in o["past"] and "2026-09-20" in o["past"], o["past"]
+    assert "×0.930" in o["pastWords"] and "2026-09-20" in o["pastWords"]
+    assert o["empty"] == "withheld-empty"

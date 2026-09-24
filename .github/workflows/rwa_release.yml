@@ -61,10 +61,12 @@ jobs:
         run: python tests/test_rwa.py
 
       - name: Ledger integrity gate
-        # The same gate the nightly runs before its commit, over the ledger this run just
-        # wrote. It checks the RWA artifacts (PRE_EXECUTION stage, UNAVAILABLE execution,
-        # manifest and promotion invariants) alongside everything else.
-        run: python scripts/validate_ledger.py
+        # The RWA scope of the gate the nightly runs, over the ledger this run just wrote:
+        # the RWA artifacts (PRE_EXECUTION stage, UNAVAILABLE execution, manifest and
+        # promotion invariants). RWA scope only, because this workflow commits nothing
+        # else — an unscoped gate refused a keyed RWA release over a stale crypto
+        # artifact it neither wrote nor commits.
+        run: python scripts/validate_ledger.py --scope rwa
 
       - name: Commit RWA ledger
         run: |

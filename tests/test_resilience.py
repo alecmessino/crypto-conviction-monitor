@@ -134,7 +134,13 @@ def test_a_throttled_first_load_shows_the_recorded_board_and_recovers():
             page.clock.run_for(121000)
             page.wait_for_timeout(1500)
             still = page.evaluate("()=>document.querySelectorAll('#tbl-conv tbody tr.row').length")
-            # Live again: the fallback steps aside by itself.
+            # Choosing LIVE with no live board must not leave the recorded rows on screen
+            # under a LIVE label.
+            page.evaluate("()=>{ const b=document.querySelector('#rw-live'); if(b) b.click(); else setRewind(null); }")
+            forced = page.evaluate("""()=>({rows: document.querySelectorAll('#tbl-conv tbody tr.row').length,
+                                           text: document.querySelector('#tbl-conv tbody').innerText,
+                                           rewound: document.body.classList.contains('rewound')})""")
+            # Live again: the next success builds the live board.
             state["code"] = 200
             page.clock.run_for(121000)
             page.wait_for_function("()=>STATE.length>0 && REWIND_DATE==null", timeout=30000)
@@ -145,4 +151,6 @@ def test_a_throttled_first_load_shows_the_recorded_board_and_recovers():
     assert shown == last, f"showed {shown}, the last recorded night is {last}"
     assert rows > 0 and rewound, "the recorded board was not put up, or not labelled as one"
     assert still == rows, "a failed refresh overwrote the recorded board"
+    assert forced["rows"] == 0 and not forced["rewound"], forced
+    assert "No live board" in forced["text"], forced["text"]
     assert live_rows > 0

@@ -12,7 +12,9 @@ permissions:
 # One ledger writer at a time. The RWA release workflow shares this group, and a manual
 # dispatch landing while the schedule is mid-run would otherwise race it to the same
 # files: whichever pushed second was rejected, and a rejected push is a night lost with
-# the runner. Queued, never cancelled — cancelling a writer is the same loss.
+# the runner. cancel-in-progress is false, so a RUNNING writer is never cancelled.
+# GitHub keeps at most one pending run per group: a third arrival replaces the queued
+# one, which only drops a duplicate dispatch, never a run already writing.
 concurrency:
   group: ledger-writer
   cancel-in-progress: false
@@ -56,6 +58,10 @@ jobs:
         # by scheduling a session to look fails in the obvious way — the schedule lives
         # in the session and the session ends — so the job records them itself. Runs
         # after the snapshot and before the gates; appends one row per venue per night.
+        # continue-on-error: an observation is not a gate. A malformed row here used to
+        # skip every gate and both commits, losing the crypto ledger and RWA rows no key
+        # can re-fetch, over a diagnostic.
+        continue-on-error: true
         run: python scripts/observe.py
 
       - name: RWA ledger gate
@@ -67,6 +73,9 @@ jobs:
         # turns the run red at the end, after the crypto ledger is safe.
         id: rwa_gate
         continue-on-error: true
+        # always(): nightly.py writes the RWA rows last and can fail after they are on
+        # disk; they are gated on their own evidence, not on the crypto run's outcome.
+        if: always()
         run: python scripts/validate_ledger.py --scope rwa
 
       - name: Parity gate (frontend <-> backend must agree)
@@ -143,7 +152,7 @@ jobs:
           # index.legacy.csv is included so that if the writer ever has to quarantine a
           # mismatched file again, the evidence is committed rather than lost with the
           # runner. --ignore-unmatch: it does not exist on a healthy run.
-          # parity.json is the real result of the gate that ran two steps above, not a
+          # parity.json is the real result of the parity gate that ran above, not a
           # badge. The terminal's diagnostic bar renders it, and a hardcoded status
           # there would be exactly the kind of ornamental "PASS" this project has
           # already had to remove once.
@@ -248,7 +257,7 @@ jobs:
               if git push; then break; fi
               if [ "$attempt" = 4 ]; then echo "::error::push failed after 4 attempts"; exit 1; fi
               sleep $((attempt * 5))
-              git pull --rebase origin "${GITHUB_REF_NAME}"
+              git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
             done
           fi
           # The allowlist above is explicit on purpose, which means a new ledger artifact
@@ -299,14 +308,14 @@ jobs:
             if git push; then break; fi
             if [ "$attempt" = 4 ]; then echo "::error::push failed after 4 attempts"; exit 1; fi
             sleep $((attempt * 5))
-            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
           done
 
       - name: Cryptometer smoke test
         # Every response shape in cryptometer.py came from documentation, not from a live
         # authenticated call — the research that specified the client had no key. This is
-        # what turns those shapes into facts, and it runs BEFORE the gates so a shape
-        # mismatch is visible in the log even on a night the ledger commits fine.
+        # what turns those shapes into facts; its log is where a shape mismatch shows up
+        # even on a night the ledger commits fine.
         #
         # continue-on-error because this feed is optional by design: an unset secret, an
         # expired plan or a paid endpoint on a free tier must never fail the job that

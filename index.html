@@ -1965,6 +1965,17 @@ let FTH = {overheated_apr:40, elevated_apr:12, neutral_floor_apr:0, squeeze_apr:
            overheated_price_chg:10, squeeze_rsi:45, squeeze_rsi_full:60,
            max_penalty:0.85, max_boost:1.15, unconfirmed_weight:0.5,
            squeeze_saturation_apr:-40};
+/* Every ledger request is bounded. A hung one used to hold load() open, and with the
+   in-flight guard that meant no further refresh at all for that tab. */
+function timedfetch(ledgerPath, opts){
+  // Local static files only. CoinGecko goes through cgJson (and the markets call in
+  // load()), which own the shared 429 backoff; this helper must never become a way round it.
+  if(!/^ledger\/[\w.-]+$/.test(String(ledgerPath)))
+    return Promise.reject(new Error("timedfetch is for ledger/ artifacts only: " + ledgerPath));
+  const o = Object.assign({}, opts || {});
+  if(typeof AbortSignal !== "undefined" && AbortSignal.timeout) o.signal = AbortSignal.timeout(20000);
+  return fetch(ledgerPath, o);
+}
 async function loadLedger(){
   // signals.json is fetched on its own. It used to `return` out of this whole function
   // when it failed to load, which silently skipped perp.json and every artifact below:
@@ -1974,7 +1985,7 @@ async function loadLedger(){
   // the history empty and the freshness list says ABSENT.
   let j = null;
   try{
-    const r=await fetch("ledger/signals.json",{cache:"no-cache"});
+    const r=await timedfetch("ledger/signals.json",{cache:"no-cache"});
     if(r.ok) j = await r.json();
   }catch(e){ /* absent or unparseable — handled below */ }
   if(j && Array.isArray(j.rows)) SIGNALS_DOC_LOADED = true;
@@ -2011,13 +2022,13 @@ async function loadLedger(){
     // out anywhere above the block they delimit. `extract_port()` takes the FIRST
     // occurrence of the opening one, so a mention of it in prose up here silently moves
     // the slice and hands node a fragment of a function.
-    // UTC, because the ledger's dates are: the nightly stamps `date.today()` on a
-    // runner that runs at 06:17 UTC, and comparing those against a local calendar day
+    // UTC, because the ledger's dates are: the nightly stamps the UTC date, and
+    // comparing those against a local calendar day
     // would make the overlay's freshness depend on where the reader is sitting.
     const _today = new Date().toISOString().slice(0, 10);
     let _doc = null;
     try{
-      const rp = await fetch("ledger/perp.json", {cache: "no-cache"});
+      const rp = await timedfetch("ledger/perp.json", {cache: "no-cache"});
       if(rp.ok) _doc = await rp.json();
     }catch(e){ /* absent — the overlay is withheld below, and the board says so */ }
     PERP_DOC = _doc;
@@ -2057,30 +2068,30 @@ async function loadLedger(){
     else { dune.className="neu"; dune.textContent="OFF"; }
   }catch(e){ /* ledger absent — Module B stays OFF */ }
   try{
-    const ri=await fetch("ledger/index.json",{cache:"no-cache"});
+    const ri=await timedfetch("ledger/index.json",{cache:"no-cache"});
     if(ri.ok) INDEX = await ri.json();
   }catch(e){ /* index absent — track record pending */ }
   try{
-    const rb=await fetch("ledger/market_breadth.json",{cache:"no-cache"});
+    const rb=await timedfetch("ledger/market_breadth.json",{cache:"no-cache"});
     if(rb.ok){ BREADTH = await rb.json(); CHOP = BREADTH.chop || {}; }
   }catch(e){ /* breadth absent — change feed pending */ }
   // AUDIT-CLOSURE. The FORWARD sample's own study. Fetched so the page can show that a
   // second, wider, shallower IC study exists and has measured nothing yet — a reader
   // shown only the populated LEGACY matrix would reasonably assume it is the only one.
   try{
-    const rw=await fetch("ledger/walkforward.json",{cache:"no-cache"});
+    const rw=await timedfetch("ledger/walkforward.json",{cache:"no-cache"});
     if(rw.ok) WALKFWD = await rw.json();
   }catch(e){ /* absent — the panel says so rather than implying there is nothing to say */ }
   try{
-    const rm=await fetch("ledger/monitor.json",{cache:"no-cache"});
+    const rm=await timedfetch("ledger/monitor.json",{cache:"no-cache"});
     if(rm.ok) MONITOR = await rm.json();
   }catch(e){ /* monitor absent — the panel says so rather than rendering defaults */ }
   try{
-    const rp=await fetch("ledger/parity.json",{cache:"no-cache"});
+    const rp=await timedfetch("ledger/parity.json",{cache:"no-cache"});
     if(rp.ok) PARITY = await rp.json();
   }catch(e){ /* parity artifact absent — the bar reports unknown, never PASS */ }
   try{
-    const rf=await fetch("ledger/funding.json",{cache:"no-cache"});
+    const rf=await timedfetch("ledger/funding.json",{cache:"no-cache"});
     if(rf.ok){
       FUNDING = await rf.json();
       // Rebuilt, not merged: a symbol that left tonight's artifact must not keep last
@@ -2094,7 +2105,7 @@ async function loadLedger(){
     }
   }catch(e){ /* funding artifact absent — Module E says so rather than rendering zeros */ }
   try{
-    const rx=await fetch("ledger/market_intel.json",{cache:"no-cache"});
+    const rx=await timedfetch("ledger/market_intel.json",{cache:"no-cache"});
     if(rx.ok){
       INTEL = await rx.json();
       INTEL_TH = INTEL.thresholds || {};
@@ -3380,7 +3391,11 @@ function tfDelta(t){ const v=t[TF_FIELD[TF]||"chg"]; return (v==null||isNaN(v))?
 /* What the SCORE did with funding for this symbol, in words, from the same perpReading()
    the board used. A missing, refused or withheld reading is said to be one — never a
    "neutral reading". */
-function scoreFundingSentence(sym){
+function scoreFundingSentence(sym, t){
+  if(t && t._rewound)
+    return t._perpMult!=null
+      ? `The score recorded on ${t._date||"that night"} applied a funding multiplier of ×${t._perpMult.toFixed(3)}.`
+      : `No funding multiplier was recorded with this row.`;
   const r = perpReading(sym);
   return r.value != null
     ? `The score applied a funding multiplier of ×${r.value.toFixed(3)} from ledger/perp.json.`
@@ -3391,7 +3406,10 @@ function scoreFundingSentence(sym){
    whatever perp.json delivered. On a night the transport is stale or withheld the two
    differ, and printing the first under "Score modifier" would state a multiplier the
    score did not use. So the applied one is shown, and a disagreement is named. */
-function scoreModifierCell(sym, f){
+function scoreModifierCell(sym, f, t){
+  if(t && t._rewound)
+    return t._perpMult!=null ? `×${t._perpMult.toFixed(3)} <span class="muted">recorded ${esc0(t._date||"")}</span>`
+                             : `<span class="muted">not recorded with this row</span>`;
   const r = perpReading(sym);
   const rec = f && f.score_modifier != null ? f.score_modifier : null;
   const applied = r.value != null ? `×${r.value.toFixed(3)}`
@@ -3409,7 +3427,7 @@ function perpBlock(t){
   if(!has && !(c&&c.chop!=null))
     return `<div class="note" style="margin-top:12px">No perpetual market recorded for
       ${esc0(t.sym)} on ${esc0(PERPS_AS_OF||"the latest night")}, and no regime reading yet.
-      ${esc0(scoreFundingSentence(t.sym))}</div>`;
+      ${esc0(scoreFundingSentence(t.sym, t))}</div>`;
   const usd=v=>v==null?'<span class="muted">—</span>':fmtUsd(v);
   const pct=(v,d)=>v==null?'<span class="muted">—</span>':
     `<span class="${v>0?'pos':v<0?'neg':'neu'}">${v>0?'+':''}${v.toFixed(d==null?1:d)}%</span>`;
@@ -3426,7 +3444,7 @@ function perpBlock(t){
       f.apr_trail>0?"+":""}${f.apr_trail.toFixed(1)}% <span class="muted" style="font-size:9px">over ${
       f.trail_n} night${f.trail_n===1?"":"s"}${f.pos_share!=null?`, positive on ${
       Math.round(f.pos_share*f.trail_n)}`:""}</span></b></div>`:""}
-    <div class="kv"><span>Score modifier</span><b class="num">${scoreModifierCell(t.sym, f)}</b></div>
+    <div class="kv"><span>Score modifier</span><b class="num">${scoreModifierCell(t.sym, f, t)}</b></div>
     ${f.severity!=null&&f.severity!==0?`<div class="kv"><span>Severity</span><b class="num" title="How far past the inert funding band this carry sits, 0 to 1. Published beside the multiplier because two assets can reach the same 0.93 from different places — extreme carry barely confirmed, or moderate carry fully confirmed.">${Math.abs(f.severity).toFixed(2)}</b></div>`:""}
     <div class="note" style="padding:6px 0 2px">${esc0(f.modifier_reason)}.</div>`:""}
     <div class="kv"><span>Open interest</span><b class="num">${usd(p&&p.oi)}</b></div>
@@ -4244,10 +4262,12 @@ const PERP_STATE_TEXT = {
   "rejected": "recorded value refused — outside the funding model's envelope",
   "withheld-stale": "overlay withheld — ledger/perp.json is older than the freshness limit",
   "withheld-absent": "overlay withheld — ledger/perp.json did not load",
+  "withheld-empty": "ledger/perp.json is current but carries no rows",
 };
 function perpReading(sym){
   if(!PERP_LOADED)
-    return {state: PERP_WITHHELD==="stale" ? "withheld-stale" : "withheld-absent",
+    return {state: PERP_WITHHELD==="stale" ? "withheld-stale"
+                 : (PERP_DOC && !PERP_WITHHELD) ? "withheld-empty" : "withheld-absent",
             value: null, applied: 1};
   const state = PERP_STATE[sym] || (PERP[sym]==null ? "no-row" : "current");
   return {state, value: state==="current" ? PERP[sym] : null, applied: PERP[sym] || 1};
@@ -4697,14 +4717,19 @@ function openDrawer(sym, date){
            + (unlocks!=null ? ` · unlocks ${fmtUsd(unlocks)}` : "")
            + ` · observed ${esc0(obsDate)}`;
   }
-  let perpCls="neu", perpTxt="null (perp off)";
+  // The funding multiplier the RECORDED score for this snapshot applied (signals.csv
+  // perp_mult) — not LAVL, and not tonight's reading. A recorded 1.00 with no funding
+  // reading beside it is a neutral by absence and is labelled as one.
+  let perpCls="neu", perpTxt="not recorded for this snapshot";
   const perpVal = lb ? numOrNull(lb.perp_mult) : null;
   if(perpVal!=null){
     const p=perpVal;
-    // 0.85 penalized (overheated longs), 1.15 rewarded (short capitulation), 1.0 neutral
     perpCls = p<1 ? "neg" : p>1 ? "pos" : "neu";
-    perpTxt = (p<1 ? "OVERHEATED LONGS" : p>1 ? "SHORT CAPITULATION" : "NEUTRAL")
-            + " ("+p.toFixed(2)+")";
+    const noReading = p===1 && numOrNull(lb.funding_apr)==null;
+    perpTxt = noReading ? "×1.00 by absence — no funding reading recorded"
+            : (p<1 ? "OVERHEATED LONGS" : p>1 ? "SHORT CAPITULATION" : "INERT BAND")
+              + " (×"+p.toFixed(3)+")";
+    perpTxt += ` · ${esc0(obsDate)}`;
   }
   // RISK, in the drawer as well as the sizing panel, because the drawer is where a
   // single name gets looked at properly and "at what price was I wrong" belongs beside
@@ -4753,7 +4778,7 @@ function openDrawer(sym, date){
     <div class="kv"><span>Signal</span><b>${sigBadge(t)}</b></div>
     <div class="kv"><span>Tier</span><b><span class="tier ${t.tier}">${t.tier}</span></b></div>
     <div class="kv"><span>Module B ERA</span><b id="dw-era" class="${eraCls}">${eraTxt}</b></div>
-    <div class="kv"><span>LAVL Perp</span><b id="dw-perp" class="${perpCls}">${perpTxt}</b></div>
+    <div class="kv"><span>Funding × (recorded)</span><b id="dw-perp" class="${perpCls}">${perpTxt}</b></div>
     ${perpBlock(t)}
     <div style="margin-top:14px" class="muted">${led}</div>
     <div class="note">Price trend shows verified 7-day history when available; otherwise an indicative 24-hour trajectory derived from the daily change.</div>${risk}${attr}${rowTipNotes(t.sym)}`;
@@ -7827,6 +7852,7 @@ function rowToState(r){
     // — which is how a historical board ends up asserting a carry that did not exist
     // on the day it claims to show.
     _fundApr:num("funding_apr"), _fundRegime:r.funding_regime||null,
+    _perpMult:num("perp_mult"), _date:r.date||null,
     _strategy:r.strategy||null, _adx:num("adx"), _adxBars:num("adx_bars")
   };
 }
@@ -7851,13 +7877,21 @@ function setRewind(d){
   if(live){
     RENDER_ROWS = null;
     if(STATE.length) withFocusKept(()=>renderTables());
+    else {
+      // LIVE chosen with no live board to show (the live fetch has not succeeded). The
+      // recorded rows the fallback put up must not stay on screen under a LIVE label.
+      const tb=$("#tbl-conv tbody");
+      if(tb) tb.innerHTML=`<tr><td colspan="10" class="err">No live board: the live price
+        fetch has not succeeded yet (${esc0((FEED&&FEED.detail)||"pending")}). Scrub the
+        rewind back to a recorded night to see the last published board.</td></tr>`;
+    }
   } else {
     RENDER_ROWS = rewindRows(d).map(rowToState);
     if(RENDER_ROWS.length) withFocusKept(()=>renderTables());
   }
   const cm=$("#cm-note");
   if(cm) cm.textContent = live
-    ? "top 10 · scroll · click a row"
+    ? (STATE.length ? "top 10 · scroll · click a row" : "no live board yet")
     : `recorded board for ${d} — ${(LEDGER_BY_DATE[d]||[]).length} rows from the ledger`;
 }
 
@@ -7925,7 +7959,7 @@ function signalsFreshness(doc, todayUtc){
 
 // Which panels render from which artifact. The chip goes immediately before the host.
 const FRESH_HOSTS = {
-  "signals.json":        ["tbl-conv"],
+  "signals.json":        ["rewind"],
   "market_breadth.json": ["breadth", "edge", "persist", "ic-matrix", "health"],
   "walkforward.json":    ["ic-matrix"],
   "monitor.json":        ["monitor"],
@@ -7957,6 +7991,9 @@ function computeFreshness(){
 function freshnessText(f){
   const where = "ledger/" + f.file;
   if(f.state === "ABSENT") return `${where} did not load — this panel has no recorded data behind it`;
+  if(f.file === "signals.json")
+    return `${where}'s newest recorded night is ${f.date}, more than a night behind the UTC `
+         + `day ${f.ref} — the recorded history and the rewind stop there; the live board is unaffected`;
   if(f.file === "parity.json")
     return `${where} was taken under specification ${f.date||"?"}, not the ledger's ${f.ref||"?"}`;
   if(!f.date) return `${where} ${f.why||"carries no readable date"} — treated as stale`;
@@ -8073,7 +8110,7 @@ async function load(){
     // Dated from the payload itself, before anything is rendered from it.
     FEED = feedProvenance(raw, Date.now());
     renderFeedBanner();
-    // build() reads PERP for the LAVL leverage multiplier, so the ledger has to be in
+    // build() reads PERP for the funding multiplier (RiskMult_perp), so the ledger has to be in
     // before conviction is computed — not merely started. Whichever request won the
     // race used to decide whether the overlay applied at all: a cold load had PERP
     // empty and every multiplier 1.0, a warm one had it populated, and the board
@@ -8112,7 +8149,7 @@ async function load(){
                 than applied stale`
              : `<code>ledger/perp.json</code> did not load`;
            $("#tbl-conv").insertAdjacentHTML("beforebegin",
-             `<div class="err" id="perp-warn" style="padding:6px 12px">Leverage overlay
+             `<div class="err" id="perp-warn" style="padding:6px 12px">Funding overlay
               unavailable — ${why}, so every RiskMult_perp defaults to 1.0 and this
               ranking will not match the published board. Scores shown are unadjusted,
               not wrong-but-close.</div>`); }
@@ -8400,7 +8437,7 @@ let RWA_REQUESTED = false;
 function ensureRwa(){
   if(RWA_REQUESTED) return;
   RWA_REQUESTED = true; LAST_RWA = Date.now();
-  loadRwa().then(()=>{ renderRwa(); safeRender(()=>markFreshness()); });
+  loadRwa().then(()=>{ safeRender(()=>renderRwa()); safeRender(()=>markFreshness()); });
 }
 const rwEl=id=>document.getElementById(id);
 const rwNum=v=>(v==null||v===""||isNaN(parseFloat(v)))?null:parseFloat(v);
@@ -8436,7 +8473,7 @@ const rwEsc=t=>String(t==null?"":t).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt
 
 async function loadRwa(){
   try{
-    const r=await fetch("ledger/rwa.json",{cache:"no-cache"});
+    const r=await timedfetch("ledger/rwa.json",{cache:"no-cache"});
     if(r.ok) RWA = await r.json();
   }catch(e){ /* artifact absent — every panel renders its pending state, never zeros */ }
 }
@@ -8887,13 +8924,15 @@ function tick(){
   LAST_LOAD=Date.now(); LOAD_IN_FLIGHT=true;
   load().finally(()=>{ LOAD_IN_FLIGHT=false; });
 }
-load(); LAST_LOAD=Date.now(); setInterval(tick, REFRESH_MS);
+LAST_LOAD=Date.now(); LOAD_IN_FLIGHT=true;
+load().finally(()=>{ LOAD_IN_FLIGHT=false; });
+setInterval(tick, REFRESH_MS);
 /* The RWA artifact is a committed static file like the others and owes nothing to a live
    CoinGecko call, so a rate-limited visitor keeps the whole workspace. It is fetched on
    first reveal (ensureRwa) and then re-fetched on the same 120s timer. */
 function tickRwa(){
   if(document.hidden || !RWA_REQUESTED) return;
-  LAST_RWA=Date.now(); loadRwa().then(()=>{ withFocusKept(()=>renderRwa()); safeRender(()=>markFreshness()); });
+  LAST_RWA=Date.now(); loadRwa().then(()=>{ safeRender(()=>withFocusKept(()=>renderRwa())); safeRender(()=>markFreshness()); });
 }
 setInterval(tickRwa, REFRESH_MS);
 document.addEventListener("visibilitychange",()=>{

@@ -77,8 +77,18 @@ def build_row(info: dict, steps: dict, ledger: Path, env=None) -> dict:
     # read. A push can still fail after this; the next run's row and git history say so.
     crypto_ok = all(steps.get(k) == "success" for k in CRYPTO_STEPS)
     row["crypto_publish"] = "commit" if crypto_ok else "withheld"
-    row["rwa_publish"] = ("commit" if steps.get("rwa_gate") == "success"
-                          and steps.get("nightly_step") == "success" else "withheld")
+    # The RWA rows are gated on their own evidence (the gate runs even when nightly.py
+    # failed after writing them), so only their own gate decides.
+    rwa_ok = steps.get("rwa_gate") == "success"
+    row["rwa_publish"] = "commit" if rwa_ok else "withheld"
+    # The dates are read from the files on disk, BEFORE the commit steps restore or skip
+    # anything. A date belonging to a file that will not be committed is marked so, rather
+    # than recorded as though it had been published.
+    for k in ("signals_latest", "xsec_latest", "perp_as_of", "walkforward_to"):
+        if not crypto_ok and row.get(k):
+            row[k] = f"withheld:{row[k]}"
+    if not rwa_ok and row.get("rwa_date"):
+        row["rwa_date"] = f"withheld:{row['rwa_date']}"
     return row
 
 
