@@ -1512,7 +1512,7 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
             because no free issuance feed exists for these tokens. So this is published as a tokenization impulse and
             never as a mint or a redemption.
             <code>/rwas/{id}/market_chart</code> answers HTTP 401 below the Basic plan, so this series has no history
-            anywhere except <code>ledger/rwa_flow.csv</code>: a night that was not recorded is gone, and no key bought
+            anywhere except <code>ledger/rwa/flow/</code>: a night that was not recorded is gone, and no key bought
             later recovers it. That is why the column reads <b>accumulating</b> rather than being backfilled.</div></details>
         </div>
         <div data-rwapane="disloc" hidden>
@@ -8793,7 +8793,7 @@ function renderRwaIssuance(){
     +'lifecycle tracking — is explicitly out of scope for this build. Nothing is '
     +'estimated in its place.</div>'
     +'<div class="note" style="padding:6px 10px">What it will read is already being '
-    +'recorded. <code>ledger/rwa_wrappers.csv</code> and <code>ledger/rwa_issuers.csv</code> '
+    +'recorded. <code>ledger/rwa/wrappers/</code> and <code>ledger/rwa_issuers.csv</code> '
     +'accumulate one row per token and per issuer per night, so the diff this panel needs '
     +'will have history behind it on the day it is built rather than starting from zero. '
     +'Tonight\'s graph: <b>'+(g.wrappers_n||0)+'</b> wrapper(s) across <b>'

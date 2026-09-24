@@ -150,6 +150,49 @@ def test_every_ledger_artifact_is_staged_by_the_nightly_commit():
     assert not missing, f"written under ledger/ but never committed by the nightly: {missing}"
 
 
+def test_the_rwa_rollback_reaches_nested_shards(tmp_path):
+    """The RWA gate's rollback and the stage guard were written for flat ledger/rwa_*
+    files. The flow, wrapper and observation ledgers are now month shards under
+    ledger/rwa/<kind>/. Executed against a real git repository rather than read: a
+    tracked shard modified tonight is restored, a new month's untracked shard is removed,
+    and the guard that keeps a refused-crypto night's commit to RWA files lets a nested
+    shard through and nothing else."""
+    import re
+    import shutil
+    import subprocess
+    if not shutil.which("git"):
+        pytest.skip("git is not installed")
+    wf = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+    restore = re.search(r"^\s*(git ls-files -z -- 'ledger/rwa\*' \| xargs .+)$", wf, re.M).group(1)
+    remove = re.search(r"^\s*(git ls-files -z --others -- 'ledger/rwa\*' \| xargs .+)$", wf, re.M).group(1)
+    guard = re.search(r"(git diff --cached --name-only \| grep -v '\^ledger/rwa'[^;\n]*?grep -q \.)", wf).group(1)
+
+    def sh(cmd):
+        return subprocess.run(cmd, shell=True, cwd=tmp_path, capture_output=True, text=True,
+                              env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+                                   "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"})
+    sh("git init -q .")
+    shard = tmp_path / "ledger" / "rwa" / "flow" / "2026-09.csv"
+    shard.parent.mkdir(parents=True)
+    shard.write_bytes(b"date,underlying_id\r\n2026-09-30,a\r\n")
+    (tmp_path / "ledger" / "signals.csv").write_text("date\n")
+    assert sh("git add -A && git commit -q -m base").returncode == 0
+    committed = shard.read_bytes()
+    shard.write_bytes(committed + b"2026-09-30,b\r\n")                  # tonight's refused rows
+    new_month = shard.with_name("2026-10.csv")
+    new_month.write_bytes(b"date,underlying_id\r\n2026-10-01,a\r\n")  # and a new month's shard
+    assert sh(restore).returncode == 0 and sh(remove).returncode == 0
+    assert shard.read_bytes() == committed, "the rollback did not restore a nested shard"
+    assert not new_month.exists(), "the rollback left a new month's untracked shard behind"
+    # The guard: a staged nested shard is RWA; a staged crypto file is not.
+    new_month.write_bytes(b"date,underlying_id\r\n2026-10-01,a\r\n")
+    sh("git add ledger/rwa")
+    assert sh(guard).returncode != 0, "the guard refused a nested RWA shard"
+    (tmp_path / "ledger" / "signals.csv").write_text("date\n2026-10-01\n")
+    sh("git add ledger/signals.csv")
+    assert sh(guard).returncode == 0, "the guard let a crypto file through"
+
+
 def test_the_nightly_fails_loudly_on_an_unstaged_ledger_write():
     """The allowlist test above covers files that exist in the checkout. A brand-new
     artifact does not exist here until its first night, so the workflow also checks the

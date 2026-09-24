@@ -289,7 +289,7 @@ book exposure = Σ over lines with a recorded ATR14</div>
 
   <h2>7 · Tokenized RWA — a separate model</h2>
   <div class="glass">
-    <p><b>Nothing in this section touches the conviction score above it, and nothing above it touches this.</b> They share a terminal and a ledger directory; they do not share a number, a threshold, a label or a specification hash. That separation is the product decision, not an implementation detail, and it is enforced rather than asserted: <code>ledger/rwa_flow.csv</code> is validated for the presence of a crypto tier in its label column, and the test suite fails if the two vocabularies ever intersect.</p>
+    <p><b>Nothing in this section touches the conviction score above it, and nothing above it touches this.</b> They share a terminal and a ledger directory; they do not share a number, a threshold, a label or a specification hash. That separation is the product decision, not an implementation detail, and it is enforced rather than asserted: the flow ledger (<code>ledger/rwa/flow/</code>) is validated for the presence of a crypto tier in its label column, and the test suite fails if the two vocabularies ever intersect.</p>
     <p>The reason is that the crypto model measures things a tokenized share does not have. Turnover against an inflatable float, emission drag against network adoption, perpetual funding as a positioning read — none of them means anything for a token whose entire job is to be worth exactly one share of Nvidia. The crypto model already refuses pegged metals for this reason; XAUT and PAXG are excluded from its scored universe. Extending it to 643 tokenized equities would be extending a refusal.</p>
   </div>
 
@@ -327,7 +327,7 @@ book exposure = Σ over lines with a recorded ATR14</div>
         <tr><td>P +8% / MC &minus;3%</td><td>&minus;10.19%</td><td><span class="tag c">REDEMPTION</span> implied supply contracted while price rose</td></tr>
       </tbody>
     </table>
-    <p><b>Two consequences, both load-bearing.</b> Because it is a supply series it is cumulative and path-dependent, so a missing night breaks the chain: every row records <code>span_days</code>, the supply index compounds the raw residual across whatever gap actually occurred, and the <i>label</i> reads the geometric per-day rate so a pipeline outage cannot manufacture a signal. And because <code>/rwas/{id}/market_chart</code> answers HTTP 401 below CoinGecko's Basic plan, this series has no history anywhere except <code>ledger/rwa_flow.csv</code>. A night that was not recorded is gone — not later, not with a key bought afterwards, not at any price. It is the only artifact in that directory that cannot be rebuilt from a fresh fetch.</p>
+    <p><b>Two consequences, both load-bearing.</b> Because it is a supply series it is cumulative and path-dependent, so a missing night breaks the chain: every row records <code>span_days</code>, the supply index compounds the raw residual across whatever gap actually occurred, and the <i>label</i> reads the geometric per-day rate so a pipeline outage cannot manufacture a signal. And because <code>/rwas/{id}/market_chart</code> answers HTTP 401 below CoinGecko's Basic plan, this series has no history anywhere except <code>ledger/rwa/flow/</code> — one file per calendar month, of which only the current one is ever written; a closed month is never reopened. A night that was not recorded is gone — not later, not with a key bought afterwards, not at any price. It is the only artifact in that directory that cannot be rebuilt from a fresh fetch.</p>
   </div>
 
   <h3>7.3 · The wrapper graph, and why the join is in the specification hash</h3>
@@ -431,7 +431,7 @@ book exposure = Σ over lines with a recorded ATR14</div>
     <table>
       <thead><tr><th>Clause</th><th>Mechanism</th></tr></thead>
       <tbody>
-        <tr><td>Raw before derived</td><td><code>rwa_observed.csv</code> holds the vendor's own fields and its own <code>last_updated</code>, written before anything is calculated. No derived column may appear in it.</td></tr>
+        <tr><td>Raw before derived</td><td><code>ledger/rwa/observed/</code> holds the vendor's own fields and its own <code>last_updated</code>, written before anything is calculated. No derived column may appear in it.</td></tr>
         <tr><td>Completeness manifest</td><td><code>rwa_runs.csv</code> records, per run: what was asked for, what came back per feed, coverage, and whether it was promoted.</td></tr>
         <tr><td>Atomic publication</td><td>Temp file plus one <code>os.replace</code>. A killed process cannot leave a truncated ledger that still parses.</td></tr>
         <tr><td>Idempotent re-runs</td><td>Trailing reads exclude today, so a second run compares against yesterday rather than against itself. Equal completeness replaces; worse is refused.</td></tr>

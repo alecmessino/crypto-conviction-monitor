@@ -106,6 +106,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1978,8 +1979,12 @@ def offhours_reading(row: dict, wrappers_live: list, dispersion_bps,
 # ---------------------------------------------------------------------------
 # ledger
 # ---------------------------------------------------------------------------
+# The three growing ledgers — flow, wrappers, observed — are month-sharded under
+# ledger/rwa/<kind>/YYYY-MM.csv (docs/DESIGN-RWA-SHARDING.md). These two names are the
+# LEGACY monoliths they were migrated from on 2026-09-24; read_ledger() still reads one
+# if it exists, so a checkout that predates the migration reads its full history.
 RWA_FLOW_CSV = LEDGER_DIR / "rwa_flow.csv"
-RWA_ISSUERS_CSV = LEDGER_DIR / "rwa_issuers.csv"
+RWA_ISSUERS_CSV = LEDGER_DIR / "rwa_issuers.csv"     # whole, not sharded: ~1 MB a year
 RWA_WRAPPERS_CSV = LEDGER_DIR / "rwa_wrappers.csv"
 RWA_JSON = LEDGER_DIR / "rwa.json"
 
@@ -2047,6 +2052,40 @@ RWA_RUN_FIELDS = [
     "feed_list", "feed_markets", "feed_issuers", "feed_wrappers",
     "coverage_pct", "promoted", "note",
 ]
+
+# ---------------------------------------------------------------------------
+# month shards — docs/DESIGN-RWA-SHARDING.md
+# ---------------------------------------------------------------------------
+# One file per calendar month per ledger, because the wrappers monolith reaches GitHub's
+# 50 MiB warning around 2027-02 and its 100 MiB hard reject around 2027-07 at a constant
+# rate, sooner if the listing keeps growing. A month shard is ~10 MB today.
+#
+# The write rule is the monolith's, restricted to one file: tonight's rows go into
+# rwa/<kind>/{today[:7]}.csv through append_daily_rows (keep every other date, replace
+# today's, CRLF, header first, atomic). `today` is the run's UTC date, so a run never
+# writes a past month and a closed shard is never opened again.
+#
+# The read rule is the union: the legacy monolith if one still exists, then every shard
+# in filename order (YYYY-MM sorts chronologically as text). Because a row's shard is a
+# function of its own date and the monolith was date-nondecreasing, header + the shard
+# bodies in order IS the monolith, byte for byte — measured on the real files and
+# asserted by tests/test_rwa.py.
+#
+# None of these helpers is in RWA_SPEC_FUNCTIONS: storage is not the model, and moving
+# where a row lives must not move spec_hash.
+RWA_SHARD_ROOT = "rwa"
+RWA_SHARD_SCHEMA_VERSION = 1
+RWA_SHARDED = {                    # kind -> (fields, row key, legacy monolith name)
+    "flow":     (RWA_FLOW_FIELDS,     "underlying_id", "rwa_flow.csv"),
+    "wrappers": (RWA_WRAPPER_FIELDS,  "token_id",      "rwa_wrappers.csv"),
+    "observed": (RWA_OBSERVED_FIELDS, "underlying_id", "rwa_observed.csv"),
+}
+# rwa.json's `written` keeps the logical file names it always published.
+RWA_LEGACY_KIND = {legacy: kind for kind, (_, _, legacy) in RWA_SHARDED.items()}
+RWA_SHARD_RE = re.compile(r"^\d{4}-\d{2}\.csv$")
+# A warning, not a failure: the point at which monthly granularity is running out and
+# the path function should move to daily files (design §1.3).
+RWA_SHARD_WARN_BYTES = 25_000_000
 
 
 def _atomic_write(path: Path, text: str) -> None:
@@ -2180,6 +2219,105 @@ def read_rows(path: Path, fields: list) -> list:
         return [{k: r.get(k) for k in fields} for r in csv.DictReader(f)]
 
 
+def rwa_shard_dir(ledger_dir: Path, kind: str) -> Path:
+    if kind not in RWA_SHARDED:
+        raise ValueError(f"not a sharded RWA ledger: {kind!r}")
+    return Path(ledger_dir) / RWA_SHARD_ROOT / kind
+
+
+def rwa_shard_path(ledger_dir: Path, kind: str, day: str) -> Path:
+    """The month shard a row dated ``day`` lives in: ledger/rwa/<kind>/YYYY-MM.csv.
+
+    Refuses anything but an ISO date, as nightly.xsec_shard_path does: a malformed date
+    would otherwise name a shard like "not-a-.csv" and the row would be unreachable by
+    any reader that takes the filename as the month.
+    """
+    # The pattern as well as the parse: strptime accepts "2026-9-1", which would name a
+    # shard "2026-9-.csv".
+    try:
+        ok = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(day)))
+        datetime.strptime(str(day), "%Y-%m-%d")
+    except ValueError:
+        ok = False
+    if not ok:
+        raise ValueError(f"not an ISO date: {day!r}")
+    return rwa_shard_dir(ledger_dir, kind) / f"{day[:7]}.csv"
+
+
+def rwa_shard_files(ledger_dir: Path, kind: str) -> list:
+    """Every month shard of one ledger, in chronological (= filename) order."""
+    d = rwa_shard_dir(ledger_dir, kind)
+    if not d.is_dir():
+        return []
+    return sorted(p for p in d.iterdir() if p.is_file() and RWA_SHARD_RE.match(p.name))
+
+
+def read_ledger(ledger_dir: Path, kind: str) -> list:
+    """Every recorded row of one sharded RWA ledger, in recorded order.
+
+    The legacy monolith first, if it still exists (a checkout from before the
+    migration, or the moment between merging this code and running the migration),
+    then each shard in filename order. Each row is projected onto the CURRENT fields; a
+    column a shard's header predates reads "" — what the monolith held for it after its
+    next rewrite — so a closed shard with an older header parses to the same values.
+    An overlap between the two layouts is not resolved here: it reads as a duplicate
+    (date, key), which is exactly what scripts/validate_ledger.py fails.
+    """
+    fields, _, legacy = RWA_SHARDED[kind]
+    out = []
+    for path in [Path(ledger_dir) / legacy] + rwa_shard_files(ledger_dir, kind):
+        if not path.exists():
+            continue
+        with path.open(newline="", encoding="utf-8") as f:
+            out += [{k: r.get(k, "") for k in fields} for r in csv.DictReader(f)]
+    return out
+
+
+def rwa_shard_schema(kind: str) -> dict:
+    fields, key, legacy = RWA_SHARDED[kind]
+    doc = {
+        "schema_version": RWA_SHARD_SCHEMA_VERSION,
+        "kind": kind,
+        "fields": list(fields),
+        "row_key": ["date", key],
+        "shard": f"one file per calendar month, ledger/{RWA_SHARD_ROOT}/{kind}/YYYY-MM.csv",
+        "line_terminator": "\r\n",
+        "header": "every shard starts with the field header",
+        "row_order": "recorded order; within a shard, dates nondecreasing",
+        "append_only": ("a shard is rewritten only to replace its own date's rows; a "
+                        "closed month is never opened again"),
+        "migrated_from": f"ledger/{legacy} (whole file, 2026-09-24; history byte-identical)",
+        # Columns appended after v1, by the version that added them. A closed shard keeps
+        # its older header forever; read_ledger() reads the missing column as "".
+        "added_at": {},
+    }
+    if kind == "flow":
+        doc["provenance"] = ("/rwas/{id}/market_chart answers 401 below the Basic plan, so "
+                             "a night not recorded here cannot be backfilled at any price")
+    return doc
+
+
+def write_rwa_shard_schema(ledger_dir: Path, kind: str) -> bool:
+    """Write the sidecar for one ledger. Deterministic bytes, and a no-op when they are
+    already there, so an unchanged schema never shows up as a diff. True if written."""
+    path = rwa_shard_dir(ledger_dir, kind) / "SCHEMA.json"
+    text = json.dumps(rwa_shard_schema(kind), indent=2, ensure_ascii=False) + "\n"
+    if path.exists() and path.read_text(encoding="utf-8") == text:
+        return False
+    _atomic_write(path, text)
+    return True
+
+
+def append_daily_shard(ledger_dir: Path, kind: str, today: str, rows: list) -> int:
+    """append_daily_rows, into tonight's month shard. The helper itself is unchanged —
+    tests/test_rwa.py asserts it agrees byte for byte with nightly's — so the shard rule
+    is the monolith rule applied to one month."""
+    fields = RWA_SHARDED[kind][0]
+    n = append_daily_rows(rwa_shard_path(ledger_dir, kind, today), fields, today, rows)
+    write_rwa_shard_schema(ledger_dir, kind)
+    return n
+
+
 def append_daily_rows(path: Path, fields: list, today: str, rows: list) -> int:
     """Replace today's rows and rewrite. Same rule as ``nightly._append_context_rows``.
 
@@ -2214,7 +2352,18 @@ def _append_manifest(path: Path, row: dict) -> None:
     _atomic_write(path, buf.getvalue())
 
 
-def _prior_flow(path: Path = None, today: str | None = None) -> dict:
+def _flow_rows(path: Path | None, rows: list | None) -> list:
+    """The flow series for the three readers below: the rows given, else one file if a
+    path is given (a legacy monolith, or a single shard), else the ledger — legacy plus
+    every month shard."""
+    if rows is not None:
+        return rows
+    if path is not None:
+        return read_rows(path, RWA_FLOW_FIELDS)
+    return read_ledger(LEDGER_DIR, "flow")
+
+
+def _prior_flow(path: Path = None, today: str | None = None, rows: list | None = None) -> dict:
     """The most recent recorded row per underlying STRICTLY BEFORE ``today``.
 
     Read before tonight's row is written, for the reason nightly.py states three times
@@ -2232,7 +2381,7 @@ def _prior_flow(path: Path = None, today: str | None = None) -> dict:
     trailing reads (``_compute_market_intel`` drops today from the macro and DEX
     history); these readers were the outliers.
     """
-    rows = read_rows(path or RWA_FLOW_CSV, RWA_FLOW_FIELDS)
+    rows = _flow_rows(path, rows)
     latest = {}
     for r in rows:
         uid, date = r.get("underlying_id"), r.get("date")
@@ -2478,14 +2627,15 @@ def assemble(underlying_rows: list, graph: dict, wrapper_prices: dict,
             "tape": tape}
 
 
-def flow_series(path: Path = None, window: int = 30, today: str | None = None) -> dict:
+def flow_series(path: Path = None, window: int = 30, today: str | None = None,
+                rows: list | None = None) -> dict:
     """Trailing tokenization-impulse series per underlying, oldest first.
 
     This is what ``score_impulse`` consumes, and it is read from the recorded ledger
     rather than recomputed, because the recorded series is the one that actually existed
     on the nights it describes.
     """
-    rows = read_rows(path or RWA_FLOW_CSV, RWA_FLOW_FIELDS)
+    rows = _flow_rows(path, rows)
     out = {}
     for r in sorted(rows, key=lambda x: x.get("date") or ""):
         # Today excluded for the same reason as _prior_flow: assemble() appends tonight's
@@ -2499,13 +2649,14 @@ def flow_series(path: Path = None, window: int = 30, today: str | None = None) -
     return {k: v[-window:] for k, v in out.items()}
 
 
-def volume_baseline(path: Path = None, window: int = 14, today: str | None = None) -> dict:
+def volume_baseline(path: Path = None, window: int = 14, today: str | None = None,
+                    rows: list | None = None) -> dict:
     """Median recorded tokenized 24h volume per underlying, for the off-hours ratio.
 
     From our own ledger because there is nowhere else: ``total_volume`` is a rolling
     24-hour window on every response, so a baseline cannot be fetched, only accumulated.
     """
-    rows = read_rows(path or RWA_FLOW_CSV, RWA_FLOW_FIELDS)
+    rows = _flow_rows(path, rows)
     hist = {}
     for r in sorted(rows, key=lambda x: x.get("date") or ""):
         if today is not None and (r.get("date") or "") >= today:
@@ -2533,7 +2684,6 @@ def snapshot(session: dict | None = None, getter=None, sleep=None,
     now = now or datetime.now(timezone.utc)
     today = now.strftime("%Y-%m-%d")
     ledger_dir = ledger_dir or LEDGER_DIR
-    flow_csv = ledger_dir / "rwa_flow.csv"
     session = session if session is not None else cg.open_session()
     delay = fetch_delay(session)
 
@@ -2609,9 +2759,12 @@ def snapshot(session: dict | None = None, getter=None, sleep=None,
     promote = may_promote(completeness["status"], prior_status,
                           completeness["coverage_pct"], prior_quality)
 
-    prior = _prior_flow(flow_csv, today)
-    trail = flow_series(flow_csv, today=today)
-    baseline = volume_baseline(flow_csv, today=today)
+    # One read of the flow ledger — legacy plus every month shard — for all three
+    # readers; it used to be three full reads of the monolith.
+    flow = read_ledger(ledger_dir, "flow")
+    prior = _prior_flow(today=today, rows=flow)
+    trail = flow_series(today=today, rows=flow)
+    baseline = volume_baseline(today=today, rows=flow)
     built = assemble(market_rows, graph, wrapper_prices, prior, today, now,
                      baseline, trail, {i["id"]: i for i in issuers},
                      degraded=not completeness["peer_set_complete"])
@@ -2668,7 +2821,11 @@ def snapshot(session: dict | None = None, getter=None, sleep=None,
                     ("rwa_flow.csv", RWA_FLOW_FIELDS, built["flow_rows"]),
                     ("rwa_issuers.csv", RWA_ISSUER_FIELDS, issuer_rows),
                     ("rwa_wrappers.csv", RWA_WRAPPER_FIELDS, built["wrapper_rows"])):
-                if rows:
+                if rows and name in RWA_LEGACY_KIND:
+                    # Sharded. `written` keeps the logical name rwa.json always carried.
+                    written[name] = append_daily_shard(ledger_dir, RWA_LEGACY_KIND[name],
+                                                       today, rows)
+                elif rows:
                     written[name] = append_daily_rows(ledger_dir / name, fields, today, rows)
                 else:
                     skipped[name] = ("nothing to record tonight; the existing file is "

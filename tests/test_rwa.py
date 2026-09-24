@@ -789,10 +789,11 @@ def test_a_full_night_writes_all_three_ledgers_and_the_artifact(tmp_path):
                                          "last_updated": _stamp(0.5)}], 200)}),
         sleep=lambda *_: None, now=NOW, ledger_dir=tmp_path, write=True)
     assert art["status"] == "live"
-    for name in ("rwa_flow.csv", "rwa_issuers.csv", "rwa_wrappers.csv", "rwa.json"):
+    for name in ("rwa/flow/2026-09.csv", "rwa/wrappers/2026-09.csv", "rwa/observed/2026-09.csv",
+                 "rwa_issuers.csv", "rwa.json"):
         assert (tmp_path / name).exists(), f"{name} was not written"
     assert art["written"]["rwa_flow.csv"] == 1
-    flow = rwa.read_rows(tmp_path / "rwa_flow.csv", rwa.RWA_FLOW_FIELDS)
+    flow = rwa.read_ledger(tmp_path, "flow")
     assert flow[0]["spec_hash"] == rwa.spec_hash(), "every row carries its model's identity"
     assert flow[0]["impulse"] == rwa.IMPULSE_UNREADABLE, "night one has no prior to compare"
     assert art["graph"]["list_only_n"] >= 0 and "named absence" in art["graph"]["list_only_note"]
@@ -826,7 +827,7 @@ def test_the_chain_extends_across_two_nights(tmp_path):
     assert rec["flow"]["supply_index"] == pytest.approx(112.381, abs=0.01)
     assert rec["absent"] == ["execution"], "the impulse component exists now"
     assert rec["coverage"] < 100.0, "execution can never be priced on this plan"
-    rows = rwa.read_rows(tmp_path / "rwa_flow.csv", rwa.RWA_FLOW_FIELDS)
+    rows = rwa.read_ledger(tmp_path, "flow")
     assert len(rows) == 2 and [r["date"] for r in rows] == sorted(r["date"] for r in rows)
 
 
@@ -1009,7 +1010,8 @@ def test_a_degraded_run_may_never_replace_a_complete_one(tmp_path):
                         now=NOW, ledger_dir=tmp_path)
     assert good["run"]["status"] == rwa.RUN_COMPLETE and good["run"]["promoted"]
     assert good["written"]["rwa_flow.csv"] == 1
-    before = (tmp_path / "rwa_flow.csv").read_text()
+    shard = rwa.rwa_shard_path(tmp_path, "flow", NOW.strftime("%Y-%m-%d"))
+    before = shard.read_bytes()
 
     # Same day, same directory. The wrapper batch is now rate-limited — every other feed
     # is live, which is exactly how the 414 presented: a run that looks fine and is not.
@@ -1019,7 +1021,7 @@ def test_a_degraded_run_may_never_replace_a_complete_one(tmp_path):
     assert bad["run"]["status"] == rwa.RUN_DEGRADED
     assert bad["run"]["promoted"] is False
     assert "rwa_flow.csv" not in bad["written"]
-    assert (tmp_path / "rwa_flow.csv").read_text() == before, (
+    assert shard.read_bytes() == before, (
         "a degraded run published over a complete canonical observation")
 
     # Retained as evidence, in a file nothing derives from.
@@ -1093,7 +1095,7 @@ def test_observations_are_recorded_before_anything_is_derived_from_them(tmp_path
     }
     rwa.snapshot(session={"plan": "keyless"}, getter=_routed_getter(routes),
                  sleep=lambda *_: None, now=NOW, ledger_dir=tmp_path)
-    obs = rwa.read_rows(tmp_path / "rwa_observed.csv", rwa.RWA_OBSERVED_FIELDS)
+    obs = rwa.read_ledger(tmp_path, "observed")
     assert len(obs) == 1
     row = obs[0]
     assert row["source_last_updated"], "the vendor's own timestamp must be recorded"
@@ -1342,7 +1344,7 @@ def test_a_same_day_rerun_does_not_overwrite_a_real_impulse_reading(tmp_path):
     assert again["residual_pct"] == pytest.approx(20.0, abs=0.01), (
         "a same-day re-run recomputed the residual against its own output")
     assert again["impulse"] == rwa.IMPULSE_STRONG
-    rows = [r for r in rwa.read_rows(tmp_path / "rwa_flow.csv", rwa.RWA_FLOW_FIELDS)
+    rows = [r for r in rwa.read_ledger(tmp_path, "flow")
             if r["date"] == n2.strftime("%Y-%m-%d")]
     assert len(rows) == 1 and float(rows[0]["residual_pct"]) == pytest.approx(20.0, abs=0.01)
     assert again["chain_days"] == first["chain_days"], "the re-run double-counted the day"
@@ -1762,6 +1764,341 @@ def test_a_clean_page_set_reports_no_repeat():
                             per_page=2, max_pages=5)
     assert [r["id"] for r in rep["data"]] == ["a", "b"]
     assert "served on two pages" not in rep["detail"]
+
+
+# ---------------------------------------------------------------------------
+# 10 — month shards (docs/DESIGN-RWA-SHARDING.md §5)
+# ---------------------------------------------------------------------------
+# The migration's proof, as tests. What they pin, in the design's own terms: (a) the
+# writer round-trips a file byte for byte, (b) a row's shard is a function of its date,
+# (c) the monolith was date-nondecreasing, so header + shard bodies in order IS the
+# monolith; and the readers the model depends on see the same series either way.
+#
+# Measured by scripts/shard_rwa_ledgers.py on the committed monoliths at the migration
+# (2026-09-24, nightly commit 207ea9e): sha256, rows, last date. Re-rendering every row
+# up to that date from the shards must reproduce exactly these bytes — so the migrated
+# history is the old file, provably, with no git history needed (CI clones at depth 1).
+RWA_MIGRATION = {
+    "flow": ("4b9a4279df50f50e7a3d0166a11b0c4ada65134334d4ce59b38876ee2d35219c",
+             15680, "2026-09-24"),
+    "wrappers": ("600c3d0074a450354d31d67e4d1fa4fb9db8bda18a572635ef6b4b44d6b638e7",
+                 27923, "2026-09-24"),
+    "observed": ("a8cb2e909b40769298335c2727aa7e8871f67377c48a33d45efcfa823554b61b",
+                 15680, "2026-09-24"),
+}
+
+
+def _load_migration():
+    spec = importlib.util.spec_from_file_location(
+        "shard_rwa_ledgers_under_test", ROOT / "scripts" / "shard_rwa_ledgers.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _flow_row(day, uid="nvidia", residual=1.0, name="Nvidia", volume=1.0e6):
+    return {"date": day, "underlying_id": uid, "symbol": uid[:4], "name": name,
+            "asset_type": "stock", "price": 100.0, "market_cap": 1.0e9,
+            "total_volume": volume, "residual_pct": residual,
+            "residual_pct_daily": residual, "spec_hash": "x"}
+
+
+def _render_csv(fields, rows) -> bytes:
+    import io
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=fields, lineterminator="\r\n")
+    w.writeheader()
+    w.writerows(rows)
+    return buf.getvalue().encode("utf-8")
+
+
+def test_a_date_lands_in_its_month_shard(tmp_path):
+    assert rwa.rwa_shard_path(tmp_path, "flow", "2026-09-14") == tmp_path / "rwa" / "flow" / "2026-09.csv"
+    assert rwa.rwa_shard_path(tmp_path, "wrappers", "2026-10-01").name == "2026-10.csv"
+    for bad in ("not-a-date", "", "2026/09/14", "2026-13-01", "2026-9-1", None):
+        try:
+            rwa.rwa_shard_path(tmp_path, "flow", bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"{bad!r} named a shard")
+    try:
+        rwa.rwa_shard_path(tmp_path, "issuers", "2026-09-14")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("rwa_issuers.csv is whole, not sharded")
+
+
+def test_a_same_day_rerun_rewrites_only_the_current_shard(tmp_path):
+    rwa.append_daily_shard(tmp_path, "flow", "2026-08-31", [_flow_row("2026-08-31")])
+    aug = rwa.rwa_shard_path(tmp_path, "flow", "2026-08-31")
+    before = aug.read_bytes()
+    rwa.append_daily_shard(tmp_path, "flow", "2026-09-01", [_flow_row("2026-09-01", residual=1.0)])
+    rwa.append_daily_shard(tmp_path, "flow", "2026-09-01", [_flow_row("2026-09-01", residual=2.0)])
+    assert aug.read_bytes() == before, "a September write touched the closed August shard"
+    sep = rwa.read_rows(rwa.rwa_shard_path(tmp_path, "flow", "2026-09-01"), rwa.RWA_FLOW_FIELDS)
+    assert len(sep) == 1 and sep[0]["residual_pct"] == "2.0"
+
+
+def test_the_month_rollover_opens_a_new_shard_and_leaves_the_old_one(tmp_path):
+    rwa.append_daily_shard(tmp_path, "flow", "2026-09-30", [_flow_row("2026-09-30")])
+    sep = rwa.rwa_shard_path(tmp_path, "flow", "2026-09-30")
+    before = sep.read_bytes()
+    rwa.append_daily_shard(tmp_path, "flow", "2026-10-01", [_flow_row("2026-10-01")])
+    names = {p.name for p in (tmp_path / "rwa" / "flow").iterdir()}
+    assert names == {"2026-09.csv", "2026-10.csv", "SCHEMA.json"}, names
+    assert sep.read_bytes() == before
+    assert [r["date"] for r in rwa.read_ledger(tmp_path, "flow")] == ["2026-09-30", "2026-10-01"]
+
+
+def _chain_getter(now, price, mcap):
+    """The two-night fixture with every vendor timestamp taken relative to the run's own
+    clock: a quote stamped against NOW (09-01) is a month stale on 09-30 and is rightly
+    graded as nothing."""
+    row = _market_row(price=price, mcap=mcap)
+    row["tokenized_market_data"]["last_updated"] = _stamp(0.2, now)
+    return _routed_getter({
+        "/rwas/list": ("live", _LIST, 200),
+        "/rwas/issuers/list": ("live", _ISSUER_LIST, 200),
+        "/rwas/issuers/": ("live", _ISSUER, 200),
+        "/rwas/markets": ("live", [row], 200),
+        "/coins/markets": ("live", [{"id": "nvidia-xstock", "symbol": "nvdax",
+                                     "current_price": 200.0, "market_cap": 2e8,
+                                     "total_volume": 6.0e6,
+                                     "last_updated": _stamp(0.5, now)}], 200),
+    })
+
+
+def test_the_chain_extends_across_a_month_boundary(tmp_path):
+    """test_the_chain_extends_across_two_nights, with the two nights in two shards: the
+    prior value night two compares against lives in last month's file."""
+    sess = {"plan": "keyless", "status": "unconfigured"}
+    n1 = datetime(2026, 9, 30, 3, 0, tzinfo=timezone.utc)
+    rwa.snapshot(session=sess, sleep=lambda *_: None, now=n1, ledger_dir=tmp_path,
+                 getter=_chain_getter(n1, 200.0, 1.0e9))
+    n2 = n1 + timedelta(days=1)
+    art = rwa.snapshot(session=sess, sleep=lambda *_: None, now=n2, ledger_dir=tmp_path,
+                       getter=_chain_getter(n2, 210.0, 1.18e9))
+    rec = art["board"][0]
+    assert rec["flow"]["residual_pct"] == pytest.approx(12.381, abs=0.01)
+    assert rec["flow"]["impulse"] == rwa.IMPULSE_MINTING
+    assert rec["flow"]["supply_index"] == pytest.approx(112.381, abs=0.01)
+    for month in ("2026-09", "2026-10"):
+        rows = rwa.read_rows(tmp_path / "rwa" / "flow" / f"{month}.csv", rwa.RWA_FLOW_FIELDS)
+        assert len(rows) == 1 and rows[0]["date"][:7] == month
+
+
+def test_a_same_day_rerun_on_the_first_of_the_month_does_not_zero_the_impulse(tmp_path):
+    """The worst defect this module could have had, on the one night the prior row is in
+    a different file from tonight's."""
+    sess = {"plan": "keyless", "status": "unconfigured"}
+
+    def run(now, price, mcap):
+        return rwa.snapshot(session=sess, sleep=lambda *_: None, now=now, ledger_dir=tmp_path,
+                            getter=_chain_getter(now, price, mcap))
+
+    run(datetime(2026, 9, 30, 3, 0, tzinfo=timezone.utc), 200.0, 1.0e9)
+    n2 = datetime(2026, 10, 1, 3, 0, tzinfo=timezone.utc)
+    first = run(n2, 200.0, 1.2e9)["board"][0]["flow"]
+    again = run(n2, 200.0, 1.2e9)["board"][0]["flow"]
+    assert again["residual_pct"] == pytest.approx(20.0, abs=0.01)
+    assert again["impulse"] == rwa.IMPULSE_STRONG
+    assert again["chain_days"] == first["chain_days"]
+    rows = [r for r in rwa.read_ledger(tmp_path, "flow") if r["date"] == "2026-10-01"]
+    assert len(rows) == 1
+
+
+def test_shard_writes_equal_monolith_writes_byte_for_byte(tmp_path):
+    """One script of nights driven through both layouts. After every step the shards,
+    header + bodies in filename order, are the monolith's bytes, and they read back as
+    the same rows. The script crosses two month ends, re-runs a day in each month, and
+    carries a name with a comma (quoted) and one with a quote."""
+    mono = tmp_path / "mono" / "rwa_flow.csv"
+    shard_root = tmp_path / "sharded"
+    names = ["Nvidia", "Acme, Inc.", 'The "Fund"']
+    script = []
+    day = datetime(2026, 8, 30)
+    while day <= datetime(2026, 10, 2):
+        d = day.strftime("%Y-%m-%d")
+        script.append((d, [_flow_row(d, uid=f"u{i}", name=names[i], residual=i + day.day / 10)
+                           for i in range(3)]))
+        if d in ("2026-08-31", "2026-09-15", "2026-10-01"):      # a same-day re-run
+            script.append((d, [_flow_row(d, uid=f"u{i}", name=names[i], residual=-i)
+                               for i in range(3)]))
+        day += timedelta(days=1)
+    header = (",".join(rwa.RWA_FLOW_FIELDS) + "\r\n").encode()
+    for d, rows in script:
+        rwa.append_daily_rows(mono, rwa.RWA_FLOW_FIELDS, d, rows)
+        rwa.append_daily_shard(shard_root, "flow", d, rows)
+        shards = rwa.rwa_shard_files(shard_root, "flow")
+        joined = header + b"".join(p.read_bytes()[len(header):] for p in shards)
+        assert joined == mono.read_bytes(), f"layouts diverged after {d}"
+        assert rwa.read_ledger(shard_root, "flow") == rwa.read_rows(mono, rwa.RWA_FLOW_FIELDS)
+    assert [p.name for p in rwa.rwa_shard_files(shard_root, "flow")] == [
+        "2026-08.csv", "2026-09.csv", "2026-10.csv"]
+
+
+def test_the_real_committed_ledger_round_trips():
+    """THE test. Every row the migration moved, re-rendered from the shards by the
+    writer, is the old monolith byte for byte — sha256, row count and last date as the
+    migration script printed them. Rows appended after the migration are excluded by
+    date, so this stays true as the shards grow."""
+    ledger = ROOT / "ledger"
+    for kind, (sha, n, last) in RWA_MIGRATION.items():
+        fields = rwa.RWA_SHARDED[kind][0]
+        assert not (ledger / rwa.RWA_SHARDED[kind][2]).exists(), (
+            f"{kind}: the legacy monolith is back beside its shards")
+        rows = [r for r in rwa.read_ledger(ledger, kind) if r["date"] <= last]
+        assert len(rows) == n, f"{kind}: {len(rows)} rows up to {last}, migrated {n}"
+        import hashlib
+        assert hashlib.sha256(_render_csv(fields, rows)).hexdigest() == sha, (
+            f"{kind}: the migrated history is not the monolith it replaced")
+
+
+def test_the_readers_see_the_same_series_either_way(tmp_path):
+    """_prior_flow, flow_series and volume_baseline — the three readers the model scores
+    from — over a monolith and over the same rows sharded, for several `today`s including
+    the first of a month. Three months, four underlyings, gaps, a re-run."""
+    mono = tmp_path / "rwa_flow.csv"
+    root = tmp_path / "sharded"
+    day, k = datetime(2026, 8, 20), 0
+    while day <= datetime(2026, 10, 12):
+        d = day.strftime("%Y-%m-%d")
+        rows = [_flow_row(d, uid=f"u{i}", residual=((k * 7 + i * 3) % 11) - 5,
+                          volume=1e6 * (1 + (k + i) % 5))
+                for i in range(4) if (k + i) % 6 != 0]           # gaps
+        for _ in range(2 if d == "2026-09-10" else 1):            # a re-run
+            rwa.append_daily_rows(mono, rwa.RWA_FLOW_FIELDS, d, rows)
+            rwa.append_daily_shard(root, "flow", d, rows)
+        day += timedelta(days=1 if k % 4 else 2)
+        k += 1
+    sharded = rwa.read_ledger(root, "flow")
+    for today in ("2026-08-25", "2026-09-01", "2026-09-10", "2026-10-01", "2026-10-13"):
+        assert rwa._prior_flow(mono, today) == rwa._prior_flow(today=today, rows=sharded)
+        assert rwa.flow_series(mono, today=today) == rwa.flow_series(today=today, rows=sharded)
+        assert rwa.volume_baseline(mono, today=today) == rwa.volume_baseline(today=today, rows=sharded)
+
+
+def _real_shards():
+    return [(kind, p) for kind in rwa.RWA_SHARDED for p in rwa.rwa_shard_files(ROOT / "ledger", kind)]
+
+
+def test_no_real_shard_holds_a_date_outside_its_month():
+    shards = _real_shards()
+    assert shards, "ledger/rwa/ holds no shard"
+    for kind, p in shards:
+        with p.open(newline="", encoding="utf-8") as f:
+            months = {r["date"][:7] for r in csv.DictReader(f)}
+        assert months == {p.stem}, f"rwa/{kind}/{p.name} holds {sorted(months)}"
+
+
+def test_every_real_shard_is_crlf_with_the_current_header():
+    for kind, p in _real_shards():
+        raw = p.read_bytes()
+        assert raw.count(b"\n") == raw.count(b"\r\n"), f"rwa/{kind}/{p.name} has a bare LF"
+        assert raw.split(b"\r\n", 1)[0].decode() == ",".join(rwa.RWA_SHARDED[kind][0])
+        with p.open(newline="", encoding="utf-8") as f:
+            dates = [r["date"] for r in csv.DictReader(f)]
+        assert dates == sorted(dates), f"rwa/{kind}/{p.name} is not date-nondecreasing"
+
+
+def test_the_sidecars_describe_their_shards(tmp_path):
+    for kind, (fields, key, _) in rwa.RWA_SHARDED.items():
+        doc = json.loads((ROOT / "ledger" / "rwa" / kind / "SCHEMA.json").read_text(encoding="utf-8"))
+        assert doc["schema_version"] == rwa.RWA_SHARD_SCHEMA_VERSION
+        assert doc["fields"] == list(fields) and doc["row_key"] == ["date", key]
+        assert doc["line_terminator"] == "\r\n"
+        # the committed sidecar is exactly what the writer would write tonight
+        assert rwa.write_rwa_shard_schema(tmp_path, kind) is True
+        assert (tmp_path / "rwa" / kind / "SCHEMA.json").read_bytes() == (
+            ROOT / "ledger" / "rwa" / kind / "SCHEMA.json").read_bytes()
+        assert rwa.write_rwa_shard_schema(tmp_path, kind) is False, "an unchanged sidecar was rewritten"
+
+
+def test_no_legacy_monolith_remains_and_no_workflow_names_one():
+    import re
+    for legacy in ("rwa_flow.csv", "rwa_wrappers.csv", "rwa_observed.csv"):
+        assert not (ROOT / "ledger" / legacy).exists(), f"ledger/{legacy} survived the migration"
+    for wf in ("nightly.yml", "rwa_release.yml"):
+        text = (ROOT / ".github" / "workflows" / wf).read_text(encoding="utf-8")
+        adds = re.findall(r"^\s*git add (.+)$", text, re.M)
+        for line in adds:
+            for legacy in ("rwa_flow.csv", "rwa_wrappers.csv", "rwa_observed.csv"):
+                assert legacy not in line, f"{wf} still stages {legacy}: {line.strip()}"
+        assert any("ledger/rwa " in line + " " and "ledger/rwa.json" in line for line in adds), (
+            f"{wf} does not stage the ledger/rwa directory")
+
+
+def test_the_shard_dirs_hold_only_shards_and_a_sidecar():
+    for kind in rwa.RWA_SHARDED:
+        d = ROOT / "ledger" / "rwa" / kind
+        for p in d.iterdir():
+            assert p.name == "SCHEMA.json" or rwa.RWA_SHARD_RE.match(p.name), f"rwa/{kind}/{p.name}"
+    assert {p.name for p in (ROOT / "ledger" / "rwa").iterdir()} == set(rwa.RWA_SHARDED)
+
+
+def test_the_transitional_reader_unions_legacy_and_shards(tmp_path):
+    rwa.append_daily_rows(tmp_path / "rwa_flow.csv", rwa.RWA_FLOW_FIELDS, "2026-09-01",
+                          [_flow_row("2026-09-01")])
+    rwa.append_daily_rows(tmp_path / "rwa_flow.csv", rwa.RWA_FLOW_FIELDS, "2026-09-02",
+                          [_flow_row("2026-09-02")])
+    rwa.append_daily_shard(tmp_path, "flow", "2026-09-03", [_flow_row("2026-09-03")])
+    assert [r["date"] for r in rwa.read_ledger(tmp_path, "flow")] == [
+        "2026-09-01", "2026-09-02", "2026-09-03"]
+    # An overlap reads as a duplicate key — the validator's to fail, not the reader's
+    # to hide.
+    rwa.append_daily_shard(tmp_path, "flow", "2026-09-02", [_flow_row("2026-09-02")])
+    dates = [r["date"] for r in rwa.read_ledger(tmp_path, "flow")]
+    assert dates.count("2026-09-02") == 2
+
+
+def test_the_shard_helpers_are_not_part_of_the_specification():
+    """Where a row is stored is not the model. Moving it must not move spec_hash."""
+    spec = rwa.spec()
+    captured = spec["functions"] if isinstance(spec, dict) else spec
+    bodies = json.dumps(captured)
+    for name in ("read_ledger", "append_daily_shard", "rwa_shard_path", "rwa_shard_dir",
+                 "rwa_shard_files", "write_rwa_shard_schema", "rwa_shard_schema", "_flow_rows"):
+        assert name not in (captured if isinstance(captured, dict) else {}), name
+        assert name not in bodies, f"{name} is named inside a captured body"
+    assert rwa.spec_hash() == "4170e6dd4141"
+
+
+def test_the_migration_is_idempotent_and_verifies(tmp_path):
+    mig = _load_migration()
+    for d in ("2026-08-30", "2026-08-31", "2026-09-01"):       # a monolith spanning two months
+        rwa.append_daily_rows(tmp_path / "rwa_flow.csv", rwa.RWA_FLOW_FIELDS, d, [_flow_row(d)])
+    raw = (tmp_path / "rwa_flow.csv").read_bytes()
+    assert mig.main(["--ledger", str(tmp_path), "--apply"]) == 0
+    assert not (tmp_path / "rwa_flow.csv").exists()
+    files = rwa.rwa_shard_files(tmp_path, "flow")
+    assert [p.name for p in files] == ["2026-08.csv", "2026-09.csv"]
+    header = (",".join(rwa.RWA_FLOW_FIELDS) + "\r\n").encode()
+    assert header + b"".join(p.read_bytes()[len(header):] for p in files) == raw
+    state = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in (tmp_path / "rwa").rglob("*") if p.is_file()}
+    assert mig.main(["--ledger", str(tmp_path), "--apply"]) == 0
+    assert {p: (p.read_bytes(), p.stat().st_mtime_ns)
+            for p in (tmp_path / "rwa").rglob("*") if p.is_file()} == state, "a second --apply changed a byte"
+
+
+def test_the_migration_refuses_and_keeps_the_monolith_on_mismatch(tmp_path):
+    mig = _load_migration()
+    for d in ("2026-09-01", "2026-09-02"):
+        mig.rwa.append_daily_rows(tmp_path / "rwa_flow.csv", rwa.RWA_FLOW_FIELDS, d, [_flow_row(d)])
+    raw = (tmp_path / "rwa_flow.csv").read_bytes()
+    real = mig._render
+    mig._render = lambda rows, fields: real(rows[:-1], fields)     # a renderer that drops a row
+    try:
+        assert mig.main(["--ledger", str(tmp_path), "--apply"]) == 1
+    finally:
+        mig._render = real
+    assert (tmp_path / "rwa_flow.csv").read_bytes() == raw, "the monolith was touched"
+    assert not (tmp_path / "rwa").exists(), "a shard was written after a failed verification"
+    # And a duplicated key is refused before anything is rendered.
+    with (tmp_path / "rwa_flow.csv").open("ab") as f:
+        f.write(raw.split(b"\r\n")[1] + b"\r\n")
+    assert mig.main(["--ledger", str(tmp_path), "--apply"]) == 1
+    assert not (tmp_path / "rwa").exists()
 
 
 # LAST in the file, deliberately. _standalone() reads the module namespace as it stands

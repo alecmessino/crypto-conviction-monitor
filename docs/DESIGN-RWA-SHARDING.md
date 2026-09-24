@@ -1,6 +1,8 @@
 # Month-sharding the RWA ledgers — design for a dedicated follow-up PR
 
-**Status: DESIGN ONLY.** Nothing here is implemented. It is kept out of the
+**Status: IMPLEMENTED 2026-09-24** by the RWA-sharding PR, as designed. §8 at the end
+records what shipped, and the two places the implementation departs from the text below.
+The design is otherwise kept as written. Originally: **DESIGN ONLY.** It was kept out of the
 correctness/resilience PR that fixed the nightly's commit, gates and terminal
 (docs/AUDIT-2026-09-23.md), because a historical storage migration has a larger blast
 radius than those fixes and deserves its own review, its own merge window (§4.1) and its
@@ -720,3 +722,60 @@ Found while designing this. Status as of the correctness PR:
 - **`RWA_ISSUERS_CSV` and `RWA_WRAPPERS_CSV` are dead constants**, and `snapshot()`
   hard-codes `ledger_dir / "rwa_flow.csv"` instead of `RWA_FLOW_CSV`. The sharding PR
   should derive every path from `RWA_SHARDED`.
+
+---
+
+## 8. As implemented (2026-09-24)
+
+**Layout, API, write rule and reader** are as §3 and §4.3 describe:
+- **Constants in `rwa.py`:** `RWA_SHARD_ROOT`, `RWA_SHARD_SCHEMA_VERSION = 1`,
+  `RWA_SHARDED` and `RWA_SHARD_RE`.
+- **Functions in `rwa.py`:** `rwa_shard_path`, `rwa_shard_files`, `read_ledger`,
+  `write_rwa_shard_schema` and `append_daily_shard`.
+- **Readers:** `_prior_flow` / `flow_series` / `volume_baseline` take `rows=`, and
+  `snapshot()` reads the flow ledger once.
+- **`append_daily_rows` is unchanged.**
+- **`rwa.json`'s `written` keeps its logical keys.**
+- **`spec_hash` is `4170e6dd4141`, unchanged.** No helper is captured.
+
+**Migration** (`scripts/shard_rwa_ledgers.py --apply`, run on the ledger as of nightly
+commit `207ea9e`). Every row is dated 2026-09, so each kind became one `2026-09.csv`,
+committed as an R100 rename:
+
+| kind | monolith sha256 | rows | last date |
+|---|---|---|---|
+| flow | `4b9a4279df50f50e7a3d0166a11b0c4ada65134334d4ce59b38876ee2d35219c` | 15,680 | 2026-09-24 |
+| wrappers | `600c3d0074a450354d31d67e4d1fa4fb9db8bda18a572635ef6b4b44d6b638e7` | 27,923 | 2026-09-24 |
+| observed | `a8cb2e909b40769298335c2727aa7e8871f67377c48a33d45efcfa823554b61b` | 15,680 | 2026-09-24 |
+
+`tests/test_rwa.py::test_the_real_committed_ledger_round_trips` re-renders every row up
+to that date from the shards and asserts these hashes.
+
+**Workflows.** Three places now stage the RWA files, identically, as §4.4 gives:
+- `nightly.yml` (Commit ledger);
+- `nightly.yml` ("Commit what passed its own gate");
+- `rwa_release.yml`.
+
+Each stages `git add ledger/rwa ledger/rwa_issuers.csv ledger/rwa.json`, then one
+optional file per line: `rwa_runs.csv`, `rwa_quarantine.csv` and `rwa.degraded.json`.
+The last one postdates this design.
+
+The rollback and both guards are unchanged. `tests/test_nightly.py` now executes them
+against a real git repository with nested shards.
+
+**Validator.**
+- `_check_rwa_shards()` implements §4.6's layout checks.
+- `check_rwa()` runs its existing checks over `read_ledger()`'s union.
+- `rwa_notices()` prints, without failing:
+  - a legacy monolith, whether or not it overlaps its shards (an overlap fails as a
+    duplicate key);
+  - a shard over 25 MB.
+
+**Departures from the text above.**
+1. **§5 T7** re-renders with one `DictWriter` pass rather than per-date appends. The two
+   are byte-identical by §3.4(a), and one pass is what the gate can afford on every
+   nightly.
+2. **`tests/test_run_budget.py`** already filtered `is_file()`, so it did not raise as §2.5
+   predicted. It did silently stop covering the sharded ledgers. It now walks
+   `ledger/rwa*` recursively and asserts it saw a flow shard.
+
