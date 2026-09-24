@@ -152,7 +152,7 @@ def test_a_run_out_of_budget_skips_the_optional_stages_and_still_publishes(tmp_p
                  "rwa.py", "contract_specs.json"):
         shutil.copy(ROOT / name, work / name)
     shutil.copytree(ROOT / "ledger", work / "ledger")
-    rwa_before = {p.name: p.read_bytes() for p in (work / "ledger").glob("rwa*")}
+    rwa_before = {p.name: p.read_bytes() for p in (work / "ledger").glob("rwa*") if p.is_file()}
     (work / "harness.py").write_text(HARNESS)
     info = tmp_path / "run.json"
     env = {**os.environ, "NIGHTLY_BUDGET_S": "0", "NIGHTLY_RUN_INFO": str(info)}
@@ -166,7 +166,7 @@ def test_a_run_out_of_budget_skips_the_optional_stages_and_still_publishes(tmp_p
     assert "RWA_CALLED 0" in res.stdout, "the RWA snapshot ran with no budget left"
     assert run["rwa_status"] == "skipped: run budget"
     # The optional stages never touched the RWA ledger ...
-    assert {p.name: p.read_bytes() for p in (work / "ledger").glob("rwa*")} == rwa_before
+    assert {p.name: p.read_bytes() for p in (work / "ledger").glob("rwa*") if p.is_file()} == rwa_before
     # ... and the mandatory work ran in full: tonight's rows and the transport exist.
     assert run["outcome"] == "completed"
     assert run["scored"] > 200 and run["persisted"] == 50 and run["xsec_rows"] > 200

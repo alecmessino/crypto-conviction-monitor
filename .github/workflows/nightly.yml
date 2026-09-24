@@ -213,6 +213,9 @@ jobs:
           git add ledger/rwa_observed.csv || true
           git add ledger/rwa_runs.csv || true
           git add ledger/rwa_quarantine.csv || true
+          # The refused run's board (rwa.py writes it instead of rwa.json when a run is
+          # quarantined). The Method page promises it is kept; nothing staged it.
+          git add ledger/rwa.degraded.json || true
           git add ledger/index.legacy.csv 2>/dev/null || true
           #
           # ledger/xsec/ is the cross-sectional research ledger: one month-shard per
@@ -279,6 +282,7 @@ jobs:
             git add ledger/rwa_observed.csv || true
             git add ledger/rwa_runs.csv || true
             git add ledger/rwa_quarantine.csv || true
+            git add ledger/rwa.degraded.json || true
           fi
           git add ledger/runs.csv || true
           if git diff --cached --name-only | grep -v '^ledger/rwa' | grep -v '^ledger/runs\.csv$' | grep -q .; then

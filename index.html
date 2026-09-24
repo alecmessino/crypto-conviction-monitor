@@ -365,6 +365,10 @@ canvas{display:block;width:100%}
 .drawer-b{padding:14px 16px;overflow:auto;flex:1}
 .note{padding:10px 14px;color:var(--sec);font-size:10px;line-height:1.5}
 .err{color:var(--amber);padding:14px}
+.stale-chip{color:var(--amber);font-size:10px;padding:4px 12px;border-left:2px solid var(--amber);margin:4px 0}
+.stale-chip b{letter-spacing:.04em}
+.fresh-list{display:grid;grid-template-columns:auto auto 1fr;gap:2px 10px;font-size:10px;color:var(--sec);padding:6px 0 0}
+.fresh-list .CURRENT{color:var(--green)} .fresh-list .STALE,.fresh-list .ABSENT{color:var(--amber)}
 #status{font-size:10px;color:var(--sec)}
 
 /* ---- Modules F-J ------------------------------------------------------ */
@@ -1017,6 +1021,7 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
         <div class="kv"><span>Rate limit</span><b id="sys-rl" class="neu">—</b></div>
         <div class="kv"><span>Skew Qualified</span><b id="sys-skew" class="num">—</b></div>
         <div class="diag" id="diag"></div>
+        <div class="fresh-list" id="artifact-fresh" aria-label="Ledger artifact freshness"></div>
         <!-- Standing provenance, not a degraded-state banner: Module B is working, on a
              documented proxy. The SYSTEM rows above already say so at a glance
              ("Module B (Dune) LIVE"), so the paragraph explaining the substitution is
@@ -1376,6 +1381,7 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
        attachChartInteraction registers no points, so the accessible table it publishes
        would come out empty and the render gate would fail naming no cause. -->
   <div class="ws" data-ws="rwa" hidden>
+    <div id="rwa-fresh-host"></div>
     <div class="statuswrap">
       <div class="ribbon glass statusbar">
         <div class="brand">TOKENIZED <span class="live">RWA</span> WORKSPACE</div>
@@ -1914,7 +1920,8 @@ let PERP_REJECTED = [];     // rows refused for being outside [0.85, 1.15]
 let PERP_DOC = null;        // ledger/perp.json as fetched, for the provenance readouts
 let PERP_WITHHELD = null;   // null, "no-artifact" or "stale" — why there is no overlay
 let PERP_STALE_AS_OF = null;// the snapshot date that was refused for being too old
-let PERPS = {};    // symbol -> recorded derivatives context (Module 1, non-scoring)
+let PERPS = {};    // symbol -> recorded derivatives context (Module 1, non-scoring), newest night only
+let PERPS_AS_OF = null;
 let CHOP = {};     // symbol -> {chop, regime, bars} (Module 2, non-scoring)
 let TF = "24h";    // active timeframe for the delta column
 let PARITY = null; // parity.json: the real result of the gate that admitted the ledger
@@ -1959,10 +1966,20 @@ let FTH = {overheated_apr:40, elevated_apr:12, neutral_floor_apr:0, squeeze_apr:
            max_penalty:0.85, max_boost:1.15, unconfirmed_weight:0.5,
            squeeze_saturation_apr:-40};
 async function loadLedger(){
+  // signals.json is fetched on its own. It used to `return` out of this whole function
+  // when it failed to load, which silently skipped perp.json and every artifact below:
+  // one missing file withheld the funding overlay and blanked the paper book, the
+  // monitor and the edge panel, none of which depend on it. A failed REFRESH keeps the
+  // last good copy (its own date then says how old it is); a failed first load leaves
+  // the history empty and the freshness list says ABSENT.
+  let j = null;
   try{
     const r=await fetch("ledger/signals.json",{cache:"no-cache"});
-    if(!r.ok) return;
-    const j=await r.json();
+    if(r.ok) j = await r.json();
+  }catch(e){ /* absent or unparseable — handled below */ }
+  if(j && Array.isArray(j.rows)) SIGNALS_DOC_LOADED = true;
+  else j = {rows: ALL_ROWS};
+  try{
     // Every recorded night, keyed by date, so the rewind scrubber has something to
     // scrub. Built from the FULL row set rather than the Module-B-filtered LEDGER
     // below: the filter drops rows with no Dune era, which is most of them, and a
@@ -2022,8 +2039,15 @@ async function loadLedger(){
     }
     // Module 1: the recorded derivatives columns, keyed by symbol. Observational —
     // none of this feeds conviction, and the drawer says so where it is displayed.
+    //
+    // From the NEWEST recorded night only. This used to walk every row of every night
+    // and keep whichever came last, so a name that left the persisted top fifty showed
+    // its open interest and funding from the last night it was on it — weeks old — in a
+    // drawer that reads as tonight's: the same stale-carry pattern AUDIT-PHASE1.5
+    // retired from the score overlay.
     PERPS = {};
-    (j.rows||[]).forEach(r=>{ const s=(r.symbol||"").toUpperCase(); if(!s) return;
+    PERPS_AS_OF = REWIND_DATES.length ? REWIND_DATES[REWIND_DATES.length-1] : null;
+    (j.rows||[]).forEach(r=>{ const s=(r.symbol||"").toUpperCase(); if(!s || r.date!==PERPS_AS_OF) return;
       const n=k=>{ const v=r[k]; return (v==null||v===""||v==="None"||isNaN(parseFloat(v)))?null:parseFloat(v); };
       PERPS[s]={fundingAnn:n("funding_ann_pct"), oi:n("oi_usd"), oiChg:n("oi_chg_24h_pct"),
                 oiToMcap:n("oi_to_mcap"), ls:n("long_short_ratio"),
@@ -3353,6 +3377,29 @@ function regimeCell(sym,row){
 const TF_FIELD={"24h":"chg","7d":"chg7d","30d":"chg30d"};
 function tfDelta(t){ const v=t[TF_FIELD[TF]||"chg"]; return (v==null||isNaN(v))?null:v; }
 
+/* What the SCORE did with funding for this symbol, in words, from the same perpReading()
+   the board used. A missing, refused or withheld reading is said to be one — never a
+   "neutral reading". */
+function scoreFundingSentence(sym){
+  const r = perpReading(sym);
+  return r.value != null
+    ? `The score applied a funding multiplier of ×${r.value.toFixed(3)} from ledger/perp.json.`
+    : `No funding reading reached the score (${PERP_STATE_TEXT[r.state]}), so conviction is `
+      + `unadjusted: ×1.0 by absence, not a neutral reading.`;
+}
+/* funding.json's modifier is what the NIGHTLY recorded; the score on this board applied
+   whatever perp.json delivered. On a night the transport is stale or withheld the two
+   differ, and printing the first under "Score modifier" would state a multiplier the
+   score did not use. So the applied one is shown, and a disagreement is named. */
+function scoreModifierCell(sym, f){
+  const r = perpReading(sym);
+  const rec = f && f.score_modifier != null ? f.score_modifier : null;
+  const applied = r.value != null ? `×${r.value.toFixed(3)}`
+                                  : `<span class="muted">none applied — ${esc0(PERP_STATE_TEXT[r.state])}</span>`;
+  const differs = rec != null && Math.abs(rec - r.applied) > 5e-4;
+  return applied + (differs
+    ? ` <span class="a" style="font-size:9px">funding.json recorded ×${rec.toFixed(3)}; not applied here</span>` : "");
+}
 /* The Perpetual Market Structure block in the drawer. Every row can be absent, and an
    absent row says so — most of the board is spot-only, and a fabricated neutral would
    be a claim about a market that does not exist. */
@@ -3361,9 +3408,8 @@ function perpBlock(t){
   const has = p && (p.fundingAnn!=null||p.oi!=null||p.ls!=null);
   if(!has && !(c&&c.chop!=null))
     return `<div class="note" style="margin-top:12px">No perpetual market recorded for
-      ${esc0(t.sym)}, and no regime reading yet. With no funding to classify there is no
-      modifier to apply, so this asset's conviction is genuinely unadjusted — a neutral
-      ×1.0, not a missing reading.</div>`;
+      ${esc0(t.sym)} on ${esc0(PERPS_AS_OF||"the latest night")}, and no regime reading yet.
+      ${esc0(scoreFundingSentence(t.sym))}</div>`;
   const usd=v=>v==null?'<span class="muted">—</span>':fmtUsd(v);
   const pct=(v,d)=>v==null?'<span class="muted">—</span>':
     `<span class="${v>0?'pos':v<0?'neg':'neu'}">${v>0?'+':''}${v.toFixed(d==null?1:d)}%</span>`;
@@ -3380,7 +3426,7 @@ function perpBlock(t){
       f.apr_trail>0?"+":""}${f.apr_trail.toFixed(1)}% <span class="muted" style="font-size:9px">over ${
       f.trail_n} night${f.trail_n===1?"":"s"}${f.pos_share!=null?`, positive on ${
       Math.round(f.pos_share*f.trail_n)}`:""}</span></b></div>`:""}
-    <div class="kv"><span>Score modifier</span><b class="num">×${(f.score_modifier??1).toFixed(3)}</b></div>
+    <div class="kv"><span>Score modifier</span><b class="num">${scoreModifierCell(t.sym, f)}</b></div>
     ${f.severity!=null&&f.severity!==0?`<div class="kv"><span>Severity</span><b class="num" title="How far past the inert funding band this carry sits, 0 to 1. Published beside the multiplier because two assets can reach the same 0.93 from different places — extreme carry barely confirmed, or moderate carry fully confirmed.">${Math.abs(f.severity).toFixed(2)}</b></div>`:""}
     <div class="note" style="padding:6px 0 2px">${esc0(f.modifier_reason)}.</div>`:""}
     <div class="kv"><span>Open interest</span><b class="num">${usd(p&&p.oi)}</b></div>
@@ -4523,8 +4569,12 @@ function renderInspectorCG(t, state){
   if(typeof tipUpgrade==="function") tipUpgrade(host);
 }
 
-/* One request for the row a reader actually chose, plus a prefetch of its neighbours.
-   NEVER on first paint and never one per row: fifty /coins/{id} calls on load is the
+/* One request for the row on screen — the row a reader chose, or on first paint the one
+   row seedInspector() puts in the inspector — and a prefetch of its neighbours ONLY once
+   a reader has chosen. The comment here used to say "never on first paint" while the
+   seed fetched its row and both neighbours on every load: the seeded row's record is
+   shown, so it is fetched; the neighbours are a guess about arrow keys nobody has
+   pressed yet, so they wait. Never one per row: fifty /coins/{id} calls on load is the
    whole minute's budget spent before the board has been read once.
 
    AND NEVER FOR A REWOUND ROW. /coins/{id} answers about tonight. Painting tonight's
@@ -4533,7 +4583,7 @@ function renderInspectorCG(t, state){
    page — the numbers would look entirely normal and be about a different day. A
    recorded row therefore gets the ledger half of the inspector and an explicit refusal
    for the other half. */
-function inspectorFetch(t){
+function inspectorFetch(t, prefetch){
   if(!t || !t.id || t._rewound) return;
   const url=CG_URL.coin(t.id);
   const hit=CG_CACHE.get(url);
@@ -4552,7 +4602,7 @@ function inspectorFetch(t){
     // Prefetch the rows either side, so arrow-keying the board does not stall. Two
     // requests, only after the one that was asked for has landed, and skipped entirely
     // while throttled.
-    if(!cgThrottled()) prefetchNeighbours(t);
+    if(prefetch !== false && !cgThrottled()) prefetchNeighbours(t);
   }, 220);
 }
 
@@ -4574,13 +4624,13 @@ function showSecondaryTab(want){
   if(btn) btn.click();
 }
 
-function renderInspector(sym){
+function renderInspector(sym, seeded){
   // The RENDERED row first, not the live one. Scrubbed back, the board is showing a
   // recorded row and the inspector has to describe THAT row — its funding, its regime,
   // its score — rather than tonight's asset of the same name.
   const t=BOARD_VIEW.find(s=>s.sym===sym) || STATE.find(s=>s.sym===sym) || null;
   renderInspectorBase(t);
-  if(t) inspectorFetch(t);
+  if(t) inspectorFetch(t, !seeded);
 }
 
 let SEL=null;
@@ -4601,11 +4651,11 @@ function select(sym){ SEL=sym; document.querySelectorAll("tr.row").forEach(r=>r.
 function seedInspector(){
   const rows=BOARD_VIEW;
   if(!rows.length) return;
-  if(SEL && rows.some(r=>r.sym===SEL)){ renderInspector(SEL); return; }
+  if(SEL && rows.some(r=>r.sym===SEL)){ renderInspector(SEL, true); return; }
   const first=rows[0];
   SEL=first.sym;
   document.querySelectorAll("tr.row").forEach(r=>r.classList.toggle("sel",r.dataset.sym===SEL));
-  renderInspector(SEL); factorBreakdown(SEL);
+  renderInspector(SEL, true); factorBreakdown(SEL);
 }
 
 /* The night the board on screen belongs to: the scrubbed date when rewound, otherwise
@@ -7797,12 +7847,13 @@ function setRewind(d){
     : `Showing the board recorded on <b>${d}</b>. The secondary pane, the quadrant
        charts and the correlation panel are built from tonight's live fetch and are
        <b>not</b> rewound.`;
+  // renderRewind() calls this on every refresh, so it is a re-render path like load()'s.
   if(live){
     RENDER_ROWS = null;
-    if(STATE.length) renderTables();
+    if(STATE.length) withFocusKept(()=>renderTables());
   } else {
     RENDER_ROWS = rewindRows(d).map(rowToState);
-    if(RENDER_ROWS.length) renderTables();
+    if(RENDER_ROWS.length) withFocusKept(()=>renderTables());
   }
   const cm=$("#cm-note");
   if(cm) cm.textContent = live
@@ -7827,12 +7878,137 @@ function renderRewind(){
   if(REWIND_DATE==null) setRewind(null);
 }
 
+/* FRESHNESS — one rule for every ledger artifact the terminal reads.
+
+   Before this only perp.json was dated against anything, and walkforward.json sat six
+   nights stale under a panel that read as current. Each artifact names the date it
+   describes in its own field; it is CURRENT when that date reaches the newest night the
+   signals ledger holds, STALE when it is older, ABSENT when it did not load. A STALE or
+   ABSENT artifact is still rendered — it is what was recorded — but never as though it
+   were tonight's: every panel built from it carries a chip saying so, and the Status
+   list names all of them. signals.json is the reference for the rest, so it is dated
+   against the UTC day instead, with one night of grace for a run that has not happened
+   yet. parity.json records a gate result and no date: it is current when it was taken
+   under the specification the ledger records. Pure, so it runs under node in the tests. */
+const FRESH_FIELDS = {
+  "signals.json":        ["rows[].date", d => (d.rows||[]).reduce((m,r)=>r&&r.date>m?r.date:m, "") || null],
+  "perp.json":           ["as_of",        d => d.as_of],
+  "funding.json":        ["date",         d => d.date],
+  "market_intel.json":   ["date",         d => d.date],
+  "rwa.json":            ["date",         d => d.date],
+  "walkforward.json":    ["to",           d => d.to],
+  "monitor.json":        ["to",           d => d.to],
+  "index.json":          ["latest.date",  d => (d.latest&&d.latest.date) || String(d.generated_at||"").slice(0,10) || null],
+  "market_breadth.json": ["generated_at", d => String(d.generated_at||"").slice(0,10) || null],
+};
+function artifactFreshness(file, doc, ref, specRef){
+  if(!doc || typeof doc !== "object") return {file, state:"ABSENT", date:null, field:null, ref};
+  if(file === "parity.json"){
+    const h = doc.spec_hash || null;
+    return {file, state: (h && specRef && h === specRef) ? "CURRENT" : "STALE",
+            date: h, field: "spec_hash", ref: specRef || null};
+  }
+  const spec = FRESH_FIELDS[file];
+  const raw = spec ? spec[1](doc) : null;
+  const date = (typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.slice(0,10))) ? raw.slice(0,10) : null;
+  if(!date) return {file, state:"STALE", date:null, field: spec ? spec[0] : null, ref,
+                    why:"carries no readable date"};
+  return {file, state: (ref && date >= ref) ? "CURRENT" : "STALE", date, field: spec[0], ref};
+}
+function signalsFreshness(doc, todayUtc){
+  const f = artifactFreshness("signals.json", doc, null);
+  if(f.state === "ABSENT" || !f.date) return f;
+  const lag = Math.round((Date.parse(todayUtc) - Date.parse(f.date)) / 86400000);
+  return {...f, ref: todayUtc, state: lag <= 1 ? "CURRENT" : "STALE"};
+}
+/* END FRESHNESS */
+
+// Which panels render from which artifact. The chip goes immediately before the host.
+const FRESH_HOSTS = {
+  "signals.json":        ["tbl-conv"],
+  "market_breadth.json": ["breadth", "edge", "persist", "ic-matrix", "health"],
+  "walkforward.json":    ["ic-matrix"],
+  "monitor.json":        ["monitor"],
+  "index.json":          ["alloc"],
+  "funding.json":        ["fh-sub"],
+  "market_intel.json":   ["sectors", "tmd", "fallen", "corr", "macro"],
+  "rwa.json":            ["rwa-fresh-host"],
+  "parity.json":         ["diag"],
+};
+let ARTIFACT_STATE = {};
+let SIGNALS_DOC_LOADED = false;   // set by loadLedger(): whether signals.json parsed
+function computeFreshness(){
+  const today = new Date().toISOString().slice(0, 10);
+  const sig = signalsFreshness(SIGNALS_DOC_LOADED ? {rows: ALL_ROWS} : null, today);
+  // The reference night. Without the signals ledger there is nothing to date the rest
+  // against, so they are held to the same one-night grace against the UTC day.
+  const ref = sig.date || new Date(Date.parse(today) - 86400000).toISOString().slice(0, 10);
+  const specRef = (MONITOR && MONITOR.spec_hash) || (WALKFWD && WALKFWD.spec_hash) || null;
+  const docs = {"perp.json": PERP_DOC, "funding.json": FUNDING, "market_intel.json": INTEL,
+                "walkforward.json": WALKFWD, "monitor.json": MONITOR, "index.json": INDEX,
+                "market_breadth.json": BREADTH, "parity.json": PARITY};
+  const out = {"signals.json": sig};
+  for(const [f, d] of Object.entries(docs)) out[f] = artifactFreshness(f, d, ref, specRef);
+  // rwa.json loads with its workspace; before that it is not "absent", it is unasked.
+  if(RWA_REQUESTED) out["rwa.json"] = artifactFreshness("rwa.json", RWA, ref, specRef);
+  ARTIFACT_STATE = out;
+  return out;
+}
+function freshnessText(f){
+  const where = "ledger/" + f.file;
+  if(f.state === "ABSENT") return `${where} did not load — this panel has no recorded data behind it`;
+  if(f.file === "parity.json")
+    return `${where} was taken under specification ${f.date||"?"}, not the ledger's ${f.ref||"?"}`;
+  if(!f.date) return `${where} ${f.why||"carries no readable date"} — treated as stale`;
+  return `${where} is dated ${f.date} (${f.field}); the ledger runs to ${f.ref} — shown as `
+       + `recorded, not as current`;
+}
+function markFreshness(){
+  const st = computeFreshness();
+  document.querySelectorAll(".stale-chip").forEach(el => el.remove());
+  for(const [file, hosts] of Object.entries(FRESH_HOSTS)){
+    const f = st[file];
+    if(!f || f.state === "CURRENT") continue;
+    for(const id of hosts){
+      const host = document.getElementById(id);
+      if(!host) continue;
+      host.insertAdjacentHTML("beforebegin",
+        `<div class="stale-chip" role="status" data-for="${esc0(file)}"><b>${f.state}</b> · ${esc0(freshnessText(f))}</div>`);
+    }
+  }
+  const list = document.getElementById("artifact-fresh");
+  if(list) list.innerHTML = Object.values(st).map(f =>
+    `<span>${esc0(f.file)}</span><b class="${f.state}">${f.state}</b>`
+    + `<span>${esc0(f.state==="ABSENT" ? "did not load" : (f.date||"—") + (f.field ? " · " + f.field : ""))}</span>`).join("");
+}
+
 /* One ledger panel's bug must not take the others — or the live board — with it.
    The renderers below used to run as one chain inside the promise the live fetch awaits,
    so a single shape drift in one artifact (a string where a number was expected) threw
    out of the chain: every later panel was skipped, the board was never built, and the
    error was reported as "Live fetch failed … CoinGecko free tier rate-limits", blaming
    the one component that had not failed. Each renderer now fails alone and says so. */
+/* Keyboard focus survives the 120s re-render. renderTables() and renderRwa() rebuild
+   their tbodys wholesale, which destroyed the focused row and dropped the caret on
+   <body> every two minutes — a keyboard reader lost their place on a timer. The row is
+   found again by its table and key after the rebuild and refocused without scrolling. */
+function withFocusKept(fn){
+  const a = document.activeElement;
+  const row = a && a.closest ? a.closest("tr[data-sym],tr[data-rwa]") : null;
+  const table = row ? row.closest("table[id]") : null;
+  fn();
+  if(!row || !table || document.body.contains(row)) return;
+  const attr = row.dataset.sym != null ? "data-sym" : "data-rwa";
+  const val = row.getAttribute(attr);
+  const again = document.querySelector(`#${CSS.escape(table.id)} tr[${attr}="${CSS.escape(val)}"]`);
+  if(!again) return;
+  const target = a === row ? again
+    : (again.querySelector(a.tagName.toLowerCase() + (a.className ? "." + [...a.classList].map(c=>CSS.escape(c)).join(".") : "")) || again);
+  if(!target.hasAttribute("tabindex") && !/^(A|BUTTON|INPUT|SELECT|TEXTAREA)$/.test(target.tagName))
+    target.setAttribute("tabindex", "-1");
+  target.focus({preventScroll: true});
+}
+
 function safeRender(fn){
   try{ fn(); }
   catch(e){ console.error(`[render] ${String(fn).replace(/^\(\)=>/,"").slice(0,40)} failed:`, e); }
@@ -7859,7 +8035,9 @@ async function load(){
     // rendered here with the rest of the ledger-derived panels and stay up on a night
     // CoinGecko rate-limits the browser.
     safeRender(()=>renderMacro()); safeRender(()=>renderSectors()); safeRender(()=>renderTMD());
-    safeRender(()=>renderFallen()); safeRender(()=>renderCorr()); safeRender(()=>renderRewind()); });
+    safeRender(()=>renderFallen()); safeRender(()=>renderCorr()); safeRender(()=>renderRewind());
+    // Last: it dates every artifact the panels above were just built from.
+    safeRender(()=>markFreshness()); });
 
   /* THE ENRICHMENT CALLS. Started here and awaited by NOTHING.
 
@@ -7876,10 +8054,19 @@ async function load(){
   loadGlobal(); loadCategories(); loadTrending();
   try{
     const t0=performance.now();
+    // The shared backoff. A 429 anywhere means this IP is throttled for every endpoint,
+    // and the markets call used to ignore that and ask again every two minutes.
+    if(cgThrottled())
+      throw new Error("rate-limited (HTTP 429) — shared backoff, "
+        + Math.ceil((CG_BLOCKED_UNTIL-Date.now())/1000) + "s left");
     // Bounded: a connection that never answers used to hold this load() open forever.
     const r=await fetch(API,{headers:{Accept:"application/json"},
       signal:(typeof AbortSignal!=="undefined"&&AbortSignal.timeout)?AbortSignal.timeout(20000):undefined});
     LATENCY = performance.now()-t0;
+    if(r.status === 429){
+      CG_BLOCKED_UNTIL = Date.now() + CG_COOLDOWN_MS;
+      CG_LAST_ERROR = "rate-limited (HTTP 429)";
+    }
     if(!r.ok) throw new Error("HTTP "+r.status);
     const raw=await r.json();
     if(!Array.isArray(raw)) throw new Error("rate-limited or empty");
@@ -7902,7 +8089,7 @@ async function load(){
       const sl=$("#rw-slider"); if(sl) sl.value=REWIND_DATES.length;
       setRewind(null);
     }
-    renderTables(); renderRibbon(); renderTiers(); quad(); alphaMap(); factorQuad(); renderSizing(); renderMacro();
+    withFocusKept(()=>renderTables()); renderRibbon(); renderTiers(); quad(); alphaMap(); factorQuad(); renderSizing(); renderMacro();
     // The regime reading compares BTC's day against the whole market's, so it is
     // re-rendered once the board exists — before this, /global has the market half of
     // that comparison and not the BTC half, and reports MIXED for want of a number it
@@ -8114,7 +8301,7 @@ function switchWorkspace(want, push){
          if(typeof renderIndexStudy==="function" && document.querySelector(".wrap")?.dataset.route==="index") renderIndexStudy();
          if(typeof factorQuad==="function") factorQuad(); }catch(e){}
   }
-  if(reveal==="rwa"){ try{ renderRwa(); }catch(e){} }
+  if(reveal==="rwa"){ ensureRwa(); try{ renderRwa(); }catch(e){} }
   /* The book's own reveal. renderSizing and renderParser moved here WITH their panels:
      both measure a canvas-free DOM, but both read inputs that only exist in this
      subtree, and calling them while it is hidden writes into nodes nobody can see. */
@@ -8206,6 +8393,15 @@ document.querySelectorAll("#rwa-tabs .tab").forEach(btn=>{
    asset's factor ledger: a wrong number that looks entirely normal. RWA has its own
    selection and its own inspector host. */
 let RWA=null, RWA_SEL=null, RWA_FILTER="";
+/* rwa.json is 2.2 MB and only its own workspace reads it, so it is fetched the first time
+   that workspace is revealed — by the tab or by a #rwa deep link — rather than on every
+   first paint. From then on it refreshes on the shared timer like the rest. */
+let RWA_REQUESTED = false;
+function ensureRwa(){
+  if(RWA_REQUESTED) return;
+  RWA_REQUESTED = true; LAST_RWA = Date.now();
+  loadRwa().then(()=>{ renderRwa(); safeRender(()=>markFreshness()); });
+}
 const rwEl=id=>document.getElementById(id);
 const rwNum=v=>(v==null||v===""||isNaN(parseFloat(v)))?null:parseFloat(v);
 /* The sign goes OUTSIDE the currency symbol. Built the other way round, every negative
@@ -8692,12 +8888,14 @@ function tick(){
   load().finally(()=>{ LOAD_IN_FLIGHT=false; });
 }
 load(); LAST_LOAD=Date.now(); setInterval(tick, REFRESH_MS);
-/* The RWA artifact is fetched alongside the rest of the ledger and re-fetched on the
-   same 120s timer. It is a committed static file like the others and owes nothing to a
-   live CoinGecko call, so a rate-limited visitor keeps the whole workspace. */
-loadRwa().then(renderRwa);
-function tickRwa(){ if(document.hidden) return; LAST_RWA=Date.now(); loadRwa().then(renderRwa); }
-LAST_RWA=Date.now(); setInterval(tickRwa, REFRESH_MS);
+/* The RWA artifact is a committed static file like the others and owes nothing to a live
+   CoinGecko call, so a rate-limited visitor keeps the whole workspace. It is fetched on
+   first reveal (ensureRwa) and then re-fetched on the same 120s timer. */
+function tickRwa(){
+  if(document.hidden || !RWA_REQUESTED) return;
+  LAST_RWA=Date.now(); loadRwa().then(()=>{ withFocusKept(()=>renderRwa()); safeRender(()=>markFreshness()); });
+}
+setInterval(tickRwa, REFRESH_MS);
 document.addEventListener("visibilitychange",()=>{
   if(document.hidden) return;
   if(Date.now()-LAST_LOAD>=REFRESH_MS) tick();

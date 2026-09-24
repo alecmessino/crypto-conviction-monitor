@@ -83,6 +83,9 @@ jobs:
           git add ledger/rwa_observed.csv || true
           git add ledger/rwa_runs.csv || true
           git add ledger/rwa_quarantine.csv || true
+          # The refused run's board (rwa.py writes it instead of rwa.json when a run is
+          # quarantined). The Method page promises it is kept; nothing staged it.
+          git add ledger/rwa.degraded.json || true
           # Every run appends a manifest row, so a commit without rwa_runs.csv is a
           # commit whose provenance is missing. Refuse it.
           if ! git diff --cached --name-only | grep -q '^ledger/rwa_runs.csv$'; then
