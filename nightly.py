@@ -1225,8 +1225,8 @@ def _lavl_regime(t: dict) -> str:
     Uses only free-payload fields: 24h change, 24h range, vol/mc, range-tightness.
     Funding-neutral by construction: no funding multiplier enters this regime. The funding
     multiplier (RiskMult_perp, ``lavl_perp_mult``) multiplies the conviction score only —
-    the shared "LAVL" prefix is historical. NOT the same formula as the terminal's
-    ``computeLAVL``; see docs/AUDIT-2026-09-23.md §6, recorded for review.
+    the shared "LAVL" prefix is historical. The terminal runs this function verbatim as
+    ``lavlReading`` in index.html's MODEL PORT; tests/test_parity.py executes both.
     """
     price = t.get("current_price") or 0
     chg = t.get("price_change_percentage_24h") or 0.0
@@ -1258,11 +1258,10 @@ def _lavl_regime(t: dict) -> str:
 def _conjunctive_gate(t: dict, conv: int) -> bool:
     """The basket's qualification gate: turnover, dilution and LAVL regime.
 
-    Written to replicate the terminal's `gated` flag, and it does not: gate B omits the
-    terminal's proxy-ERA condition and gate C reads ``_lavl_regime``, a different formula
-    from the terminal's ``computeLAVL``. Measured and recorded for review rather than
-    reconciled here — reconciling either side changes qualification. See
-    docs/AUDIT-2026-09-23.md §6.
+    The single definition of QUALIFIED. The terminal runs it verbatim as
+    ``conjunctiveGate`` in index.html's MODEL PORT, from the raw row, and
+    tests/test_parity.py executes both sides decision for decision (2026-09-24; before
+    that the terminal ran its own LAVL formula and an extra proxy-ERA term).
     """
     mc = t.get("market_cap") or 0
     vol = t.get("total_volume") or 0

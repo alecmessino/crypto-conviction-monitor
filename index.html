@@ -1216,13 +1216,13 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
         <div class="glass">
           <div class="card-h">MODULE D — ALPHA ENGINE (LAVL)</div>
           <div class="card-b" style="padding:0">
-            <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:8px 12px 0">Liquidity-Adjusted Velocity micro-regimes. LAVL = 0.6·Velo<sub>liq</sub> + 0.4·Diverge<sub>vol</sub>, both from live CoinGecko, and nothing else: it is <b>funding-neutral by construction</b>. It is the regime proxy the QUALIFIED gate reads, not a score and not a multiplier on one.
+            <details class="why"><summary>Why this panel exists</summary><div class="muted" style="padding:8px 12px 0">The LAVL regime the QUALIFIED gate reads — the nightly's own <code>_lavl_regime</code>, run here verbatim. Velo = min(4, |24h %| ÷ 24h range × ln(max(2, turnover × 10⁶))); Diverge = min(2.3, turnover × (1 − range ÷ high)); LAVL = 0.6·Velo + 0.4·Diverge; ALPHA RUSH above 2.5, STABLE from 0.5, otherwise COMPRESS. It is <b>funding-neutral by construction</b>: a regime proxy, not a score and not a multiplier on one.
             <details class="why" style="margin-left:0"><summary>what the Funding× column is</summary>
               <div class="body">The separate funding multiplier, RiskMult<sub>perp</sub> (Module E), that multiplies this row's <b>conviction</b> — shown here beside LAVL, not used in it. It reads the cross-venue annualised carry from tonight's <code>ledger/perp.json</code> and marks the score down toward ×0.85 as longs pay more, or up toward ×1.15 as shorts do, continuously. ×1.000 is a real reading inside the inert band. A dash is not: it means no perpetual reading, a refused value, or an overlay withheld because the artifact is missing or stale — the score is then unadjusted, and the factor breakdown says which.</div></details>
-            <div class="body" style="padding:6px 0 0">The nightly's basket gate computes its regime with its own proxy (<code>_lavl_regime</code>), which is not this formula; the two can disagree on which names qualify. Recorded for review, not reconciled: docs/AUDIT-2026-09-23.md §6.</div></div></details>
+            <div class="body" style="padding:6px 0 0">QUALIFIED = turnover 30–60% <b>and</b> FDV/MC ≤ 2.0 (or FDV unpublished) <b>and</b> this regime not COMPRESS — the nightly's <code>_conjunctive_gate</code>, decision for decision. <code>tests/test_parity.py</code> executes both sides.</div></div></details>
             <div class="scroll-pane">
               <table id="tbl-lavl"><thead><tr>
-                <th>Ticker</th><th>Velo<sub>liq</sub></th><th>Diverge</th><th>LAVL</th><th>Regime</th><th data-tip="The funding multiplier (RiskMult_perp, Module E) applied to this row's CONVICTION score, from ledger/perp.json. It is not an input to LAVL, which is funding-neutral. A dash is a missing, withheld or refused reading — not a neutral one.">Funding×<sub>conv</sub></th>
+                <th>Ticker</th><th data-tip="Direction-free: |24h move| per unit of 24h range, scaled by log turnover, capped at 4.">Velo</th><th data-tip="Turnover times range tightness (1 − range/high), capped at 2.3.">Diverge</th><th data-tip="0.6 × Velo + 0.4 × Diverge.">LAVL</th><th data-tip="ALPHA RUSH above 2.5, STABLE from 0.5, otherwise COMPRESS. The regime leg of QUALIFIED.">Regime</th><th data-tip="The funding multiplier (RiskMult_perp, Module E) applied to this row's CONVICTION score, from ledger/perp.json. It is not an input to LAVL, which is funding-neutral. A dash is a missing, withheld or refused reading — not a neutral one.">Funding×<sub>conv</sub></th>
               </tr></thead><tbody></tbody></table>
             </div>
           </div>
@@ -1904,7 +1904,7 @@ let ALL_ROWS = [];  // the same file, unfiltered — what the rewind scrubber re
 let INDEX = null;  // nightly index.json (conviction-weighted basket track record)
 let PERP = {};     // symbol -> RiskMult_perp, the funding multiplier conviction() applies,
                    // from ledger/perp.json via perpFeed(). NOT an input to LAVL, which is
-                   // funding-neutral by construction — see computeLAVL().
+                   // funding-neutral by construction — see lavlReading().
 // False until the overlay has actually been loaded. Without it every multiplier
 // defaults to 1.0 and the board reorders — a live table that quietly disagrees with the
 // published one is worse than a table that says it is degraded, so this is rendered.
@@ -2748,6 +2748,59 @@ function rsBlendOf(t, btc){
                   - (btc ? (btc["price_change_percentage_"+tf+"d_in_currency"]||0) : 0);
   return 0.30*pct(7) + 0.25*pct(14) + 0.25*pct(30) + 0.20*pct(200);
 }
+/* QUALIFICATION — the nightly's gate, ported verbatim. 2026-09-24.
+
+   `lavlReading` is nightly._lavl_regime (a captured SPEC_FUNCTION) and
+   `conjunctiveGate` is nightly._conjunctive_gate, line for line: same inputs, same
+   fallbacks, same order of operations, same bands. QUALIFIED on the board is
+   conjunctiveGate() and the Alpha Engine's Regime column is lavlReading(), so the panel
+   shows the regime the gate actually read.
+
+   Both read the RAW CoinGecko row, never build()'s mapped fields: the nightly falls back
+   `high_24h or price or 1` and `chg or 0.0`, and a mapped field already coerced to 0
+   would reproduce a different number from the same payload.
+
+   The browser's own formula this replaces (computeLAVL: signed velocity against a $5M
+   volume base, a market-cap-change term, a LIQ TRAP band) and its extra proxy-ERA
+   dilution condition disagreed with the nightly on the regime leg for 177 of 234 names
+   on the 2026-09-23 payload, and qualified 2 names where the nightly qualified 9.
+   tests/test_parity.py executes both sides over fixtures, edge cases and a committed
+   payload. */
+function lavlReading(t){
+  const price = t.current_price || 0;
+  const chg = t.price_change_percentage_24h || 0.0;
+  const high = t.high_24h || price || 1;
+  const low = t.low_24h || price || 1;
+  const vol = t.total_volume || 0;
+  const mc = t.market_cap || 0;
+  if(price <= 0 || mc <= 0)
+    return {velo: null, diverge: null, lavl: null, band: "COMPRESS"};
+  let spread = price ? (high - low) / price : 1;
+  if(spread <= 0) spread = 0.01;
+  let depth = mc ? vol / mc : 0;
+  if(depth <= 0) depth = 1e-6;
+  let velo = spread ? (Math.abs(chg) / 100.0 / spread) * Math.log(Math.max(2.0, depth * 1e6)) : 0;
+  velo = Math.min(4.0, velo);
+  const range_tight = high ? 1 - (high - low) / high : 0;
+  let diverge = (vol / mc) * Math.max(0.0, range_tight);
+  diverge = Math.min(2.3, diverge);
+  const lavl = 0.6 * velo + 0.4 * diverge;
+  const band = lavl > 2.5 ? "ALPHA RUSH" : lavl >= 0.5 ? "STABLE" : "COMPRESS";
+  return {velo, diverge, lavl, band};
+}
+function lavlRegime(t){ return lavlReading(t).band; }
+function conjunctiveGate(t){
+  const mc = t.market_cap || 0;
+  const vol = t.total_volume || 0;
+  const turnover = mc ? vol / mc : 0.0;
+  const fdv = t.fully_diluted_valuation || 0;
+  const dilution = mc ? fdv / mc : null;
+  const gate_a = 0.30 <= turnover && turnover <= 0.60;
+  const gate_b = dilution === null || dilution <= 2.0;
+  const band = lavlRegime(t);
+  const gate_c = band !== "COMPRESS" && band !== "LIQ TRAP" && turnover < 0.90;
+  return gate_a && gate_b && gate_c;
+}
 /* END MODEL PORT */
 
 // ---- build model ----
@@ -2770,7 +2823,11 @@ function build(raw){
     // Divergence: price down but market-cap (proxy for liquidity interest) up => accumulation flag
     const mcapChg=t.market_cap_change_percentage_24h||0;
     const divergence = (chg<0 && mcapChg>1.5) || (Math.abs(chg)<0.5 && mcapChg>3);
+    // Qualification and the LAVL regime, from the RAW row — see the port.
+    const L = lavlReading(t);
     return {id:t.id,sym:(t.symbol||"").toUpperCase(),name:t.name,price,mc,vol,turn,chg,conv,sig,
+      lavl:L.lavl, lavlVelo:L.velo, lavlDiverge:L.diverge, lavlBand:L.band,
+      gated: conjunctiveGate(t),
       tier:tierOf(t.symbol), spark:t.sparkline_in_7d?.price||null,
       ath, atl, z:Math.round(z*100)/100, divergence,
       high24:t.high_24h||0, low24:t.low_24h||0, mcapChg,
@@ -2804,20 +2861,12 @@ function build(raw){
                                      SUPPLY:sup.applied, FUNDING:perpM})};
       })()};
   }).sort((a,b)=>b.conv-a.conv).map(t=>{
-    // Module B proxy ERA from real payload: structural dilution vs 24h volume interest.
-    // PROXY ERA = ((FDV/MC) - 1) / (24h volume %). Null when FDV missing or vol% ~ 0.
-    let proxyEra=null, dilution=null;
-    if(t.fdv>0 && t.mc>0){
-      dilution=t.fdv/t.mc;
-      const volPct=Math.abs(t.chg)|| (t.vol/t.mc*100);
-      if(volPct>0.01) proxyEra=Math.round(((dilution-1)/volPct)*1000)/1000;
-    }
-    // Conjunctive gate: Liquidity + Dilution + Regime.
-    const L=computeLAVL(t);
-    const gateA = t.turn>=30 && t.turn<=60;
-    const gateB = proxyEra==null ? (dilution==null||dilution<=2.0) : (proxyEra<=1.5 && dilution<=2.0);
-    const gateC = L.band!=="COMPRESS" && L.band!=="LIQ TRAP" && t.turn<90;
-    return {...t, proxyEra, dilution, lavl:L.lavl, lavlBand:L.band, gated: gateA&&gateB&&gateC};
+    // FDV over market cap, for display (the Alpha Map sizes points by it). NOT an input
+    // to qualification any more: the gate is conjunctiveGate() above, which reads FDV/MC
+    // straight off the raw row exactly as the nightly does. The proxy-ERA condition that
+    // used to sit in the browser's gate existed nowhere in the nightly's.
+    const dilution = (t.fdv>0 && t.mc>0) ? t.fdv/t.mc : null;
+    return {...t, dilution};
   });
 }
 
@@ -2853,33 +2902,10 @@ function deltaColor(pct){
 // cannot separate the two hues.
 function deltaGlyph(pct){ return pct>0?"▲":pct<0?"▼":"·"; }
 
-// ---- LAVL: Liquidity-Adjusted Velocity & Leverage (honest, real-field proxies) ----
-const L_W1=0.6, L_W2=0.4, L_LAMBDA=1.0, L_DEPTH_BASE=5e6;
-function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
-function computeLAVL(t){
-  const price=t.price||0, chg=t.chg||0, high24=t.high24||price, low24=t.low24||price;
-  const vol=t.vol||0, mc=t.mc||0, mcapChg=t.mcapChg||0;
-  // 1. Velo_liq
-  const spread=Math.max((high24-low24)/Math.max(price,1e-9),0.001);
-  const depthRatio=Math.max(vol/L_DEPTH_BASE,1e-4);
-  const logDepth=Math.log(depthRatio);
-  const priceDelta=chg/100;
-  let velo=clamp((priceDelta/spread)*logDepth,-4,4);
-  // 2. Diverge_vol
-  const turnover=mc>0?vol/mc:0;
-  const volShock=clamp(turnover/0.05,0,4);
-  const poc=clamp(1-spread,0,1);
-  let diverge=clamp(volShock*poc*(1+clamp(mcapChg/5,-1,1)),-3,3);
-  // Funding-neutral BY CONSTRUCTION, not "neutral until a feed is connected" — the feed
-  // is connected. LAVL is the regime proxy the qualification gate (gate C) reads, and the
-  // nightly's own regime proxy (_lavl_regime) is funding-neutral in the captured model
-  // too. The funding multiplier, RiskMult_perp, multiplies CONVICTION in conviction();
-  // it is shown beside LAVL in the table from PERP, never folded into this number.
-  let lavl=clamp(L_W1*velo+L_W2*diverge,-5,5);
-  const band=lavl>2.5?"ALPHA RUSH":lavl>=0.5?"STABLE":lavl<-1.0?"LIQ TRAP":"COMPRESS";
-  return {velo:Math.round(velo*100)/100,diverge:Math.round(diverge*100)/100,lavl:Math.round(lavl*100)/100,band};
-}
-function lavlBandClass(b){return b==="ALPHA RUSH"?"g":b==="STABLE"?"n":b==="LIQ TRAP"?"r":"a";}
+// ---- LAVL: the regime the QUALIFIED gate reads ----
+// Computed by lavlReading() inside the MODEL PORT (the nightly's _lavl_regime, ported).
+// Funding-neutral by construction: no funding multiplier enters it, on either side.
+function lavlBandClass(b){return b==="ALPHA RUSH"?"g":b==="STABLE"?"n":"a";}
 
 
 /* ---- the 7d sparkline, as inline SVG ----
@@ -3547,12 +3573,14 @@ function renderTables(){
   // Module D — LAVL alpha engine (same VIEW subset, index-aligned)
   const ld=$("#tbl-lavl tbody"); ld.innerHTML="";
   vc.forEach(t=>{
-    const L=computeLAVL(t);
+    // The same reading the gate took: lavlReading() over the raw row, stored by build().
+    // A null reading is the nightly's early COMPRESS for a row with no price or cap.
+    const n2 = v => v==null ? '<span class="muted">—</span>' : v.toFixed(2);
     ld.insertAdjacentHTML("beforeend",`<tr class="row" data-sym="${esc0(t.sym)}"><td class="tick">${execLink(t.sym)}</td>
-      <td class="num ${L.velo>=1?'pos':L.velo<=-1?'neg':'neu'}">${L.velo>0?'+':''}${L.velo.toFixed(2)}</td>
-      <td class="num ${L.diverge>=1?'pos':L.diverge<=-1?'neg':'neu'}">${L.diverge.toFixed(2)}</td>
-      <td class="num ${L.lavl>2.5?'pos':L.lavl<-1?'neg':L.lavl>=0.5?'neu':'a'}">${L.lavl>0?'+':''}${L.lavl.toFixed(2)}</td>
-      <td><span class="badge ${lavlBandClass(L.band)}">${L.band}</span></td>
+      <td class="num ${t.lavlVelo>=1?'pos':'neu'}">${n2(t.lavlVelo)}</td>
+      <td class="num ${t.lavlDiverge>=1?'pos':'neu'}">${n2(t.lavlDiverge)}</td>
+      <td class="num ${t.lavl>2.5?'pos':t.lavl>=0.5?'neu':'a'}">${n2(t.lavl)}</td>
+      <td><span class="badge ${lavlBandClass(t.lavlBand)}">${t.lavlBand||"—"}</span></td>
       ${fundingMultCell(t.sym)}</tr>`);
   });
   Array.from(ld.children).forEach((r,i)=>{ if(vc[i]) r.onclick=()=>select(vc[i].sym); });
@@ -4493,7 +4521,7 @@ function renderInspectorBase(t){
        <div class="insp-k"><span data-tip="Module E. Annualised cross-venue funding carry, and the score modifier it set.">Funding</span><b>${fundingCell(t.sym,t)}</b></div>
        <div class="insp-k"><span data-tip="Choppiness and Wilder ADX over accumulated daily bars, resolved to the book each suits. Observational — none of it feeds conviction.">Regime</span><b>${regimeCell(t.sym,t)}</b></div>
        <div class="insp-k"><span data-tip="Relative strength against BTC, blended over 7/14/30/200 days. This is the confirmation term in the score.">RS vs BTC</span><b class="${t.rsBlend>0?'pos':t.rsBlend<0?'neg':'neu'}">${t.rsBlend==null?"—":(t.rsBlend>0?"+":"")+t.rsBlend.toFixed(1)}</b></div>
-       <div class="insp-k"><span data-tip="Liquidity-Adjusted Velocity and Leverage. Module D's micro-regime band for this name.">LAVL</span><b><span class="badge ${lavlBandClass(t.lavlBand)}">${t.lavlBand||"—"}</span></b></div>
+       <div class="insp-k"><span data-tip="The LAVL regime the QUALIFIED gate reads (the nightly's _lavl_regime): ALPHA RUSH, STABLE or COMPRESS. Funding-neutral.">LAVL</span><b><span class="badge ${lavlBandClass(t.lavlBand)}">${t.lavlBand||"—"}</span></b></div>
        ${rangeMarker(t.price, t.low24, t.high24)}
      </div>
      <div id="insp-cg"><div class="muted" style="padding:4px 12px 8px">Fundamentals loading…</div></div>`;
@@ -7845,8 +7873,10 @@ function rowToState(r){
           rsBlend:num("rs_blend")||0,
           emission_mult:num("emission_mult")!=null?num("emission_mult"):1,
           emission_drag:num("emission_drag")},
-    proxyEra:null, dilution:(fdv&&mc)?fdv/mc:null,
-    lavl:0, lavlBand:null, gated:false, _rewound:true,
+    dilution:(fdv&&mc)?fdv/mc:null,
+    // Qualification needs the 24h change and range, which a recorded row does not
+    // carry: a rewound row is not evaluable, and says so, rather than "not qualified".
+    lavl:null, lavlVelo:null, lavlDiverge:null, lavlBand:null, gated:false, _rewound:true,
     // The funding and regime THIS night recorded. Without these the rewound board
     // borrows tonight's funding.json and tonight's choppiness for a three-week-old row
     // — which is how a historical board ends up asserting a carry that did not exist

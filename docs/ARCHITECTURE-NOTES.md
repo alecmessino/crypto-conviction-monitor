@@ -310,6 +310,11 @@ labelled `_ATTRIB_BASIS` = "Arithmetic, not evidence."
   are **the same number** — the conjunctive gate `gated` computed in `build()` at 2192:
   turnover 30–60%, dilution ≤ 2.0 (with proxy-ERA ≤ 1.5 when FDV exists), LAVL band not
   COMPRESS/LIQ TRAP and turnover < 90%.
+  *Superseded 2026-09-24:* `gated` is now `conjunctiveGate()`, a verbatim port of
+  `nightly._conjunctive_gate` / `_lavl_regime` inside the MODEL PORT, computed from the raw
+  row and executed against the Python by `tests/test_parity.py` ("qualification parity").
+  The proxy-ERA term and the LIQ TRAP band are gone; the Alpha Engine's Regime column is
+  the same reading. See `docs/AUDIT-2026-09-23.md` §6.1.
 - `factorBreakdown()` (3480) already self-checks: it recomputes the product and prints
   "does not reconstruct: board says N" when its own chain disagrees with the published
   score.

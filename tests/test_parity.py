@@ -659,6 +659,78 @@ def check_frozen_conviction_regression():
 # ---- dual-mode entrypoint ----
 # Named once. The count used to be written as a literal 5 in two places beside this
 # list, so adding a check reported "5 of 5 passed" while running seven.
+# Qualification. The terminal's QUALIFIED flag and its LAVL regime are ports of
+# nightly._conjunctive_gate / nightly._lavl_regime, executed here against them decision
+# for decision. Until 2026-09-24 the browser ran its own formula and an extra proxy-ERA
+# term: on the 2026-09-23 payload it qualified 2 names where the nightly qualified 9.
+_QUAL_FIXTURE = os.path.join(_ROOT, "tests", "fixtures", "coins_markets_2026-09-23.json")
+
+
+def _qual_edge_cases() -> list:
+    """Constructed rows that exercise every branch and fallback of the Python rule."""
+    base = {"current_price": 10.0, "market_cap": 1e9, "total_volume": 4e8,
+            "fully_diluted_valuation": 1.2e9, "price_change_percentage_24h": 6.0,
+            "high_24h": 10.4, "low_24h": 9.6}
+    cases = [dict(base)]
+    def v(**kw):
+        c = dict(base); c.update(kw); cases.append(c)
+    # fallbacks: missing / null / zero on every field the rule reads
+    for k in base:
+        v(**{k: None}); v(**{k: 0})
+        c = dict(base); c.pop(k); cases.append(c)
+    v(current_price=-1.0); v(market_cap=-5.0)
+    v(high_24h=9.0, low_24h=11.0)                 # inverted range -> spread fallback
+    v(high_24h=10.0, low_24h=10.0)                # flat range -> spread 0.01
+    v(high_24h=None, low_24h=None)                # both fall back to price
+    v(price_change_percentage_24h=-35.0)          # direction-free velocity
+    v(price_change_percentage_24h=250.0)          # velocity cap at 4
+    v(total_volume=1e3)                           # depth floor inside the log
+    v(total_volume=5e9)                           # diverge cap 2.3, turnover > 0.9
+    for turn in (0.2999999, 0.30, 0.45, 0.60, 0.6000001, 0.89, 0.90):
+        v(total_volume=turn * 1e9)
+    for dil in (1.0, 1.9999, 2.0, 2.0001, 7.0):
+        v(fully_diluted_valuation=dil * 1e9)
+    v(fully_diluted_valuation=None, total_volume=4.5e8)
+    # regime thresholds: velo 0 (no move) so LAVL = 0.4 x diverge, walked across 0.5
+    for d in (1.24, 1.25, 1.26):
+        v(price_change_percentage_24h=0.0, high_24h=10.0, low_24h=10.0,
+          total_volume=d * 1e9)
+    return cases
+
+
+def run_js_qualification(rows: list) -> list:
+    tail = """
+const ROWS = %s;
+console.log(JSON.stringify(ROWS.map(t => [conjunctiveGate(t), lavlRegime(t)])));
+""" % json.dumps(rows)
+    return json.loads(run_js_raw(tail))
+
+
+def check_qualification_parity():
+    """QUALIFIED and the LAVL regime: the terminal's port vs the nightly's rule.
+
+    Over constructed edge cases (every fallback, every threshold) and over a committed
+    real /coins/markets payload. Decision for decision and band for band, no tolerance.
+    """
+    with open(_QUAL_FIXTURE, encoding="utf-8") as fh:
+        payload = json.load(fh)["rows"]
+    rows = _qual_edge_cases() + payload
+    js = run_js_qualification(rows)
+    assert len(js) == len(rows)
+    bad = []
+    for t, (gate, band) in zip(rows, js):
+        py_band = nightly._lavl_regime(t)
+        py_gate = nightly._conjunctive_gate(t, 0)
+        if band != py_band or gate != py_gate:
+            bad.append((t.get("symbol") or t, "js", gate, band, "py", py_gate, py_band))
+    assert not bad, f"{len(bad)} of {len(rows)} rows disagree: {bad[:3]}"
+    # The payload must actually exercise both verdicts, or the check proves nothing.
+    verdicts = {g for g, _ in js[-len(payload):]}
+    bands = {b for _, b in js[-len(payload):]}
+    assert verdicts == {True, False}, verdicts
+    assert {"STABLE", "COMPRESS", "ALPHA RUSH"} <= bands, bands
+
+
 _CHECKS = [
     ("frontend/backend parity", check_frontend_backend_parity),
     ("parity under perp overlay", check_parity_under_perp_overlay),
@@ -673,6 +745,7 @@ _CHECKS = [
      check_the_transport_covers_what_the_nightly_scored),
     ("frozen conviction regression", check_frozen_conviction_regression),
     ("gate reads the real terminal", check_the_gate_reads_the_real_terminal),
+    ("qualification parity", check_qualification_parity),
 ]
 
 
@@ -772,3 +845,7 @@ else:
 
     def test_the_gate_reads_the_real_terminal():
         check_the_gate_reads_the_real_terminal()
+
+    @needs_node
+    def test_qualification_parity():
+        check_qualification_parity()
