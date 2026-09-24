@@ -3,7 +3,8 @@
 **Status: DECIDED 2026-09-24.** §A (qualification parity) — approved and implemented by
 the qualification-parity PR (#41). §B — decided: the experimental basket is retired from
 the production product; implemented by the basket-retirement PR, presentation only (§B.6).
-Stopping its writer is enumerated in §B.7 and awaits approval. Any future research basket
+Stopping its writer was enumerated in §B.7, approved, and done in the
+basket-writer PR (§B.8). Any future research basket
 uses Architecture A only, as a new workstream. RWA sharding follows. The analysis below
 is kept as written.
 Originally: **FOR DECISION. Nothing here is implemented.** Written 2026-09-24 after the
@@ -353,6 +354,38 @@ because it is not free:
 - The alternative is to declare `by_regime` closed at 2026-09-24.
 - Then pin `basket.json`'s sha256 above in a test, and observe one genuine scheduled
   nightly.
+
+### B.8 Implemented 2026-09-24 — the writer is stopped
+
+- **Writer removed.** `main()` no longer calls `build_basket()`. The function and its
+  private helpers are deleted from `nightly.py` (10 symbols); the exact code is
+  preserved at commit `18eb514`. `EXEC_BPS_ONEWAY` stays, because the canonical Index
+  uses it.
+- **Archive frozen, and guarded.** `basket.json`, `index.csv` and `index.legacy.csv` are
+  never staged by the nightly again (`nightly.ARCHIVED_LEDGER_FILES`), so any write trips
+  the leftover guard. The sha256 of all three is pinned, and so is every key of
+  `index.json` except `canonical`. That key is still refreshed as the canonical
+  Index's mirror.
+- **Regime re-sourced.** `macro_regime_for()` applies the old rule (lag included) to
+  `macro.csv.total_mcap` and records the result in `ledger/regime.csv`.
+  - It raises `MacroDataMissing` instead of returning a guessed label. That happens
+    when the latest night is more than 3 days back, or no night lies within 3 days of
+    seven days back.
+  - `main()` records the reason and the workflow turns the run red after the commit.
+  - `recorded_regimes()` reads `index.csv` labels through 2026-09-24, then
+    `regime.csv`.
+- **Parity (measured, and pinned by test).**
+  - The frozen old rule reproduces all 45 recorded labels.
+  - `macro.csv` labels 30 of them and matches on every one. It refuses the 15 earliest
+    nights (through 08-23): for 08-09 to 08-20 it has fewer than two nights before the
+    date (it starts 08-19), and for 08-21 to 08-23 it has no night within 3 days of
+    seven days back. Those archived labels are kept as recorded; they are never
+    recomputed.
+  - Wherever both sources compare the same pair of nights, the ratio is equal to
+    rounding.
+  - All recorded labels are RISK-ON, so ratio parity is the stronger evidence.
+- **Walk-forward unchanged.** Recomputed through 2026-09-24, the report equals the
+  committed `walkforward.json` in every key but `generated_at`, and its hash is pinned.
 
 ---
 

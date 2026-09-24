@@ -89,7 +89,8 @@ def check_headers(ledger: Path) -> list[str]:
                          # file is skipped below rather than failed.
                          ("sectors.csv", nightly.SECTOR_FIELDS),
                          ("macro.csv", nightly.MACRO_FIELDS),
-                         ("dex.csv", nightly.DEX_FIELDS)):
+                         ("dex.csv", nightly.DEX_FIELDS),
+                         ("regime.csv", nightly.REGIME_FIELDS)):
         path = ledger / name
         if not path.exists():
             continue
@@ -319,6 +320,9 @@ def check_monitor(ledger: Path) -> list[str]:
 
 
 def check_basket(ledger: Path) -> list[str]:
+    # ARCHIVE. basket.json is the retired hysteresis basket's last state (2026-09-24);
+    # nothing writes it. The checks still hold on the frozen file and are kept as a
+    # guard that it stays the coherent record it was.
     path = ledger / "basket.json"
     if not path.exists():
         return []
@@ -354,7 +358,7 @@ def check_context_ledgers(ledger: Path) -> list[str]:
     """
     problems = []
     for name, key in (("sectors.csv", "category_id"), ("macro.csv", None),
-                      ("dex.csv", "network")):
+                      ("dex.csv", "network"), ("regime.csv", None)):
         path = ledger / name
         if not path.exists():
             continue
@@ -370,6 +374,21 @@ def check_context_ledgers(ledger: Path) -> list[str]:
         if blank:
             problems.append(f"{name}: {blank} row(s) carry no date and cannot be "
                             f"placed in the series")
+        if name == "regime.csv":
+            # A recorded label is one of the two real buckets — a night that could not be
+            # labelled writes no row — and it begins after the archive it replaced, so
+            # the two sources recorded_regimes() reads can never both claim a night.
+            bad = sorted({r.get("macro_regime") for r in rows}
+                         - {"RISK-ON", "RISK-OFF"}, key=str)
+            if bad:
+                problems.append(f"regime.csv: label(s) {bad} — only RISK-ON / RISK-OFF "
+                                f"are recorded; a night without a label has no row")
+            early = [r.get("date") for r in rows
+                     if (r.get("date") or "") <= nightly.BASKET_RETIRED_ON]
+            if early:
+                problems.append(f"regime.csv: {len(early)} row(s) on or before "
+                                f"{nightly.BASKET_RETIRED_ON}, e.g. {early[0]} — those "
+                                f"nights' labels are the archived index.csv record")
     return problems
 
 
@@ -1221,11 +1240,11 @@ def main() -> int:
             try:
                 perf = (json.loads(breadth.read_text()).get("performance") or {})
                 if perf.get("legs"):
-                    print(f"performance: {perf['legs']} leg(s), basket "
+                    print(f"performance: {perf['legs']} leg(s), canonical Index "
                           f"{perf['book_total']:+.2f}%, {perf['benchmark']} "
                           f"{perf['benchmark_total']:+.2f}%"
                           if perf.get("benchmark_available") else
-                          f"performance: {perf['legs']} leg(s), basket {perf['book_total']:+.2f}%")
+                          f"performance: {perf['legs']} leg(s), canonical Index {perf['book_total']:+.2f}%")
             except Exception:
                 pass
 

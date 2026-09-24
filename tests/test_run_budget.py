@@ -161,6 +161,10 @@ def test_a_run_out_of_budget_skips_the_optional_stages_and_still_publishes(tmp_p
         shutil.copy(ROOT / name, work / name)
     shutil.copytree(ROOT / "ledger", work / "ledger")
     rwa_before = _rwa_files(work / "ledger")
+    archive = ("basket.json", "index.csv", "index.legacy.csv")
+    archive_before = {n: (work / "ledger" / n).read_bytes() for n in archive}
+    index_before = {k: v for k, v in json.loads((work / "ledger" / "index.json").read_text()).items()
+                    if k != "canonical"}
     (work / "harness.py").write_text(HARNESS)
     info = tmp_path / "run.json"
     env = {**os.environ, "NIGHTLY_BUDGET_S": "0", "NIGHTLY_RUN_INFO": str(info)}
@@ -176,6 +180,15 @@ def test_a_run_out_of_budget_skips_the_optional_stages_and_still_publishes(tmp_p
     # The optional stages never touched the RWA ledger ...
     assert _rwa_files(work / "ledger") == rwa_before
     assert any(k.startswith("rwa/flow/") for k in rwa_before), "the walk missed the shards"
+    # A full nightly leaves the retired basket's record exactly as it was: its writer is
+    # gone, and only index.json's `canonical` mirror is refreshed.
+    for n in archive:
+        assert (work / "ledger" / n).read_bytes() == archive_before[n], f"the nightly wrote {n}"
+    assert {k: v for k, v in json.loads((work / "ledger" / "index.json").read_text()).items()
+            if k != "canonical"} == index_before, "the nightly wrote the archived index.json keys"
+    # The regime outcome is recorded either way: a label, or the reason there is none.
+    assert run.get("macro_regime") in ("RISK-ON", "RISK-OFF") or str(
+        run.get("macro_regime")).startswith("missing: "), run.get("macro_regime")
     # ... and the mandatory work ran in full: tonight's rows and the transport exist.
     assert run["outcome"] == "completed"
     assert run["scored"] > 200 and run["persisted"] == 50 and run["xsec_rows"] > 200
