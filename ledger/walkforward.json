@@ -1,15 +1,15 @@
 {
  "version": 1,
- "generated_at": "2026-09-18T02:37:21.534248+00:00",
+ "generated_at": "2026-09-23T23:36:26.920310+00:00",
  "spec_hash": "91bbc2a7e466",
  "sample": "forward",
  "sample_label": "FORWARD CROSS-SECTIONAL SAMPLE",
  "universe": "ledger/xsec/ \u2014 the whole scored cross-section",
  "population": "complete (every de-duplicated non-stable asset scored that night)",
  "sample_caveat": "Began accumulating 2026-09-15. Wide and shallow: it measures the population the board actually publishes, and it has not yet measured anything.",
- "nights": 3,
+ "nights": 7,
  "from": "2026-09-15",
- "to": "2026-09-17",
+ "to": "2026-09-23",
  "horizons": [
   1,
   7,
@@ -27,60 +27,60 @@
  "not_comparable_because": "The published IC matrix is measured on the LEGACY sample \u2014 ledger/signals.csv, the top fifty by conviction, 48 nights. This report is measured on the FORWARD sample \u2014 ledger/xsec/, the whole scored cross-section, which began on 2026-09-15. Different populations over different windows: the numbers are not alternative estimates of one quantity and must never be averaged, compared or presented as though one confirms or contradicts the other. Three nights admit at most two one-day legs, so this report cannot reproduce a 43-leg figure at any horizon.",
  "coverage": {
   "1": {
-   "realised": 460,
+   "realised": 1157,
    "horizon-incomplete": 235,
-   "left-universe": 8,
-   "unpriced": 0,
-   "total": 703
+   "left-universe": 16,
+   "unpriced": 235,
+   "total": 1643
   },
   "7": {
-   "realised": 0,
-   "horizon-incomplete": 703,
-   "left-universe": 0,
-   "unpriced": 0,
-   "total": 703
+   "realised": 221,
+   "horizon-incomplete": 1175,
+   "left-universe": 13,
+   "unpriced": 234,
+   "total": 1643
   },
   "30": {
    "realised": 0,
-   "horizon-incomplete": 703,
+   "horizon-incomplete": 1643,
    "left-universe": 0,
    "unpriced": 0,
-   "total": 703
+   "total": 1643
   }
  },
  "ic": {
   "composite": {
    "1": {
-    "legs": 2,
-    "legs_seen": 2,
+    "legs": 5,
+    "legs_seen": 5,
     "min_legs": 40,
-    "names_mean": 230.0,
-    "ic": 0.0641,
+    "names_mean": 231.4,
+    "ic": 0.0936,
     "ci": [
-     -0.087,
-     0.2152
+     -0.0865,
+     0.2736
     ],
-    "se": 0.0771,
-    "t_stat": 0.831,
-    "legs_positive": 1,
+    "se": 0.0919,
+    "t_stat": 1.018,
+    "legs_positive": 3,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "2 of 40 legs \u2014 not yet measurable",
+    "detail": "5 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "7": {
-    "legs": 0,
-    "legs_seen": 0,
+    "legs": 1,
+    "legs_seen": 1,
     "min_legs": 40,
-    "names_mean": null,
+    "names_mean": 221.0,
     "ic": null,
     "ci": null,
     "se": null,
     "t_stat": null,
-    "legs_positive": 0,
+    "legs_positive": 1,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "0 usable leg(s); 40 needed",
+    "detail": "1 usable leg(s); 40 needed",
     "sample": "forward"
    },
    "30": {
@@ -101,28 +101,28 @@
   },
   "DEPTH": {
    "1": {
-    "legs": 2,
-    "legs_seen": 2,
+    "legs": 5,
+    "legs_seen": 5,
     "min_legs": 40,
-    "names_mean": 230.0,
-    "ic": -0.0635,
+    "names_mean": 231.4,
+    "ic": -0.0089,
     "ci": [
-     -0.0736,
-     -0.0535
+     -0.0703,
+     0.0524
     ],
-    "se": 0.0051,
-    "t_stat": -12.34,
-    "legs_positive": 0,
+    "se": 0.0313,
+    "t_stat": -0.285,
+    "legs_positive": 2,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "2 of 40 legs \u2014 not yet measurable",
+    "detail": "5 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "7": {
-    "legs": 0,
-    "legs_seen": 0,
+    "legs": 1,
+    "legs_seen": 1,
     "min_legs": 40,
-    "names_mean": null,
+    "names_mean": 221.0,
     "ic": null,
     "ci": null,
     "se": null,
@@ -130,7 +130,7 @@
     "legs_positive": 0,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "0 usable leg(s); 40 needed",
+    "detail": "1 usable leg(s); 40 needed",
     "sample": "forward"
    },
    "30": {
@@ -151,28 +151,28 @@
   },
   "CONFIRM": {
    "1": {
-    "legs": 2,
-    "legs_seen": 2,
+    "legs": 5,
+    "legs_seen": 5,
     "min_legs": 40,
-    "names_mean": 230.0,
-    "ic": 0.0396,
+    "names_mean": 231.4,
+    "ic": 0.0546,
     "ci": [
-     -0.0253,
-     0.1045
+     -0.1005,
+     0.2097
     ],
-    "se": 0.0331,
-    "t_stat": 1.196,
-    "legs_positive": 2,
+    "se": 0.0792,
+    "t_stat": 0.69,
+    "legs_positive": 4,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "2 of 40 legs \u2014 not yet measurable",
+    "detail": "5 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "7": {
-    "legs": 0,
-    "legs_seen": 0,
+    "legs": 1,
+    "legs_seen": 1,
     "min_legs": 40,
-    "names_mean": null,
+    "names_mean": 221.0,
     "ic": null,
     "ci": null,
     "se": null,
@@ -180,7 +180,7 @@
     "legs_positive": 0,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "0 usable leg(s); 40 needed",
+    "detail": "1 usable leg(s); 40 needed",
     "sample": "forward"
    },
    "30": {
@@ -201,36 +201,36 @@
   },
   "LIQUIDITY": {
    "1": {
-    "legs": 2,
-    "legs_seen": 2,
+    "legs": 5,
+    "legs_seen": 5,
     "min_legs": 40,
-    "names_mean": 230.0,
-    "ic": 0.1139,
+    "names_mean": 231.4,
+    "ic": 0.1329,
     "ci": [
-     -0.4065,
-     0.6343
+     -0.1146,
+     0.3805
     ],
-    "se": 0.2655,
-    "t_stat": 0.429,
-    "legs_positive": 1,
+    "se": 0.1263,
+    "t_stat": 1.053,
+    "legs_positive": 3,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "2 of 40 legs \u2014 not yet measurable",
+    "detail": "5 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "7": {
-    "legs": 0,
-    "legs_seen": 0,
+    "legs": 1,
+    "legs_seen": 1,
     "min_legs": 40,
-    "names_mean": null,
+    "names_mean": 221.0,
     "ic": null,
     "ci": null,
     "se": null,
     "t_stat": null,
-    "legs_positive": 0,
+    "legs_positive": 1,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "0 usable leg(s); 40 needed",
+    "detail": "1 usable leg(s); 40 needed",
     "sample": "forward"
    },
    "30": {
@@ -251,28 +251,28 @@
   },
   "SUPPLY": {
    "1": {
-    "legs": 2,
-    "legs_seen": 2,
+    "legs": 5,
+    "legs_seen": 5,
     "min_legs": 40,
-    "names_mean": 230.0,
-    "ic": -0.1278,
+    "names_mean": 231.4,
+    "ic": -0.1109,
     "ci": [
-     -0.3095,
-     0.0539
+     -0.2286,
+     0.0069
     ],
-    "se": 0.0927,
-    "t_stat": -1.379,
-    "legs_positive": 0,
+    "se": 0.0601,
+    "t_stat": -1.845,
+    "legs_positive": 1,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "2 of 40 legs \u2014 not yet measurable",
+    "detail": "5 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "7": {
-    "legs": 0,
-    "legs_seen": 0,
+    "legs": 1,
+    "legs_seen": 1,
     "min_legs": 40,
-    "names_mean": null,
+    "names_mean": 221.0,
     "ic": null,
     "ci": null,
     "se": null,
@@ -280,7 +280,7 @@
     "legs_positive": 0,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "0 usable leg(s); 40 needed",
+    "detail": "1 usable leg(s); 40 needed",
     "sample": "forward"
    },
    "30": {
@@ -301,28 +301,28 @@
   },
   "FUNDING": {
    "1": {
-    "legs": 2,
-    "legs_seen": 2,
+    "legs": 5,
+    "legs_seen": 5,
     "min_legs": 40,
-    "names_mean": 230.0,
-    "ic": -0.0644,
+    "names_mean": 231.4,
+    "ic": -0.0171,
     "ci": [
-     -0.154,
-     0.0252
+     -0.1511,
+     0.1168
     ],
-    "se": 0.0457,
-    "t_stat": -1.409,
-    "legs_positive": 0,
+    "se": 0.0683,
+    "t_stat": -0.251,
+    "legs_positive": 2,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "2 of 40 legs \u2014 not yet measurable",
+    "detail": "5 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "7": {
-    "legs": 0,
-    "legs_seen": 0,
+    "legs": 1,
+    "legs_seen": 1,
     "min_legs": 40,
-    "names_mean": null,
+    "names_mean": 221.0,
     "ic": null,
     "ci": null,
     "se": null,
@@ -330,7 +330,7 @@
     "legs_positive": 0,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "0 usable leg(s); 40 needed",
+    "detail": "1 usable leg(s); 40 needed",
     "sample": "forward"
    },
    "30": {
@@ -353,22 +353,22 @@
  "hit_rate_by_tier": {
   "T1": {
    "1": {
-    "n": 5,
+    "n": 16,
     "unit": "symbol-days",
     "hit_rate": null,
     "hit_ci": null,
     "mean_ret_pct": null,
     "state": "INSUFFICIENT",
-    "detail": "5 of 20 symbol-days"
+    "detail": "16 of 20 symbol-days"
    },
    "7": {
-    "n": 0,
+    "n": 2,
     "unit": "symbol-days",
     "hit_rate": null,
     "hit_ci": null,
     "mean_ret_pct": null,
     "state": "INSUFFICIENT",
-    "detail": "0 of 20 symbol-days"
+    "detail": "2 of 20 symbol-days"
    },
    "30": {
     "n": 0,
@@ -382,22 +382,22 @@
   },
   "T2": {
    "1": {
-    "n": 3,
+    "n": 12,
     "unit": "symbol-days",
     "hit_rate": null,
     "hit_ci": null,
     "mean_ret_pct": null,
     "state": "INSUFFICIENT",
-    "detail": "3 of 20 symbol-days"
+    "detail": "12 of 20 symbol-days"
    },
    "7": {
-    "n": 0,
+    "n": 1,
     "unit": "symbol-days",
     "hit_rate": null,
     "hit_ci": null,
     "mean_ret_pct": null,
     "state": "INSUFFICIENT",
-    "detail": "0 of 20 symbol-days"
+    "detail": "1 of 20 symbol-days"
    },
    "30": {
     "n": 0,
@@ -411,22 +411,25 @@
   },
   "T3": {
    "1": {
-    "n": 15,
+    "n": 46,
     "unit": "symbol-days",
-    "hit_rate": null,
-    "hit_ci": null,
-    "mean_ret_pct": null,
-    "state": "INSUFFICIENT",
-    "detail": "15 of 20 symbol-days"
+    "hit_rate": 0.6522,
+    "hit_ci": [
+     0.5077,
+     0.7732
+    ],
+    "mean_ret_pct": 2.5569,
+    "state": "MEASURED",
+    "detail": "30 of 46 positive symbol-days"
    },
    "7": {
-    "n": 0,
+    "n": 8,
     "unit": "symbol-days",
     "hit_rate": null,
     "hit_ci": null,
     "mean_ret_pct": null,
     "state": "INSUFFICIENT",
-    "detail": "0 of 20 symbol-days"
+    "detail": "8 of 20 symbol-days"
    },
    "30": {
     "n": 0,
@@ -440,25 +443,25 @@
   },
   "T4": {
    "1": {
-    "n": 28,
+    "n": 77,
     "unit": "symbol-days",
-    "hit_rate": 0.5714,
+    "hit_rate": 0.5325,
     "hit_ci": [
-     0.3907,
-     0.7349
+     0.4221,
+     0.6397
     ],
-    "mean_ret_pct": 3.7682,
+    "mean_ret_pct": 2.3339,
     "state": "MEASURED",
-    "detail": "16 of 28 positive symbol-days"
+    "detail": "41 of 77 positive symbol-days"
    },
    "7": {
-    "n": 0,
+    "n": 14,
     "unit": "symbol-days",
     "hit_rate": null,
     "hit_ci": null,
     "mean_ret_pct": null,
     "state": "INSUFFICIENT",
-    "detail": "0 of 20 symbol-days"
+    "detail": "14 of 20 symbol-days"
    },
    "30": {
     "n": 0,
@@ -472,25 +475,28 @@
   },
   "T5": {
    "1": {
-    "n": 409,
+    "n": 1006,
     "unit": "symbol-days",
-    "hit_rate": 0.4425,
+    "hit_rate": 0.5358,
     "hit_ci": [
-     0.3952,
-     0.491
+     0.5049,
+     0.5664
     ],
-    "mean_ret_pct": 0.6813,
+    "mean_ret_pct": 2.0474,
     "state": "MEASURED",
-    "detail": "181 of 409 positive symbol-days"
+    "detail": "539 of 1006 positive symbol-days"
    },
    "7": {
-    "n": 0,
+    "n": 196,
     "unit": "symbol-days",
-    "hit_rate": null,
-    "hit_ci": null,
-    "mean_ret_pct": null,
-    "state": "INSUFFICIENT",
-    "detail": "0 of 20 symbol-days"
+    "hit_rate": 0.8571,
+    "hit_ci": [
+     0.8013,
+     0.8993
+    ],
+    "mean_ret_pct": 19.3393,
+    "state": "MEASURED",
+    "detail": "168 of 196 positive symbol-days"
    },
    "30": {
     "n": 0,
@@ -506,25 +512,28 @@
  "by_regime": {
   "RISK-ON": {
    "1": {
-    "n": 460,
+    "n": 1157,
     "unit": "symbol-days",
-    "hit_rate": 0.4543,
+    "hit_rate": 0.5428,
     "hit_ci": [
-     0.4094,
-     0.5
+     0.514,
+     0.5713
     ],
-    "mean_ret_pct": 0.8339,
+    "mean_ret_pct": 2.1321,
     "state": "MEASURED",
-    "detail": "209 of 460 positive symbol-days"
+    "detail": "628 of 1157 positive symbol-days"
    },
    "7": {
-    "n": 0,
+    "n": 221,
     "unit": "symbol-days",
-    "hit_rate": null,
-    "hit_ci": null,
-    "mean_ret_pct": null,
-    "state": "INSUFFICIENT",
-    "detail": "0 of 20 symbol-days"
+    "hit_rate": 0.8643,
+    "hit_ci": [
+     0.8128,
+     0.9032
+    ],
+    "mean_ret_pct": 20.343,
+    "state": "MEASURED",
+    "detail": "191 of 221 positive symbol-days"
    },
    "30": {
     "n": 0,
@@ -541,100 +550,385 @@
   "dominance_warning": {
    "label": "rows where one factor holds most of the chain",
    "column": "dom_warn",
-   "recorded": false,
-   "detail": "`dom_warn` has not been written on any recorded night \u2014 this cohort begins when the v4 writer next runs, and is reported as absent rather than as empty",
+   "recorded": true,
+   "detail": "`dom_warn` is recorded",
    "by_horizon": {
     "1": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 47,
+      "unit": "symbol-days",
+      "hit_rate": 0.5319,
+      "hit_ci": [
+       0.3923,
+       0.6667
+      ],
+      "mean_ret_pct": 1.3618,
+      "state": "MEASURED",
+      "detail": "25 of 47 positive symbol-days"
+     },
+     "unflagged": {
+      "n": 1110,
+      "unit": "symbol-days",
+      "hit_rate": 0.5432,
+      "hit_ci": [
+       0.5138,
+       0.5723
+      ],
+      "mean_ret_pct": 2.1648,
+      "state": "MEASURED",
+      "detail": "603 of 1110 positive symbol-days"
+     }
     },
     "7": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     },
+     "unflagged": {
+      "n": 221,
+      "unit": "symbol-days",
+      "hit_rate": 0.8643,
+      "hit_ci": [
+       0.8128,
+       0.9032
+      ],
+      "mean_ret_pct": 20.343,
+      "state": "MEASURED",
+      "detail": "191 of 221 positive symbol-days"
+     }
     },
     "30": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     },
+     "unflagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     }
     }
    }
   },
   "liquidity_floor": {
    "label": "rows whose LIQUIDITY came from the floor",
    "column": "liq_state",
-   "recorded": false,
-   "detail": "`liq_state` has not been written on any recorded night \u2014 this cohort begins when the v4 writer next runs, and is reported as absent rather than as empty",
+   "recorded": true,
+   "detail": "`liq_state` is recorded",
    "by_horizon": {
     "1": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 158,
+      "unit": "symbol-days",
+      "hit_rate": 0.557,
+      "hit_ci": [
+       0.4791,
+       0.6322
+      ],
+      "mean_ret_pct": 3.1962,
+      "state": "MEASURED",
+      "detail": "88 of 158 positive symbol-days"
+     },
+     "unflagged": {
+      "n": 999,
+      "unit": "symbol-days",
+      "hit_rate": 0.5405,
+      "hit_ci": [
+       0.5095,
+       0.5712
+      ],
+      "mean_ret_pct": 1.9638,
+      "state": "MEASURED",
+      "detail": "540 of 999 positive symbol-days"
+     }
     },
     "7": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     },
+     "unflagged": {
+      "n": 221,
+      "unit": "symbol-days",
+      "hit_rate": 0.8643,
+      "hit_ci": [
+       0.8128,
+       0.9032
+      ],
+      "mean_ret_pct": 20.343,
+      "state": "MEASURED",
+      "detail": "191 of 221 positive symbol-days"
+     }
     },
     "30": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     },
+     "unflagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     }
     }
    }
   },
   "liquidity_bypass": {
    "label": "rows whose LIQUIDITY came from the depth bypass",
    "column": "liq_state",
-   "recorded": false,
-   "detail": "`liq_state` has not been written on any recorded night \u2014 this cohort begins when the v4 writer next runs, and is reported as absent rather than as empty",
+   "recorded": true,
+   "detail": "`liq_state` is recorded",
    "by_horizon": {
     "1": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 45,
+      "unit": "symbol-days",
+      "hit_rate": 0.5333,
+      "hit_ci": [
+       0.3908,
+       0.6707
+      ],
+      "mean_ret_pct": 0.8256,
+      "state": "MEASURED",
+      "detail": "24 of 45 positive symbol-days"
+     },
+     "unflagged": {
+      "n": 1112,
+      "unit": "symbol-days",
+      "hit_rate": 0.5432,
+      "hit_ci": [
+       0.5138,
+       0.5722
+      ],
+      "mean_ret_pct": 2.185,
+      "state": "MEASURED",
+      "detail": "604 of 1112 positive symbol-days"
+     }
     },
     "7": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     },
+     "unflagged": {
+      "n": 221,
+      "unit": "symbol-days",
+      "hit_rate": 0.8643,
+      "hit_ci": [
+       0.8128,
+       0.9032
+      ],
+      "mean_ret_pct": 20.343,
+      "state": "MEASURED",
+      "detail": "191 of 221 positive symbol-days"
+     }
     },
     "30": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     },
+     "unflagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     }
     }
    }
   },
   "no_volume": {
    "label": "rows with no traded volume, or none reported",
    "column": "liq_state",
-   "recorded": false,
-   "detail": "`liq_state` has not been written on any recorded night \u2014 this cohort begins when the v4 writer next runs, and is reported as absent rather than as empty",
+   "recorded": true,
+   "detail": "`liq_state` is recorded",
    "by_horizon": {
     "1": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 30,
+      "unit": "symbol-days",
+      "hit_rate": 0.1333,
+      "hit_ci": [
+       0.0531,
+       0.2968
+      ],
+      "mean_ret_pct": 0.0509,
+      "state": "MEASURED",
+      "detail": "4 of 30 positive symbol-days"
+     },
+     "unflagged": {
+      "n": 1127,
+      "unit": "symbol-days",
+      "hit_rate": 0.5537,
+      "hit_ci": [
+       0.5245,
+       0.5825
+      ],
+      "mean_ret_pct": 2.1875,
+      "state": "MEASURED",
+      "detail": "624 of 1127 positive symbol-days"
+     }
     },
     "7": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     },
+     "unflagged": {
+      "n": 221,
+      "unit": "symbol-days",
+      "hit_rate": 0.8643,
+      "hit_ci": [
+       0.8128,
+       0.9032
+      ],
+      "mean_ret_pct": 20.343,
+      "state": "MEASURED",
+      "detail": "191 of 221 positive symbol-days"
+     }
     },
     "30": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     },
+     "unflagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     }
     }
    }
   },
   "depth_cap": {
    "label": "rows whose DEPTH is at its cap",
    "column": "depth_state",
-   "recorded": false,
-   "detail": "`depth_state` has not been written on any recorded night \u2014 this cohort begins when the v4 writer next runs, and is reported as absent rather than as empty",
+   "recorded": true,
+   "detail": "`depth_state` is recorded",
    "by_horizon": {
     "1": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 22,
+      "unit": "symbol-days",
+      "hit_rate": 0.5455,
+      "hit_ci": [
+       0.3466,
+       0.7308
+      ],
+      "mean_ret_pct": 0.4877,
+      "state": "MEASURED",
+      "detail": "12 of 22 positive symbol-days"
+     },
+     "unflagged": {
+      "n": 1135,
+      "unit": "symbol-days",
+      "hit_rate": 0.5427,
+      "hit_ci": [
+       0.5137,
+       0.5715
+      ],
+      "mean_ret_pct": 2.164,
+      "state": "MEASURED",
+      "detail": "616 of 1135 positive symbol-days"
+     }
     },
     "7": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     },
+     "unflagged": {
+      "n": 221,
+      "unit": "symbol-days",
+      "hit_rate": 0.8643,
+      "hit_ci": [
+       0.8128,
+       0.9032
+      ],
+      "mean_ret_pct": 20.343,
+      "state": "MEASURED",
+      "detail": "191 of 221 positive symbol-days"
+     }
     },
     "30": {
-     "flagged": null,
-     "unflagged": null
+     "flagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     },
+     "unflagged": {
+      "n": 0,
+      "unit": "symbol-days",
+      "hit_rate": null,
+      "hit_ci": null,
+      "mean_ret_pct": null,
+      "state": "INSUFFICIENT",
+      "detail": "0 of 20 symbol-days"
+     }
     }
    }
   },
@@ -660,5 +954,5 @@
   }
  },
  "basis": "Walk-forward over the recorded cross-section. Every snapshot is joined to prices recorded at exactly snapshot + horizon days and to nothing else; a horizon that has not elapsed, a symbol that left the universe and a night that was never recorded are three different states and are reported as three. Nothing here is calibrated from: the factor bounds and the dominance thresholds are fixed by AUDIT-PHASE2A and are not re-fitted on this sample.",
- "sufficiency": "This report runs on whatever history exists and says so. With 3 night(s) recorded, 0 of 18 IC cells are measurable; the rest read INSUFFICIENT, which is a statement about the sample and not about the signal."
+ "sufficiency": "This report runs on whatever history exists and says so. With 7 night(s) recorded, 0 of 18 IC cells are measurable; the rest read INSUFFICIENT, which is a statement about the sample and not about the signal."
 }

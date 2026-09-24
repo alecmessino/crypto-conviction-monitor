@@ -279,6 +279,25 @@ def test_the_cli_exits_zero_on_a_healthy_ledger(ledger, monkeypatch, capsys):
     assert "PASS" in capsys.readouterr().out
 
 
+def test_the_scopes_separate_the_two_models(ledger, monkeypatch, capsys):
+    """A defect in one model's artifacts fails that model's scope and not the other's.
+    On 2026-09-21 and -22 a duplicate key in rwa_flow.csv failed the combined gate and
+    two nights of a healthy crypto ledger were lost with the runner."""
+    _rwa_artifact(ledger)
+    _rwa_manifest(ledger, [{"date": "2026-09-01", "run_ts": "2026-09-01T21:29:18+00:00",
+                            "run_status": "COMPLETE", "promoted": 1}])
+    with (ledger / "rwa_flow.csv").open("w", newline="") as f:
+        f.write("date,underlying_id\r\n2026-09-01,fiserv\r\n2026-09-01,fiserv\r\n")
+    verdict = {}
+    for scope in ("crypto", "rwa", "all"):
+        monkeypatch.setattr("sys.argv", ["v", "--ledger", str(ledger), "--scope", scope])
+        verdict[scope] = v.main()
+        out = capsys.readouterr().out
+        if scope != "crypto":
+            assert "duplicate (date, underlying_id)" in out, out
+    assert verdict == {"crypto": 0, "rwa": 1, "all": 1}
+
+
 # ---------------------------------------------------------------------------
 # the monitor artifact must itself be healthy
 # ---------------------------------------------------------------------------
@@ -534,3 +553,35 @@ def test_a_night_the_shards_do_not_cover_is_not_a_subset_failure(ledger):
     """Absence of a night is not disagreement about it."""
     _xsec(ledger, day="2030-06-02")
     assert not any("subset" in p or "disagree" in p for p in v.check_xsec(ledger))
+
+
+def test_the_run_manifest_header_is_checked(tmp_path):
+    assert v.check_runs(tmp_path) == []                     # absent: nothing to check
+    (tmp_path / "runs.csv").write_text("date,outcome\r\n2026-09-24,completed\r\n")
+    assert "header" in v.check_runs(tmp_path)[0]
+    (tmp_path / "runs.csv").unlink()
+    v.nightly.append_run_row({"date": "2026-09-24", "recorded_ts": "2026-09-24T12:00:00+00:00"},
+                             tmp_path / "runs.csv")
+    assert v.check_runs(tmp_path) == []
+    v.nightly.append_run_row({"date": "2026-09-25", "recorded_ts": "2026-09-24T12:00:00+00:00"},
+                             tmp_path / "runs.csv")
+    assert "dated after" in v.check_runs(tmp_path)[0]
+
+
+def test_a_bad_run_manifest_warns_and_never_fails_the_gate(ledger, monkeypatch, capsys):
+    (ledger / "runs.csv").write_text("date,outcome\r\n2026-09-24,completed\r\n")
+    monkeypatch.setattr("sys.argv", ["v", "--ledger", str(ledger), "--scope", "crypto"])
+    assert v.main() == 0
+    assert "WARN  runs.csv: header" in capsys.readouterr().out
+
+
+def test_a_corrupt_crypto_file_cannot_fail_the_rwa_scope(tmp_path, monkeypatch, capsys):
+    """The context print reads every artifact whatever the scope. A crypto-side parse
+    error there used to crash --scope rwa and withhold the RWA rows."""
+    _rwa_artifact(tmp_path)
+    _rwa_manifest(tmp_path, [{"date": "2026-09-01", "run_ts": "2026-09-01T21:29:18+00:00",
+                              "run_status": "COMPLETE", "promoted": 1}])
+    (tmp_path / "signals.csv").write_bytes(b"date,symbol\r\n\xff\xfe,\x80\r\n")
+    monkeypatch.setattr("sys.argv", ["v", "--ledger", str(tmp_path), "--scope", "rwa"])
+    assert v.main() == 0
+    assert "context:     not printed" in capsys.readouterr().out

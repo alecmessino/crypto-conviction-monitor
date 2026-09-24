@@ -218,7 +218,8 @@ def paid_enabled() -> bool:
     return os.environ.get("CRYPTOMETER_ALLOW_PAID", "").strip().lower() in ("1", "true", "yes")
 
 
-def fetch_liquidations(api_key: str, symbols, limit: int = DEFAULT_SYMBOL_LIMIT) -> dict:
+def fetch_liquidations(api_key: str, symbols, limit: int = DEFAULT_SYMBOL_LIMIT,
+                       deadline=None) -> dict:
     """Long and short liquidation volume per exchange, per symbol.
 
     PAID endpoint. A free key returns the same opaque 403 that a misnamed parameter
@@ -244,6 +245,11 @@ def fetch_liquidations(api_key: str, symbols, limit: int = DEFAULT_SYMBOL_LIMIT)
                        "spending quota to discover the plan tier")
     out, errors = {}, []
     for base in _ranked(symbols, limit):
+        # `deadline` is the nightly's run budget: a callable that answers True once the
+        # optional feeds must stop. The symbols not reached are recorded, not zeroed.
+        if deadline is not None and deadline():
+            errors.append(f"{base}: nightly run budget exhausted, not queried")
+            break
         rows, err = call("liquidation-data-v2", api_key, symbol=base.lower())
         if err:
             errors.append(f"{base}: {err}")
@@ -284,7 +290,7 @@ def fetch_liquidations(api_key: str, symbols, limit: int = DEFAULT_SYMBOL_LIMIT)
 
 
 def fetch_positioning(api_key: str, symbols, exchange: str = "binance_futures",
-                      limit: int = DEFAULT_SYMBOL_LIMIT) -> dict:
+                      limit: int = DEFAULT_SYMBOL_LIMIT, deadline=None) -> dict:
     """Long vs short position sizes, restoring a column that has been dark.
 
     ``long_short_ratio`` has been in the schema since Module 1 and null on every row since
@@ -305,6 +311,9 @@ def fetch_positioning(api_key: str, symbols, exchange: str = "binance_futures",
         return _report("unconfigured", {}, "no CRYPTOMETER_API_KEY in the environment")
     out, errors = {}, []
     for base in _ranked(symbols, limit):
+        if deadline is not None and deadline():
+            errors.append(f"{base}: nightly run budget exhausted, not queried")
+            break
         rows, err = call("long-shorts-data", api_key, e=exchange,
                          symbol=base.lower(), timeframe="1h")
         if err:

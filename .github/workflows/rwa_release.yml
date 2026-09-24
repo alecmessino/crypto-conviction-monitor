@@ -30,6 +30,11 @@ permissions:
 jobs:
   rwa:
     runs-on: ubuntu-latest
+    # Shares the nightly's group: the two write the same ledger/rwa* files, and a
+    # dispatch overlapping the schedule would otherwise race it to the push.
+    concurrency:
+      group: ledger-writer
+      cancel-in-progress: false
     # The keyed snapshot is roughly forty-five CoinGecko calls at 2.5s spacing. Twenty
     # minutes is the nightly's budget for the whole ledger; this needs a fraction of it,
     # and the same ceiling keeps a stalled fetch from running unbounded.
@@ -56,10 +61,12 @@ jobs:
         run: python tests/test_rwa.py
 
       - name: Ledger integrity gate
-        # The same gate the nightly runs before its commit, over the ledger this run just
-        # wrote. It checks the RWA artifacts (PRE_EXECUTION stage, UNAVAILABLE execution,
-        # manifest and promotion invariants) alongside everything else.
-        run: python scripts/validate_ledger.py
+        # The RWA scope of the gate the nightly runs, over the ledger this run just wrote:
+        # the RWA artifacts (PRE_EXECUTION stage, UNAVAILABLE execution, manifest and
+        # promotion invariants). RWA scope only, because this workflow commits nothing
+        # else — an unscoped gate refused a keyed RWA release over a stale crypto
+        # artifact it neither wrote nor commits.
+        run: python scripts/validate_ledger.py --scope rwa
 
       - name: Commit RWA ledger
         run: |
@@ -78,6 +85,9 @@ jobs:
           git add ledger/rwa_observed.csv || true
           git add ledger/rwa_runs.csv || true
           git add ledger/rwa_quarantine.csv || true
+          # The refused run's board (rwa.py writes it instead of rwa.json when a run is
+          # quarantined). The Method page promises it is kept; nothing staged it.
+          git add ledger/rwa.degraded.json || true
           # Every run appends a manifest row, so a commit without rwa_runs.csv is a
           # commit whose provenance is missing. Refuse it.
           if ! git diff --cached --name-only | grep -q '^ledger/rwa_runs.csv$'; then

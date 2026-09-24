@@ -12,6 +12,14 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Once a day, after the nightly has committed. A dozen tests here read the committed
+  # ledger rather than a fixture, and the nightly's own commits never trigger this
+  # workflow (a GITHUB_TOKEN push starts no runs) — so until this schedule those tests
+  # were re-run only when a human pushed. Four of them went red on main between
+  # 2026-09-18 and 2026-09-23 and nothing reported it. The nightly starts late and
+  # varies (11:00-13:00 UTC observed against a 06:17 cron), hence 15:40.
+  schedule:
+    - cron: "40 15 * * *"
   workflow_dispatch:
     inputs:
       rwa_release:
@@ -48,7 +56,8 @@ jobs:
           node-version: "22"
 
       - name: Install pytest
-        run: python -m pip install --quiet pytest
+        # pyyaml: tests/test_nightly.py reads the nightly workflow's step graph.
+        run: python -m pip install --quiet pytest pyyaml
 
       # tests/test_render.py drives a real browser. It is the only gate that can answer
       # the two questions the source-reading gates cannot: whether the factor

@@ -9,6 +9,16 @@ on:
 permissions:
   contents: write
 
+# One ledger writer at a time. The RWA release workflow shares this group, and a manual
+# dispatch landing while the schedule is mid-run would otherwise race it to the same
+# files: whichever pushed second was rejected, and a rejected push is a night lost with
+# the runner. cancel-in-progress is false, so a RUNNING writer is never cancelled.
+# GitHub keeps at most one pending run per group: a third arrival replaces the queued
+# one, which only drops a duplicate dispatch, never a run already writing.
+concurrency:
+  group: ledger-writer
+  cancel-in-progress: false
+
 jobs:
   ledger:
     runs-on: ubuntu-latest
@@ -27,6 +37,7 @@ jobs:
           python-version: "3.11"
 
       - name: Run nightly snapshot
+        id: nightly
         env:
           DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
           DUNE_UNLOCK_QUERY_ID: ${{ secrets.DUNE_UNLOCK_QUERY_ID }}
@@ -42,72 +53,33 @@ jobs:
           COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
         run: python nightly.py
 
-      - name: Cryptometer smoke test
-        # Every response shape in cryptometer.py came from documentation, not from a live
-        # authenticated call — the research that specified the client had no key. This is
-        # what turns those shapes into facts, and it runs BEFORE the gates so a shape
-        # mismatch is visible in the log even on a night the ledger commits fine.
-        #
-        # continue-on-error because this feed is optional by design: an unset secret, an
-        # expired plan or a paid endpoint on a free tier must never fail the job that
-        # writes the ledger. The script exits non-zero only when a FREE endpoint fails,
-        # which is the case actually worth reading.
-        continue-on-error: true
-        env:
-          CRYPTOMETER_API_KEY: ${{ secrets.CRYPTOMETER_API_KEY }}
-        run: python cryptometer.py
-
-      - name: CoinGecko smoke test
-        # Same reasoning as the Cryptometer step above, and the same failure it was
-        # written to catch. Every field name in coingecko.py came from a response this
-        # repository actually received — /search/trending returning market cap as the
-        # string "$15,982,922,471" while every other endpoint returns a number is not in
-        # the documentation — and this is what keeps that true after a CoinGecko change.
-        #
-        # It also reports which plan the key resolved to, which is the one thing that
-        # cannot be read off the secret itself: Demo and Pro keys are issued in the same
-        # shape and differ in host AND header, so a Pro key sent to the public host
-        # degrades to keyless silently.
-        #
-        # continue-on-error, because the whole feed set is optional by design and must
-        # never fail the job that writes the ledger. The script exits non-zero only when
-        # a FREE endpoint fails.
-        continue-on-error: true
-        env:
-          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
-        run: python coingecko.py
-
-      - name: RWA smoke test
-        # Same reasoning as the two smoke steps above, and one check they do not have.
-        # Every field name in rwa.py came from a response this repository actually
-        # received — /rwas/{id} omitting tokens[] below the Basic plan, and
-        # sparkline_in_7d sitting INSIDE tokenized_market_data rather than beside it,
-        # are neither of them in the documentation.
-        #
-        # It also proves the wrapper join, which is the load-bearing inference in that
-        # module. 99.3% of 1,073 tokens across all 34 issuers resolved when it was
-        # measured, and the script fails below 97%. That floor is not conservatism: a
-        # naming convention change raises nothing at all. The join returns nothing for
-        # the affected shelf, the graph builds without it, and every dispersion and basis
-        # computed afterwards is over whichever issuers still happened to match.
-        #
-        # continue-on-error on the same terms as the others: this feed is optional and
-        # must never fail the job that writes the ledger. The script exits non-zero only
-        # when a FREE endpoint fails. The two paid endpoints are expected to answer 401
-        # and their refusal is reported rather than treated as a failure.
-        continue-on-error: true
-        env:
-          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
-        run: python rwa.py
-
       - name: Record the observations under watch
         # Both open questions on this repo are "has X held for N nights". Answering them
         # by scheduling a session to look fails in the obvious way — the schedule lives
         # in the session and the session ends — so the job records them itself. Runs
         # after the snapshot and before the gates; appends one row per venue per night.
+        # continue-on-error: an observation is not a gate. A malformed row here used to
+        # skip every gate and both commits, losing the crypto ledger and RWA rows no key
+        # can re-fetch, over a diagnostic.
+        continue-on-error: true
         run: python scripts/observe.py
 
+      - name: RWA ledger gate
+        # The RWA model's own verdict, taken first so every later step can read it.
+        # continue-on-error because it must not be able to stop the crypto commit: on
+        # 2026-09-21 and -22 a duplicate key in rwa_flow.csv failed the single combined
+        # gate and both nights of the crypto ledger were lost with the runner. A refusal
+        # here instead keeps tonight's RWA rows out of the commit (see Commit ledger) and
+        # turns the run red at the end, after the crypto ledger is safe.
+        id: rwa_gate
+        continue-on-error: true
+        # always(): nightly.py writes the RWA rows last and can fail after they are on
+        # disk; they are gated on their own evidence, not on the crypto run's outcome.
+        if: always()
+        run: python scripts/validate_ledger.py --scope rwa
+
       - name: Parity gate (frontend <-> backend must agree)
+        id: parity
         # A divergence between launch_skew.html math and nightly.score() would
         # silently corrupt historical trust. Fail the build if parity breaks.
         # Runs standalone (no pytest dependency) so a missing package can never
@@ -115,15 +87,17 @@ jobs:
         run: python tests/test_parity.py
 
       - name: Ledger integrity gate
+        id: integrity
         # Sits between the build and the commit, so a degenerate or malformed ledger is
         # never committed and never deploys. This is the check that was missing while
         # four write-path bugs shipped a chart of fabricated alpha: nothing threw, the
         # workflow reported success, and the only thing wrong was the numbers. Runs
         # standalone like the parity gate — a missing package must not be able to skip
-        # it.
-        run: python scripts/validate_ledger.py
+        # it. Crypto scope: the RWA artifacts were gated in their own step above.
+        run: python scripts/validate_ledger.py --scope crypto
 
       - name: ATR eligibility gate
+        id: atr
         # Sits with the other pre-commit gates, over the ledger this run just wrote.
         #
         # ATR14 is null for the whole universe today, because the recorded series is one
@@ -140,17 +114,45 @@ jobs:
         # a missing package can never skip it.
         run: python tests/test_atr_eligibility.py
 
+      - name: Record the run
+        # One row in ledger/runs.csv for every run, whatever the gates decided — the
+        # snapshot timestamp, what was fetched and written, which optional stages the
+        # run budget skipped, each gate's outcome, the artifacts' own dates and the
+        # SPEC_HASH. Provenance only: nothing reads it to score or gate. always(), so a
+        # refused or crashed night is recorded as exactly that; continue-on-error,
+        # because the record must never be the reason a ledger is not published.
+        if: always()
+        continue-on-error: true
+        run: >-
+          python scripts/record_run.py
+          --step nightly_step=${{ steps.nightly.outcome }}
+          --step rwa_gate=${{ steps.rwa_gate.outcome }}
+          --step parity_gate=${{ steps.parity.outcome }}
+          --step crypto_gate=${{ steps.integrity.outcome }}
+          --step atr_gate=${{ steps.atr.outcome }}
+
       - name: Commit ledger
+        id: commit
+        env:
+          RWA_GATE: ${{ steps.rwa_gate.outcome }}
         run: |
           git config user.name "conviction-bot"
           git config user.email "bot@noreply.github.com"
+          # The RWA gate refused tonight's RWA rows. Put the committed RWA files back as
+          # they were, so the stage lines below find nothing to add for that model and
+          # the crypto ledger commits alone. The run is failed at the end of the job.
+          if [ "$RWA_GATE" != "success" ]; then
+            echo "::error::RWA ledger gate refused tonight's rows ($RWA_GATE) — committing the crypto ledger without them"
+            git ls-files -z -- 'ledger/rwa*' | xargs -0 -r git checkout HEAD --
+            git ls-files -z --others -- 'ledger/rwa*' | xargs -0 -r rm -f --
+          fi
           # nightly.py writes the signals ledger, the conviction-weighted index
           # (index.csv/index.json), the basket state (basket.json), and the
           # market breadth / conviction time-series (market_breadth.json).
           # index.legacy.csv is included so that if the writer ever has to quarantine a
           # mismatched file again, the evidence is committed rather than lost with the
           # runner. --ignore-unmatch: it does not exist on a healthy run.
-          # parity.json is the real result of the gate that ran two steps above, not a
+          # parity.json is the real result of the parity gate that ran above, not a
           # badge. The terminal's diagnostic bar renders it, and a hardcoded status
           # there would be exactly the kind of ornamental "PASS" this project has
           # already had to remove once.
@@ -175,6 +177,19 @@ jobs:
           # every multi-day reading to "accumulating" the next night.
           git add ledger/signals.csv ledger/signals.json ledger/index.csv ledger/index.json ledger/basket.json ledger/market_breadth.json ledger/monitor.json ledger/parity.json ledger/funding.json ledger/venue_health.csv
           git add ledger/market_intel.json ledger/sectors.csv ledger/macro.csv ledger/dex.csv
+          #
+          # perp.json is the funding transport the terminal scores from, and it has NO
+          # fallback in the browser: a stale one withholds the funding overlay from the
+          # whole board. walkforward.json is the forward study the Method page and the
+          # deferred register both point at as "refreshed every night". Both were
+          # written and validated on the runner from the night they landed (2026-09-17
+          # and 2026-09-18) and then discarded with it, because nobody named them here —
+          # so the published board ran six nights on a stale transport while every gate
+          # passed. The guard at the end of this step is what stops the next one.
+          git add ledger/perp.json
+          git add ledger/walkforward.json || true
+          # The run manifest. Optional only on the first night, before the file exists.
+          git add ledger/runs.csv || true
           #
           # rwa_flow.csv is the one file in this directory that cannot be rebuilt.
           # /rwas/{id}/market_chart answers HTTP 401 below CoinGecko's Basic plan, so the
@@ -207,6 +222,9 @@ jobs:
           git add ledger/rwa_observed.csv || true
           git add ledger/rwa_runs.csv || true
           git add ledger/rwa_quarantine.csv || true
+          # The refused run's board (rwa.py writes it instead of rwa.json when a run is
+          # quarantined). The Method page promises it is kept; nothing staged it.
+          git add ledger/rwa.degraded.json || true
           git add ledger/index.legacy.csv 2>/dev/null || true
           #
           # ledger/xsec/ is the cross-sectional research ledger: one month-shard per
@@ -231,5 +249,149 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "nightly ledger snapshot $(date -u +%Y-%m-%d)"
-            git push
+            # A push rejected because main moved during the run (a merge landing in the
+            # five minutes this job takes) used to lose the whole night. Rebase the one
+            # ledger commit onto the new tip and try again; ledger files are written only
+            # by this job, so the rebase does not conflict in practice.
+            for attempt in 1 2 3 4; do
+              if git push; then break; fi
+              if [ "$attempt" = 4 ]; then echo "::error::push failed after 4 attempts"; exit 1; fi
+              sleep $((attempt * 5))
+              git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+            done
           fi
+          # The allowlist above is explicit on purpose, which means a new ledger artifact
+          # is invisible to it until someone names it — and perp.json / walkforward.json
+          # sat unnamed for six nights. Anything the run wrote under ledger/ that is still
+          # modified or untracked here was about to die with the runner. The night above
+          # is already committed; this turns the run red so the omission is found the
+          # morning it happens rather than by reading a stale board.
+          leftover="$(git status --porcelain -- ledger/)"
+          if [ -n "$leftover" ]; then
+            echo "::error::ledger file(s) written tonight but not staged by this step:"
+            echo "$leftover"
+            exit 1
+          fi
+
+      - name: Commit what passed its own gate
+        # A crypto gate refused tonight (or nightly.py failed), so the Commit step never
+        # ran. Two things are still worth keeping, and only these two: the RWA rows, if
+        # they passed their OWN gate — rwa_flow.csv is the one series no key bought
+        # later can re-fetch — and this run's row in ledger/runs.csv, because a failed
+        # night recorded as failed is the point of that file. Nothing else may be staged:
+        # the guard below is rwa_release.yml's, widened by exactly the manifest.
+        if: failure() && steps.commit.outcome == 'skipped'
+        env:
+          RWA_GATE: ${{ steps.rwa_gate.outcome }}
+        run: |
+          git config user.name "conviction-bot"
+          git config user.email "bot@noreply.github.com"
+          if [ "$RWA_GATE" = "success" ]; then
+            git add ledger/rwa_flow.csv ledger/rwa_issuers.csv ledger/rwa_wrappers.csv ledger/rwa.json
+            git add ledger/rwa_observed.csv || true
+            git add ledger/rwa_runs.csv || true
+            git add ledger/rwa_quarantine.csv || true
+            git add ledger/rwa.degraded.json || true
+          fi
+          git add ledger/runs.csv || true
+          if git diff --cached --name-only | grep -v '^ledger/rwa' | grep -v '^ledger/runs\.csv$' | grep -q .; then
+            echo "refusing to commit: a file outside ledger/rwa* and ledger/runs.csv is staged"
+            git diff --cached --name-only
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "Nothing that passed its own gate to commit"
+            exit 0
+          fi
+          git commit -m "run record $(date -u +%Y-%m-%d) (crypto gates refused)"
+          for attempt in 1 2 3 4; do
+            if git push; then break; fi
+            if [ "$attempt" = 4 ]; then echo "::error::push failed after 4 attempts"; exit 1; fi
+            sleep $((attempt * 5))
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}"
+          done
+
+      - name: Cryptometer smoke test
+        # Every response shape in cryptometer.py came from documentation, not from a live
+        # authenticated call — the research that specified the client had no key. This is
+        # what turns those shapes into facts; its log is where a shape mismatch shows up
+        # even on a night the ledger commits fine.
+        #
+        # continue-on-error because this feed is optional by design: an unset secret, an
+        # expired plan or a paid endpoint on a free tier must never fail the job that
+        # writes the ledger. The script exits non-zero only when a FREE endpoint fails,
+        # which is the case actually worth reading.
+        continue-on-error: true
+        # After the commit, not before it: continue-on-error does not cover the JOB
+        # timeout, and a smoke step that stalled ahead of the Commit step used to be
+        # able to cancel the job with the night uncommitted. Here it can only cost
+        # its own log. always(), so a refused night still gets the shape check.
+        if: always()
+        timeout-minutes: 2
+        env:
+          CRYPTOMETER_API_KEY: ${{ secrets.CRYPTOMETER_API_KEY }}
+        run: python cryptometer.py
+
+      - name: CoinGecko smoke test
+        # Same reasoning as the Cryptometer step above, and the same failure it was
+        # written to catch. Every field name in coingecko.py came from a response this
+        # repository actually received — /search/trending returning market cap as the
+        # string "$15,982,922,471" while every other endpoint returns a number is not in
+        # the documentation — and this is what keeps that true after a CoinGecko change.
+        #
+        # It also reports which plan the key resolved to, which is the one thing that
+        # cannot be read off the secret itself: Demo and Pro keys are issued in the same
+        # shape and differ in host AND header, so a Pro key sent to the public host
+        # degrades to keyless silently.
+        #
+        # continue-on-error, because the whole feed set is optional by design and must
+        # never fail the job that writes the ledger. The script exits non-zero only when
+        # a FREE endpoint fails.
+        continue-on-error: true
+        # After the commit, not before it: continue-on-error does not cover the JOB
+        # timeout, and a smoke step that stalled ahead of the Commit step used to be
+        # able to cancel the job with the night uncommitted. Here it can only cost
+        # its own log. always(), so a refused night still gets the shape check.
+        if: always()
+        timeout-minutes: 2
+        env:
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+        run: python coingecko.py
+
+      - name: RWA smoke test
+        # Same reasoning as the two smoke steps above, and one check they do not have.
+        # Every field name in rwa.py came from a response this repository actually
+        # received — /rwas/{id} omitting tokens[] below the Basic plan, and
+        # sparkline_in_7d sitting INSIDE tokenized_market_data rather than beside it,
+        # are neither of them in the documentation.
+        #
+        # It also proves the wrapper join, which is the load-bearing inference in that
+        # module. 99.3% of 1,073 tokens across all 34 issuers resolved when it was
+        # measured, and the script fails below 97%. That floor is not conservatism: a
+        # naming convention change raises nothing at all. The join returns nothing for
+        # the affected shelf, the graph builds without it, and every dispersion and basis
+        # computed afterwards is over whichever issuers still happened to match.
+        #
+        # continue-on-error on the same terms as the others: this feed is optional and
+        # must never fail the job that writes the ledger. The script exits non-zero only
+        # when a FREE endpoint fails. The two paid endpoints are expected to answer 401
+        # and their refusal is reported rather than treated as a failure.
+        continue-on-error: true
+        # After the commit, not before it: continue-on-error does not cover the JOB
+        # timeout, and a smoke step that stalled ahead of the Commit step used to be
+        # able to cancel the job with the night uncommitted. Here it can only cost
+        # its own log. always(), so a refused night still gets the shape check.
+        if: always()
+        timeout-minutes: 2
+        env:
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }}
+        run: python rwa.py
+
+      - name: Fail the run when the RWA gate refused
+        # Last, so the crypto ledger has already committed. The RWA gate step is
+        # continue-on-error; without this the run would be green on a night its rows
+        # were withheld.
+        if: always() && steps.rwa_gate.outcome == 'failure'
+        run: |
+          echo "::error::the RWA ledger gate refused tonight's RWA rows; see the 'RWA ledger gate' step"
+          exit 1

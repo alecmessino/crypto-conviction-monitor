@@ -80,6 +80,19 @@ same scoring function that a test asserts are in parity.
 | `rwa_release.yml` | separate cadence | RWA snapshot and its own model gate. |
 | `check-dune.yml` | manual | Verifies the configured Dune query id. |
 
+*Extended 2026-09-23/24.* `nightly.yml` and `rwa_release.yml` share the `ledger-writer`
+concurrency group. The nightly, in order: `python nightly.py` (its optional feeds under a
+660 s `RunBudget`; mandatory work never budgeted) → `observe.py` → RWA ledger gate
+(`validate_ledger.py --scope rwa`, non-blocking) → parity → crypto ledger gate (`--scope
+crypto`) → ATR gate → **Record the run** (`scripts/record_run.py`, always, appends
+`ledger/runs.csv`) → **Commit ledger** (crypto; tonight's RWA files restored from `HEAD`
+if their gate refused; rebase-and-retry push; fails the run after pushing if anything
+under `ledger/` is left unstaged) → **Commit what passed its own gate** (only when a
+crypto gate refused: RWA rows that passed their own gate, and the run row) → the three
+smoke tests (after the commits, `if: always()`) → fail the run if the RWA gate refused.
+`tests.yml` also runs daily at 15:40 UTC, because the nightly's own commits trigger no
+workflow and a dozen tests read the committed ledger. See `docs/AUDIT-2026-09-23.md`.
+
 Secrets, all optional, all read from env, none in code: `COINGECKO_API_KEY`,
 `DUNE_API_KEY` + `DUNE_UNLOCK_QUERY_ID`, `CRYPTOMETER_API_KEY`.
 
@@ -233,6 +246,11 @@ page rebuilt its overlay from the full history with no date filter — see AUDIT
 > averaged or compared. See `docs/CLOSURE-2026-09-18.md` §1 and
 > `tests/test_ic_provenance.py`, which enforces this rather than asserting it.
 
+**`ledger/runs.csv` — added 2026-09-24.** The crypto run manifest: one appended row per
+nightly run, whatever it decided. Provenance only — nothing reads it to score, rank,
+measure or gate. It begins with the first run after the change; 2026-09-21 and -22 are
+not back-filled.
+
 Other ledger artifacts: `index.{csv,json}` (the paper book), `monitor.json` (pipeline
 health), `market_breadth.json`, `market_intel.json` (sectors / correlation / trending /
 DEX), `funding.json` (per-venue funding detail), `venue_health.csv`, `macro.csv`,
@@ -266,6 +284,9 @@ refuses any row carrying the cross-section's `src` marker.
 `_compute_edge()` (`nightly.py:1871`) → `_edge_legs()` (1306):
 
 - one leg per consecutive night pair, starting at the detected boundary;
+  *since 2026-09-23* only pairs exactly one calendar day apart, the rule `_ic_legs`
+  already applied — a ledger gap (the failed nightlies of 09-21 and 09-22) is not a
+  one-day leg. See `docs/AUDIT-2026-09-23.md` §2;
 - per leg, Spearman ρ between night-t conviction and night-t→t+1 simple return, over
   names priced on both nights; legs with < 10 names are dropped (`EDGE_MIN_NAMES`);
 - quintile spread with `k = max(3, n // 5)`;

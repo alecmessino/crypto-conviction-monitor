@@ -555,6 +555,29 @@ def check_xsec(ledger: Path) -> list[str]:
     return problems
 
 
+def check_runs(ledger: Path) -> list[str]:
+    """ledger/runs.csv — the run manifest. Provenance, so the checks are about its shape.
+
+    Append-only: every prior row is kept, so the header must still describe them all,
+    and no row may claim a date after the night it was recorded on.
+    """
+    path = ledger / "runs.csv"
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8") as fh:
+        reader = csv.DictReader(fh)
+        header = tuple(reader.fieldnames or ())
+        rows = list(reader)
+    if header != tuple(nightly.RUN_FIELDS):
+        return [f"runs.csv: header {list(header)} does not match nightly.RUN_FIELDS — "
+                f"appended rows would be read under the wrong column names"]
+    bad = [r.get("date") for r in rows
+           if r.get("date") and r.get("recorded_ts")
+           and r["date"] > r["recorded_ts"][:10]]
+    return ([f"runs.csv: {len(bad)} row(s) dated after they were recorded, first {bad[0]}"]
+            if bad else [])
+
+
 def check_perp_transport(ledger: Path) -> list[str]:
     """ledger/perp.json — the funding transport the terminal scores from.
 
@@ -969,6 +992,12 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--ledger", default=str(ROOT / "ledger"))
     ap.add_argument("--min-assets", type=int, default=MIN_ASSETS)
+    # The two models commit together but must not fail together. On 2026-09-21 and -22 a
+    # duplicate key in rwa_flow.csv failed this gate and the crypto ledger — which was
+    # fine — was lost with the runner; the reverse loses RWA rows no key can re-fetch.
+    # The nightly runs the scopes as separate steps and commits each on its own verdict.
+    ap.add_argument("--scope", choices=("all", "crypto", "rwa"), default="all",
+                    help="which model's artifacts to gate (default: all)")
     args = ap.parse_args()
     ledger = Path(args.ledger)
 
@@ -977,96 +1006,113 @@ def main() -> int:
         return 2
 
     problems: list[str] = []
-    problems += check_headers(ledger)
-    problems += check_no_duplicates(ledger)
-    problems += check_mirror(ledger)
-    problems += check_board(ledger, args.min_assets)
-    problems += check_returns(ledger)
-    problems += check_basket(ledger)
-    problems += check_monitor(ledger)
-    problems += check_context_ledgers(ledger)
-    problems += check_xsec(ledger)
-    problems += check_perp_transport(ledger)
-    problems += check_walkforward(ledger)
-    problems += check_ic_provenance(ledger)
-    problems += check_rwa(ledger)
+    warnings: list[str] = []
+    if args.scope in ("all", "crypto"):
+        problems += check_headers(ledger)
+        problems += check_no_duplicates(ledger)
+        problems += check_mirror(ledger)
+        problems += check_board(ledger, args.min_assets)
+        problems += check_returns(ledger)
+        problems += check_basket(ledger)
+        problems += check_monitor(ledger)
+        problems += check_context_ledgers(ledger)
+        problems += check_xsec(ledger)
+        problems += check_perp_transport(ledger)
+        # The run manifest is provenance, never a reason to withhold a ledger: its
+        # problems are printed as warnings, not counted as failures.
+        warnings += check_runs(ledger)
+        problems += check_walkforward(ledger)
+        problems += check_ic_provenance(ledger)
+    if args.scope in ("all", "rwa"):
+        problems += check_rwa(ledger)
+    print(f"scope:       {args.scope}")
 
-    # Context, printed whether or not the gate passes — a validator that only speaks up
-    # on failure teaches nobody what healthy looks like.
-    sig = ledger / "signals.csv"
-    if sig.exists():
-        rows = list(csv.DictReader(sig.open(newline="", encoding="utf-8")))
-        dates = sorted({r.get("date") for r in rows if r.get("date")})
-        latest = [r for r in rows if r.get("date") == (dates[-1] if dates else None)]
-        convs = [c for c in (_num(r.get("conviction")) for r in latest) if c is not None]
-        print(f"ledger:      {ledger}")
-        print(f"history:     {len(dates)} day(s), {dates[0] if dates else '—'} "
-              f"to {dates[-1] if dates else '—'}, {len(rows)} rows")
-        if convs:
-            mean = sum(convs) / len(convs)
-            sd = (sum((c - mean) ** 2 for c in convs) / max(1, len(convs) - 1)) ** 0.5
-            tiers = Counter(r.get("signal") for r in latest)
-            print(f"latest:      {len(latest)} assets  conviction {min(convs):.0f}-"
-                  f"{max(convs):.0f}  dispersion {sd:.1f}")
-            print("tiers:       " + "  ".join(f"{k}={v}" for k, v in sorted(tiers.items())))
-    xsec_dir = ledger / "xsec"
-    if xsec_dir.is_dir():
-        # Printed whether or not the gate passes, on the same principle as the lines
-        # above: the counts are how a reader sees that the wide ledger really is wide,
-        # and that the narrow one reconciles to it rather than merely coexisting.
-        per_src, nights, shards = Counter(), set(), sorted(xsec_dir.glob("*.csv"))
-        for sp in shards:
-            with sp.open(newline="", encoding="utf-8") as fh:
-                for r in csv.DictReader(fh):
-                    per_src[r.get("src")] += 1
-                    if r.get("src") == "live":
-                        nights.add(r.get("date"))
-        widths = []
+    # Informational only, and it must never decide a verdict. It reads every artifact
+    # regardless of --scope, so an unguarded parse error here (a malformed xsec row, a
+    # non-UTF-8 byte in signals.csv) used to crash `--scope rwa` and withhold the RWA
+    # rows as though THEY had failed — blaming the wrong model.
+    try:
+        # Context, printed whether or not the gate passes — a validator that only speaks up
+        # on failure teaches nobody what healthy looks like.
+        sig = ledger / "signals.csv"
         if sig.exists():
-            narrow = Counter(r.get("date") for r in
-                             csv.DictReader(sig.open(newline="", encoding="utf-8")))
-            widths = [f"{n} vs {narrow[n]} persisted" for n in sorted(nights)[-1:]]
-        print(f"xsec:        {len(shards)} shard(s), "
-              + ", ".join(f"{v} {k}" for k, v in sorted(per_src.items()))
-              + (f" — latest night {widths[0]} row(s)" if widths else ""))
-    intel = ledger / "market_intel.json"
-    if intel.exists():
-        try:
-            j = json.loads(intel.read_text())
-            feeds = j.get("feeds") or {}
-            live = [n for n, f in feeds.items() if f.get("status") == "live"]
-            c = j.get("correlation") or {}
-            print(f"context:     {len(live)}/{len(feeds)} feed(s) live on the "
-                  f"{(j.get('session') or {}).get('plan', '?')} plan, "
-                  f"{len((j.get('sectors') or {}).get('sectors') or [])} sector(s)"
-                  + (f", top {c['n']} names = {c['effective_n']} effective bet(s)"
-                     if c.get("effective_n") is not None else ", correlation pending"))
-        except Exception:
-            pass
-    rwa_art = ledger / "rwa.json"
-    if rwa_art.exists():
-        try:
-            j = json.loads(rwa_art.read_text())
-            g, bg = j.get("graph") or {}, j.get("board_gate") or {}
-            print(f"rwa:         {bg.get('ranked', 0)} ranked / {bg.get('graded', 0)} "
-                  f"graded of {g.get('underlyings_ranked', 0)}, "
-                  f"{g.get('wrappers_priced', 0)}/{g.get('wrappers_n', 0)} wrapper(s) "
-                  f"priced, {g.get('unresolved_n', 0)} unresolved, spec {j.get('spec_hash')}")
-        except Exception:
-            pass
-    breadth = ledger / "market_breadth.json"
-    if breadth.exists():
-        try:
-            perf = (json.loads(breadth.read_text()).get("performance") or {})
-            if perf.get("legs"):
-                print(f"performance: {perf['legs']} leg(s), basket "
-                      f"{perf['book_total']:+.2f}%, {perf['benchmark']} "
-                      f"{perf['benchmark_total']:+.2f}%"
-                      if perf.get("benchmark_available") else
-                      f"performance: {perf['legs']} leg(s), basket {perf['book_total']:+.2f}%")
-        except Exception:
-            pass
+            rows = list(csv.DictReader(sig.open(newline="", encoding="utf-8")))
+            dates = sorted({r.get("date") for r in rows if r.get("date")})
+            latest = [r for r in rows if r.get("date") == (dates[-1] if dates else None)]
+            convs = [c for c in (_num(r.get("conviction")) for r in latest) if c is not None]
+            print(f"ledger:      {ledger}")
+            print(f"history:     {len(dates)} day(s), {dates[0] if dates else '—'} "
+                  f"to {dates[-1] if dates else '—'}, {len(rows)} rows")
+            if convs:
+                mean = sum(convs) / len(convs)
+                sd = (sum((c - mean) ** 2 for c in convs) / max(1, len(convs) - 1)) ** 0.5
+                tiers = Counter(r.get("signal") for r in latest)
+                print(f"latest:      {len(latest)} assets  conviction {min(convs):.0f}-"
+                      f"{max(convs):.0f}  dispersion {sd:.1f}")
+                print("tiers:       " + "  ".join(f"{k}={v}" for k, v in sorted(tiers.items())))
+        xsec_dir = ledger / "xsec"
+        if xsec_dir.is_dir():
+            # Printed whether or not the gate passes, on the same principle as the lines
+            # above: the counts are how a reader sees that the wide ledger really is wide,
+            # and that the narrow one reconciles to it rather than merely coexisting.
+            per_src, nights, shards = Counter(), set(), sorted(xsec_dir.glob("*.csv"))
+            for sp in shards:
+                with sp.open(newline="", encoding="utf-8") as fh:
+                    for r in csv.DictReader(fh):
+                        per_src[r.get("src")] += 1
+                        if r.get("src") == "live":
+                            nights.add(r.get("date"))
+            widths = []
+            if sig.exists():
+                narrow = Counter(r.get("date") for r in
+                                 csv.DictReader(sig.open(newline="", encoding="utf-8")))
+                widths = [f"{n} vs {narrow[n]} persisted" for n in sorted(nights)[-1:]]
+            print(f"xsec:        {len(shards)} shard(s), "
+                  + ", ".join(f"{v} {k}" for k, v in sorted(per_src.items()))
+                  + (f" — latest night {widths[0]} row(s)" if widths else ""))
+        intel = ledger / "market_intel.json"
+        if intel.exists():
+            try:
+                j = json.loads(intel.read_text())
+                feeds = j.get("feeds") or {}
+                live = [n for n, f in feeds.items() if f.get("status") == "live"]
+                c = j.get("correlation") or {}
+                print(f"context:     {len(live)}/{len(feeds)} feed(s) live on the "
+                      f"{(j.get('session') or {}).get('plan', '?')} plan, "
+                      f"{len((j.get('sectors') or {}).get('sectors') or [])} sector(s)"
+                      + (f", top {c['n']} names = {c['effective_n']} effective bet(s)"
+                         if c.get("effective_n") is not None else ", correlation pending"))
+            except Exception:
+                pass
+        rwa_art = ledger / "rwa.json"
+        if rwa_art.exists():
+            try:
+                j = json.loads(rwa_art.read_text())
+                g, bg = j.get("graph") or {}, j.get("board_gate") or {}
+                print(f"rwa:         {bg.get('ranked', 0)} ranked / {bg.get('graded', 0)} "
+                      f"graded of {g.get('underlyings_ranked', 0)}, "
+                      f"{g.get('wrappers_priced', 0)}/{g.get('wrappers_n', 0)} wrapper(s) "
+                      f"priced, {g.get('unresolved_n', 0)} unresolved, spec {j.get('spec_hash')}")
+            except Exception:
+                pass
+        breadth = ledger / "market_breadth.json"
+        if breadth.exists():
+            try:
+                perf = (json.loads(breadth.read_text()).get("performance") or {})
+                if perf.get("legs"):
+                    print(f"performance: {perf['legs']} leg(s), basket "
+                          f"{perf['book_total']:+.2f}%, {perf['benchmark']} "
+                          f"{perf['benchmark_total']:+.2f}%"
+                          if perf.get("benchmark_available") else
+                          f"performance: {perf['legs']} leg(s), basket {perf['book_total']:+.2f}%")
+            except Exception:
+                pass
 
+    except Exception as e:  # noqa: BLE001
+        print(f"context:     not printed ({type(e).__name__}: {e}) — informational only")
+
+    for w in warnings:
+        print(f"WARN  {w}")
     if problems:
         print(f"\nFAIL  {len(problems)} problem(s):")
         for p in problems:
