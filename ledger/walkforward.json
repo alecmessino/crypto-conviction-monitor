@@ -1,15 +1,15 @@
 {
  "version": 1,
- "generated_at": "2026-10-29T13:07:24.822269+00:00",
+ "generated_at": "2026-10-30T13:00:19.602265+00:00",
  "spec_hash": "91bbc2a7e466",
  "sample": "forward",
  "sample_label": "FORWARD CROSS-SECTIONAL SAMPLE",
  "universe": "ledger/xsec/ \u2014 the whole scored cross-section",
  "population": "complete (every de-duplicated non-stable asset scored that night)",
  "sample_caveat": "Began accumulating 2026-09-15. Wide and shallow: it measures the population the board actually publishes, and it has not yet measured anything.",
- "nights": 43,
+ "nights": 44,
  "from": "2026-09-15",
- "to": "2026-10-29",
+ "to": "2026-10-30",
  "horizons": [
   1,
   7,
@@ -27,41 +27,41 @@
  "not_comparable_because": "The published IC matrix is measured on the LEGACY sample \u2014 ledger/signals.csv, the top fifty by conviction, 48 nights. This report is measured on the FORWARD sample \u2014 ledger/xsec/, the whole scored cross-section, which began on 2026-09-15. Different populations over different windows: the numbers are not alternative estimates of one quantity and must never be averaged, compared or presented as though one confirms or contradicts the other. Three nights admit at most two one-day legs, so this report cannot reproduce a 43-leg figure at any horizon.",
  "coverage": {
   "1": {
-   "realised": 9506,
+   "realised": 9736,
    "horizon-incomplete": 235,
-   "left-universe": 127,
+   "left-universe": 132,
    "unpriced": 235,
-   "total": 10103
+   "total": 10338
   },
   "7": {
-   "realised": 7909,
+   "realised": 8135,
    "horizon-incomplete": 1645,
-   "left-universe": 315,
+   "left-universe": 324,
    "unpriced": 234,
-   "total": 10103
+   "total": 10338
   },
   "30": {
-   "realised": 2796,
+   "realised": 3008,
    "horizon-incomplete": 7050,
-   "left-universe": 257,
+   "left-universe": 280,
    "unpriced": 0,
-   "total": 10103
+   "total": 10338
   }
  },
  "ic": {
   "composite": {
    "1": {
-    "legs": 41,
-    "legs_seen": 41,
+    "legs": 42,
+    "legs_seen": 42,
     "min_legs": 40,
-    "names_mean": 231.9,
-    "ic": -0.045,
+    "names_mean": 231.8,
+    "ic": -0.0449,
     "ci": [
-     -0.1001,
-     0.0101
+     -0.0987,
+     0.0088
     ],
-    "se": 0.0281,
-    "t_stat": -1.601,
+    "se": 0.0274,
+    "t_stat": -1.638,
     "legs_positive": 16,
     "sufficient": true,
     "state": "SPANS_ZERO",
@@ -69,55 +69,55 @@
     "sample": "forward"
    },
    "7": {
-    "legs": 35,
-    "legs_seen": 35,
+    "legs": 36,
+    "legs_seen": 36,
     "min_legs": 40,
     "names_mean": 226.0,
-    "ic": -0.0975,
+    "ic": -0.0977,
     "ci": [
-     -0.1488,
-     -0.0462
+     -0.1476,
+     -0.0478
     ],
-    "se": 0.0262,
-    "t_stat": -3.723,
+    "se": 0.0255,
+    "t_stat": -3.839,
     "legs_positive": 7,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "35 of 40 legs \u2014 not yet measurable",
+    "detail": "36 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "30": {
-    "legs": 13,
-    "legs_seen": 13,
+    "legs": 14,
+    "legs_seen": 14,
     "min_legs": 40,
-    "names_mean": 215.1,
-    "ic": -0.2064,
+    "names_mean": 214.9,
+    "ic": -0.2203,
     "ci": [
-     -0.3223,
-     -0.0905
+     -0.331,
+     -0.1096
     ],
-    "se": 0.0591,
-    "t_stat": -3.491,
+    "se": 0.0565,
+    "t_stat": -3.9,
     "legs_positive": 4,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "13 of 40 legs \u2014 not yet measurable",
+    "detail": "14 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    }
   },
   "DEPTH": {
    "1": {
-    "legs": 41,
-    "legs_seen": 41,
+    "legs": 42,
+    "legs_seen": 42,
     "min_legs": 40,
-    "names_mean": 231.9,
-    "ic": -0.0085,
+    "names_mean": 231.8,
+    "ic": -0.009,
     "ci": [
-     -0.0367,
-     0.0198
+     -0.0366,
+     0.0185
     ],
-    "se": 0.0144,
-    "t_stat": -0.587,
+    "se": 0.0141,
+    "t_stat": -0.642,
     "legs_positive": 17,
     "sufficient": true,
     "state": "SPANS_ZERO",
@@ -125,111 +125,55 @@
     "sample": "forward"
    },
    "7": {
-    "legs": 35,
-    "legs_seen": 35,
+    "legs": 36,
+    "legs_seen": 36,
     "min_legs": 40,
     "names_mean": 226.0,
-    "ic": -0.0549,
+    "ic": -0.0533,
     "ci": [
-     -0.0773,
-     -0.0326
+     -0.0752,
+     -0.0314
     ],
-    "se": 0.0114,
-    "t_stat": -4.827,
-    "legs_positive": 8,
+    "se": 0.0112,
+    "t_stat": -4.763,
+    "legs_positive": 9,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "35 of 40 legs \u2014 not yet measurable",
+    "detail": "36 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "30": {
-    "legs": 13,
-    "legs_seen": 13,
+    "legs": 14,
+    "legs_seen": 14,
     "min_legs": 40,
-    "names_mean": 215.1,
-    "ic": -0.1015,
+    "names_mean": 214.9,
+    "ic": -0.1021,
     "ci": [
-     -0.1263,
-     -0.0766
+     -0.1252,
+     -0.0791
     ],
-    "se": 0.0127,
-    "t_stat": -7.999,
+    "se": 0.0118,
+    "t_stat": -8.683,
     "legs_positive": 0,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "13 of 40 legs \u2014 not yet measurable",
+    "detail": "14 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    }
   },
   "CONFIRM": {
    "1": {
-    "legs": 41,
-    "legs_seen": 41,
+    "legs": 42,
+    "legs_seen": 42,
     "min_legs": 40,
-    "names_mean": 231.9,
-    "ic": -0.0471,
+    "names_mean": 231.8,
+    "ic": -0.0441,
     "ci": [
-     -0.0953,
-     0.0012
+     -0.0916,
+     0.0034
     ],
-    "se": 0.0246,
-    "t_stat": -1.911,
-    "legs_positive": 16,
-    "sufficient": true,
-    "state": "SPANS_ZERO",
-    "detail": "the interval includes zero \u2014 neither evidence for nor against",
-    "sample": "forward"
-   },
-   "7": {
-    "legs": 35,
-    "legs_seen": 35,
-    "min_legs": 40,
-    "names_mean": 226.0,
-    "ic": -0.0779,
-    "ci": [
-     -0.1168,
-     -0.039
-    ],
-    "se": 0.0198,
-    "t_stat": -3.926,
-    "legs_positive": 6,
-    "sufficient": false,
-    "state": "INSUFFICIENT",
-    "detail": "35 of 40 legs \u2014 not yet measurable",
-    "sample": "forward"
-   },
-   "30": {
-    "legs": 13,
-    "legs_seen": 13,
-    "min_legs": 40,
-    "names_mean": 215.1,
-    "ic": -0.2188,
-    "ci": [
-     -0.3117,
-     -0.1259
-    ],
-    "se": 0.0474,
-    "t_stat": -4.617,
-    "legs_positive": 1,
-    "sufficient": false,
-    "state": "INSUFFICIENT",
-    "detail": "13 of 40 legs \u2014 not yet measurable",
-    "sample": "forward"
-   }
-  },
-  "LIQUIDITY": {
-   "1": {
-    "legs": 41,
-    "legs_seen": 41,
-    "min_legs": 40,
-    "names_mean": 231.9,
-    "ic": -0.0384,
-    "ci": [
-     -0.1085,
-     0.0317
-    ],
-    "se": 0.0358,
-    "t_stat": -1.073,
+    "se": 0.0242,
+    "t_stat": -1.821,
     "legs_positive": 17,
     "sufficient": true,
     "state": "SPANS_ZERO",
@@ -237,151 +181,207 @@
     "sample": "forward"
    },
    "7": {
-    "legs": 35,
-    "legs_seen": 35,
+    "legs": 36,
+    "legs_seen": 36,
     "min_legs": 40,
     "names_mean": 226.0,
-    "ic": -0.0918,
+    "ic": -0.0751,
     "ci": [
-     -0.1631,
-     -0.0205
+     -0.1133,
+     -0.0369
     ],
-    "se": 0.0364,
-    "t_stat": -2.522,
-    "legs_positive": 12,
+    "se": 0.0195,
+    "t_stat": -3.854,
+    "legs_positive": 7,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "35 of 40 legs \u2014 not yet measurable",
+    "detail": "36 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "30": {
-    "legs": 13,
-    "legs_seen": 13,
+    "legs": 14,
+    "legs_seen": 14,
     "min_legs": 40,
-    "names_mean": 215.1,
-    "ic": -0.1067,
+    "names_mean": 214.9,
+    "ic": -0.2334,
     "ci": [
-     -0.2384,
-     0.0251
+     -0.3241,
+     -0.1428
     ],
-    "se": 0.0672,
-    "t_stat": -1.587,
+    "se": 0.0463,
+    "t_stat": -5.047,
+    "legs_positive": 1,
+    "sufficient": false,
+    "state": "INSUFFICIENT",
+    "detail": "14 of 40 legs \u2014 not yet measurable",
+    "sample": "forward"
+   }
+  },
+  "LIQUIDITY": {
+   "1": {
+    "legs": 42,
+    "legs_seen": 42,
+    "min_legs": 40,
+    "names_mean": 231.8,
+    "ic": -0.0435,
+    "ci": [
+     -0.1127,
+     0.0256
+    ],
+    "se": 0.0353,
+    "t_stat": -1.234,
+    "legs_positive": 17,
+    "sufficient": true,
+    "state": "SPANS_ZERO",
+    "detail": "the interval includes zero \u2014 neither evidence for nor against",
+    "sample": "forward"
+   },
+   "7": {
+    "legs": 36,
+    "legs_seen": 36,
+    "min_legs": 40,
+    "names_mean": 226.0,
+    "ic": -0.0968,
+    "ci": [
+     -0.1668,
+     -0.0268
+    ],
+    "se": 0.0357,
+    "t_stat": -2.71,
+    "legs_positive": 12,
+    "sufficient": false,
+    "state": "INSUFFICIENT",
+    "detail": "36 of 40 legs \u2014 not yet measurable",
+    "sample": "forward"
+   },
+   "30": {
+    "legs": 14,
+    "legs_seen": 14,
+    "min_legs": 40,
+    "names_mean": 214.9,
+    "ic": -0.1198,
+    "ci": [
+     -0.2445,
+     0.0048
+    ],
+    "se": 0.0636,
+    "t_stat": -1.884,
     "legs_positive": 5,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "13 of 40 legs \u2014 not yet measurable",
+    "detail": "14 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    }
   },
   "SUPPLY": {
    "1": {
-    "legs": 41,
-    "legs_seen": 41,
+    "legs": 42,
+    "legs_seen": 42,
     "min_legs": 40,
-    "names_mean": 231.9,
-    "ic": 0.0333,
+    "names_mean": 231.8,
+    "ic": 0.0392,
     "ci": [
-     -0.0103,
-     0.077
+     -0.0049,
+     0.0833
     ],
-    "se": 0.0223,
-    "t_stat": 1.496,
-    "legs_positive": 26,
+    "se": 0.0225,
+    "t_stat": 1.741,
+    "legs_positive": 27,
     "sufficient": true,
     "state": "SPANS_ZERO",
     "detail": "the interval includes zero \u2014 neither evidence for nor against",
     "sample": "forward"
    },
    "7": {
-    "legs": 35,
-    "legs_seen": 35,
+    "legs": 36,
+    "legs_seen": 36,
     "min_legs": 40,
     "names_mean": 226.0,
-    "ic": 0.081,
+    "ic": 0.087,
     "ci": [
-     0.0285,
-     0.1336
+     0.0346,
+     0.1393
     ],
-    "se": 0.0268,
-    "t_stat": 3.023,
-    "legs_positive": 27,
+    "se": 0.0267,
+    "t_stat": 3.255,
+    "legs_positive": 28,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "35 of 40 legs \u2014 not yet measurable",
+    "detail": "36 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "30": {
-    "legs": 13,
-    "legs_seen": 13,
+    "legs": 14,
+    "legs_seen": 14,
     "min_legs": 40,
-    "names_mean": 215.1,
-    "ic": 0.0969,
+    "names_mean": 214.9,
+    "ic": 0.1128,
     "ci": [
-     -0.0022,
-     0.1961
+     0.0159,
+     0.2097
     ],
-    "se": 0.0506,
-    "t_stat": 1.916,
-    "legs_positive": 9,
+    "se": 0.0494,
+    "t_stat": 2.281,
+    "legs_positive": 10,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "13 of 40 legs \u2014 not yet measurable",
+    "detail": "14 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    }
   },
   "FUNDING": {
    "1": {
-    "legs": 41,
-    "legs_seen": 41,
+    "legs": 42,
+    "legs_seen": 42,
     "min_legs": 40,
-    "names_mean": 231.9,
-    "ic": 0.0036,
+    "names_mean": 231.8,
+    "ic": 0.0071,
     "ci": [
-     -0.0234,
-     0.0306
+     -0.0202,
+     0.0343
     ],
-    "se": 0.0138,
-    "t_stat": 0.26,
-    "legs_positive": 20,
+    "se": 0.0139,
+    "t_stat": 0.509,
+    "legs_positive": 21,
     "sufficient": true,
     "state": "SPANS_ZERO",
     "detail": "the interval includes zero \u2014 neither evidence for nor against",
     "sample": "forward"
    },
    "7": {
-    "legs": 35,
-    "legs_seen": 35,
+    "legs": 36,
+    "legs_seen": 36,
     "min_legs": 40,
     "names_mean": 226.0,
-    "ic": -0.0003,
+    "ic": -0.002,
     "ci": [
-     -0.0317,
-     0.0311
+     -0.0327,
+     0.0287
     ],
-    "se": 0.016,
-    "t_stat": -0.019,
+    "se": 0.0157,
+    "t_stat": -0.127,
     "legs_positive": 21,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "35 of 40 legs \u2014 not yet measurable",
+    "detail": "36 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    },
    "30": {
-    "legs": 13,
-    "legs_seen": 13,
+    "legs": 14,
+    "legs_seen": 14,
     "min_legs": 40,
-    "names_mean": 215.1,
-    "ic": -0.0114,
+    "names_mean": 214.9,
+    "ic": 0.0027,
     "ci": [
-     -0.0454,
-     0.0225
+     -0.0392,
+     0.0446
     ],
-    "se": 0.0173,
-    "t_stat": -0.66,
-    "legs_positive": 3,
+    "se": 0.0214,
+    "t_stat": 0.126,
+    "legs_positive": 4,
     "sufficient": false,
     "state": "INSUFFICIENT",
-    "detail": "13 of 40 legs \u2014 not yet measurable",
+    "detail": "14 of 40 legs \u2014 not yet measurable",
     "sample": "forward"
    }
   }
@@ -389,54 +389,54 @@
  "hit_rate_by_tier": {
   "T1": {
    "1": {
-    "n": 151,
+    "n": 155,
     "unit": "symbol-days",
-    "hit_rate": 0.4636,
+    "hit_rate": 0.4581,
     "hit_ci": [
-     0.3859,
-     0.543
+     0.3816,
+     0.5366
     ],
-    "mean_ret_pct": 0.2905,
+    "mean_ret_pct": 0.2389,
     "state": "MEASURED",
-    "detail": "70 of 151 positive symbol-days"
+    "detail": "71 of 155 positive symbol-days"
    },
    "7": {
-    "n": 134,
+    "n": 137,
     "unit": "symbol-days",
-    "hit_rate": 0.3507,
+    "hit_rate": 0.3504,
     "hit_ci": [
-     0.2751,
-     0.4347
+     0.2755,
+     0.4333
     ],
-    "mean_ret_pct": -0.7492,
+    "mean_ret_pct": -0.8292,
     "state": "MEASURED",
-    "detail": "47 of 134 positive symbol-days"
+    "detail": "48 of 137 positive symbol-days"
    },
    "30": {
-    "n": 65,
+    "n": 73,
     "unit": "symbol-days",
-    "hit_rate": 0.1846,
+    "hit_rate": 0.1644,
     "hit_ci": [
-     0.1089,
-     0.2955
+     0.0966,
+     0.2657
     ],
-    "mean_ret_pct": -14.0112,
+    "mean_ret_pct": -15.3043,
     "state": "MEASURED",
-    "detail": "12 of 65 positive symbol-days"
+    "detail": "12 of 73 positive symbol-days"
    }
   },
   "T2": {
    "1": {
-    "n": 98,
+    "n": 99,
     "unit": "symbol-days",
-    "hit_rate": 0.4898,
+    "hit_rate": 0.4848,
     "hit_ci": [
-     0.3931,
-     0.5873
+     0.3888,
+     0.582
     ],
-    "mean_ret_pct": 1.1959,
+    "mean_ret_pct": 1.142,
     "state": "MEASURED",
-    "detail": "48 of 98 positive symbol-days"
+    "detail": "48 of 99 positive symbol-days"
    },
    "7": {
     "n": 94,
@@ -451,170 +451,170 @@
     "detail": "33 of 94 positive symbol-days"
    },
    "30": {
-    "n": 54,
+    "n": 58,
     "unit": "symbol-days",
-    "hit_rate": 0.2407,
+    "hit_rate": 0.2414,
     "hit_ci": [
-     0.1464,
-     0.3695
+     0.1496,
+     0.3653
     ],
-    "mean_ret_pct": -8.9162,
+    "mean_ret_pct": -9.3438,
     "state": "MEASURED",
-    "detail": "13 of 54 positive symbol-days"
+    "detail": "14 of 58 positive symbol-days"
    }
   },
   "T3": {
    "1": {
-    "n": 380,
+    "n": 387,
     "unit": "symbol-days",
-    "hit_rate": 0.4263,
+    "hit_rate": 0.4238,
     "hit_ci": [
-     0.3776,
-     0.4765
+     0.3755,
+     0.4735
     ],
-    "mean_ret_pct": -0.2691,
+    "mean_ret_pct": -0.2762,
     "state": "MEASURED",
-    "detail": "162 of 380 positive symbol-days"
+    "detail": "164 of 387 positive symbol-days"
    },
    "7": {
-    "n": 346,
+    "n": 352,
     "unit": "symbol-days",
-    "hit_rate": 0.3526,
+    "hit_rate": 0.3523,
     "hit_ci": [
-     0.3041,
-     0.4043
+     0.3042,
+     0.4035
     ],
-    "mean_ret_pct": -0.8897,
+    "mean_ret_pct": -0.8717,
     "state": "MEASURED",
-    "detail": "122 of 346 positive symbol-days"
+    "detail": "124 of 352 positive symbol-days"
    },
    "30": {
-    "n": 156,
+    "n": 170,
     "unit": "symbol-days",
-    "hit_rate": 0.2308,
+    "hit_rate": 0.2176,
     "hit_ci": [
-     0.1716,
-     0.3029
+     0.1622,
+     0.2855
     ],
-    "mean_ret_pct": -9.7493,
+    "mean_ret_pct": -10.4133,
     "state": "MEASURED",
-    "detail": "36 of 156 positive symbol-days"
+    "detail": "37 of 170 positive symbol-days"
    }
   },
   "T4": {
    "1": {
-    "n": 703,
+    "n": 714,
     "unit": "symbol-days",
-    "hit_rate": 0.4253,
+    "hit_rate": 0.4202,
     "hit_ci": [
-     0.3893,
-     0.4622
+     0.3845,
+     0.4567
     ],
-    "mean_ret_pct": 0.0353,
+    "mean_ret_pct": -0.0234,
     "state": "MEASURED",
-    "detail": "299 of 703 positive symbol-days"
+    "detail": "300 of 714 positive symbol-days"
    },
    "7": {
-    "n": 640,
+    "n": 651,
     "unit": "symbol-days",
-    "hit_rate": 0.3047,
+    "hit_rate": 0.3041,
     "hit_ci": [
-     0.2703,
-     0.3414
+     0.27,
+     0.3406
     ],
-    "mean_ret_pct": -2.3247,
+    "mean_ret_pct": -2.3972,
     "state": "MEASURED",
-    "detail": "195 of 640 positive symbol-days"
+    "detail": "198 of 651 positive symbol-days"
    },
    "30": {
-    "n": 212,
+    "n": 233,
     "unit": "symbol-days",
-    "hit_rate": 0.2594,
+    "hit_rate": 0.2403,
     "hit_ci": [
-     0.2051,
-     0.3223
+     0.19,
+     0.2991
     ],
-    "mean_ret_pct": -9.7431,
+    "mean_ret_pct": -10.7203,
     "state": "MEASURED",
-    "detail": "55 of 212 positive symbol-days"
+    "detail": "56 of 233 positive symbol-days"
    }
   },
   "T5": {
    "1": {
-    "n": 8174,
+    "n": 8381,
     "unit": "symbol-days",
-    "hit_rate": 0.4136,
+    "hit_rate": 0.407,
     "hit_ci": [
-     0.403,
-     0.4243
+     0.3965,
+     0.4176
     ],
-    "mean_ret_pct": 0.1049,
+    "mean_ret_pct": 0.0091,
     "state": "MEASURED",
-    "detail": "3381 of 8174 positive symbol-days"
+    "detail": "3411 of 8381 positive symbol-days"
    },
    "7": {
-    "n": 6695,
+    "n": 6901,
     "unit": "symbol-days",
-    "hit_rate": 0.3863,
+    "hit_rate": 0.3786,
     "hit_ci": [
-     0.3747,
-     0.398
+     0.3673,
+     0.3901
     ],
-    "mean_ret_pct": 0.8122,
+    "mean_ret_pct": 0.5661,
     "state": "MEASURED",
-    "detail": "2586 of 6695 positive symbol-days"
+    "detail": "2613 of 6901 positive symbol-days"
    },
    "30": {
-    "n": 2309,
+    "n": 2474,
     "unit": "symbol-days",
-    "hit_rate": 0.3794,
+    "hit_rate": 0.3654,
     "hit_ci": [
-     0.3598,
-     0.3994
+     0.3466,
+     0.3846
     ],
-    "mean_ret_pct": 1.6762,
+    "mean_ret_pct": 0.6805,
     "state": "MEASURED",
-    "detail": "876 of 2309 positive symbol-days"
+    "detail": "904 of 2474 positive symbol-days"
    }
   }
  },
  "by_regime": {
   "RISK-ON": {
    "1": {
-    "n": 9506,
+    "n": 9736,
     "unit": "symbol-days",
-    "hit_rate": 0.4166,
+    "hit_rate": 0.4102,
     "hit_ci": [
-     0.4067,
-     0.4265
+     0.4005,
+     0.42
     ],
-    "mean_ret_pct": 0.099,
+    "mean_ret_pct": 0.0105,
     "state": "MEASURED",
-    "detail": "3960 of 9506 positive symbol-days"
+    "detail": "3994 of 9736 positive symbol-days"
    },
    "7": {
-    "n": 7909,
+    "n": 8135,
     "unit": "symbol-days",
-    "hit_rate": 0.3772,
+    "hit_rate": 0.3707,
     "hit_ci": [
-     0.3665,
-     0.3879
+     0.3603,
+     0.3813
     ],
-    "mean_ret_pct": 0.4449,
+    "mean_ret_pct": 0.2339,
     "state": "MEASURED",
-    "detail": "2983 of 7909 positive symbol-days"
+    "detail": "3016 of 8135 positive symbol-days"
    },
    "30": {
-    "n": 2796,
+    "n": 3008,
     "unit": "symbol-days",
-    "hit_rate": 0.3548,
+    "hit_rate": 0.3401,
     "hit_ci": [
-     0.3373,
-     0.3727
+     0.3234,
+     0.3572
     ],
-    "mean_ret_pct": -0.3964,
+    "mean_ret_pct": -1.4108,
     "state": "MEASURED",
-    "detail": "992 of 2796 positive symbol-days"
+    "detail": "1023 of 3008 positive symbol-days"
    }
   }
  },
@@ -627,80 +627,80 @@
    "by_horizon": {
     "1": {
      "flagged": {
-      "n": 1013,
+      "n": 1035,
       "unit": "symbol-days",
-      "hit_rate": 0.3959,
+      "hit_rate": 0.3903,
       "hit_ci": [
-       0.3662,
-       0.4263
+       0.3611,
+       0.4204
       ],
-      "mean_ret_pct": -0.2099,
+      "mean_ret_pct": -0.2744,
       "state": "MEASURED",
-      "detail": "401 of 1013 positive symbol-days"
+      "detail": "404 of 1035 positive symbol-days"
      },
      "unflagged": {
-      "n": 8493,
+      "n": 8701,
       "unit": "symbol-days",
-      "hit_rate": 0.4191,
+      "hit_rate": 0.4126,
       "hit_ci": [
-       0.4086,
-       0.4296
+       0.4023,
+       0.423
       ],
-      "mean_ret_pct": 0.1358,
+      "mean_ret_pct": 0.0444,
       "state": "MEASURED",
-      "detail": "3559 of 8493 positive symbol-days"
+      "detail": "3590 of 8701 positive symbol-days"
      }
     },
     "7": {
      "flagged": {
-      "n": 891,
+      "n": 915,
       "unit": "symbol-days",
-      "hit_rate": 0.3019,
+      "hit_rate": 0.3005,
       "hit_ci": [
-       0.2727,
-       0.3329
+       0.2717,
+       0.331
       ],
-      "mean_ret_pct": -1.9866,
+      "mean_ret_pct": -2.08,
       "state": "MEASURED",
-      "detail": "269 of 891 positive symbol-days"
+      "detail": "275 of 915 positive symbol-days"
      },
      "unflagged": {
-      "n": 7018,
+      "n": 7220,
       "unit": "symbol-days",
-      "hit_rate": 0.3867,
+      "hit_rate": 0.3796,
       "hit_ci": [
-       0.3754,
-       0.3982
+       0.3685,
+       0.3909
       ],
-      "mean_ret_pct": 0.7536,
+      "mean_ret_pct": 0.5271,
       "state": "MEASURED",
-      "detail": "2714 of 7018 positive symbol-days"
+      "detail": "2741 of 7220 positive symbol-days"
      }
     },
     "30": {
      "flagged": {
-      "n": 233,
+      "n": 257,
       "unit": "symbol-days",
-      "hit_rate": 0.2489,
+      "hit_rate": 0.2451,
       "hit_ci": [
-       0.1978,
-       0.3082
+       0.1966,
+       0.3012
       ],
-      "mean_ret_pct": -6.6165,
+      "mean_ret_pct": -7.2003,
       "state": "MEASURED",
-      "detail": "58 of 233 positive symbol-days"
+      "detail": "63 of 257 positive symbol-days"
      },
      "unflagged": {
-      "n": 2563,
+      "n": 2751,
       "unit": "symbol-days",
-      "hit_rate": 0.3644,
+      "hit_rate": 0.349,
       "hit_ci": [
-       0.346,
-       0.3832
+       0.3314,
+       0.367
       ],
-      "mean_ret_pct": 0.169,
+      "mean_ret_pct": -0.8699,
       "state": "MEASURED",
-      "detail": "934 of 2563 positive symbol-days"
+      "detail": "960 of 2751 positive symbol-days"
      }
     }
    }
@@ -713,80 +713,80 @@
    "by_horizon": {
     "1": {
      "flagged": {
-      "n": 3202,
+      "n": 3292,
       "unit": "symbol-days",
-      "hit_rate": 0.4241,
+      "hit_rate": 0.4171,
       "hit_ci": [
-       0.4071,
-       0.4413
+       0.4003,
+       0.434
       ],
-      "mean_ret_pct": -0.0208,
+      "mean_ret_pct": -0.1052,
       "state": "MEASURED",
-      "detail": "1358 of 3202 positive symbol-days"
+      "detail": "1373 of 3292 positive symbol-days"
      },
      "unflagged": {
-      "n": 6304,
+      "n": 6444,
       "unit": "symbol-days",
-      "hit_rate": 0.4128,
+      "hit_rate": 0.4067,
       "hit_ci": [
-       0.4007,
-       0.425
+       0.3948,
+       0.4188
       ],
-      "mean_ret_pct": 0.1598,
+      "mean_ret_pct": 0.0696,
       "state": "MEASURED",
-      "detail": "2602 of 6304 positive symbol-days"
+      "detail": "2621 of 6444 positive symbol-days"
      }
     },
     "7": {
      "flagged": {
-      "n": 2620,
+      "n": 2719,
       "unit": "symbol-days",
-      "hit_rate": 0.3469,
+      "hit_rate": 0.3409,
       "hit_ci": [
-       0.329,
-       0.3654
+       0.3234,
+       0.359
       ],
-      "mean_ret_pct": -0.3909,
+      "mean_ret_pct": -0.578,
       "state": "MEASURED",
-      "detail": "909 of 2620 positive symbol-days"
+      "detail": "927 of 2719 positive symbol-days"
      },
      "unflagged": {
-      "n": 5289,
+      "n": 5416,
       "unit": "symbol-days",
-      "hit_rate": 0.3921,
+      "hit_rate": 0.3857,
       "hit_ci": [
-       0.3791,
-       0.4054
+       0.3728,
+       0.3987
       ],
-      "mean_ret_pct": 0.859,
+      "mean_ret_pct": 0.6414,
       "state": "MEASURED",
-      "detail": "2074 of 5289 positive symbol-days"
+      "detail": "2089 of 5416 positive symbol-days"
      }
     },
     "30": {
      "flagged": {
-      "n": 700,
+      "n": 772,
       "unit": "symbol-days",
-      "hit_rate": 0.2614,
+      "hit_rate": 0.2539,
       "hit_ci": [
-       0.2302,
-       0.2952
+       0.2245,
+       0.2858
       ],
-      "mean_ret_pct": -2.1884,
+      "mean_ret_pct": -3.1716,
       "state": "MEASURED",
-      "detail": "183 of 700 positive symbol-days"
+      "detail": "196 of 772 positive symbol-days"
      },
      "unflagged": {
-      "n": 2096,
+      "n": 2236,
       "unit": "symbol-days",
-      "hit_rate": 0.386,
+      "hit_rate": 0.3699,
       "hit_ci": [
-       0.3654,
-       0.407
+       0.3501,
+       0.3901
       ],
-      "mean_ret_pct": 0.202,
+      "mean_ret_pct": -0.8029,
       "state": "MEASURED",
-      "detail": "809 of 2096 positive symbol-days"
+      "detail": "827 of 2236 positive symbol-days"
      }
     }
    }
@@ -799,80 +799,80 @@
    "by_horizon": {
     "1": {
      "flagged": {
-      "n": 938,
+      "n": 960,
       "unit": "symbol-days",
-      "hit_rate": 0.4094,
+      "hit_rate": 0.4031,
       "hit_ci": [
-       0.3783,
-       0.4412
+       0.3725,
+       0.4345
       ],
-      "mean_ret_pct": -0.2428,
+      "mean_ret_pct": -0.3,
       "state": "MEASURED",
-      "detail": "384 of 938 positive symbol-days"
+      "detail": "387 of 960 positive symbol-days"
      },
      "unflagged": {
-      "n": 8568,
+      "n": 8776,
       "unit": "symbol-days",
-      "hit_rate": 0.4174,
+      "hit_rate": 0.411,
       "hit_ci": [
-       0.407,
-       0.4278
+       0.4008,
+       0.4213
       ],
-      "mean_ret_pct": 0.1364,
+      "mean_ret_pct": 0.0445,
       "state": "MEASURED",
-      "detail": "3576 of 8568 positive symbol-days"
+      "detail": "3607 of 8776 positive symbol-days"
      }
     },
     "7": {
      "flagged": {
-      "n": 829,
+      "n": 853,
       "unit": "symbol-days",
-      "hit_rate": 0.2907,
+      "hit_rate": 0.2884,
       "hit_ci": [
-       0.2608,
-       0.3225
+       0.259,
+       0.3197
       ],
-      "mean_ret_pct": -2.0587,
+      "mean_ret_pct": -2.1357,
       "state": "MEASURED",
-      "detail": "241 of 829 positive symbol-days"
+      "detail": "246 of 853 positive symbol-days"
      },
      "unflagged": {
-      "n": 7080,
+      "n": 7282,
       "unit": "symbol-days",
-      "hit_rate": 0.3873,
+      "hit_rate": 0.3804,
       "hit_ci": [
-       0.376,
-       0.3987
+       0.3693,
+       0.3916
       ],
-      "mean_ret_pct": 0.7381,
+      "mean_ret_pct": 0.5114,
       "state": "MEASURED",
-      "detail": "2742 of 7080 positive symbol-days"
+      "detail": "2770 of 7282 positive symbol-days"
      }
     },
     "30": {
      "flagged": {
-      "n": 247,
+      "n": 274,
       "unit": "symbol-days",
-      "hit_rate": 0.17,
+      "hit_rate": 0.1642,
       "hit_ci": [
-       0.1283,
-       0.2219
+       0.1251,
+       0.2127
       ],
-      "mean_ret_pct": -10.7747,
+      "mean_ret_pct": -11.432,
       "state": "MEASURED",
-      "detail": "42 of 247 positive symbol-days"
+      "detail": "45 of 274 positive symbol-days"
      },
      "unflagged": {
-      "n": 2549,
+      "n": 2734,
       "unit": "symbol-days",
-      "hit_rate": 0.3727,
+      "hit_rate": 0.3577,
       "hit_ci": [
-       0.3541,
-       0.3916
+       0.34,
+       0.3759
       ],
-      "mean_ret_pct": 0.6092,
+      "mean_ret_pct": -0.4065,
       "state": "MEASURED",
-      "detail": "950 of 2549 positive symbol-days"
+      "detail": "978 of 2734 positive symbol-days"
      }
     }
    }
@@ -885,80 +885,80 @@
    "by_horizon": {
     "1": {
      "flagged": {
-      "n": 533,
+      "n": 548,
       "unit": "symbol-days",
-      "hit_rate": 0.1257,
+      "hit_rate": 0.1296,
       "hit_ci": [
-       0.1002,
-       0.1566
+       0.104,
+       0.1603
       ],
-      "mean_ret_pct": -0.0042,
+      "mean_ret_pct": -0.0,
       "state": "MEASURED",
-      "detail": "67 of 533 positive symbol-days"
+      "detail": "71 of 548 positive symbol-days"
      },
      "unflagged": {
-      "n": 8973,
+      "n": 9188,
       "unit": "symbol-days",
-      "hit_rate": 0.4339,
+      "hit_rate": 0.427,
       "hit_ci": [
-       0.4236,
-       0.4441
+       0.4169,
+       0.4371
       ],
-      "mean_ret_pct": 0.1051,
+      "mean_ret_pct": 0.0111,
       "state": "MEASURED",
-      "detail": "3893 of 8973 positive symbol-days"
+      "detail": "3923 of 9188 positive symbol-days"
      }
     },
     "7": {
      "flagged": {
-      "n": 434,
+      "n": 448,
       "unit": "symbol-days",
-      "hit_rate": 0.3871,
+      "hit_rate": 0.3839,
       "hit_ci": [
-       0.3425,
-       0.4337
+       0.3401,
+       0.4298
       ],
-      "mean_ret_pct": -0.0398,
+      "mean_ret_pct": -0.0382,
       "state": "MEASURED",
-      "detail": "168 of 434 positive symbol-days"
+      "detail": "172 of 448 positive symbol-days"
      },
      "unflagged": {
-      "n": 7475,
+      "n": 7687,
       "unit": "symbol-days",
-      "hit_rate": 0.3766,
+      "hit_rate": 0.37,
       "hit_ci": [
-       0.3657,
-       0.3876
+       0.3592,
+       0.3808
       ],
-      "mean_ret_pct": 0.4731,
+      "mean_ret_pct": 0.2497,
       "state": "MEASURED",
-      "detail": "2815 of 7475 positive symbol-days"
+      "detail": "2844 of 7687 positive symbol-days"
      }
     },
     "30": {
      "flagged": {
-      "n": 136,
+      "n": 148,
       "unit": "symbol-days",
-      "hit_rate": 0.3897,
+      "hit_rate": 0.3919,
       "hit_ci": [
-       0.3118,
-       0.4736
+       0.3169,
+       0.4723
       ],
-      "mean_ret_pct": -0.1636,
+      "mean_ret_pct": -0.1528,
       "state": "MEASURED",
-      "detail": "53 of 136 positive symbol-days"
+      "detail": "58 of 148 positive symbol-days"
      },
      "unflagged": {
-      "n": 2660,
+      "n": 2860,
       "unit": "symbol-days",
-      "hit_rate": 0.353,
+      "hit_rate": 0.3374,
       "hit_ci": [
-       0.3351,
-       0.3714
+       0.3203,
+       0.3549
       ],
-      "mean_ret_pct": -0.4083,
+      "mean_ret_pct": -1.4759,
       "state": "MEASURED",
-      "detail": "939 of 2660 positive symbol-days"
+      "detail": "965 of 2860 positive symbol-days"
      }
     }
    }
@@ -971,80 +971,80 @@
    "by_horizon": {
     "1": {
      "flagged": {
-      "n": 441,
+      "n": 452,
       "unit": "symbol-days",
-      "hit_rate": 0.4354,
+      "hit_rate": 0.4292,
       "hit_ci": [
-       0.3899,
-       0.482
+       0.3844,
+       0.4752
       ],
-      "mean_ret_pct": -0.2376,
+      "mean_ret_pct": -0.2896,
       "state": "MEASURED",
-      "detail": "192 of 441 positive symbol-days"
+      "detail": "194 of 452 positive symbol-days"
      },
      "unflagged": {
-      "n": 9065,
+      "n": 9284,
       "unit": "symbol-days",
-      "hit_rate": 0.4157,
+      "hit_rate": 0.4093,
       "hit_ci": [
-       0.4056,
-       0.4258
+       0.3993,
+       0.4193
       ],
-      "mean_ret_pct": 0.1154,
+      "mean_ret_pct": 0.0251,
       "state": "MEASURED",
-      "detail": "3768 of 9065 positive symbol-days"
+      "detail": "3800 of 9284 positive symbol-days"
      }
     },
     "7": {
      "flagged": {
-      "n": 385,
+      "n": 396,
       "unit": "symbol-days",
-      "hit_rate": 0.2961,
+      "hit_rate": 0.298,
       "hit_ci": [
-       0.2527,
-       0.3435
+       0.255,
+       0.3448
       ],
-      "mean_ret_pct": -1.7081,
+      "mean_ret_pct": -1.7064,
       "state": "MEASURED",
-      "detail": "114 of 385 positive symbol-days"
+      "detail": "118 of 396 positive symbol-days"
      },
      "unflagged": {
-      "n": 7524,
+      "n": 7739,
       "unit": "symbol-days",
-      "hit_rate": 0.3813,
+      "hit_rate": 0.3745,
       "hit_ci": [
-       0.3704,
-       0.3923
+       0.3637,
+       0.3853
       ],
-      "mean_ret_pct": 0.5551,
+      "mean_ret_pct": 0.3332,
       "state": "MEASURED",
-      "detail": "2869 of 7524 positive symbol-days"
+      "detail": "2898 of 7739 positive symbol-days"
      }
     },
     "30": {
      "flagged": {
-      "n": 118,
+      "n": 131,
       "unit": "symbol-days",
-      "hit_rate": 0.1441,
+      "hit_rate": 0.145,
       "hit_ci": [
-       0.0919,
-       0.2186
+       0.0949,
+       0.2154
       ],
-      "mean_ret_pct": -8.5849,
+      "mean_ret_pct": -8.769,
       "state": "MEASURED",
-      "detail": "17 of 118 positive symbol-days"
+      "detail": "19 of 131 positive symbol-days"
      },
      "unflagged": {
-      "n": 2678,
+      "n": 2877,
       "unit": "symbol-days",
-      "hit_rate": 0.3641,
+      "hit_rate": 0.349,
       "hit_ci": [
-       0.3461,
-       0.3825
+       0.3318,
+       0.3666
       ],
-      "mean_ret_pct": -0.0356,
+      "mean_ret_pct": -1.0758,
       "state": "MEASURED",
-      "detail": "975 of 2678 positive symbol-days"
+      "detail": "1004 of 2877 positive symbol-days"
      }
     }
    }
@@ -1071,5 +1071,5 @@
   }
  },
  "basis": "Walk-forward over the recorded cross-section. Every snapshot is joined to prices recorded at exactly snapshot + horizon days and to nothing else; a horizon that has not elapsed, a symbol that left the universe and a night that was never recorded are three different states and are reported as three. Nothing here is calibrated from: the factor bounds and the dominance thresholds are fixed by AUDIT-PHASE2A and are not re-fitted on this sample.",
- "sufficiency": "This report runs on whatever history exists and says so. With 43 night(s) recorded, 0 of 18 IC cells are measurable; the rest read INSUFFICIENT, which is a statement about the sample and not about the signal."
+ "sufficiency": "This report runs on whatever history exists and says so. With 44 night(s) recorded, 0 of 18 IC cells are measurable; the rest read INSUFFICIENT, which is a statement about the sample and not about the signal."
 }

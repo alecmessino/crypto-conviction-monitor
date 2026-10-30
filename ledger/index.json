@@ -24,8 +24,8 @@
       "costs_in_headline": false
     },
     "from": "2026-08-05",
-    "to": "2026-10-29",
-    "legs": 83,
+    "to": "2026-10-30",
+    "legs": 84,
     "exclusions": {
       "legs_unusable": 3,
       "legs_before_boundary": 1,
@@ -619,64 +619,71 @@
         "book_ew": 40.018,
         "universe_ew": 97.7451,
         "benchmark": 24.9969
+      },
+      {
+        "date": "2026-10-30",
+        "book": 43.5755,
+        "book_ew": 38.2047,
+        "universe_ew": 88.8507,
+        "benchmark": 20.6757
       }
     ],
     "totals": {
-      "book": 45.68,
-      "book_ew": 40.02,
-      "universe_ew": 97.75,
-      "benchmark": 25.0,
-      "exec_adjusted": 41.1
+      "book": 43.58,
+      "book_ew": 38.2,
+      "universe_ew": 88.85,
+      "benchmark": 20.68,
+      "exec_adjusted": 39.03
     },
     "decomposition": {
-      "weighting_pp": 5.67,
-      "selection_pp": -57.73,
-      "active_pp": -52.06,
-      "excess_vs_btc_pp": 20.69,
-      "excess_vs_ew_pp": -52.06,
+      "weighting_pp": 5.37,
+      "selection_pp": -50.65,
+      "active_pp": -45.28,
+      "excess_vs_btc_pp": 22.9,
+      "excess_vs_ew_pp": -45.28,
       "basis": "A = score-weighted Top-10; B = the same ten names, equal weight; C = the nightly persisted universe (50 names, median 43 priced on both nights), equal weight; D = BTC. A-B = weighting effect; B-C = selection effect versus the nightly 50-name opportunity set; A-C = total active effect versus that set. C is NOT the ~234-name live board. All four are chained over the same usable legs from the same price endpoints; B is exact, the same selection under the same missing-name rule."
     },
     "stats": {
       "nights_positive": 44,
-      "nights_beat_btc": 39,
-      "nights_beat_universe_ew": 29,
+      "nights_beat_btc": 40,
+      "nights_beat_universe_ew": 30,
       "nights_beat_book_ew": 47,
       "max_drawdown_pct": {
-        "book": -18.74,
-        "book_ew": -19.53,
-        "universe_ew": -11.69,
-        "benchmark": -8.14
+        "book": -18.81,
+        "book_ew": -20.57,
+        "universe_ew": -14.57,
+        "benchmark": -10.95
       },
       "daily_vol_pct": {
-        "book": 3.891,
-        "book_ew": 3.792,
-        "universe_ew": 3.442,
-        "benchmark": 2.148
+        "book": 3.874,
+        "book_ew": 3.774,
+        "universe_ew": 3.471,
+        "benchmark": 2.174
       },
-      "beta_to_btc": 1.265,
-      "alpha_daily_pct": 0.1584,
-      "residual_pp": 13.15,
-      "t_naive": 0.51,
-      "t_hac": 0.589,
+      "beta_to_btc": 1.2389,
+      "alpha_daily_pct": 0.1978,
+      "residual_pp": 16.61,
+      "t_naive": 0.643,
+      "t_hac": 0.734,
       "hac_lag": 3,
       "bootstrap": {
         "ci90_pp": [
-          -23.62,
-          54.06
+          -20.37,
+          57.36
         ],
         "ci95_pp": [
-          -31.95,
-          62.82
+          -28.35,
+          66.0
         ],
-        "p_below_zero": 0.275,
+        "p_below_zero": 0.2255,
         "block": 3,
         "draws": 4000
       },
-      "turnover_oneway_mean_pct": 15.41,
-      "turnover_oneway_total_pct": 1279.0,
+      "turnover_oneway_mean_pct": 15.35,
+      "turnover_oneway_total_pct": 1289.0,
       "exec_bps_oneway": 25.0,
       "annualized": false,
-      "inference_note": "83 overnight legs cannot establish a residual effect, and cannot establish its absence either. The sign is stable across resampling schemes; the interval is not: a Newey-West t near 0.589 and a block-bootstrap 95% interval that includes zero under the short-block specification. Reported as WEAK / NOT ESTABLISHED."
+      "inference_note": "84 overnight legs cannot establish a residual effect, and cannot establish its absence either. The sign is stable across resampling schemes; the interval is not: a Newey-West t near 0.734 and a block-bootstrap 95% interval that includes zero under the short-block specification. Reported as WEAK / NOT ESTABLISHED."
     },
     "contribution": {
       "linking": "carino",
@@ -684,122 +691,122 @@
       "rows": [
         {
           "symbol": "ZEC",
-          "pp": 16.59,
-          "share_of_gain": 0.2142,
-          "legs_held": 83
+          "pp": 16.02,
+          "share_of_gain": 0.2156,
+          "legs_held": 84
         },
         {
           "symbol": "BTW",
-          "pp": 8.08,
-          "share_of_gain": 0.1043,
+          "pp": 8.01,
+          "share_of_gain": 0.1078,
           "legs_held": 5
         },
         {
           "symbol": "ARB",
-          "pp": 7.47,
-          "share_of_gain": 0.0964,
+          "pp": 7.41,
+          "share_of_gain": 0.0997,
           "legs_held": 11
         },
         {
-          "symbol": "NEAR",
-          "pp": 7.34,
-          "share_of_gain": 0.0948,
-          "legs_held": 43
-        },
-        {
           "symbol": "HYPE",
-          "pp": 7.23,
-          "share_of_gain": 0.0934,
-          "legs_held": 83
+          "pp": 7.38,
+          "share_of_gain": 0.0993,
+          "legs_held": 84
         },
         {
           "symbol": "ENA",
-          "pp": 7.18,
-          "share_of_gain": 0.0927,
+          "pp": 7.12,
+          "share_of_gain": 0.0958,
           "legs_held": 26
         },
         {
+          "symbol": "NEAR",
+          "pp": 6.65,
+          "share_of_gain": 0.0895,
+          "legs_held": 44
+        },
+        {
           "symbol": "XMR",
-          "pp": 4.42,
-          "share_of_gain": 0.0571,
-          "legs_held": 66
+          "pp": 4.2,
+          "share_of_gain": 0.0566,
+          "legs_held": 67
         },
         {
           "symbol": "PUMP",
-          "pp": 2.89,
-          "share_of_gain": 0.0373,
+          "pp": 2.87,
+          "share_of_gain": 0.0386,
           "legs_held": 3
         },
         {
           "symbol": "STRK",
-          "pp": 2.86,
-          "share_of_gain": 0.0369,
+          "pp": 2.83,
+          "share_of_gain": 0.0381,
           "legs_held": 6
         },
         {
           "symbol": "SOL",
-          "pp": 2.37,
-          "share_of_gain": 0.0306,
+          "pp": 2.35,
+          "share_of_gain": 0.0317,
           "legs_held": 41
         },
         {
           "symbol": "ETHFI",
-          "pp": 2.0,
-          "share_of_gain": 0.0259,
+          "pp": 1.99,
+          "share_of_gain": 0.0267,
           "legs_held": 1
         },
         {
-          "symbol": "UNI",
-          "pp": 1.63,
-          "share_of_gain": 0.021,
-          "legs_held": 52
-        },
-        {
           "symbol": "LINK",
-          "pp": 1.46,
-          "share_of_gain": 0.0189,
+          "pp": 1.45,
+          "share_of_gain": 0.0195,
           "legs_held": 50
         },
         {
-          "symbol": "WBT",
-          "pp": 1.31,
-          "share_of_gain": 0.017,
-          "legs_held": 68
-        },
-        {
           "symbol": "ETH",
-          "pp": 1.26,
-          "share_of_gain": 0.0162,
+          "pp": 1.25,
+          "share_of_gain": 0.0168,
           "legs_held": 25
         },
         {
-          "symbol": "BNB",
-          "pp": 1.15,
-          "share_of_gain": 0.0148,
-          "legs_held": 30
+          "symbol": "UNI",
+          "pp": 1.08,
+          "share_of_gain": 0.0146,
+          "legs_held": 53
         },
         {
           "symbol": "BTC",
-          "pp": 1.08,
-          "share_of_gain": 0.014,
+          "pp": 1.07,
+          "share_of_gain": 0.0144,
           "legs_held": 22
+        },
+        {
+          "symbol": "WBT",
+          "pp": 0.95,
+          "share_of_gain": 0.0127,
+          "legs_held": 69
+        },
+        {
+          "symbol": "BNB",
+          "pp": 0.56,
+          "share_of_gain": 0.0075,
+          "legs_held": 31
         },
         {
           "symbol": "TRX",
           "pp": 0.41,
-          "share_of_gain": 0.0054,
+          "share_of_gain": 0.0055,
           "legs_held": 19
         },
         {
           "symbol": "LIT",
           "pp": 0.37,
-          "share_of_gain": 0.0048,
+          "share_of_gain": 0.005,
           "legs_held": 1
         },
         {
           "symbol": "S",
-          "pp": 0.34,
-          "share_of_gain": 0.0043,
+          "pp": 0.33,
+          "share_of_gain": 0.0045,
           "legs_held": 1
         },
         {
@@ -828,7 +835,7 @@
         },
         {
           "symbol": "LTC",
-          "pp": -0.28,
+          "pp": -0.27,
           "share_of_gain": 0.0,
           "legs_held": 11
         },
@@ -848,23 +855,23 @@
           "symbol": "FIGR_HELOC",
           "pp": -0.59,
           "share_of_gain": 0.0,
-          "legs_held": 16
+          "legs_held": 17
         },
         {
           "symbol": "DASH",
-          "pp": -0.63,
+          "pp": -0.62,
           "share_of_gain": 0.0,
           "legs_held": 2
         },
         {
           "symbol": "PENGU",
-          "pp": -0.81,
+          "pp": -0.8,
           "share_of_gain": 0.0,
           "legs_held": 2
         },
         {
           "symbol": "BAT",
-          "pp": -0.87,
+          "pp": -0.86,
           "share_of_gain": 0.0,
           "legs_held": 1
         },
@@ -875,106 +882,106 @@
           "legs_held": 3
         },
         {
+          "symbol": "PEPE",
+          "pp": -1.08,
+          "share_of_gain": 0.0,
+          "legs_held": 7
+        },
+        {
           "symbol": "WLD",
-          "pp": -1.12,
+          "pp": -1.11,
           "share_of_gain": 0.0,
           "legs_held": 4
         },
         {
           "symbol": "AVAX",
-          "pp": -1.12,
+          "pp": -1.11,
           "share_of_gain": 0.0,
           "legs_held": 20
         },
         {
           "symbol": "INJ",
-          "pp": -1.13,
+          "pp": -1.12,
           "share_of_gain": 0.0,
           "legs_held": 5
         },
         {
           "symbol": "BCH",
-          "pp": -1.2,
+          "pp": -1.19,
           "share_of_gain": 0.0,
           "legs_held": 4
         },
         {
           "symbol": "VVV",
-          "pp": -1.28,
+          "pp": -1.27,
           "share_of_gain": 0.0,
           "legs_held": 1
         },
         {
-          "symbol": "LEO",
-          "pp": -1.29,
-          "share_of_gain": 0.0,
-          "legs_held": 13
-        },
-        {
           "symbol": "ADA",
-          "pp": -1.33,
+          "pp": -1.32,
           "share_of_gain": 0.0,
           "legs_held": 9
         },
         {
+          "symbol": "LEO",
+          "pp": -1.33,
+          "share_of_gain": 0.0,
+          "legs_held": 14
+        },
+        {
           "symbol": "QNT",
-          "pp": -1.5,
+          "pp": -1.49,
           "share_of_gain": 0.0,
           "legs_held": 2
         },
         {
           "symbol": "RAY",
-          "pp": -1.63,
+          "pp": -1.62,
           "share_of_gain": 0.0,
           "legs_held": 2
         },
         {
           "symbol": "TIA",
-          "pp": -1.82,
+          "pp": -1.81,
           "share_of_gain": 0.0,
           "legs_held": 4
         },
         {
-          "symbol": "PEPE",
-          "pp": -1.91,
-          "share_of_gain": 0.0,
-          "legs_held": 6
-        },
-        {
           "symbol": "RAIN",
-          "pp": -1.96,
+          "pp": -1.95,
           "share_of_gain": 0.0,
           "legs_held": 35
         },
         {
           "symbol": "HBAR",
-          "pp": -2.0,
+          "pp": -1.99,
           "share_of_gain": 0.0,
           "legs_held": 7
         },
         {
           "symbol": "Q",
-          "pp": -2.17,
+          "pp": -2.15,
           "share_of_gain": 0.0,
           "legs_held": 3
         },
         {
           "symbol": "SUI",
-          "pp": -2.21,
+          "pp": -2.2,
           "share_of_gain": 0.0,
           "legs_held": 17
         },
         {
           "symbol": "XLM",
-          "pp": -2.54,
+          "pp": -2.52,
           "share_of_gain": 0.0,
           "legs_held": 6
         }
       ],
-      "reconciles_to_pp": 45.68,
+      "reconciles_to_pp": 43.58,
       "residual_pp": -0.0,
-      "top1_share_of_gain": 0.2142,
-      "top5_share_of_gain": 0.6032,
+      "top1_share_of_gain": 0.2156,
+      "top5_share_of_gain": 0.6183,
       "names_ever_held": 48
     },
     "nights": {
@@ -1001,126 +1008,126 @@
         }
       ],
       "top3_pp": 35.68,
-      "top3_share_of_arithmetic_sum": 0.8155,
-      "arithmetic_sum_pp": 43.75,
+      "top3_share_of_arithmetic_sum": 0.8434,
+      "arithmetic_sum_pp": 42.3,
       "basis": "shares of the arithmetic sum of nightly returns, not of the chained total"
     },
     "holdings": [
       {
         "symbol": "ZEC",
-        "target_weight": 0.1363,
-        "live_weight": 0.1374,
-        "drift": 0.0011,
-        "return": -0.0003,
+        "target_weight": 0.1324,
+        "live_weight": 0.1307,
+        "drift": -0.0017,
+        "return": -0.0272,
         "status": "priced",
-        "contribution_pp": 16.59,
-        "legs_held": 83
+        "contribution_pp": 16.02,
+        "legs_held": 84
       },
       {
         "symbol": "NEAR",
-        "target_weight": 0.128,
-        "live_weight": 0.1256,
-        "drift": -0.0023,
-        "return": -0.0261,
+        "target_weight": 0.123,
+        "live_weight": 0.1195,
+        "drift": -0.0035,
+        "return": -0.0424,
         "status": "priced",
-        "contribution_pp": 7.34,
-        "legs_held": 43
-      },
-      {
-        "symbol": "XMR",
-        "target_weight": 0.121,
-        "live_weight": 0.1217,
-        "drift": 0.0007,
-        "return": -0.0025,
-        "status": "priced",
-        "contribution_pp": 4.42,
-        "legs_held": 66
-      },
-      {
-        "symbol": "UNI",
-        "target_weight": 0.1029,
-        "live_weight": 0.1072,
-        "drift": 0.0043,
-        "return": 0.0328,
-        "status": "priced",
-        "contribution_pp": 1.63,
-        "legs_held": 52
+        "contribution_pp": 6.65,
+        "legs_held": 44
       },
       {
         "symbol": "HYPE",
-        "target_weight": 0.1015,
-        "live_weight": 0.1145,
-        "drift": 0.0129,
-        "return": 0.1182,
+        "target_weight": 0.1162,
+        "live_weight": 0.1197,
+        "drift": 0.0034,
+        "return": 0.0147,
         "status": "priced",
-        "contribution_pp": 7.23,
-        "legs_held": 83
+        "contribution_pp": 7.38,
+        "legs_held": 84
+      },
+      {
+        "symbol": "XMR",
+        "target_weight": 0.1135,
+        "live_weight": 0.1136,
+        "drift": 0.0001,
+        "return": -0.0134,
+        "status": "priced",
+        "contribution_pp": 4.2,
+        "legs_held": 67
+      },
+      {
+        "symbol": "UNI",
+        "target_weight": 0.1054,
+        "live_weight": 0.1025,
+        "drift": -0.0029,
+        "return": -0.0414,
+        "status": "priced",
+        "contribution_pp": 1.08,
+        "legs_held": 53
       },
       {
         "symbol": "BNB",
-        "target_weight": 0.0904,
-        "live_weight": 0.0896,
-        "drift": -0.0008,
-        "return": -0.0172,
+        "target_weight": 0.0865,
+        "live_weight": 0.0829,
+        "drift": -0.0036,
+        "return": -0.0555,
         "status": "priced",
-        "contribution_pp": 1.15,
-        "legs_held": 30
-      },
-      {
-        "symbol": "WBT",
-        "target_weight": 0.0821,
-        "live_weight": 0.0822,
-        "drift": 0.0002,
-        "return": -0.0063,
-        "status": "priced",
-        "contribution_pp": 1.31,
-        "legs_held": 68
-      },
-      {
-        "symbol": "LEO",
-        "target_weight": 0.0793,
-        "live_weight": 0.0805,
-        "drift": 0.0012,
-        "return": 0.0074,
-        "status": "priced",
-        "contribution_pp": -1.29,
-        "legs_held": 13
+        "contribution_pp": 0.56,
+        "legs_held": 31
       },
       {
         "symbol": "PEPE",
-        "target_weight": 0.0793,
-        "live_weight": 0.0801,
-        "drift": 0.0008,
-        "return": 0.002,
+        "target_weight": 0.0865,
+        "live_weight": 0.0945,
+        "drift": 0.0081,
+        "return": 0.0774,
         "status": "priced",
-        "contribution_pp": -1.91,
-        "legs_held": 6
+        "contribution_pp": -1.08,
+        "legs_held": 7
       },
       {
-        "symbol": "Q",
-        "target_weight": 0.0793,
-        "live_weight": 0.0612,
-        "drift": -0.0181,
-        "return": -0.2342,
+        "symbol": "WBT",
+        "target_weight": 0.0811,
+        "live_weight": 0.0793,
+        "drift": -0.0018,
+        "return": -0.0363,
         "status": "priced",
-        "contribution_pp": -2.17,
-        "legs_held": 3
+        "contribution_pp": 0.95,
+        "legs_held": 69
+      },
+      {
+        "symbol": "LEO",
+        "target_weight": 0.0797,
+        "live_weight": 0.0805,
+        "drift": 0.0007,
+        "return": -0.0053,
+        "status": "priced",
+        "contribution_pp": -1.33,
+        "legs_held": 14
+      },
+      {
+        "symbol": "FIGR_HELOC",
+        "target_weight": 0.0757,
+        "live_weight": 0.0768,
+        "drift": 0.0011,
+        "return": 0.0,
+        "status": "priced",
+        "contribution_pp": -0.59,
+        "legs_held": 17
       }
     ],
     "concentration": {
       "names": 10,
-      "effective_positions": 9.59,
-      "max_weight": 0.1363,
+      "effective_positions": 9.64,
+      "max_weight": 0.1324,
       "max_symbol": "ZEC"
     },
     "edge": {
-      "mean_ic": -0.0519,
+      "mean_ic": -0.0471,
       "ci": [
-        -0.0918,
-        -0.0121
+        -0.0876,
+        -0.0066
       ],
-      "t_stat": -2.554,
-      "legs": 82,
+      "t_stat": -2.277,
+      "legs": 83,
       "min_legs": 40,
       "measurable": true,
       "verdict": "Conviction orders the universe backwards \u2014 the ranking is inverted.",
