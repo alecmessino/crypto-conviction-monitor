@@ -1,20 +1,20 @@
 {
-  "generated_at": "2026-11-03T14:21:15.131083+00:00",
+  "generated_at": "2026-11-04T14:37:42.530091+00:00",
   "spec_hash": "91bbc2a7e466",
-  "observations": 93,
+  "observations": 94,
   "from": "2026-08-01",
-  "to": "2026-11-03",
+  "to": "2026-11-04",
   "health": [
     {
       "name": "Data freshness",
       "status": "pass",
-      "detail": "latest board 2026-11-03 (14h old)",
-      "value": 14.4
+      "detail": "latest board 2026-11-04 (15h old)",
+      "value": 14.6
     },
     {
       "name": "Universe size",
       "status": "pass",
-      "detail": "50 assets scored on 2026-11-03",
+      "detail": "50 assets scored on 2026-11-04",
       "value": 50
     },
     {
@@ -26,8 +26,8 @@
     {
       "name": "Score dispersion",
       "status": "pass",
-      "detail": "sigma = 20.43 across 50 assets",
-      "value": 20.43
+      "detail": "sigma = 19.52 across 50 assets",
+      "value": 19.52
     },
     {
       "name": "Field presence",
@@ -44,19 +44,19 @@
     {
       "name": "Ranking stability",
       "status": "pass",
-      "detail": "rank correlation 0.9673 across 45 names held in common",
-      "value": 0.9673
+      "detail": "rank correlation 0.9766 across 41 names held in common",
+      "value": 0.9766
     },
     {
       "name": "Universe churn",
       "status": "pass",
-      "detail": "5 of 50 assets are new (10%) \u2014 the ranking above is measured only on the rest",
-      "value": 0.1
+      "detail": "9 of 50 assets are new (18%) \u2014 the ranking above is measured only on the rest",
+      "value": 0.18
     },
     {
       "name": "Specification history",
       "status": "warn",
-      "detail": "4 specification(s) across 85 recorded day(s); 8 earlier day(s) unhashed; 27 day(s) carry a superseded digest folded onto its canonical one (instrumentation correction, scoring-equivalent)  \u2014 a series spanning two hashes is two datasets",
+      "detail": "4 specification(s) across 86 recorded day(s); 8 earlier day(s) unhashed; 27 day(s) carry a superseded digest folded onto its canonical one (instrumentation correction, scoring-equivalent)  \u2014 a series spanning two hashes is two datasets",
       "value": 4
     },
     {
@@ -68,8 +68,8 @@
     {
       "name": "Funding feed",
       "status": "pass",
-      "detail": "funding present for 68% of the board, in line with the 88% baseline \u2014 the rest are spot-only, which is not a dropout",
-      "value": 0.68
+      "detail": "funding present for 76% of the board, in line with the 88% baseline \u2014 the rest are spot-only, which is not a dropout",
+      "value": 0.76
     },
     {
       "name": "Ledger integrity",
@@ -79,32 +79,40 @@
     }
   ],
   "stability": {
-    "from": "2026-11-02",
-    "to": "2026-11-03",
-    "shared": 45,
-    "rank_correlation": 0.9673,
-    "mean_abs_move": 1.91,
-    "max_abs_move": 12.0,
+    "from": "2026-11-03",
+    "to": "2026-11-04",
+    "shared": 41,
+    "rank_correlation": 0.9766,
+    "mean_abs_move": 2.2,
+    "max_abs_move": 9.0,
     "entered": [
-      "BUIDL",
-      "KNTQ",
-      "PIEVERSE",
-      "RAIN",
-      "ZRO"
-    ],
-    "left": [
-      "AKE",
-      "BP",
-      "PENDLE",
-      "UB",
+      "CAP",
+      "CRVUSD",
+      "EURC",
+      "NIGHT",
+      "ONDO",
+      "POL",
+      "RAY",
+      "STX",
       "USELESS"
     ],
-    "churn": 0.1,
+    "left": [
+      "ANVL",
+      "BUIDL",
+      "KNTQ",
+      "OKB",
+      "PIEVERSE",
+      "RAIN",
+      "USDY",
+      "USYC",
+      "\u5e01\u5b89\u4eba\u751f"
+    ],
+    "churn": 0.18,
     "universe_prev": 50,
     "universe_curr": 50
   },
   "dispersion": {
-    "latest": 20.43,
+    "latest": 19.52,
     "series": [
       {
         "date": "2026-08-01",
@@ -570,6 +578,11 @@
         "date": "2026-11-03",
         "dispersion": 20.43,
         "median": 34.0
+      },
+      {
+        "date": "2026-11-04",
+        "dispersion": 19.52,
+        "median": 35.0
       }
     ],
     "warn_below": 8.0
@@ -1983,6 +1996,21 @@
         "perp_mult": 1.0,
         "high_24h": 1.0,
         "low_24h": 1.0
+      },
+      {
+        "date": "2026-11-04",
+        "n": 50,
+        "price": 1.0,
+        "market_cap": 1.0,
+        "turnover_pct": 1.0,
+        "conviction": 1.0,
+        "rs7": 1.0,
+        "rs14": 1.0,
+        "rs30": 1.0,
+        "rs200": 1.0,
+        "perp_mult": 1.0,
+        "high_24h": 1.0,
+        "low_24h": 1.0
       }
     ],
     "warn_below": 0.9,
@@ -1993,14 +2021,14 @@
         "unlocks_usd": 0.0,
         "supply_increase_pct": 0.0,
         "addr_growth_pct": 0.02,
-        "funding_rate": 0.68,
-        "oi_usd": 0.68,
+        "funding_rate": 0.76,
+        "oi_usd": 0.76,
         "long_short_ratio": 0.34,
-        "funding_apr": 0.68,
-        "rsi7": 0.9,
+        "funding_apr": 0.76,
+        "rsi7": 0.88,
         "funding_venue": 0.0,
-        "funding_venues_n": 0.68,
-        "funding_apr_spread": 0.54,
+        "funding_venues_n": 0.76,
+        "funding_apr_spread": 0.66,
         "funding_regime": 0.0,
         "liq_longs_usd": 0.0,
         "liq_shorts_usd": 0.0,
@@ -3867,6 +3895,26 @@
           "liq_shorts_usd": 0.0,
           "liq_imbalance": 0.0,
           "funding_interval_basis": 0.0
+        },
+        {
+          "date": "2026-11-04",
+          "era": 0.0,
+          "unlocks_usd": 0.0,
+          "supply_increase_pct": 0.0,
+          "addr_growth_pct": 0.02,
+          "funding_rate": 0.76,
+          "oi_usd": 0.76,
+          "long_short_ratio": 0.34,
+          "funding_apr": 0.76,
+          "rsi7": 0.88,
+          "funding_venue": 0.0,
+          "funding_venues_n": 0.76,
+          "funding_apr_spread": 0.66,
+          "funding_regime": 0.0,
+          "liq_longs_usd": 0.0,
+          "liq_shorts_usd": 0.0,
+          "liq_imbalance": 0.0,
+          "funding_interval_basis": 0.0
         }
       ],
       "feed": {
@@ -3923,8 +3971,8 @@
       {
         "spec_hash": "91bbc2a7e466",
         "from": "2026-09-18",
-        "to": "2026-11-03",
-        "days": 45,
+        "to": "2026-11-04",
+        "days": 46,
         "recorded_as": [
           "91bbc2a7e466"
         ]
