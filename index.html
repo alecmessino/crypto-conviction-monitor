@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Conviction Monitor — Terminal</title>
 <meta name="description" content="A published crypto conviction board: every score decomposed into its factors, every artifact dated, and the evidence for and against the ranking reported beside it.">
-<meta name="theme-color" content="#0B0F19">
+<meta name="theme-color" content="#080B12">
 <meta property="og:title" content="Conviction Monitor — Terminal">
 <meta property="og:description" content="A published crypto conviction board with a nightly signal ledger, factor decomposition and an honest selection-edge measurement.">
 <meta property="og:type" content="website">
@@ -13,20 +13,38 @@
      visitor's browser asks for /favicon.ico and production answered 404 on all of them;
      a declared icon stops the request being made at all. -->
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230B0F19'/%3E%3Cpath d='M6 21l5-7 4 4 5-9 6 12' fill='none' stroke='%237BC9A0' stroke-width='2.5' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E">
+<!-- Inter for reading, JetBrains Mono for comparing — see DESIGN SYSTEM v2 at the end of
+     the stylesheet. Progressive: display=swap paints the system stack first and swaps in
+     place, so a blocked font request costs typography and never the board. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap">
 <style>
 :root{
-  --bg:#0B0F19; --panel:rgba(20,28,44,0.55); --panel-solid:#111827;
-  --border:#1E293B; --grid:#162032;
-  --txt:#FFFFFF; --sec:#94A3B8;
+  /* DESIGN SYSTEM v2 retuned these in place: a deeper ground, solid layered surfaces in
+     place of translucent glass, and a slightly softer white. Every meaning token is
+     still measured against --bg by tests/test_contrast.py; a darker ground only raises
+     those ratios, and the delta ramp's spread is a ratio of its own colours, so it is
+     unchanged by construction. */
+  --bg:#080B12; --panel:rgba(13,18,28,0.92); --panel-solid:#0D121C;
+  --border:#1A2231; --grid:#131A26;
+  --txt:#EEF2F8; --sec:#9AA6BA;
   /* --tert was #475569, which is 2.53:1 against --bg. It is not a decorative token: it
      colours .muted, .fb-note, .note, th and every provenance caption on the board, which
      is to say it colours the reasoning that makes this thing worth reading. At 2.53:1 the
      best part of the build was the least legible part of it. #7C8AA3 is 5.49:1, still
      clearly recessive against --sec and --txt, and above the AA floor for small text.
      --grid remains the token for things that are genuinely decoration. */
-  --tert:#7C8AA3;
-  --green:#7BC9A0; --red:#E8917F; --amber:#E0B372; --blue:#3B82F6;
+  --tert:#808DA4;
+  --green:#7BC9A0; --red:#E8917F; --amber:#E0B372; --blue:#6E9BFF;
   --violet:#A78BFA;
+  /* v2 structure tokens. Hyphenated names are deliberately outside the palette set the
+     contrast gate reads: these are surfaces and hairlines, not text. */
+  --surface:#0D121C; --surface-hd:#0F1520; --raise:#121927; --raise-2:#1A2233;
+  --line:rgba(148,163,184,.12); --line-strong:rgba(148,163,184,.20);
+  --accent:#6E9BFF; --radius:12px;
+  --font-ui:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 html{background:var(--bg);color:var(--txt);font-family:"JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
@@ -66,7 +84,7 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 .hp b{font-variant-numeric:tabular-nums;color:var(--txt)}
 .hp .lbl{color:var(--sec);text-transform:uppercase;letter-spacing:.6px;font-size:8px}
 .hp.act{cursor:pointer}
-.hp.act:hover{background:rgba(59,130,246,.16);border-color:var(--blue)}
+.hp.act:hover{background:rgba(110,155,255,.16);border-color:var(--blue)}
 .hp .dotc{width:6px;height:6px;border-radius:50%}
 .ribbon .brand{font-weight:700;font-size:13px;letter-spacing:1px;margin-right:auto;white-space:nowrap}
 /* On a wrapped ribbon the auto margin would strand a single stat on its own row, so it
@@ -85,7 +103,7 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 .dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px}
 .switches{display:flex;gap:4px;margin-top:8px}
 .sw{flex:1;text-align:center;padding:5px 0;border:1px solid var(--border);border-radius:4px;color:var(--sec);cursor:pointer;font-size:10px;user-select:none}
-.sw.on{background:rgba(59,130,246,0.18);color:var(--txt);border-color:var(--blue)}
+.sw.on{background:rgba(110,155,255,0.18);color:var(--txt);border-color:var(--blue)}
 .pill{font-size:8px;letter-spacing:.5px;color:var(--tert);border:1px solid var(--border);border-radius:10px;padding:2px 8px;white-space:nowrap}
 .pill.on{color:var(--green);border-color:rgba(123,201,160,.4)}
 .pill.off{color:var(--red);border-color:rgba(232,145,127,.4)}
@@ -109,7 +127,7 @@ body{background:radial-gradient(1200px 600px at 70% -10%,#10182a 0%,var(--bg) 60
 thead th{position:sticky;top:0;z-index:2;background:#0c1320}
 #screen-filter{background:#0c1320;color:var(--txt);border:1px solid var(--border);
   border-radius:4px;font-family:inherit;font-size:10px;padding:3px 7px;width:130px}
-#screen-filter:focus{outline:none;border-color:#3B82F6}
+#screen-filter:focus{outline:none;border-color:#6E9BFF}
 #filter-note{font-size:10px;color:var(--amber);margin-left:6px;cursor:pointer}
 .diag{display:flex;gap:14px;flex-wrap:wrap;font-size:10px;color:var(--sec);padding:5px 0 0}
 .diag b{color:var(--txt);font-variant-numeric:tabular-nums}
@@ -135,14 +153,14 @@ th{text-align:right;color:var(--tert);font-weight:600;text-transform:uppercase;f
 th:first-child,td:first-child{text-align:left}
 td{padding:4px 8px;border-bottom:1px solid var(--grid);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 tr.row{cursor:pointer;transition:background .12s}
-tr.row:hover{background:rgba(59,130,246,0.10)}
-tr.sel{background:rgba(59,130,246,0.18);box-shadow:inset 2px 0 0 var(--blue)}
+tr.row:hover{background:rgba(110,155,255,0.10)}
+tr.sel{background:rgba(110,155,255,0.18);box-shadow:inset 2px 0 0 var(--blue)}
 .tick{color:var(--txt);font-weight:700}
 .tier{font-size:8px;padding:1px 5px;border-radius:3px;margin-left:6px;vertical-align:middle;font-weight:700;letter-spacing:.5px}
 .tier.L1{background:rgba(167,139,250,.18);color:var(--violet)}
 .tier.MEME{background:rgba(232,145,127,.16);color:var(--red)}
 .tier.STABLE{background:rgba(148,163,184,.16);color:var(--sec)}
-.tier.DEFI{background:rgba(59,130,246,.16);color:var(--blue)}
+.tier.DEFI{background:rgba(110,155,255,.16);color:var(--blue)}
 .tier.L2{background:rgba(123,201,160,.16);color:var(--green)}
 .tier.ALT{background:rgba(148,163,184,.10);color:var(--sec)}
 .pos{color:var(--green)} .neg{color:var(--red)} .neu{color:var(--sec)}
@@ -284,7 +302,7 @@ details.why .body{color:var(--tert);font-size:10px;line-height:1.55;padding:6px 
 a.exec{color:inherit;text-decoration:none;border-bottom:1px dotted transparent}
 a.exec:hover{border-bottom-color:var(--blue);color:var(--blue)}
 .bar{height:6px;background:#0c1320;border-radius:3px;position:relative;overflow:hidden;min-width:70px;display:inline-block;vertical-align:middle;width:100%}
-.bar>i{position:absolute;left:0;top:0;bottom:0;background:rgba(59,130,246,0.45);border-radius:3px}
+.bar>i{position:absolute;left:0;top:0;bottom:0;background:rgba(110,155,255,0.45);border-radius:3px}
 .dbar{display:inline-block;height:4px;border-radius:2px;margin-left:5px;vertical-align:middle;opacity:.95;min-width:2px}
 /* The sign as a glyph. Small, ahead of the number, and the reason the column does not
    depend on telling two hues apart. */
@@ -301,7 +319,7 @@ tr.div{background:rgba(224,179,114,0.06)}
 tr.f-hot{background:rgba(232,145,127,0.055);box-shadow:inset 2px 0 0 rgba(232,145,127,.55)}
 tr.f-cold{background:rgba(123,201,160,0.055);box-shadow:inset 2px 0 0 rgba(123,201,160,.55)}
 tr.div:hover{background:rgba(224,179,114,0.12)}
-tr.held{background:rgba(59,130,246,0.14);box-shadow:inset 3px 0 0 var(--blue)}
+tr.held{background:rgba(110,155,255,0.14);box-shadow:inset 3px 0 0 var(--blue)}
 tr.gated{box-shadow:inset 3px 0 0 var(--green);background:rgba(123,201,160,0.06)}
 tr.gated:hover{background:rgba(123,201,160,0.12)}
 .fb-wrap{padding:10px 12px}
@@ -446,7 +464,7 @@ canvas{display:block;width:100%}
   cursor:pointer;font-family:inherit;font-size:9px;letter-spacing:1px;
   text-transform:uppercase}
 .tab:hover{color:var(--sec)}
-.tab.on{color:var(--txt);background:rgba(59,130,246,.12);
+.tab.on{color:var(--txt);background:rgba(110,155,255,.12);
   border-color:var(--border);border-bottom-color:transparent}
 .tab:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
 
@@ -475,7 +493,7 @@ canvas{display:block;width:100%}
   font-family:inherit;font-size:10px;letter-spacing:1.4px;text-transform:uppercase;
   text-decoration:none;display:inline-block;line-height:1}
 .ws-tab:hover{color:var(--sec)}
-.ws-tab.on{color:var(--txt);background:rgba(59,130,246,.14);border-color:var(--border);
+.ws-tab.on{color:var(--txt);background:rgba(110,155,255,.14);border-color:var(--border);
   box-shadow:inset 0 -2px 0 var(--blue)}
 .ws-tab:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
 /* MOBILE. Both rules scoped so the canonical crypto mobile layout is untouched. The nav
@@ -586,7 +604,7 @@ tr.rw-dead td{opacity:.45}
   border:1px solid var(--border);color:var(--tert);white-space:nowrap;margin-left:5px;
   text-transform:uppercase;vertical-align:middle}
 .ev-observed{color:var(--green);border-color:rgba(123,201,160,.35)}
-.ev-derived{color:var(--blue);border-color:rgba(59,130,246,.4)}
+.ev-derived{color:var(--blue);border-color:rgba(110,155,255,.4)}
 .ev-normalized{color:var(--violet);border-color:rgba(167,139,250,.4)}
 .ev-unavailable{color:var(--red);border-color:rgba(232,145,127,.4)}
 .ev-unexplained{color:var(--amber);border-color:rgba(224,179,114,.45)}
@@ -781,10 +799,10 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
 .pf-form textarea{background:#0c1320;color:var(--txt);border:1px solid var(--border);
   border-radius:4px;font-family:inherit;font-size:10px;padding:6px;width:100%;resize:vertical}
 .pf-form textarea:focus{outline:none;border-color:var(--blue)}
-.pf-btn{background:rgba(59,130,246,.18);color:var(--txt);border:1px solid var(--blue);
+.pf-btn{background:rgba(110,155,255,.18);color:var(--txt);border:1px solid var(--blue);
   border-radius:4px;padding:6px;cursor:pointer;font-family:inherit;font-size:10px;
   letter-spacing:.5px}
-.pf-btn:hover{background:rgba(59,130,246,.28)}
+.pf-btn:hover{background:rgba(110,155,255,.28)}
 .pf-btn.ghost{background:transparent;border-color:var(--border);color:var(--sec)}
 .pf-row2{display:flex;gap:6px}
 .pf-row2 .pf-btn{flex:1}
@@ -804,8 +822,8 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
    whether a hot sector is reachable from here or is entirely off this universe. */
 .heat-row{display:grid;grid-template-columns:1fr 58px 54px 34px;gap:6px;align-items:center;
   padding:3px 0;border-bottom:1px solid var(--grid);font-size:10.5px;cursor:pointer}
-.heat-row:hover{background:rgba(59,130,246,.10)}
-.heat-row.on{background:rgba(59,130,246,.16);box-shadow:inset 2px 0 0 var(--blue)}
+.heat-row:hover{background:rgba(110,155,255,.10)}
+.heat-row.on{background:rgba(110,155,255,.16);box-shadow:inset 2px 0 0 var(--blue)}
 .heat-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt)}
 .heat-row .num{font-variant-numeric:tabular-nums;text-align:right}
 .heat-ov{font-size:9px;color:var(--tert);text-align:right}
@@ -915,13 +933,516 @@ details.tools>summary .cnt{margin-left:auto;color:var(--tert);letter-spacing:.5p
   .study-qual{gap:12px}
 }
 
+/* ===================== DESIGN SYSTEM v2 — the visual layer =====================
+
+   Everything above this line is the terminal's component CSS, and several of its exact
+   rule texts are pinned by tests/test_terminal.py. So this pass does not rewrite them: it
+   retunes the :root tokens in place and restyles here, as ONE ordered layer that wins by
+   source order at equal specificity. Nothing in this block moves a node, renames an id,
+   or changes what any panel says; it is surface, type, spacing and state only.
+
+   The four rules it applies, in the order they matter:
+
+   1. Two typefaces with two jobs. Inter for everything a reader READS (labels, headers,
+      prose); JetBrains Mono, tabular, for everything a reader COMPARES (tables, prices,
+      scores). One mono face for both was why a 400-word provenance note and a price
+      column looked like the same kind of object.
+   2. A floor of 10px for any label, 11.5px for any number. The old 7-8px uppercase
+      captions were the most-read text on the page and the least legible.
+   3. Depth by surface, not by blur. Solid, layered panels with hairline borders and one
+      top highlight replace the translucent glass, which smeared the background into
+      every card and cost a compositing layer per panel.
+   4. One accent. Interaction (hover, selection, focus, the active tab) is the accent
+      blue; meaning (up, down, caution) keeps the green/red/amber axis that the contrast
+      gate already holds to AA. A hue never does both jobs. */
+
+/* ---- base -------------------------------------------------------------------- */
+html{font-family:var(--font-ui);font-size:13px;-webkit-font-smoothing:antialiased;
+  -moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility;
+  font-feature-settings:"cv11","ss01","ss03";color-scheme:dark;
+  scrollbar-color:#263044 transparent}
+body{background:
+    radial-gradient(1100px 520px at 82% -8%,rgba(110,155,255,.075),transparent 62%),
+    radial-gradient(900px 480px at -6% 18%,rgba(123,201,160,.045),transparent 60%),
+    var(--bg);
+  background-attachment:fixed;line-height:1.45}
+::selection{background:rgba(110,155,255,.32);color:#fff}
+*{scrollbar-width:thin}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#222B3B;border-radius:9px;border:2px solid transparent;
+  background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#2E3A50;background-clip:padding-box}
+a{color:var(--accent)}
+code{font-family:var(--font-mono);font-size:.92em;color:var(--sec);background:rgba(148,163,184,.08);
+  border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.num,td,.kv b,.tick,.badge,.tier,.fh,.flag,.lab,.modf,.pill,.ev,.rwa-badge,.imp,
+.stat b,.gl-v,.insp-px,.insp-k>b,.insp-big b,.pf-stat b,.sh-cell b,.sd b,.study-qual .q b,
+.fb-val,.fd-run,.fd-total,.alloc-w,.alloc-c,.alloc-sym,.heat-row .num,.tr-row .num,
+.sz-risk .big,.pp-hero,.pp-notional,.rw-date,#screen-filter,.fin input,.fin select,.sz-in input,
+.pf-form textarea,.rng-lbl,.mc b,.hp b,.cf-row b,.fa-v,.sec-val,.tmd-rank,.tr-rank,.hm-sym{
+  font-family:var(--font-mono);font-variant-numeric:tabular-nums;
+  font-feature-settings:"zero" 0,"tnum"}
+button,input,select,textarea{font-family:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---- layout ------------------------------------------------------------------ */
+.wrap{gap:14px;padding:14px 18px 28px;max-width:1760px;
+  grid-template-columns:252px minmax(0,1fr) 404px}
+.side,.rail,.col-center{gap:14px}
+@media(max-width:1100px){.wrap{grid-template-columns:minmax(0,1fr);padding:12px}}
+
+/* ---- surfaces ---------------------------------------------------------------- */
+.glass{background:linear-gradient(180deg,rgba(255,255,255,.018),rgba(255,255,255,0) 120px),
+    var(--surface);
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+  border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 1px 2px rgba(0,0,0,.35),
+    0 10px 30px -12px rgba(0,0,0,.55)}
+.card-h{font-family:var(--font-ui);font-size:11px;font-weight:600;letter-spacing:.08em;
+  color:var(--txt);padding:11px 14px 10px;background:transparent;
+  border-bottom:1px solid var(--line);gap:10px;min-height:40px}
+.card-h .muted{font-size:11px;font-weight:400;letter-spacing:.01em;text-transform:none;
+  color:var(--tert)}
+.card-b{padding:10px 14px}
+.muted{color:var(--tert);font-size:11px}
+.note{color:var(--sec);font-size:12px;line-height:1.6;padding:10px 14px}
+.err{padding:14px}
+
+/* key/value rows */
+.kv{font-size:12px;padding:6px 0;border-bottom:1px solid var(--grid);align-items:baseline;gap:10px}
+.kv span{color:var(--sec)}
+.kv b{font-size:12px;font-weight:600;text-align:right}
+.dot{width:7px;height:7px;box-shadow:0 0 0 3px rgba(123,201,160,.14)}
+
+/* prose disclosures */
+details.why{border-top:1px solid var(--grid);margin:0}
+details.why > summary{font-family:var(--font-ui);font-size:11.5px;font-weight:500;letter-spacing:.01em;
+  text-transform:none;color:var(--tert);padding:9px 14px 9px 30px;display:block;transition:color .15s;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M4.5 2.5L8 6l-3.5 3.5' fill='none' stroke='%23808DA4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") 13px 50%/11px no-repeat}
+details.why[open] > summary{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='%23808DA4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
+details.why > summary::before,details.why[open] > summary::before{content:none}
+details.why > summary::first-letter{text-transform:uppercase}
+details.why > summary:hover{color:var(--txt)}
+details.why .body{color:var(--sec);font-size:12px;line-height:1.6;max-width:72ch}
+details.why .note{font-size:12px}
+
+/* ---- workspace nav ------------------------------------------------------------ */
+.ws-nav{min-height:46px;padding:0 2px;gap:4px;align-items:center;
+  border-bottom:1px solid var(--line);position:relative}
+.ws-nav::before{content:"";display:block;flex:none;width:26px;height:26px;margin:0 12px 0 4px;
+  border-radius:7px;background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M6 21l5-7 4 4 5-9 6 12' fill='none' stroke='%23EEF2F8' stroke-width='2.6' stroke-linejoin='round' stroke-linecap='round'/%3E%3C/svg%3E") center/18px no-repeat,
+    linear-gradient(135deg,#2B5BD7,#6E9BFF 55%,#7BC9A0);
+  box-shadow:0 4px 14px -4px rgba(110,155,255,.55),inset 0 1px 0 rgba(255,255,255,.25)}
+.ws-tab{font-family:var(--font-ui);font-size:13px;font-weight:500;letter-spacing:.01em;
+  text-transform:none;color:var(--tert);padding:13px 12px 12px;border:none;border-radius:0;
+  background:transparent;position:relative;transition:color .15s}
+.ws-tab:hover{color:var(--txt);background:transparent}
+.ws-tab.on{color:var(--txt);background:transparent;border:none;box-shadow:none}
+.ws-tab.on::after{content:"";position:absolute;left:10px;right:10px;bottom:-1px;height:2px;
+  border-radius:2px 2px 0 0;background:var(--accent);box-shadow:0 0 12px rgba(110,155,255,.6)}
+.ws-tab .ext{color:var(--tert);font-size:11px;margin-left:4px}
+.ws-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-4px;border-radius:6px}
+
+/* ---- the status strip --------------------------------------------------------- */
+.ribbon{border-radius:var(--radius)}
+.ribbon.statusbar{padding:10px 16px;gap:16px;row-gap:10px;align-items:center}
+.ribbon .brand{font-family:var(--font-ui);font-size:15px;font-weight:700;letter-spacing:-.01em;
+  color:var(--txt);display:flex;align-items:center;gap:8px;text-transform:none}
+.ribbon .brand .live{color:var(--green);font-weight:600;display:inline-flex;align-items:center;
+  font-size:11px;letter-spacing:.08em;text-transform:uppercase;padding:3px 9px 3px 8px;
+  border-radius:999px;background:rgba(123,201,160,.10);border:1px solid rgba(123,201,160,.28)}
+.live::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;
+  display:inline-block;margin-right:6px;box-shadow:0 0 0 0 rgba(123,201,160,.5);
+  animation:pulse2 2.4s ease-out infinite}
+@keyframes pulse2{0%{box-shadow:0 0 0 0 rgba(123,201,160,.55)}70%{box-shadow:0 0 0 6px rgba(123,201,160,0)}
+  100%{box-shadow:0 0 0 0 rgba(123,201,160,0)}}
+.ribbon .stat{line-height:1.15;gap:2px}
+.ribbon .stat b,.statusbar .stat b{font-size:15px;font-weight:600;color:var(--txt);letter-spacing:-.01em}
+.ribbon .stat span{font-family:var(--font-ui);font-size:10px;font-weight:500;color:var(--tert);
+  letter-spacing:.06em;margin-top:0;order:-1}
+.glstrip{gap:14px;padding-left:16px;border-left:1px solid var(--line)}
+.gl{gap:2px;line-height:1.15}
+.gl .gl-l{font-family:var(--font-ui);font-size:10px;font-weight:500;letter-spacing:.06em;color:var(--tert)}
+.gl .gl-v{font-size:13px;font-weight:600}
+.statusbtn{font-family:var(--font-ui);font-size:12px;font-weight:500;letter-spacing:0;
+  padding:7px 12px;border-radius:8px;background:var(--raise);border:1px solid var(--line);
+  color:var(--sec);transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+.statusbtn:hover{border-color:var(--accent);color:var(--txt);background:rgba(110,155,255,.10)}
+.statuspanel{background:rgba(10,14,22,.97);border:1px solid var(--line-strong);border-radius:12px;
+  padding:10px;gap:8px;box-shadow:0 24px 60px -12px rgba(0,0,0,.75);
+  backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.statusfoot{background:var(--raise);border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+.ribbon.health,.ribbon.macro{background:var(--raise);border:1px solid var(--line);
+  border-left:2px solid var(--blue);border-radius:10px;padding:8px 12px}
+.ribbon.macro{border-left-color:var(--violet)}
+.hp,.mc{font-size:11.5px;padding:4px 10px;border-radius:999px;background:rgba(148,163,184,.06);
+  border:1px solid var(--line)}
+.hp .lbl,.mc .lbl{font-family:var(--font-ui);font-size:10px;font-weight:500;letter-spacing:.05em}
+.hp.act:hover{background:rgba(110,155,255,.12);border-color:var(--accent)}
+.rewind{gap:9px;padding:5px 10px;border-radius:8px;background:var(--raise);border:1px solid var(--line);
+  border-left:2px solid var(--amber)}
+.rewind.live-mode{border-left-color:var(--green)}
+.rewind .rw-lbl{font-family:var(--font-ui);font-size:10px;font-weight:500;letter-spacing:.06em;color:var(--tert)}
+.rewind .rw-date{font-size:12px;font-weight:600}
+.rewind input[type=range]{width:84px}
+.rewind button{font-family:var(--font-ui);font-size:10.5px;font-weight:600;letter-spacing:.04em;
+  padding:3px 9px;border-radius:6px;background:transparent;border:1px solid var(--line-strong);color:var(--sec)}
+.rewind button:hover{border-color:var(--green);color:var(--txt)}
+#status{font-size:13px}
+
+/* ---- left rail: system ---------------------------------------------------------- */
+.diag{font-size:11.5px;gap:6px 14px;padding:10px 0 4px;flex-direction:column}
+.diag b{font-weight:600}
+/* The artifact list. A three-column grid of nowrap-ish text inside a 240px card ran its
+   third column out of the card ("2026-11-08 rows[].dat"). Each artifact is now a line:
+   name and state on top, its date and field as a caption beneath, inside the card. */
+.fresh-list{grid-template-columns:minmax(0,1fr) auto;gap:0 10px;font-size:11px;padding:8px 0 4px;
+  border-top:1px solid var(--grid);margin-top:6px}
+.fresh-list > span:nth-child(3n+1){font-family:var(--font-mono);color:var(--txt);font-size:11px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-top:6px}
+.fresh-list > b{font-family:var(--font-ui);font-size:9.5px;font-weight:600;letter-spacing:.06em;
+  align-self:end;justify-self:end;padding:1px 7px;border-radius:999px;margin-top:6px;
+  border:1px solid currentColor;opacity:.95}
+.fresh-list > span:nth-child(3n){grid-column:1/-1;color:var(--tert);font-size:10.5px;
+  padding-bottom:6px;border-bottom:1px solid var(--grid);overflow-wrap:anywhere}
+.fresh-list > span:last-child{border-bottom:none}
+.switches{gap:0;margin-top:12px;padding:3px;border-radius:9px;background:var(--bg);border:1px solid var(--line)}
+.switches .sw{font-family:var(--font-ui);font-size:11.5px;font-weight:600;letter-spacing:.03em;padding:6px 0;
+  border:none;border-radius:6px;color:var(--tert);transition:all .15s}
+.switches .sw:hover{color:var(--txt)}
+.switches .sw.on{background:var(--raise-2);color:var(--txt);border:none;
+  box-shadow:0 1px 2px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.05),inset 0 0 0 1px rgba(110,155,255,.35)}
+.cf-row,.fa-bar{font-size:11.5px;padding:4px 0}
+.fa-h,.cf-h{font-family:var(--font-ui);font-size:10px;font-weight:600;letter-spacing:.06em}
+
+/* ---- tables -------------------------------------------------------------------- */
+table{font-size:12px}
+th,thead th{font-family:var(--font-ui);font-size:10px;font-weight:600;letter-spacing:.07em;
+  color:var(--tert);padding:9px 10px 8px;background:var(--surface-hd);
+  border-bottom:1px solid var(--line-strong);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--grid);color:var(--txt)}
+tbody tr:last-child td{border-bottom-color:transparent}
+tr.row{transition:background .12s}
+tr.row:hover{background:rgba(110,155,255,.07)}
+tr.sel,tr.sel:hover{background:linear-gradient(90deg,rgba(110,155,255,.16),rgba(110,155,255,.05));
+  box-shadow:inset 3px 0 0 var(--accent)}
+tr.row:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+tr.held{background:rgba(110,155,255,.10);box-shadow:inset 3px 0 0 var(--accent)}
+tr.gated{box-shadow:inset 3px 0 0 var(--green);background:rgba(123,201,160,.05)}
+tr.f-hot{box-shadow:inset 3px 0 0 rgba(232,145,127,.7)}
+tr.f-cold{box-shadow:inset 3px 0 0 rgba(123,201,160,.7)}
+.tick{font-weight:700;letter-spacing:.02em}
+.scroll-pane{max-height:38vh}
+.scroll-pane::after{height:28px;margin-top:-28px;background:linear-gradient(rgba(13,18,28,0),var(--surface))}
+a.exec:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.copy{color:var(--tert);font-size:13px;padding:2px 4px;border-radius:5px;transition:all .15s}
+.copy:hover{color:var(--accent);background:rgba(110,155,255,.12)}
+.dbar{height:4px;border-radius:4px;opacity:.85}
+.bar{height:6px;background:var(--grid)}
+.bar>i{background:linear-gradient(90deg,rgba(110,155,255,.35),rgba(110,155,255,.75))}
+
+/* The board itself. Ticker and signal read left-to-right like the words they are; the
+   numbers keep the right alignment that lets a column be compared at a glance. */
+#tbl-conv th:nth-child(-n+3),#tbl-conv td:nth-child(-n+3){text-align:left}
+#tbl-conv td:first-child{color:var(--tert);width:34px;font-size:11px}
+#tbl-conv td:nth-child(4){font-weight:700;font-size:13px}
+#tbl-conv td:nth-child(5){font-weight:500}
+#tbl-conv td:nth-child(10),#tbl-conv th:nth-child(10){width:34px;text-align:center}
+#tbl-rwa th:nth-child(2),#tbl-rwa td:nth-child(2),#tbl-rwa th:nth-child(3),#tbl-rwa td:nth-child(3),
+#tbl-book th:nth-child(2),#tbl-book td:nth-child(2),
+#tbl-rwa-wrap th:nth-child(-n+4),#tbl-rwa-wrap td:nth-child(-n+4),
+#tbl-rwa-disloc th:nth-child(-n+2),#tbl-rwa-disloc td:nth-child(-n+2){text-align:left}
+#tbl-rwa td:first-child,#tbl-book td:first-child{color:var(--tert);width:34px;font-size:11px}
+/* An empty-state or note row spans the table; nowrap ran it out of the panel. */
+td[colspan]{white-space:normal;line-height:1.55;color:var(--sec);font-family:var(--font-ui)}
+#board-panel .scroll-pane{max-height:min(56vh,620px)}
+.wrap[data-route="index"] #board-panel .scroll-pane{max-height:150px}
+#label-status{font-family:var(--font-ui);font-size:11.5px!important;line-height:1.55!important;
+  color:var(--sec);padding:10px 14px 10px 36px!important;position:relative;
+  background:linear-gradient(90deg,rgba(224,179,114,.07),rgba(224,179,114,0) 70%)}
+#label-status::before{content:"!";position:absolute;left:13px;top:10px;width:15px;height:15px;
+  border-radius:50%;display:grid;place-items:center;font:700 10px/1 var(--font-ui);
+  color:var(--bg);background:var(--amber)}
+#board-panel > div[style*="flex-wrap"]{padding:10px 14px!important;gap:10px!important}
+#board-panel label[style]{font-size:11.5px!important}
+#board-panel label b{font-family:var(--font-ui);font-weight:600;letter-spacing:.04em;color:var(--green)}
+#screen-filter,#rw-filter{width:200px;color:var(--txt);font-size:12px;padding:6px 10px 6px 30px;border-radius:8px;
+  background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='7' cy='7' r='4.5' fill='none' stroke='%23808DA4' stroke-width='1.6'/%3E%3Cpath d='M10.5 10.5L14 14' stroke='%23808DA4' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") 10px center/13px no-repeat;
+  border:1px solid var(--line-strong);transition:border-color .15s,box-shadow .15s}
+#rw-filter:focus{outline:none}
+#screen-filter:focus,#rw-filter:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(110,155,255,.18)}
+#skew{font-size:11px}
+input[type=checkbox]{width:14px;height:14px}
+
+/* ---- chips ---------------------------------------------------------------------- */
+.badge{font-size:10.5px;font-weight:700;letter-spacing:.04em;padding:3px 9px;border-radius:999px;
+  line-height:1.3;min-width:62px;text-align:center}
+.badge.g{background:rgba(123,201,160,.15);color:#A6E3C4;box-shadow:inset 0 0 0 1px rgba(123,201,160,.35)}
+.badge.r{background:rgba(232,145,127,.15);color:#F4B4A6;box-shadow:inset 0 0 0 1px rgba(232,145,127,.35)}
+.badge.a{background:rgba(224,179,114,.14);color:#EDC992;box-shadow:inset 0 0 0 1px rgba(224,179,114,.32)}
+.badge.n{background:rgba(148,163,184,.10);color:var(--sec);box-shadow:inset 0 0 0 1px rgba(148,163,184,.22)}
+.tier{font-size:9.5px;font-weight:600;letter-spacing:.05em;padding:1px 6px;border-radius:5px;margin-left:7px}
+.flag{font-size:10px;font-weight:600;letter-spacing:.04em;padding:2px 8px;border-radius:999px;
+  border:1px solid currentColor;min-width:60px;text-align:center}
+.flag.f-none{border-color:transparent}
+.fh{font-size:11px;padding:3px 8px;border-radius:6px}
+.modf{font-size:10px;padding:2px 6px;border-radius:5px}
+.pill{font-family:var(--font-ui);font-size:10px;font-weight:500;letter-spacing:.05em;padding:3px 9px;
+  border-radius:999px;border-color:var(--line-strong);color:var(--sec)}
+.lab{font-size:10px;padding:2px 7px;border-radius:999px}
+.ev{font-family:var(--font-ui);font-size:9px;font-weight:600;letter-spacing:.06em;padding:1px 6px;border-radius:999px}
+.rwa-badge{font-family:var(--font-ui);font-size:10px;font-weight:600;letter-spacing:.06em;padding:2px 9px}
+.mk{font-size:10.5px;margin-left:5px}
+.feed-dot{font-size:10.5px;padding:3px 10px}
+.stale-chip{font-size:11px;padding:7px 14px;margin:6px 0;border-radius:0 6px 6px 0;
+  background:rgba(224,179,114,.06)}
+
+/* ---- secondary tabs and disclosures --------------------------------------------- */
+.tabs{gap:2px;padding:3px;border-radius:9px;background:var(--bg);border:1px solid var(--line)}
+.tab{font-family:var(--font-ui);font-size:11.5px;font-weight:500;letter-spacing:.01em;text-transform:none;
+  color:var(--tert);padding:5px 12px;border:none;border-radius:6px;transition:all .15s}
+.tab:hover{color:var(--txt)}
+.tab.on{color:var(--txt);background:var(--raise-2);border:none;
+  box-shadow:0 1px 2px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.05)}
+.tab:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.tab.deferred{border:1px dashed var(--line-strong)}
+.card-h:has(> .tabs){padding-top:8px;padding-bottom:8px}
+details.tools>summary{font-family:var(--font-ui);font-size:12px;font-weight:600;letter-spacing:.02em;
+  text-transform:none;color:var(--txt);padding:13px 16px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--radius);transition:border-color .15s,background .15s;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
+details.tools[open]>summary{border-radius:var(--radius);border-bottom-color:var(--line)}
+details.tools>summary:hover{border-color:var(--line-strong);background:var(--raise)}
+details.tools>summary::before{content:"";width:7px;height:7px;border-right:1.6px solid var(--tert);
+  border-bottom:1.6px solid var(--tert);transform:rotate(-45deg);transition:transform .15s}
+details.tools[open]>summary::before{content:"";transform:rotate(45deg)}
+details.tools>summary .cnt{font-family:var(--font-ui);font-size:11.5px;font-weight:400;color:var(--tert)}
+.tools-body{gap:14px;padding:14px 0 0}
+
+/* ---- the inspector -------------------------------------------------------------- */
+.insp-h{padding:14px 14px 12px;gap:10px;border-bottom:1px solid var(--line)}
+.insp-sym{font-family:var(--font-ui);font-size:22px;font-weight:700;letter-spacing:-.02em}
+.insp-name{font-size:12px;color:var(--tert)}
+.insp-px{font-size:18px;font-weight:600;letter-spacing:-.01em}
+.insp-grid{gap:0 18px;padding:8px 14px}
+.insp-k{font-size:12px;padding:6px 0;align-items:center}
+.insp-k>span{color:var(--sec)}
+.insp-k>b{font-weight:600}
+.rng{height:6px;margin:8px 0 4px;background:var(--grid)}
+.rng-mk{top:-4px;width:3px;height:14px;border-radius:2px;background:var(--txt);
+  box-shadow:0 0 0 2px var(--surface),0 0 10px rgba(255,255,255,.35)}
+.rng-lbl{font-size:10.5px}
+.insp-two{gap:10px;padding:10px 14px}
+.insp-big{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--raise)}
+.insp-big .lbl{font-family:var(--font-ui);font-size:10px;font-weight:500;letter-spacing:.06em}
+.insp-big b{font-size:19px;font-weight:600;letter-spacing:-.01em}
+.insp-big .sub{font-size:11px}
+.insp-cats{padding:4px 14px 12px;gap:6px}
+.insp-cat{font-family:var(--font-ui);font-size:11px;padding:3px 10px;border-radius:999px}
+.insp-cat:hover{border-color:var(--accent);background:rgba(110,155,255,.10)}
+.insp-stale{font-size:11.5px;line-height:1.55;padding:9px 14px;margin:2px 0;
+  background:linear-gradient(90deg,rgba(224,179,114,.10),rgba(224,179,114,.02))}
+
+/* the factor waterfall */
+.fb-wrap{padding:14px}
+.fd-h{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.02em;text-transform:none;
+  color:var(--sec);margin:0 0 12px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;
+  background:var(--bg)}
+.fb-row{grid-template-columns:78px minmax(0,1fr) 54px 46px;gap:8px;margin-bottom:10px}
+.fb-name{font-family:var(--font-ui);font-size:10.5px;font-weight:600;letter-spacing:.06em;color:var(--sec)}
+.fb-val{font-size:11.5px;font-weight:600}
+.fd-run{font-size:11.5px}
+.fb-note{grid-column:2 / 5;font-size:11px;color:var(--tert);line-height:1.45;margin-top:-4px}
+.fd-axis{height:8px;background:var(--grid);border-radius:8px;overflow:hidden}
+.fd-zero{background:#3A4760;width:2px;margin-left:-1px}
+.fd-fill{border-radius:8px;opacity:.9}
+.fb-bar{height:8px;background:var(--grid);border-radius:8px}
+.fb-fill{border-radius:8px;background:linear-gradient(90deg,rgba(110,155,255,.45),var(--accent))!important}
+/* A bound or dominance line carries a sentence where a factor row carries a number, so
+   its value takes the axis track's width rather than wrapping inside a 54px column. */
+.fb-row.fd-bound{grid-template-columns:78px minmax(0,1fr) 46px}
+.fb-row.fd-bound .fd-axis{display:none}
+.fb-row.fd-bound .fb-val{text-align:left;color:var(--txt)}
+.fb-row.fd-bound .fb-note{grid-column:2 / -1}
+.fd-total{margin:4px 0 2px;padding:10px 12px;font-size:12px;border-radius:8px;
+  border:1px solid rgba(123,201,160,.25);border-left:3px solid var(--green);
+  background:linear-gradient(90deg,rgba(123,201,160,.12),rgba(123,201,160,.03))}
+.fd-total.bad{border-color:rgba(232,145,127,.3);border-left-color:var(--red);
+  background:linear-gradient(90deg,rgba(232,145,127,.12),rgba(232,145,127,.03))}
+.fd-total b{font-size:18px;font-weight:700}
+.fd-obs{margin-top:16px;padding-top:12px;border-top:1px solid var(--line)}
+.fd-obs-h{font-family:var(--font-ui);font-size:10.5px;font-weight:600;letter-spacing:.06em;margin-bottom:10px}
+.fd-obs-n{font-size:11.5px;line-height:1.6;color:var(--tert)}
+.fd-clamp{font-size:11px}
+.rt-note{grid-template-columns:76px 1fr;font-size:11px;padding:6px 0}
+.rt-note b{font-family:var(--font-ui);font-size:10px}
+#inspector > .muted:last-child{font-size:11px;padding:2px 14px 14px!important;color:var(--tert)}
+
+/* ---- the right rail's index card ----------------------------------------------------- */
+.chart-box{padding:12px 14px}
+.alloc{padding:6px 14px 12px}
+.alloc-row{grid-template-columns:72px 58px 1fr;padding:6px 0;border-bottom:1px solid var(--grid)}
+.alloc-sym{font-weight:700;font-size:12px}
+.alloc-w{font-size:12px;font-weight:600}
+.alloc-c{font-size:11px}
+.alloc-foot{font-size:11px;line-height:1.5;color:var(--tert);border-top-color:var(--line);padding-top:8px}
+.alloc-live{font-size:10px}
+
+/* ---- panels inside the research disclosure ------------------------------------------ */
+.sec-row{grid-template-columns:150px 1fr 70px;font-size:12px;padding:4px 0}
+.sec-track{height:14px;border-radius:4px}
+.sec-bar{top:3px;bottom:3px;border-radius:3px}
+.heat-h,.heat-row{grid-template-columns:1fr 70px 62px 40px}
+.heat-h{font-family:var(--font-ui);font-size:10px;font-weight:600;letter-spacing:.06em;padding-bottom:6px}
+.heat-row{font-size:12px;padding:6px 4px;border-radius:6px}
+.heat-row:hover{background:rgba(110,155,255,.08)}
+.heat-row.on{background:rgba(110,155,255,.14);box-shadow:inset 3px 0 0 var(--accent)}
+.tr-row,.tmd-row{font-size:12px;padding:6px 0}
+.tr-row{grid-template-columns:24px 1fr 60px 50px 72px}
+/* The label column held "QUIET ACCUMULATION" in 96px and the chip ran out of the card. */
+.tmd-row{grid-template-columns:24px minmax(0,1fr) 56px 48px 150px}
+.tmd-row .lab{justify-self:end;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+/* Two 49% inline-blocks left no gutter, so a gain's value ran into the next ticker. */
+.cf-col{width:calc(50% - 14px)}
+.cf-col + .cf-col{margin-left:24px}
+.hm-row{grid-template-columns:100px 1fr 80px;margin-bottom:3px}
+.hm-c{height:13px;border-radius:2px}
+.hm-sym{font-size:11px}
+.chk{font-size:12px;padding:7px 14px}
+.chk-dot{width:7px;height:7px}
+.chk-n{min-width:170px}
+.chk-s{font-family:var(--font-ui);font-size:10px}
+.cm-lab{font-size:9px}
+.fb-verdict{font-size:11.5px;padding:9px 12px;border-radius:0 8px 8px 0}
+
+/* ---- inputs ---------------------------------------------------------------------- */
+.fin{gap:8px}
+.fin label,.sz-in label{font-family:var(--font-ui);font-size:10px;font-weight:500;letter-spacing:.05em;gap:4px}
+.fin input,.fin select,.sz-in input,.pf-form textarea{background:var(--bg);border:1px solid var(--line-strong);
+  border-radius:7px;font-size:12px;padding:7px 9px;transition:border-color .15s,box-shadow .15s}
+.fin input:focus,.fin select:focus,.sz-in input:focus,.pf-form textarea:focus{border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(110,155,255,.18)}
+.pf-btn{font-family:var(--font-ui);font-size:12px;font-weight:600;letter-spacing:.01em;padding:9px 12px;
+  border-radius:8px;border:1px solid transparent;color:#fff;
+  background:linear-gradient(180deg,#5B8CFF,#3F6FE6);
+  box-shadow:0 1px 0 rgba(255,255,255,.18) inset,0 6px 16px -6px rgba(91,140,255,.65);transition:filter .15s}
+.pf-btn:hover{filter:brightness(1.08);background:linear-gradient(180deg,#5B8CFF,#3F6FE6)}
+.pf-btn.ghost{background:transparent;border-color:var(--line-strong);color:var(--sec);box-shadow:none}
+.pf-btn.ghost:hover{color:var(--txt);border-color:var(--tert)}
+.sz-risk{border-radius:10px;padding:10px 12px;border:1px solid rgba(224,179,114,.28);border-left:3px solid var(--amber);
+  background:linear-gradient(90deg,rgba(224,179,114,.09),rgba(224,179,114,.02))}
+.sz-risk .big{font-size:20px}
+.sz-risk .lbl{font-family:var(--font-ui);font-size:10px;font-weight:600;letter-spacing:.06em}
+.sz-risk .rule{font-size:11.5px;line-height:1.6}
+.sz-line{font-size:11.5px;line-height:1.55}
+.pp-hero{font-size:22px;letter-spacing:-.01em}
+.pp-notional{font-size:16px;border-left-color:var(--accent)}
+.pp-prov{font-size:10.5px}
+.pp-unknown,.pp-unverified{font-size:11.5px;border-radius:0 8px 8px 0}
+.spec-snap{font-size:10.5px}
+
+/* ---- portfolio ------------------------------------------------------------------- */
+.pf-head{gap:10px;padding:12px 14px}
+.pf-stat{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--raise)}
+.pf-stat .lbl{font-family:var(--font-ui);font-size:10px;font-weight:500;letter-spacing:.06em}
+.pf-stat b{font-size:20px;font-weight:600;letter-spacing:-.01em}
+.pf-stat .sub{font-size:11px}
+.pf-note,.pf-err{font-size:12px;line-height:1.6;padding:10px 14px}
+.pf-form{gap:8px;padding:10px 14px}
+.wbar{height:6px;border-radius:6px;background:rgba(148,163,184,.4)}
+
+/* ---- RWA -------------------------------------------------------------------------- */
+.rwa-sub{padding:8px 12px;gap:4px;background:transparent;border-bottom:1px solid var(--line)}
+.rwa-sub .tab{font-size:11.5px;padding:5px 11px}
+.ev-legend{font-size:11px;gap:8px;padding:9px 14px}
+.wrapline{font-size:12px;padding:7px 0}
+.wrapline .wl-iss{font-size:10.5px}
+.absent{font-size:11.5px;line-height:1.55;padding:8px 12px;border-radius:0 8px 8px 0}
+.rwa-empty{font-size:12px;padding:12px 14px}
+.imp{font-family:var(--font-ui);font-size:10px;font-weight:600}
+details.rwa-fold > summary::after{content:"";width:6px;height:6px;border-right:1.5px solid var(--tert);
+  border-bottom:1.5px solid var(--tert);transform:rotate(45deg);margin-left:10px}
+details.rwa-fold:not([open]) > summary::after{content:"";transform:rotate(-45deg)}
+
+/* ---- the index study ------------------------------------------------------------------ */
+.study-h{font-family:var(--font-ui);font-size:11px;font-weight:600;letter-spacing:.06em;padding:12px 16px;
+  border-bottom:1px solid var(--line);gap:12px}
+.study-h b{font-size:12px;letter-spacing:.06em}
+.study-h .muted{font-weight:400;letter-spacing:.01em}
+.sh-cell{padding:16px 18px 14px;border-right:1px solid var(--line)}
+.sh-cell .lbl{font-family:var(--font-ui);font-size:10.5px;font-weight:500;letter-spacing:.05em}
+.sh-cell b{font-size:34px;font-weight:600;letter-spacing:-.03em;line-height:1.15;margin-top:4px}
+.sh-cell .sub{font-size:11px;line-height:1.5;margin-top:4px}
+.study-head{border-bottom:1px solid var(--line)}
+.study-qual{gap:26px;padding:12px 18px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,rgba(255,255,255,.012),transparent)}
+.study-qual .q{gap:3px}
+.study-qual .q .lbl{font-family:var(--font-ui);font-size:10px;font-weight:500;letter-spacing:.05em}
+.study-qual .q b{font-size:14px;font-weight:600}
+.study-plate{padding:14px 18px 6px}
+.study-legend{font-size:11.5px;gap:18px;padding:4px 18px 12px}
+/* The swatch shares its class name with the timeframe switch, whose 1px box border and
+   padding turned every line sample into a small open box. A swatch is a line. */
+.study-legend .sw{flex:none;width:18px;height:0;padding:0;border-width:2.5px 0 0;border-style:solid;
+  border-radius:2px;margin-right:6px;vertical-align:middle;cursor:default}
+.study-legend .sw.dash{border-top-style:dashed}
+.study-caveat{font-size:12.5px;line-height:1.6;padding:12px 18px;border-color:var(--line);
+  background:linear-gradient(90deg,rgba(224,179,114,.09),rgba(224,179,114,.02))}
+.study-sec-h{font-family:var(--font-ui);font-size:10.5px;font-weight:600;letter-spacing:.06em;
+  padding:14px 18px 6px;border-top:1px solid var(--line)}
+.sd{padding:12px 18px;border-right:1px solid var(--line)}
+.sd .lbl{font-family:var(--font-ui);font-size:10px;font-weight:500;letter-spacing:.05em}
+.sd b{font-size:18px;font-weight:600;letter-spacing:-.01em;margin:2px 0}
+.sd .sub{font-size:11px}
+.study-table .unpriced{font-size:10px}
+
+/* ---- overlays ---------------------------------------------------------------------- */
+/* z-index above .statuswrap (60): the status strip used to paint over an open drawer. */
+.drawer{z-index:90;width:400px;background:var(--surface);border-left:1px solid var(--line-strong);
+  box-shadow:-24px 0 60px rgba(0,0,0,.6);transition:transform .25s cubic-bezier(.2,.7,.2,1)}
+.drawer-h{padding:16px 18px;border-bottom:1px solid var(--line)}
+.drawer-h b{font-family:var(--font-ui);font-size:18px;font-weight:700;letter-spacing:-.01em}
+.drawer-b{padding:16px 18px}
+.x{font-size:20px;width:32px;height:32px;display:grid;place-items:center;border-radius:8px;padding:0;transition:all .15s}
+.x:hover{background:var(--raise);color:var(--txt)}
+.tip-pop{font-family:var(--font-ui);font-size:12px;line-height:1.55;padding:10px 12px;border-radius:10px;
+  background:rgba(17,23,35,.98);border:1px solid var(--line-strong);
+  box-shadow:0 18px 40px -8px rgba(0,0,0,.7)}
+.chart-tip{font-family:var(--font-ui);font-size:11.5px;padding:8px 10px;border-radius:9px;
+  background:rgba(17,23,35,.98);border:1px solid var(--line-strong);box-shadow:0 14px 34px -8px rgba(0,0,0,.7)}
+.chart-tip b{font-family:var(--font-mono);font-size:12px}
+.chart-tip span{font-family:var(--font-mono)}
+.stub-banner{font-size:12.5px;padding:10px 16px;border-radius:var(--radius)}
+
+/* ---- phones --------------------------------------------------------------------------- */
+@media(max-width:1280px){.glstrip{border-left:none;padding-left:0}}
+@media(max-width:560px){
+  .wrap{padding:10px;gap:12px}
+  .ws-nav{min-height:44px}
+  .ws-nav::before{width:22px;height:22px;margin:0 6px 0 2px;background-size:15px,auto}
+  .ws-tab{font-size:12.5px;padding:12px 10px 11px}
+  .ribbon.statusbar{gap:14px;padding:10px 12px}
+  .glstrip{gap:12px}
+  .card-h{padding:10px 12px;min-height:38px}
+  #screen-filter{width:100%;flex:1 1 160px}
+  td{padding:8px 8px}
+  th{padding:8px 8px 7px}
+  .insp-grid{grid-template-columns:1fr;padding:6px 12px}
+  .insp-sym{font-size:20px}
+  .drawer{width:100vw}
+  .sh-cell b{font-size:22px}
+  .fb-row{grid-template-columns:70px minmax(0,1fr) 52px 42px}
+}
+
 </style>
 </head>
 <body>
 <noscript><div style="padding:16px;color:#E0B372;font:14px/1.5 system-ui,sans-serif">
 This terminal is rendered by JavaScript and shows nothing without it. The raw nightly
-ledger is readable directly: <a style="color:#3B82F6" href="ledger/signals.csv">ledger/signals.csv</a>,
-and the model is described on the <a style="color:#3B82F6" href="methodology.html">Method page</a>.
+ledger is readable directly: <a style="color:#6E9BFF" href="ledger/signals.csv">ledger/signals.csv</a>,
+and the model is described on the <a style="color:#6E9BFF" href="methodology.html">Method page</a>.
 </div></noscript>
 <div class="wrap">
   <!-- WORKSPACE NAV — the only chrome above the status strip.
@@ -953,7 +1474,7 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
        Status; nothing was removed. -->
   <div class="statuswrap">
     <div class="ribbon glass statusbar">
-      <div class="brand">CRYPTO <span class="live">CONVICTION</span> MONITOR</div>
+      <div class="brand">Conviction Board <span class="live">Crypto</span></div>
       <div class="stat"><b id="rb-mcap" class="num">—</b><span>Tracked Mkt Cap</span></div>
       <div class="stat"><b id="rb-str" class="num">—</b><span id="rb-str-lbl">BUY+ (≥70)</span></div>
       <div class="stat"><b id="rb-upd" class="num">—</b><span>Last Update</span></div>
@@ -1383,7 +1904,7 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
     <div id="rwa-fresh-host"></div>
     <div class="statuswrap">
       <div class="ribbon glass statusbar">
-        <div class="brand">TOKENIZED <span class="live">RWA</span> WORKSPACE</div>
+        <div class="brand">Tokenized Assets <span class="live">RWA</span></div>
         <div class="stat"><b id="rw-under" class="num">—</b><span>Underlyings Ranked</span></div>
         <div class="stat"><b id="rw-wrap" class="num">—</b><span>Wrapper Price Coverage</span></div>
         <div class="stat"><b id="rw-iss" class="num">—</b><span>Issuers</span></div>
@@ -1422,8 +1943,6 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
         <div style="display:flex;align-items:center;gap:8px;padding:6px 12px;
                     border-bottom:1px solid var(--border);flex-wrap:wrap">
           <input id="rw-filter" type="search" placeholder="filter" autocomplete="off"
-                 style="background:#0c1320;color:var(--txt);border:1px solid var(--border);
-                        border-radius:4px;font-family:inherit;font-size:10px;padding:3px 7px;width:130px"
                  title="Filter by ticker, name, asset type, label or issuer.">
           <span class="muted" id="rw-gate"></span>
         </div>
@@ -1596,7 +2115,7 @@ and the model is described on the <a style="color:#3B82F6" href="methodology.htm
   <div class="ws" data-ws="portfolio" hidden>
     <div class="statuswrap">
       <div class="ribbon glass statusbar">
-        <div class="brand">PORTFOLIO <span class="live">BOOK</span></div>
+        <div class="brand">Portfolio <span class="live">Book</span></div>
         <div class="stat"><b id="pf-nav" class="num">—</b><span>NAV</span></div>
         <div class="stat"><b id="pf-day" class="num">—</b><span>Day P/L</span></div>
         <div class="stat"><b id="pf-open" class="num">—</b><span>Open P/L</span></div>
@@ -3644,7 +4163,7 @@ function quad(){
   const lo=Math.floor(ymin), hi=Math.ceil(ymax);
   const px=v=>pad+(v/xmax)*(w-pad*2), py=v=>h-pad-((v-lo)/(hi-lo||1))*(h-pad*2);
   const mx=xmax/2, my=(hi+lo)/2;
-  x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([3,3]);
+  x.strokeStyle="#1F2838"; x.lineWidth=1; x.setLineDash([3,3]);
   x.beginPath(); x.moveTo(px(mx),pad); x.lineTo(px(mx),h-pad); x.moveTo(pad,py(my)); x.lineTo(w-pad,py(my)); x.stroke(); x.setLineDash([]);
 
   // The plot rect every label must stay inside. Quadrant names are placed first and
@@ -3652,7 +4171,7 @@ function quad(){
   // one — which is how the old version produced "HIGH VEL/LOW LIQ" with tickers
   // printed through it.
   const rect={l:pad, t:pad*0.5, r:w-4, b:h-10};
-  const FONT="8px monospace", BOLD="bold 8px monospace";
+  const FONT="8px 'JetBrains Mono',ui-monospace,monospace", BOLD="bold 8px 'JetBrains Mono',ui-monospace,monospace";
   const meas=measurer(x, FONT);
   x.font=FONT; x.textBaseline="alphabetic";
   const reserved=[], notes=[];
@@ -3662,7 +4181,7 @@ function quad(){
     const x0 = align==="right" ? tx-wpx : tx;
     const rc={x0, y0:ty-8, x1:x0+wpx, y1:ty+2};
     reserved.push(rc);
-    notes.push({...rc, text, tx, ty, align, color:"#64748B", font:FONT});
+    notes.push({...rc, text, tx, ty, align, color:"#808DA4", font:FONT});
   };
   corner("HIGH VEL/LOW LIQ", w-6, pad*0.5+8, "right");
   corner("INSTITUTIONAL", pad+2, h-14, "left");
@@ -3681,7 +4200,7 @@ function quad(){
       x.lineWidth=2; x.strokeStyle="#7BC9A0"; x.stroke();
     } else {
       x.beginPath(); x.arc(cx,cy,Math.max(2,r*0.45),0,7);
-      x.fillStyle=t.sym===SEL?"rgba(59,130,246,.6)":"rgba(40,52,71,0.25)";
+      x.fillStyle=t.sym===SEL?"rgba(110,155,255,.6)":"rgba(40,52,71,0.25)";
       x.fill();
     }
     pts.push({x:cx, y:cy, r:gated?9:Math.max(2,r*0.45), sym:t.sym, lines:[
@@ -3725,13 +4244,13 @@ function alphaMap(){
   const xmin=-50, xmax=100, ymin=0, ymax=100;
   const px=v=>pad+(v-xmin)/(xmax-xmin)*(w-pad*1.4);
   const py=v=>h-pad-(v-ymin)/(ymax-ymin)*(h-pad*1.6);
-  x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([3,3]);
+  x.strokeStyle="#1F2838"; x.lineWidth=1; x.setLineDash([3,3]);
   x.beginPath(); x.moveTo(px(0),pad*0.6); x.lineTo(px(0),h-pad); x.stroke();
   x.beginPath(); x.moveTo(px(xmin),py(50)); x.lineTo(px(xmax),py(50)); x.stroke();
   x.beginPath(); x.moveTo(px(xmin),py(75)); x.lineTo(px(xmax),py(75)); x.stroke();
   x.setLineDash([]);
 
-  const FONT="8px monospace";
+  const FONT="8px 'JetBrains Mono',ui-monospace,monospace";
   const meas=measurer(x, FONT);
   x.font=FONT; x.textAlign="left"; x.textBaseline="alphabetic";
   // The four zone names and the two axis titles are reserved BEFORE any point label is
@@ -3744,7 +4263,7 @@ function alphaMap(){
     const x0 = align==="right" ? tx-wpx : align==="center" ? tx-wpx/2 : tx;
     const rc={x0, y0:ty-8, x1:x0+wpx, y1:ty+2};
     reserved.push(rc);
-    notes.push({...rc, text, tx, ty, align, color:"#64748B", font:FONT});
+    notes.push({...rc, text, tx, ty, align, color:"#808DA4", font:FONT});
   };
   zone("ACCUM ZONE", px(xmin)+2, pad*0.6+8, "left");
   zone("MOMENTUM",   w-6,        pad*0.6+8, "right");
@@ -3755,10 +4274,10 @@ function alphaMap(){
   reserved.push({x0:w-axw-6, y0:h-12, x1:w-6, y1:h-2});
   notes.push({x0:w-axw-6, y0:h-12, x1:w-6, y1:h-2,
               text:"7D % →", tx:w-axw-6, ty:h-4, align:"left",
-              color:"#64748B", font:FONT});
+              color:"#808DA4", font:FONT});
   // The rotated axis title keeps its own transform, so it is drawn here rather than
   // through annotate(), which only handles horizontal text.
-  x.save(); x.fillStyle="#64748B"; x.font=FONT;
+  x.save(); x.fillStyle="#808DA4"; x.font=FONT;
   x.translate(10,h/2); x.rotate(-Math.PI/2); x.fillText("CONVICTION",0,0); x.restore();
   reserved.push({x0:2, y0:h/2-40, x1:14, y1:h/2+40});
 
@@ -3788,7 +4307,7 @@ function alphaMap(){
     const r = 3 + Math.min(9, (dil-1)*6);
     if(t.gated){ x.beginPath(); x.arc(cx,cy,r+2,0,7); x.strokeStyle="#7BC9A0"; x.lineWidth=2; x.stroke(); }
     x.beginPath(); x.arc(cx,cy,r,0,7);
-    x.fillStyle = t.sym===SEL ? "#3B82F6" : (t.gated? "rgba(123,201,160,0.65)" : col+"66");
+    x.fillStyle = t.sym===SEL ? "#6E9BFF" : (t.gated? "rgba(123,201,160,0.65)" : col+"66");
     x.fill();
     pts.push({x:cx,y:cy,r:r+2,sym:t.sym,lines:[
       `conviction ${t.conv}`,
@@ -4003,7 +4522,7 @@ function renderIndex(){
   if(!c){
     const PF=(typeof BREADTH!=="undefined"&&BREADTH&&BREADTH.performance)||null;
     const have=(PF&&PF.legs)||0, need=(PF&&PF.min_days)||5;
-    x.fillStyle="#94A3B8"; x.font="9px monospace";
+    x.fillStyle="#94A3B8"; x.font="9px 'JetBrains Mono',ui-monospace,monospace";
     x.fillText(`Awaiting the canonical index (${have}/${need} nights)`,10,h/2-4);
     if(wrap) wrap.innerHTML='<div class="muted" style="padding:8px 12px">No canonical book yet — nightly ledger pending.</div>';
     if(note) note.textContent="Paper return · awaiting the nightly ledger";
@@ -4060,26 +4579,39 @@ function drawIndexLines(x, w, h, series, opt){
   const t0=day(s[0].date), span=(day(s[s.length-1].date)-t0)||1;
   const px=i=>L+(day(s[i].date)-t0)/span*(w-L-R);
   const py=v=>T+(h-T-Bm)-((v-(lo-pad))/((hi+pad)-(lo-pad)))*(h-T-Bm);
-  x.font=(compact?"7px":"9px")+" monospace";
+  x.font=(compact?"500 7.5px":"500 9.5px")+" 'JetBrains Mono',ui-monospace,monospace";
   // gridlines at round percentages, labelled on the study only
   if(!compact){
     const step = (hi-lo)>60?20:(hi-lo)>25?10:5;
-    x.strokeStyle="#162032"; x.lineWidth=1; x.setLineDash([]);
+    x.strokeStyle="#151C29"; x.lineWidth=1; x.setLineDash([]);
     for(let g=Math.ceil((lo-pad)/step)*step; g<=hi+pad; g+=step){
       x.beginPath(); x.moveTo(L,py(g)); x.lineTo(w-R,py(g)); x.stroke();
-      x.fillStyle="#7C8AA3"; x.textAlign="right"; x.fillText((g>0?"+":"")+g+"%", L-6, py(g)+3);
+      x.fillStyle="#808DA4"; x.textAlign="right"; x.fillText((g>0?"+":"")+g+"%", L-6, py(g)+3);
     }
     // date ticks: first, last, and every ~7 days
     x.textAlign="center";
     for(let i=0;i<s.length;i++){
       const isEdge=i===0||i===s.length-1;
       if(!isEdge && Math.round(day(s[i].date)-t0)%7!==0) continue;
-      x.fillStyle="#7C8AA3"; x.fillText(s[i].date.slice(5), px(i), h-6);
+      // A weekly tick that lands within a label's width of either edge label printed
+      // over it ("11-0411-08"); the edges are the dates that matter, so the tick yields.
+      if(!isEdge && (px(i)-px(0)<40 || px(s.length-1)-px(i)<40)) continue;
+      x.fillStyle="#808DA4"; x.fillText(s[i].date.slice(5), px(i), h-6);
     }
     x.textAlign="left";
   }
-  x.strokeStyle="#1E293B"; x.lineWidth=1; x.setLineDash([2,3]);
+  x.strokeStyle="#1F2838"; x.lineWidth=1; x.setLineDash([2,3]);
   x.beginPath(); x.moveTo(L,py(0)); x.lineTo(w-R,py(0)); x.stroke(); x.setLineDash([]);
+  // A soft wash between the book and zero, so the one series the plate is about reads as
+  // the figure and the three comparisons as the ground. Fill only: no value is drawn,
+  // and the line itself is still stroked on top below.
+  { const pts=[]; s.forEach((d,i)=>{ if(d.book!=null) pts.push([px(i),py(d.book)]); });
+    if(pts.length>1){
+      const g=x.createLinearGradient(0,T,0,h-Bm);
+      g.addColorStop(0,"rgba(123,201,160,.20)"); g.addColorStop(1,"rgba(123,201,160,0)");
+      x.beginPath(); x.moveTo(pts[0][0],py(0)); pts.forEach(p=>x.lineTo(p[0],p[1]));
+      x.lineTo(pts[pts.length-1][0],py(0)); x.closePath(); x.fillStyle=g; x.fill();
+    } }
   const ends=[];
   IDX_LINES.forEach(l=>{
     x.strokeStyle=l.col; x.lineWidth=l.w; x.setLineDash(l.dash); x.beginPath();
@@ -4387,12 +4919,12 @@ function factorBreakdown(sym){
       ? [`SUPPLY`, `no FDV published → 1.000`,
          `unknown overhang is neutral, never a penalty`] : null,
   ].filter(Boolean).map(([n2,v,why]) =>
-    `<div class="fb-row"><div class="fb-name">${n2}</div><div class="fd-axis"></div>
+    `<div class="fb-row fd-bound"><div class="fb-name">${n2}</div><div class="fd-axis"></div>
       <div class="fb-val num muted">${esc0(v)}</div><div class="fd-run num"></div>
       <div class="fb-note muted">${esc0(why)}</div></div>`).join("");
   const D = S2 && S2.dom;
   const domLine = !D || !D.factor ? "" :
-    `<div class="fb-row"><div class="fb-name">DOMINANCE</div><div class="fd-axis"></div>
+    `<div class="fb-row fd-bound"><div class="fb-name">DOMINANCE</div><div class="fd-axis"></div>
       <div class="fb-val num" style="color:${D.warn?"var(--amber)":"var(--tert)"}">
         ${D.factor} ${(D.share*100).toFixed(0)}%</div>
       <div class="fd-run num muted">${D.magnitude.toFixed(3)}</div>
@@ -4776,7 +5308,7 @@ function openDrawer(sym, date){
            from one day of range is a different object from one derived from fourteen, and
            it would render in the same typeface as the real thing.</div>`}
   </div>`;
-  const led="<a href='ledger/signals.json' target='_blank' style='color:#3B82F6'>view nightly ledger ↗</a>";
+  const led="<a href='ledger/signals.json' target='_blank' style='color:#6E9BFF'>view nightly ledger ↗</a>";
   const comp=t.comp||{};
   const attr=`<div class="factor-attr">
     <div class="fa-h">FACTOR ATTRIBUTION (conviction components)</div>
@@ -6868,14 +7400,14 @@ function emptyChart(g, w, h, id){
   // three charts differed in whether they took tab focus depending on the feed. The
   // handlers no-op on an empty point set, and attach is idempotent.
   attachChartInteraction(id);
-  g.fillStyle="#475569"; g.font="10px monospace"; g.textAlign="left";
+  g.fillStyle="#808DA4"; g.font="500 11px 'JetBrains Mono',ui-monospace,monospace"; g.textAlign="left";
   const st=(FEED&&FEED.state)||"pending";
   const msg = (st==="failed"||st==="throttled"||st==="unknown")
     ? ["awaiting live prices", "this chart is built from the live feed,",
        "which has no recorded equivalent"]
     : ["no rows in view", "the filter matches nothing on this board", ""];
   g.fillText(msg[0], 12, h/2 - 8);
-  g.font="8px monospace"; g.fillStyle="#3d4a5f";
+  g.font="9px 'JetBrains Mono',ui-monospace,monospace"; g.fillStyle="#5E6B82";
   g.fillText(msg[1], 12, h/2 + 6);
   if(msg[2]) g.fillText(msg[2], 12, h/2 + 17);
 }
@@ -7745,14 +8277,14 @@ function factorQuad(){
   const qx=X(mMed), qy=Y(qMed);
   const fills=[["rgba(123,201,160,.055)",qx,P.t,W-P.r-qx,qy-P.t],
                ["rgba(224,179,114,.05)",P.l,P.t,qx-P.l,qy-P.t],
-               ["rgba(59,130,246,.045)",qx,qy,W-P.r-qx,H-P.b-qy],
+               ["rgba(110,155,255,.045)",qx,qy,W-P.r-qx,H-P.b-qy],
                ["rgba(232,145,127,.05)",P.l,qy,qx-P.l,H-P.b-qy]];
   fills.forEach(f=>{ g.fillStyle=f[0]; g.fillRect(f[1],f[2],f[3],f[4]); });
-  g.strokeStyle="#1E293B"; g.lineWidth=1;
+  g.strokeStyle="#1F2838"; g.lineWidth=1;
   g.beginPath(); g.moveTo(qx,P.t); g.lineTo(qx,H-P.b);
   g.moveTo(P.l,qy); g.lineTo(W-P.r,qy); g.stroke();
 
-  const FONT="7.5px monospace";
+  const FONT="7.5px 'JetBrains Mono',ui-monospace,monospace";
   g.font=FONT; g.textBaseline="alphabetic";
   // Quadrant names reserved before any ticker is placed, and shortened on a narrow
   // canvas rather than allowed to run past the edge. Measured, not guessed: the long
@@ -7770,14 +8302,14 @@ function factorQuad(){
   };
   qlab("CONVICTION","CONV",W-P.r-3,P.t+9,"right","rgba(123,201,160,.8)");
   qlab("QUALITY, UNCONFIRMED","QUALITY",P.l+3,P.t+9,"left","rgba(224,179,114,.8)");
-  qlab("MOMENTUM, THIN","MOMENTUM",W-P.r-3,H-P.b-4,"right","rgba(59,130,246,.85)");
+  qlab("MOMENTUM, THIN","MOMENTUM",W-P.r-3,H-P.b-4,"right","rgba(110,155,255,.85)");
   qlab("DE-ALLOCATE","AVOID",P.l+3,H-P.b-4,"left","rgba(232,145,127,.8)");
   g.textAlign="left";
   const axw2=g.measureText("RS vs BTC →").width;
   reserved.push({x0:P.l, y0:H-14, x1:P.l+axw2, y1:H-4});
   notes.push({x0:P.l, y0:H-14, x1:P.l+axw2, y1:H-4,
               text:"RS vs BTC →", tx:P.l, ty:H-6, align:"left",
-              color:"#64748B", font:FONT});
+              color:"#808DA4", font:FONT});
 
   const xc=extremeCuts(ms,0.08), yc=extremeCuts(qs,0.08);
   const pts=[], cands=[];
@@ -7786,7 +8318,7 @@ function factorQuad(){
     const r=Math.max(2.5,Math.min(9,Math.log10(Math.max(1e6,t.mc))-5.2));
     const strong=t.conv>=70;
     g.beginPath(); g.arc(x,y,r,0,7);
-    g.fillStyle=strong?"rgba(123,201,160,.55)":t.conv>=55?"rgba(59,130,246,.42)":"rgba(148,163,184,.28)";
+    g.fillStyle=strong?"rgba(123,201,160,.55)":t.conv>=55?"rgba(110,155,255,.42)":"rgba(148,163,184,.28)";
     g.fill();
     if(t.sym===SEL){ g.strokeStyle="#E0B372"; g.lineWidth=1.6; g.stroke(); }
     pts.push({x,y,r:r+2,sym:t.sym,lines:[
@@ -7802,11 +8334,11 @@ function factorQuad(){
   });
   CHART_POINTS.fquad=pts;
   const rect={l:P.l, t:P.t-6, r:W-4, b:H-P.b+2};
-  const meas=measurer(g, "8px monospace");
+  const meas=measurer(g, "8px 'JetBrains Mono',ui-monospace,monospace");
   const out=placeLabels(cands.filter(c=>c.priority>0), rect, meas, narrow?5:8,
                         reserved.concat(cands.map(markerRect)));
   out.placed.forEach(L=>{
-    g.font="8px monospace"; g.fillStyle=L.sel?"#E0B372":"#94A3B8";
+    g.font="8px 'JetBrains Mono',ui-monospace,monospace"; g.fillStyle=L.sel?"#E0B372":"#94A3B8";
     g.textAlign=L.align; g.textBaseline=L.base;
     g.fillText(L.text,L.tx,L.ty);
   });
@@ -8631,7 +9163,7 @@ function renderRwa(){
 
   const tb=rwEl("tbl-rwa").querySelector("tbody");
   tb.innerHTML = rows.length ? rows.map((r,i)=>{
-    const fl=r.flow||{}, sel = RWA_SEL===r.id ? ' style="background:rgba(59,130,246,.12)"' : "";
+    const fl=r.flow||{}, sel = RWA_SEL===r.id ? ' style="background:rgba(110,155,255,.12)"' : "";
     /* ROVING tabindex, matching the pattern the board above already uses. Every row at 0
        would add 247 tab stops between the nav and anything after the table. One row is
        reachable; the arrow keys and the click do the rest. */
