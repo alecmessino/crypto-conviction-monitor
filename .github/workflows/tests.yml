@@ -38,7 +38,10 @@ permissions:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
+    # Pinned: the specification hash includes floats computed by the system math library,
+    # and ubuntu-latest moving to 26.04 (2026-11-09) shifted math.atanh(0.5) by one ulp,
+    # which changed SPEC_HASH with no code change. Keep in step with nightly.yml.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5

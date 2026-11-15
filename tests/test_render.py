@@ -208,7 +208,9 @@ def run_checks() -> tuple:
         # rather than the sizer. Switching to it is also what a reader does.
         page.evaluate("() => switchWorkspace('portfolio', false)")
         page.wait_for_timeout(200)
-        no_atr = page.evaluate("""() => { renderSizing();
+        # Clear the readings first: the committed ledger does not promise a sized name
+        # without one on any given night, and the check below fills them the same way.
+        no_atr = page.evaluate("""() => { ATR14 = {}; renderSizing();
             return document.querySelector('#sz-out').innerText; }""")
         check("a missing ATR14 is refused, not approximated", lambda: _assert(
             "no ATR14 recorded" in no_atr and "24h range is deliberately not substituted" in no_atr,

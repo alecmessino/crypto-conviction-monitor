@@ -21,7 +21,8 @@ concurrency:
 
 jobs:
   ledger:
-    runs-on: ubuntu-latest
+    # Pinned with tests.yml: a newer image's math library moved SPEC_HASH (2026-11-09).
+    runs-on: ubuntu-24.04
     # Raised from 10. The RWA snapshot adds roughly forty CoinGecko calls at 4.5s
     # spacing — about three minutes — against a keyless ceiling of ten to fifteen
     # requests a rolling minute. Ten minutes had no headroom left for that, and a job
