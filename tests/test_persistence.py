@@ -358,7 +358,8 @@ def test_the_equivalence_table_covers_only_the_verified_correction():
     holds must pass through unchanged.
     """
     table = nightly.SPEC_EQUIVALENT
-    assert set(table) == {"2da60f7efd7b", "6f98778fa627", "ab16684ad5c1"}, (
+    assert set(table) == {"2da60f7efd7b", "6f98778fa627", "ab16684ad5c1",
+                          "977b93ca363d"}, (
         f"the equivalence table holds {sorted(table)} — only the audited "
         f"instrumentation corrections may be aliased")
     assert table["2da60f7efd7b"]["canonical"] == "6f98778fa627"
@@ -369,6 +370,14 @@ def test_the_equivalence_table_covers_only_the_verified_correction():
     # asserted here rather than trusted.
     assert table["ab16684ad5c1"]["canonical"] == nightly.SPEC_HASH
     assert nightly.spec_hash_without(constants=("SCORING",)) == "ab16684ad5c1"
+    # The runner-image correction (2026-11-09 to 2026-11-15): one constant one ulp off,
+    # nothing else. Substituting the value that machine computed reproduces the digest
+    # it recorded, which is the whole claim.
+    runner = table["977b93ca363d"]
+    assert runner["canonical"] == "91bbc2a7e466"
+    assert runner["runtime_constants"] == {"funding.MOD_HOT_SCALE": 50.97339669110289}
+    if nightly.SPEC_HASH == runner["verified_against"]:
+        assert nightly.spec_hash_with(runner["runtime_constants"]) == "977b93ca363d"
     # The two Phase 1.5 / 1.6 boundaries are deliberately NOT in the table: both changed
     # which input arrives and both moved published scores.
     for revaluation in ("1a4ea6e4d77e", "8e750228e15a"):
@@ -468,8 +477,13 @@ def test_the_monitor_folds_the_aliased_night_without_hiding_it():
     spec_block = nightly._compute_monitor()["specification"]
     folded = [s for s in spec_block["spans"] if len(s.get("recorded_as", [])) > 1]
     assert folded, "the aliased night was not folded onto its canonical span"
+    # Two folds exist: the 2026-08 instrumentation night onto 1a4ea6e4d77e, and the
+    # 2026-11-09..15 runner-image nights onto 91bbc2a7e466. Each keeps its own digest.
+    expected = {"1a4ea6e4d77e": "2da60f7efd7b", "91bbc2a7e466": "977b93ca363d"}
     for span in folded:
-        assert "2da60f7efd7b" in span["recorded_as"]
-        assert span["spec_hash"] == "1a4ea6e4d77e"
+        assert span["spec_hash"] in expected, span["spec_hash"]
+        assert expected[span["spec_hash"]] in span["recorded_as"]
+    assert any(s["spec_hash"] == "1a4ea6e4d77e" for s in folded)
     assert spec_block["aliased_days"] >= 1
     assert "2da60f7efd7b" in spec_block["equivalence"]
+    assert "977b93ca363d" in spec_block["equivalence"]

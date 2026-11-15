@@ -724,6 +724,32 @@ SPEC_EQUIVALENT = {
                    "already applied them. No scoring arithmetic was edited and no "
                    "published score moved — scoring-equivalent."),
     },
+    # The fourth entry, and the first correction to the RULER that came from the machine
+    # rather than from this repository.
+    #
+    # What happened: on 2026-11-09 GitHub moved ubuntu-latest from 24.04 to 26.04. Same
+    # CPython (3.11.18), newer system math library, and math.atanh(0.5) came back one ulp
+    # higher. funding.MOD_HOT_SCALE is derived from it, so the captured constant moved in
+    # its last binary digit (50.9733966911029 -> 50.97339669110289) and the digest moved
+    # with it. No source line changed. The nightly recorded 977b93ca363d for 2026-11-09
+    # through 2026-11-15, until both workflows were pinned to ubuntu-24.04.
+    #
+    # What makes this checkable rather than asserted: substituting the 26.04 value for
+    # that one constant in today's specification reproduces 977b93ca363d exactly, and
+    # tests/test_persistence.py re-derives it on every run while SPEC_HASH equals
+    # `verified_against`. A one-ulp difference in a tanh scale cannot move a published
+    # score, which is rounded far above that precision.
+    "977b93ca363d": {
+        "canonical": "91bbc2a7e466",
+        "reason": "instrumentation",
+        "verified_against": "91bbc2a7e466",
+        # The constant as the 26.04 runner computed it. Substituting exactly this value
+        # reproduces the superseded digest.
+        "runtime_constants": {"funding.MOD_HOT_SCALE": 50.97339669110289},
+        "detail": ("The nightly ran on a newer runner image whose math library computed "
+                   "funding.MOD_HOT_SCALE one ulp differently. Same source, same "
+                   "scoring arithmetic, different machine — scoring-equivalent."),
+    },
 }
 
 
@@ -801,6 +827,25 @@ def spec_hash_without(functions=(), constants=(), null_constants=()) -> str:
     doctored = {"functions": {k: v for k, v in sp["functions"].items() if k not in fns},
                 "constants": {k: (None if k in nulls else v)
                               for k, v in sp["constants"].items() if k not in cons}}
+    blob = json.dumps(doctored, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(blob).hexdigest()[:12]
+
+
+def spec_hash_with(constants: dict) -> str:
+    """Today's specification with some captured constants REPLACED by given values.
+
+    The proof for a third shape of instrumentation defect: the same source evaluated on
+    a different machine, where a derived float lands on a neighbouring value. Unknown
+    names raise rather than being ignored, for the same reason as spec_hash_without.
+    """
+    import hashlib
+    sp = spec()
+    missing = set(constants) - set(sp["constants"])
+    if missing:
+        raise RuntimeError(f"spec_hash_with: not in today's specification: "
+                           f"{sorted(missing)}")
+    doctored = {"functions": sp["functions"],
+                "constants": {k: constants.get(k, v) for k, v in sp["constants"].items()}}
     blob = json.dumps(doctored, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(blob).hexdigest()[:12]
 
