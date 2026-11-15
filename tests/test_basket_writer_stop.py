@@ -262,7 +262,13 @@ def test_recorded_regimes_through_retirement_are_the_archived_labels(tmp_path, m
 
 def test_the_walkforward_study_through_retirement_is_unchanged():
     by = {d: v for d, v in nightly.xsec_by_date().items() if d <= nightly.BASKET_RETIRED_ON}
-    wf = nightly.walkforward_report(by, nightly.recorded_regimes())
+    # The regimes are cut at the same night as the cross-section. walkforward_report opens
+    # a bucket for every label it is handed, so passing the full record let a later night
+    # change this "history" without touching it: 2026-11-13, the first RISK-OFF night,
+    # added an empty RISK-OFF bucket and broke the pin.
+    regimes = {d: v for d, v in nightly.recorded_regimes().items()
+               if d <= nightly.BASKET_RETIRED_ON}
+    wf = nightly.walkforward_report(by, regimes)
     wf.pop("generated_at", None)
     assert _sha(_canon(wf)) == WALKFORWARD_THROUGH_RETIREMENT_SHA256
 
